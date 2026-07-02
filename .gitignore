@@ -21,9 +21,11 @@ frontend/dist/
 Thumbs.db
 
 # Generated project outputs (examples keep their authored inputs; generated
-# RF projections and results are reproducible via compile/simulate)
+# RF projections, results, and session provenance are reproducible at runtime)
 examples/**/rf/generated_scene.xml
 examples/**/rf/compile_manifest.json
 examples/**/rf/meshes/
 examples/**/results/
+examples/**/mapping/face_group_map.json
+examples/**/ai/suggestions.jsonl
 projects/

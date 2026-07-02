@@ -32,6 +32,18 @@ CATEGORY_KEYWORDS: dict[str, tuple[str, ...]] = {
 # expectation ("unknown_rf" is a deliberate placeholder).
 _MISMATCH_EXEMPT_CATEGORIES = {"unknown", "generic", ""}
 
+# Category pairs that are physically plausible together and must not warn:
+# grass-covered soil is legitimately "ground", a road shoulder may be tagged
+# terrain, etc. Only genuinely suspicious contradictions (glass vs concrete)
+# are worth the user's attention.
+_COMPATIBLE_CATEGORIES: tuple[frozenset[str], ...] = (
+    frozenset({"ground", "vegetation", "asphalt"}),
+)
+
+
+def _categories_compatible(a: str, b: str) -> bool:
+    return any(a in fam and b in fam for fam in _COMPATIBLE_CATEGORIES)
+
 _SUGGESTED_STATUSES = ("rule_suggested", "ai_suggested")
 
 
@@ -74,6 +86,8 @@ def _mismatch_issue(prim: Prim, library: RFMaterialLibrary) -> Optional[Validati
         return None
     evidence_category = next(iter(hits))
     if evidence_category == assigned_category:
+        return None
+    if _categories_compatible(evidence_category, assigned_category):
         return None
     return ValidationIssue(
         severity="warning",

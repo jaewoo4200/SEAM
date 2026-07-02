@@ -7,7 +7,9 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
-      "/api": "http://localhost:8000",
+      // 127.0.0.1, not localhost: on Windows Node resolves localhost to ::1
+      // first while uvicorn binds the IPv4 loopback, breaking the proxy.
+      "/api": "http://127.0.0.1:8000",
     },
   },
 });

@@ -85,7 +85,7 @@ export const api = {
   // rf materials + assignment
   getMaterials: (pid: string) => request<RFMaterialLibrary>("GET", `/projects/${pid}/rf/materials`),
   putMaterial: (pid: string, mat: RFMaterial) =>
-    request<RFMaterial>("PUT", `/projects/${pid}/rf/materials/${mat.id}`, mat),
+    request<RFMaterialLibrary>("PUT", `/projects/${pid}/rf/materials/${mat.id}`, mat),
   assign: (pid: string, req: AssignRequest) =>
     request<AssignResponse>("POST", `/projects/${pid}/rf/assign`, req),
   batchAssign: (pid: string, req: BatchAssignRequest) =>
