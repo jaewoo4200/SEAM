@@ -203,7 +203,9 @@ def build_scene() -> Scene:
             ["terrain", "ground"],
             "grass_pbr",
             rf=RFBinding(
-                material_id="ground",
+                # 28 GHz-safe constant ground (ITU ground models are invalid at
+                # mmWave; the demo runs at 28 GHz).
+                material_id="ground_28ghz",
                 assignment_status="user_confirmed",
                 assignment_sources=["user"],
                 confidence=1.0,

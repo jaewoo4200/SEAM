@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import (
     ai,
+    calibrate,
     compile as compile_api,
     export,
     health,
@@ -39,7 +40,9 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    for module in (health, projects, scene, materials, ai, compile_api, simulate, export):
+    for module in (
+        health, projects, scene, materials, ai, compile_api, simulate, export, calibrate
+    ):
         app.include_router(module.router, prefix="/api")
     return app
 

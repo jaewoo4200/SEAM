@@ -248,7 +248,7 @@
         ]
       },
       "rf": {
-        "material_id": "ground",
+        "material_id": "ground_28ghz",
         "thickness_m": null,
         "scattering_coefficient": null,
         "xpd_coefficient": null,
@@ -708,22 +708,5 @@
       }
     }
   ],
-  "result_sets": [
-    {
-      "result_id": "sionna_paths_001",
-      "kind": "paths",
-      "backend": "sionna",
-      "simulation_config_id": "default",
-      "uri": "results/sionna_paths_001.json",
-      "created_at": "2026-07-02T08:16:35.965599+00:00"
-    },
-    {
-      "result_id": "sionna_paths_002",
-      "kind": "paths",
-      "backend": "sionna",
-      "simulation_config_id": "default",
-      "uri": "results/sionna_paths_002.json",
-      "created_at": "2026-07-02T08:16:48.261893+00:00"
-    }
-  ]
+  "result_sets": []
 }

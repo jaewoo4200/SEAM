@@ -16,11 +16,11 @@ materials:
     model: itu_frequency_dependent
     itu_name: itu_concrete
     thickness_m: 0.30
-    scattering_coefficient: 0.10
+    scattering_coefficient: 0.20
     xpd_coefficient: 0.10
     transmissive: true
     preview_color: "#9e9e9e"
-    notes: Default structural concrete (ITU-R P.2040).
+    notes: Default structural concrete (ITU-R P.2040); S~0.2 (measurement-backed rough surface).
     builtin: true
 
   - id: itu_brick
@@ -29,11 +29,11 @@ materials:
     model: itu_frequency_dependent
     itu_name: itu_brick
     thickness_m: 0.24
-    scattering_coefficient: 0.15
+    scattering_coefficient: 0.20
     xpd_coefficient: 0.10
     transmissive: true
     preview_color: "#b5551d"
-    notes: Fired-clay brick masonry (ITU-R P.2040).
+    notes: Fired-clay brick masonry (ITU-R P.2040); S~0.2 (measurement-backed).
     builtin: true
 
   - id: itu_glass

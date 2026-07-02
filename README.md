@@ -165,6 +165,25 @@ Full ISAC target tracking (PADP/DBSCAN/Kalman) and CV material split
 (SAM2/DINOv2) are scoped in `docs/roadmap.md` — the RF/export integration
 points exist; the DSP and ML-model inference are external/future.
 
+### vs. the official NVlabs `sionna-rt-gui`
+
+The official tool (Polyscope desktop app) loads a scene, places/animates TX/RX,
+and shows paths + a raster radio map; it explicitly does **not** support
+mesh radio maps, beamforming, or material editing. SionnaTwin Studio adds, on
+top of the same Sionna RT engine: a unified RF-visual scene graph with **dual
+material bindings**, RF material **assignment + validation + AI/rule
+suggestions**, a **mock backend** (runs with no GPU/Sionna), **MIMO
+beamforming** gain, the **RFData export** contract, **trajectory RF metrics**,
+**measurement calibration**, and a web UI. The main things their GUI has that
+we don't yet: in-viewer **device-trajectory playback** and an interactive
+**move-device gizmo** — both tracked in `docs/roadmap.md`.
+
+### Accuracy
+
+RT-vs-measurement error and the mitigations we implement (measurement
+calibration, diffuse-scattering coefficients, out-of-band guardrail) plus the
+planned differentiable calibration are documented in `docs/accuracy.md`.
+
 ## Current limitations (MVP)
 
 - Face-group splitting (Mode 2 sub-mesh granularity) and simplified RF proxy

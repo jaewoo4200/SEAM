@@ -238,6 +238,36 @@ def validate_scene(
                     )
                 )
 
+    # Material frequency-band guardrail: ITU-R P.2040 ground models are only
+    # defined up to ~10 GHz. If the scene's primary simulation frequency is
+    # above that, flag ITU ground materials so the user swaps to a constant
+    # (e.g. ground_28ghz) — an accuracy footgun the RT engine won't catch.
+    freq = scene.simulation_configs[0].frequency_hz if scene.simulation_configs else None
+    if freq is not None and freq > 10e9:
+        flagged: set[str] = set()
+        for prim in scene.prims:
+            mat = library.get(prim.rf.material_id) if prim.rf.material_id else None
+            if (
+                mat
+                and mat.model == "itu_frequency_dependent"
+                and mat.category == "ground"
+                and mat.id not in flagged
+            ):
+                flagged.add(mat.id)
+                issues.append(
+                    ValidationIssue(
+                        severity="warning",
+                        code="MATERIAL_OUT_OF_BAND",
+                        message=(
+                            f"material {mat.id!r} (ITU ground) is used at "
+                            f"{freq / 1e9:.1f} GHz, beyond the ~10 GHz ITU-R "
+                            "P.2040 validity range; use a constant material "
+                            "such as 'ground_28ghz' for mmWave"
+                        ),
+                        prim_id=prim.id,
+                    )
+                )
+
     has_tx = any(d.kind == "tx" for d in scene.devices)
     has_rx = any(d.kind == "rx" for d in scene.devices)
     if not (has_tx and has_rx):

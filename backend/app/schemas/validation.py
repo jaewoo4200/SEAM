@@ -12,6 +12,8 @@ Issue codes (stable identifiers used by tests and the frontend):
 - UNCONFIRMED_SUGGESTION   rf material is only rule/ai suggested, not confirmed
 - NO_DEVICES               scene has no tx or no rx (simulation would be empty)
 - UNKNOWN_MATERIAL_CATEGORY material category is not recognized
+- MATERIAL_OUT_OF_BAND      ITU material used beyond its valid frequency band
+                            (e.g. ITU ground models above ~10 GHz at mmWave)
 """
 
 from typing import Literal, Optional
