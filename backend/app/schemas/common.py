@@ -24,6 +24,15 @@ AssignmentStatus = Literal[
     "measurement_calibrated",
 ]
 
+# Statuses a material assignment may carry - "unassigned" is only ever the
+# absence of a binding, never something a request can set alongside a material.
+ActiveAssignmentStatus = Literal[
+    "rule_suggested",
+    "ai_suggested",
+    "user_confirmed",
+    "measurement_calibrated",
+]
+
 ASSIGNMENT_STATUSES: tuple[str, ...] = (
     "unassigned",
     "rule_suggested",

@@ -11,7 +11,7 @@ from typing import Literal, Optional
 
 from pydantic import Field
 
-from .common import AssignmentStatus, StrictModel, UnitFloat
+from .common import ActiveAssignmentStatus, StrictModel, UnitFloat
 
 
 class RFMaterial(StrictModel):
@@ -63,7 +63,7 @@ class RFOverrides(StrictModel):
 class AssignRequest(StrictModel):
     prim_ids: list[str] = Field(min_length=1)
     rf_material_id: str
-    assignment_status: AssignmentStatus = "user_confirmed"
+    assignment_status: ActiveAssignmentStatus = "user_confirmed"
     sources: list[str] = Field(default_factory=lambda: ["user"])
     confidence: Optional[UnitFloat] = None
     overrides: Optional[RFOverrides] = None

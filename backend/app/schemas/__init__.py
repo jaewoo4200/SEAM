@@ -4,7 +4,13 @@ Import from submodules (``app.schemas.scene``); this package re-exports the
 most commonly used models for convenience.
 """
 
-from .common import SCHEMA_VERSION, ASSIGNMENT_STATUSES, AssignmentStatus, Transform
+from .common import (
+    SCHEMA_VERSION,
+    ASSIGNMENT_STATUSES,
+    ActiveAssignmentStatus,
+    AssignmentStatus,
+    Transform,
+)
 from .devices import Antenna, Device
 from .materials import (
     AssignRequest,
@@ -53,6 +59,7 @@ from .projects import (
 __all__ = [
     "SCHEMA_VERSION",
     "ASSIGNMENT_STATUSES",
+    "ActiveAssignmentStatus",
     "AssignmentStatus",
     "Transform",
     "Antenna",

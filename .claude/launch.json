@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "backend",
+      "runtimeExecutable": "C:\\Users\\jaewoo\\custom-dt-tool\\backend\\.venv\\Scripts\\python.exe",
+      "runtimeArgs": ["-m", "uvicorn", "--app-dir", "backend", "app.main:app", "--port", "8000"],
+      "port": 8000
+    },
+    {
+      "name": "frontend",
+      "runtimeExecutable": "C:\\Users\\jaewoo\\AppData\\Local\\sionnatwin-tools\\node-v22.12.0-win-x64\\npm.cmd",
+      "runtimeArgs": ["--prefix", "C:\\Users\\jaewoo\\custom-dt-tool\\frontend", "run", "dev"],
+      "port": 5173
+    }
+  ]
+}

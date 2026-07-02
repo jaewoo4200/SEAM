@@ -3,6 +3,7 @@
 from fastapi import APIRouter
 
 from app.core.config import APP_VERSION, get_settings
+from app.schemas.ai import AIProviderStatus
 from app.schemas.common import SCHEMA_VERSION
 from app.schemas.projects import HealthBackendStatus, HealthResponse
 from app.services.availability import sionna_available
@@ -15,15 +16,14 @@ def health() -> HealthResponse:
     settings = get_settings()
     sionna_ok = sionna_available()
 
-    ai_statuses: list[dict] = []
     try:
         # Lazy: the AI provider module may probe a local Ollama server.
         from app.services.ai_provider import get_provider_statuses
 
-        ai_statuses = [s.model_dump(mode="json") for s in get_provider_statuses()]
+        ai_statuses = get_provider_statuses()
     except Exception as exc:  # AI must never break the app (HANDOFF rule 6)
         ai_statuses = [
-            {"name": "unknown", "available": False, "model": None, "detail": str(exc)}
+            AIProviderStatus(name="unknown", available=False, detail=str(exc))
         ]
 
     return HealthResponse(

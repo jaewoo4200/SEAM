@@ -1,10 +1,156 @@
-"""Placeholder router for /simulate endpoints - replaced during Phase B build."""
+"""Simulation and result endpoints.
 
-from fastapi import APIRouter, HTTPException
+POST /projects/{project_id}/simulate/paths      -> PathResultSet
+POST /projects/{project_id}/simulate/radio-map  -> RadioMapResultSet
+GET  /projects/{project_id}/results/paths       -> stored PathResultSet
+GET  /projects/{project_id}/results/radio-map   -> stored RadioMapResultSet
+
+Storage convention: results/<result_id>.json inside the project folder, with
+result_id = "<backend>_<kind>_<nnn>" (nnn = 1 + existing refs of that kind).
+A ResultSetRef is appended to scene.result_sets; "latest" is the last ref of
+the requested kind. Backends never persist anything - this layer owns ids,
+files, and provenance.
+"""
+
+from datetime import datetime, timezone
+from typing import Literal, Optional, Union
+
+from fastapi import APIRouter, HTTPException, Query
+
+from app.api.deps import get_store, load_scene_or_404
+from app.schemas.results import PathResultSet, RadioMapResultSet
+from app.schemas.scene import ResultSetRef, Scene
+from app.schemas.simulation import SimulateRequest, SimulationConfig
+from app.services.simulation_backends import BackendUnavailableError, resolve_backend
 
 router = APIRouter(tags=["simulate"])
 
+ResultKind = Literal["paths", "radio_map"]
 
-@router.get("/__stub__/simulate")
-def not_implemented_simulate():
-    raise HTTPException(status_code=501, detail="simulate endpoints not implemented yet")
+
+def _resolve_config(scene: Scene, request: SimulateRequest) -> SimulationConfig:
+    if request.config is not None:
+        return request.config
+    if request.config_id is not None:
+        for cfg in scene.simulation_configs:
+            if cfg.id == request.config_id:
+                return cfg
+        raise HTTPException(
+            status_code=404,
+            detail=f"simulation config not found: {request.config_id}",
+        )
+    if scene.simulation_configs:
+        return scene.simulation_configs[0]
+    return SimulationConfig()
+
+
+def _run_simulation(
+    project_id: str,
+    request: Optional[SimulateRequest],
+    kind: ResultKind,
+) -> Union[PathResultSet, RadioMapResultSet]:
+    store = get_store()
+    scene = load_scene_or_404(store, project_id)
+    library = store.load_materials(project_id)
+    config = _resolve_config(scene, request or SimulateRequest())
+
+    try:
+        backend = resolve_backend(config)
+    except BackendUnavailableError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+    project_dir = store.resolve(project_id)
+    if kind == "paths":
+        result = backend.simulate_paths(project_dir, scene, library, config)
+    else:
+        result = backend.simulate_radio_map(project_dir, scene, library, config)
+
+    n = 1 + sum(1 for ref in scene.result_sets if ref.kind == kind)
+    result.result_id = f"{backend.name}_{kind}_{n:03d}"
+    result.backend = backend.name  # actual backend used, never "auto"
+    result.created_at = datetime.now(timezone.utc).isoformat()
+
+    uri = f"results/{result.result_id}.json"
+    store.save_json(project_id, uri, result.model_dump(mode="json"))
+    scene.result_sets.append(
+        ResultSetRef(
+            result_id=result.result_id,
+            kind=kind,
+            backend=backend.name,
+            simulation_config_id=config.id,
+            uri=uri,
+            created_at=result.created_at,
+        )
+    )
+    store.save_scene(project_id, scene)
+    store.append_provenance(
+        project_id,
+        {
+            "type": "simulate",
+            "kind": kind,
+            "backend": backend.name,
+            "result_id": result.result_id,
+            "simulation_config_id": config.id,
+            "uri": uri,
+        },
+    )
+    return result
+
+
+def _load_result(project_id: str, kind: ResultKind, result_id: Optional[str]) -> dict:
+    store = get_store()
+    scene = load_scene_or_404(store, project_id)
+    refs = [ref for ref in scene.result_sets if ref.kind == kind]
+    if result_id is None:
+        if not refs:
+            raise HTTPException(
+                status_code=404, detail=f"no {kind} results in project {project_id}"
+            )
+        ref = refs[-1]  # latest = last appended ref of this kind
+    else:
+        ref = next((r for r in refs if r.result_id == result_id), None)
+        if ref is None:
+            raise HTTPException(
+                status_code=404, detail=f"unknown {kind} result: {result_id}"
+            )
+    try:
+        return store.load_json(project_id, ref.uri)
+    except (OSError, ValueError):
+        raise HTTPException(
+            status_code=404,
+            detail=f"result file missing or unreadable: {ref.uri}",
+        )
+
+
+@router.post("/projects/{project_id}/simulate/paths", response_model=PathResultSet)
+def simulate_paths(
+    project_id: str, request: Optional[SimulateRequest] = None
+) -> PathResultSet:
+    return _run_simulation(project_id, request, "paths")
+
+
+@router.post(
+    "/projects/{project_id}/simulate/radio-map", response_model=RadioMapResultSet
+)
+def simulate_radio_map(
+    project_id: str, request: Optional[SimulateRequest] = None
+) -> RadioMapResultSet:
+    return _run_simulation(project_id, request, "radio_map")
+
+
+@router.get("/projects/{project_id}/results/paths", response_model=PathResultSet)
+def get_paths_result(
+    project_id: str, result_id: Optional[str] = Query(default=None)
+) -> PathResultSet:
+    return PathResultSet.model_validate(_load_result(project_id, "paths", result_id))
+
+
+@router.get(
+    "/projects/{project_id}/results/radio-map", response_model=RadioMapResultSet
+)
+def get_radio_map_result(
+    project_id: str, result_id: Optional[str] = Query(default=None)
+) -> RadioMapResultSet:
+    return RadioMapResultSet.model_validate(
+        _load_result(project_id, "radio_map", result_id)
+    )

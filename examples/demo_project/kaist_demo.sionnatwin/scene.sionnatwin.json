@@ -1,0 +1,712 @@
+{
+  "schema_version": "0.1.0",
+  "scene_id": "kaist_demo",
+  "name": "KAIST Demo",
+  "coordinate_system": {
+    "type": "local_enu",
+    "origin_lat_lon_alt": null,
+    "units": "meters"
+  },
+  "assets": {
+    "visual_scene_uri": "visual/scene.glb",
+    "tileset_uri": null
+  },
+  "prims": [
+    {
+      "id": "/terrain",
+      "name": "terrain",
+      "type": "group",
+      "parent_id": null,
+      "semantic_tags": [
+        "terrain"
+      ],
+      "mesh_ref": null,
+      "transform": {
+        "translation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_quat_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "visual": null,
+      "rf": {
+        "material_id": null,
+        "thickness_m": null,
+        "scattering_coefficient": null,
+        "xpd_coefficient": null,
+        "assignment_status": "unassigned",
+        "assignment_sources": [],
+        "confidence": null
+      }
+    },
+    {
+      "id": "/roads/r01",
+      "name": "r01",
+      "type": "group",
+      "parent_id": null,
+      "semantic_tags": [
+        "road"
+      ],
+      "mesh_ref": null,
+      "transform": {
+        "translation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_quat_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "visual": null,
+      "rf": {
+        "material_id": null,
+        "thickness_m": null,
+        "scattering_coefficient": null,
+        "xpd_coefficient": null,
+        "assignment_status": "unassigned",
+        "assignment_sources": [],
+        "confidence": null
+      }
+    },
+    {
+      "id": "/buildings/b01",
+      "name": "b01",
+      "type": "group",
+      "parent_id": null,
+      "semantic_tags": [
+        "building"
+      ],
+      "mesh_ref": null,
+      "transform": {
+        "translation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_quat_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "visual": null,
+      "rf": {
+        "material_id": null,
+        "thickness_m": null,
+        "scattering_coefficient": null,
+        "xpd_coefficient": null,
+        "assignment_status": "unassigned",
+        "assignment_sources": [],
+        "confidence": null
+      }
+    },
+    {
+      "id": "/buildings/b02",
+      "name": "b02",
+      "type": "group",
+      "parent_id": null,
+      "semantic_tags": [
+        "building"
+      ],
+      "mesh_ref": null,
+      "transform": {
+        "translation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_quat_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "visual": null,
+      "rf": {
+        "material_id": null,
+        "thickness_m": null,
+        "scattering_coefficient": null,
+        "xpd_coefficient": null,
+        "assignment_status": "unassigned",
+        "assignment_sources": [],
+        "confidence": null
+      }
+    },
+    {
+      "id": "/vegetation/tree_01",
+      "name": "tree_01",
+      "type": "group",
+      "parent_id": null,
+      "semantic_tags": [
+        "vegetation",
+        "tree"
+      ],
+      "mesh_ref": null,
+      "transform": {
+        "translation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_quat_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "visual": null,
+      "rf": {
+        "material_id": null,
+        "thickness_m": null,
+        "scattering_coefficient": null,
+        "xpd_coefficient": null,
+        "assignment_status": "unassigned",
+        "assignment_sources": [],
+        "confidence": null
+      }
+    },
+    {
+      "id": "/terrain/ground",
+      "name": "ground",
+      "type": "mesh_primitive",
+      "parent_id": "/terrain",
+      "semantic_tags": [
+        "terrain",
+        "ground"
+      ],
+      "mesh_ref": {
+        "asset_uri": "visual/scene.glb",
+        "mesh_name": "ground",
+        "primitive_index": 0,
+        "face_group": null
+      },
+      "transform": {
+        "translation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_quat_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "visual": {
+        "material_id": null,
+        "material_name": "grass_pbr",
+        "base_color_texture": null,
+        "base_color_rgba": [
+          0.36,
+          0.48,
+          0.28,
+          1.0
+        ]
+      },
+      "rf": {
+        "material_id": "ground",
+        "thickness_m": null,
+        "scattering_coefficient": null,
+        "xpd_coefficient": null,
+        "assignment_status": "user_confirmed",
+        "assignment_sources": [
+          "user"
+        ],
+        "confidence": 1.0
+      }
+    },
+    {
+      "id": "/roads/r01/surface",
+      "name": "surface",
+      "type": "mesh_primitive",
+      "parent_id": "/roads/r01",
+      "semantic_tags": [
+        "road"
+      ],
+      "mesh_ref": {
+        "asset_uri": "visual/scene.glb",
+        "mesh_name": "road_surface",
+        "primitive_index": 0,
+        "face_group": null
+      },
+      "transform": {
+        "translation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_quat_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "visual": {
+        "material_id": null,
+        "material_name": "asphalt_pbr",
+        "base_color_texture": null,
+        "base_color_rgba": [
+          0.16,
+          0.17,
+          0.18,
+          1.0
+        ]
+      },
+      "rf": {
+        "material_id": "asphalt_custom",
+        "thickness_m": null,
+        "scattering_coefficient": null,
+        "xpd_coefficient": null,
+        "assignment_status": "rule_suggested",
+        "assignment_sources": [
+          "rule_based"
+        ],
+        "confidence": 0.85
+      }
+    },
+    {
+      "id": "/buildings/b01/walls",
+      "name": "walls",
+      "type": "mesh_primitive",
+      "parent_id": "/buildings/b01",
+      "semantic_tags": [
+        "building",
+        "wall"
+      ],
+      "mesh_ref": {
+        "asset_uri": "visual/scene.glb",
+        "mesh_name": "building_01_walls",
+        "primitive_index": 0,
+        "face_group": null
+      },
+      "transform": {
+        "translation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_quat_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "visual": {
+        "material_id": null,
+        "material_name": "concrete_panel_pbr",
+        "base_color_texture": null,
+        "base_color_rgba": [
+          0.72,
+          0.7,
+          0.66,
+          1.0
+        ]
+      },
+      "rf": {
+        "material_id": null,
+        "thickness_m": null,
+        "scattering_coefficient": null,
+        "xpd_coefficient": null,
+        "assignment_status": "unassigned",
+        "assignment_sources": [],
+        "confidence": null
+      }
+    },
+    {
+      "id": "/buildings/b01/window_01",
+      "name": "window_01",
+      "type": "mesh_primitive",
+      "parent_id": "/buildings/b01",
+      "semantic_tags": [
+        "building",
+        "window"
+      ],
+      "mesh_ref": {
+        "asset_uri": "visual/scene.glb",
+        "mesh_name": "building_01_window_01",
+        "primitive_index": 0,
+        "face_group": null
+      },
+      "transform": {
+        "translation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_quat_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "visual": {
+        "material_id": null,
+        "material_name": "blue_glass_pbr",
+        "base_color_texture": null,
+        "base_color_rgba": [
+          0.35,
+          0.62,
+          0.8,
+          0.55
+        ]
+      },
+      "rf": {
+        "material_id": null,
+        "thickness_m": null,
+        "scattering_coefficient": null,
+        "xpd_coefficient": null,
+        "assignment_status": "unassigned",
+        "assignment_sources": [],
+        "confidence": null
+      }
+    },
+    {
+      "id": "/buildings/b01/window_02",
+      "name": "window_02",
+      "type": "mesh_primitive",
+      "parent_id": "/buildings/b01",
+      "semantic_tags": [
+        "building",
+        "window"
+      ],
+      "mesh_ref": {
+        "asset_uri": "visual/scene.glb",
+        "mesh_name": "building_01_window_02",
+        "primitive_index": 0,
+        "face_group": null
+      },
+      "transform": {
+        "translation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_quat_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "visual": {
+        "material_id": null,
+        "material_name": "blue_glass_pbr",
+        "base_color_texture": null,
+        "base_color_rgba": [
+          0.35,
+          0.62,
+          0.8,
+          0.55
+        ]
+      },
+      "rf": {
+        "material_id": null,
+        "thickness_m": null,
+        "scattering_coefficient": null,
+        "xpd_coefficient": null,
+        "assignment_status": "unassigned",
+        "assignment_sources": [],
+        "confidence": null
+      }
+    },
+    {
+      "id": "/buildings/b02/walls",
+      "name": "walls",
+      "type": "mesh_primitive",
+      "parent_id": "/buildings/b02",
+      "semantic_tags": [
+        "building",
+        "wall"
+      ],
+      "mesh_ref": {
+        "asset_uri": "visual/scene.glb",
+        "mesh_name": "building_02_walls",
+        "primitive_index": 0,
+        "face_group": null
+      },
+      "transform": {
+        "translation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_quat_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "visual": {
+        "material_id": null,
+        "material_name": "red_brick_pbr",
+        "base_color_texture": null,
+        "base_color_rgba": [
+          0.62,
+          0.32,
+          0.18,
+          1.0
+        ]
+      },
+      "rf": {
+        "material_id": null,
+        "thickness_m": null,
+        "scattering_coefficient": null,
+        "xpd_coefficient": null,
+        "assignment_status": "unassigned",
+        "assignment_sources": [],
+        "confidence": null
+      }
+    },
+    {
+      "id": "/vegetation/tree_01/trunk",
+      "name": "trunk",
+      "type": "mesh_primitive",
+      "parent_id": "/vegetation/tree_01",
+      "semantic_tags": [
+        "vegetation",
+        "tree"
+      ],
+      "mesh_ref": {
+        "asset_uri": "visual/scene.glb",
+        "mesh_name": "tree_01_trunk",
+        "primitive_index": 0,
+        "face_group": null
+      },
+      "transform": {
+        "translation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_quat_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "visual": {
+        "material_id": null,
+        "material_name": "bark_pbr",
+        "base_color_texture": null,
+        "base_color_rgba": [
+          0.35,
+          0.25,
+          0.16,
+          1.0
+        ]
+      },
+      "rf": {
+        "material_id": null,
+        "thickness_m": null,
+        "scattering_coefficient": null,
+        "xpd_coefficient": null,
+        "assignment_status": "unassigned",
+        "assignment_sources": [],
+        "confidence": null
+      }
+    },
+    {
+      "id": "/vegetation/tree_01/canopy",
+      "name": "canopy",
+      "type": "mesh_primitive",
+      "parent_id": "/vegetation/tree_01",
+      "semantic_tags": [
+        "vegetation",
+        "tree"
+      ],
+      "mesh_ref": {
+        "asset_uri": "visual/scene.glb",
+        "mesh_name": "tree_01_canopy",
+        "primitive_index": 0,
+        "face_group": null
+      },
+      "transform": {
+        "translation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_quat_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "visual": {
+        "material_id": null,
+        "material_name": "leaf_pbr",
+        "base_color_texture": null,
+        "base_color_rgba": [
+          0.22,
+          0.42,
+          0.2,
+          1.0
+        ]
+      },
+      "rf": {
+        "material_id": null,
+        "thickness_m": null,
+        "scattering_coefficient": null,
+        "xpd_coefficient": null,
+        "assignment_status": "unassigned",
+        "assignment_sources": [],
+        "confidence": null
+      }
+    }
+  ],
+  "devices": [
+    {
+      "id": "tx_001",
+      "name": "Rooftop TX",
+      "kind": "tx",
+      "position": [
+        -9.0,
+        7.0,
+        10.5
+      ],
+      "orientation_deg": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "power_dbm": 30.0,
+      "antenna": {
+        "pattern": "iso",
+        "polarization": "V",
+        "num_rows": 1,
+        "num_cols": 1
+      },
+      "color": "#ff4136"
+    },
+    {
+      "id": "rx_001",
+      "name": "Street RX",
+      "kind": "rx",
+      "position": [
+        10.0,
+        0.0,
+        1.5
+      ],
+      "orientation_deg": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "power_dbm": 30.0,
+      "antenna": {
+        "pattern": "iso",
+        "polarization": "V",
+        "num_rows": 1,
+        "num_cols": 1
+      },
+      "color": "#2ecc40"
+    }
+  ],
+  "simulation_configs": [
+    {
+      "id": "default",
+      "name": "Default 3.5 GHz",
+      "backend": "auto",
+      "frequency_hz": 3500000000.0,
+      "max_depth": 3,
+      "tx_ids": null,
+      "rx_ids": null,
+      "los": true,
+      "reflection": true,
+      "diffraction": false,
+      "scattering": false,
+      "num_samples": 100000,
+      "radio_map": {
+        "cell_size_m": 2.0,
+        "height_m": 1.5,
+        "metric": "rss_dbm"
+      }
+    }
+  ],
+  "result_sets": []
+}

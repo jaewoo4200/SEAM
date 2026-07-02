@@ -1,0 +1,26 @@
+{
+  "/terrain/ground": {
+    "mesh_name": "ground"
+  },
+  "/roads/r01/surface": {
+    "mesh_name": "road_surface"
+  },
+  "/buildings/b01/walls": {
+    "mesh_name": "building_01_walls"
+  },
+  "/buildings/b01/window_01": {
+    "mesh_name": "building_01_window_01"
+  },
+  "/buildings/b01/window_02": {
+    "mesh_name": "building_01_window_02"
+  },
+  "/buildings/b02/walls": {
+    "mesh_name": "building_02_walls"
+  },
+  "/vegetation/tree_01/trunk": {
+    "mesh_name": "tree_01_trunk"
+  },
+  "/vegetation/tree_01/canopy": {
+    "mesh_name": "tree_01_canopy"
+  }
+}

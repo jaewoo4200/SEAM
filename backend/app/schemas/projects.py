@@ -4,6 +4,7 @@ from typing import Literal, Optional
 
 from pydantic import Field
 
+from .ai import AIProviderStatus
 from .common import StrictModel
 
 
@@ -38,5 +39,5 @@ class HealthResponse(StrictModel):
     schema_version: str
     sionna_available: bool
     backends: list[HealthBackendStatus] = Field(default_factory=list)
-    ai_providers: list[dict] = Field(default_factory=list)
+    ai_providers: list[AIProviderStatus] = Field(default_factory=list)
     project_roots: list[str] = Field(default_factory=list)
