@@ -6,7 +6,8 @@ GET  /projects/{project_id}/results/paths       -> stored PathResultSet
 GET  /projects/{project_id}/results/radio-map   -> stored RadioMapResultSet
 
 Storage convention: results/<result_id>.json inside the project folder, with
-result_id = "<backend>_<kind>_<nnn>" (nnn = 1 + existing refs of that kind).
+result_id = "<backend>_<kind>_<nnn>" (nnn = highest existing suffix + 1,
+bumped past id/file collisions so pruned refs never cause an overwrite).
 A ResultSetRef is appended to scene.result_sets; "latest" is the last ref of
 the requested kind. Backends never persist anything - this layer owns ids,
 files, and provenance.
@@ -65,8 +66,27 @@ def _run_simulation(
     else:
         result = backend.simulate_radio_map(project_dir, scene, library, config)
 
-    n = 1 + sum(1 for ref in scene.result_sets if ref.kind == kind)
-    result.result_id = f"{backend.name}_{kind}_{n:03d}"
+    # Highest existing numeric suffix + 1, then bump past any id/file
+    # collision: a count-based scheme would reuse a live result_id (and
+    # overwrite its file) after the user prunes an earlier ref via PUT /scene.
+    prefix = f"{backend.name}_{kind}_"
+    existing_ids = {ref.result_id for ref in scene.result_sets}
+    n = 1 + max(
+        (
+            int(ref.result_id[len(prefix):])
+            for ref in scene.result_sets
+            if ref.kind == kind
+            and ref.result_id.startswith(prefix)
+            and ref.result_id[len(prefix):].isdigit()
+        ),
+        default=0,
+    )
+    while (
+        f"{prefix}{n:03d}" in existing_ids
+        or (project_dir / "results" / f"{prefix}{n:03d}.json").exists()
+    ):
+        n += 1
+    result.result_id = f"{prefix}{n:03d}"
     result.backend = backend.name  # actual backend used, never "auto"
     result.created_at = datetime.now(timezone.utc).isoformat()
 

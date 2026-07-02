@@ -63,7 +63,9 @@ interface AppState {
 export const useAppStore = create<AppState>()((set, get) => {
   /** Run an async action with busy/error bookkeeping. Returns undefined on failure. */
   async function run<T>(label: string, fn: () => Promise<T>): Promise<T | undefined> {
-    set({ busy: label, error: null });
+    // Clear the previous notice too: dismissing a later error must not
+    // resurrect a stale success toast from an unrelated earlier action.
+    set({ busy: label, error: null, notice: null });
     try {
       return await fn();
     } catch (err) {

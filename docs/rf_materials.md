@@ -83,9 +83,13 @@ the material:
 ```
 
 Overrides are set through the assignment API (`AssignRequest.overrides`,
-fields `thickness_m`, `scattering_coefficient`, `xpd_coefficient`). The
-effective value at compile time is: **prim override if set, else material
-default**. A `null` override means "inherit", not "zero".
+fields `thickness_m`, `scattering_coefficient`, `xpd_coefficient`). A `null`
+override means "inherit", not "zero". Overrides are stored on the prim and
+shown in the inspector, but **the MVP's Mode 2 grouped compile cannot
+represent them**: the exported RF projection uses the library material's
+parameters, and the compiler emits a warning per overridden prim.
+Override-at-compile-time (prim override if set, else material default) is
+the intended behavior once groups can split on parameter sets.
 
 ## Thickness semantics
 

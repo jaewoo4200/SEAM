@@ -20,7 +20,7 @@ Behind them sits a provider chain:
 |---|---|---|
 | `rule_based` | nothing | deterministic keyword rules over name / visual material name / tags (window→`itu_glass`, brick→`itu_brick`, road→`asphalt_custom`, ...) |
 | `ollama_text` | reachable Ollama server + text model | prompts a local LLM with prim evidence, expects strict JSON back |
-| `ollama_vision` | Ollama + vision model | same contract, with image evidence (screenshots/thumbnails) |
+| `ollama_vision` | *planned, not implemented* | same contract with image evidence; not selectable yet — `SIONNATWIN_AI_VISION_MODEL` is reserved config until then |
 | `disabled` | — | returns no suggestions (AI turned off) |
 
 Selection: `SuggestMaterialsRequest.provider` forces a specific provider;
@@ -44,9 +44,9 @@ Environment variables (read once by `app.core.config.get_settings()`):
 | `SIONNATWIN_AI_ENABLED` | `auto` | `auto` (use if reachable) \| `on` \| `off` |
 | `SIONNATWIN_OLLAMA_URL` | `http://localhost:11434` | Ollama-compatible endpoint |
 | `SIONNATWIN_AI_TEXT_MODEL` | `qwen3:8b` | text model name (configuration, not hardcoded) |
-| `SIONNATWIN_AI_VISION_MODEL` | `qwen2.5vl:3b` | vision model, used when images are sent |
+| `SIONNATWIN_AI_VISION_MODEL` | `qwen2.5vl:3b` | reserved for the future vision provider; unused in the MVP |
 | `SIONNATWIN_AI_TIMEOUT_S` | `60` | request timeout |
-| `SIONNATWIN_AI_AUTO_APPLY` | `false` | allow high-confidence suggestions to auto-apply (opt-in, never default) |
+| `SIONNATWIN_AI_AUTO_APPLY` | `false` | reserved for a future auto-apply gate; parsed into settings but **no code acts on it in the MVP** |
 
 ## Strict JSON contract
 
@@ -91,8 +91,9 @@ material), or `reject`. Approved/edited decisions go through the same
 `["ai:ollama/qwen3:8b", "user"]`).
 
 **Never-auto-apply rule:** no suggestion mutates the scene unless the user
-acts on it, or `SIONNATWIN_AI_AUTO_APPLY` is explicitly enabled — and even
-then the provenance still records that the assignment came from AI.
+acts on it. The MVP has no auto-apply code path at all;
+`SIONNATWIN_AI_AUTO_APPLY` is a reserved flag for a future opt-in, and even
+then provenance would still record that the assignment came from AI.
 
 ## Provenance log
 

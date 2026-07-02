@@ -320,8 +320,14 @@ def write_project(out_root: Path) -> Path:
 
     ProjectStore.save_materials_to_dir(project_dir, load_default_library())
 
+    # Same schema the RF compiler writes (it re-emits this file on compile,
+    # filling group_mesh_file for compiled prims): one stable shape per file.
     object_map = {
-        prim.id: {"mesh_name": prim.mesh_ref.mesh_name}
+        prim.id: {
+            "mesh_name": prim.mesh_ref.mesh_name,
+            "rf_material_id": prim.rf.material_id,
+            "group_mesh_file": None,
+        }
         for prim in scene.prims
         if prim.mesh_ref is not None
     }

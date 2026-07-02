@@ -18,12 +18,16 @@ from app.schemas.validation import ValidationIssue, ValidationReport
 # exact-token over the prim's visual evidence text, so e.g. "fiberglass" does
 # not hit "glass" and false positives stay rare (rule 3: visual info is only
 # suggestion evidence, never RF truth).
+# Keep in sync with ai_provider's rule table: the app must never flag an
+# assignment its own suggester just recommended. Where both tables match a
+# prim (e.g. name "walls" + visual "brick"), the exactly-one-category rule
+# below keeps ambiguous evidence silent.
 CATEGORY_KEYWORDS: dict[str, tuple[str, ...]] = {
     "glass": ("glass", "window", "pane"),
-    "concrete": ("concrete", "cement"),
+    "concrete": ("concrete", "cement", "wall"),
     "brick": ("brick",),
     "metal": ("metal", "steel", "aluminum"),
-    "wood": ("wood", "timber"),
+    "wood": ("wood", "timber", "trunk", "bark"),
     "vegetation": ("tree", "leaf", "foliage", "grass"),
     "asphalt": ("asphalt", "road", "street"),
 }
@@ -38,6 +42,9 @@ _MISMATCH_EXEMPT_CATEGORIES = {"unknown", "generic", ""}
 # are worth the user's attention.
 _COMPATIBLE_CATEGORIES: tuple[frozenset[str], ...] = (
     frozenset({"ground", "vegetation", "asphalt"}),
+    # A tree trunk is wood; a leafy canopy is vegetation - both grow on the
+    # same prim names/tags, so never contradict each other.
+    frozenset({"wood", "vegetation"}),
 )
 
 

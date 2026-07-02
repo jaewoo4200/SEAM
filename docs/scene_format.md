@@ -101,7 +101,10 @@ special meaning beyond structure.
   dual material binding on the whole thing. The demo project uses only this.
 - **Mode 2 — face-group split**: several prims share one `mesh_name` and
   partition it by `face_group` (e.g. walls vs windows in one building mesh).
-  The compiler extracts the face subsets when grouping by RF material.
+  The field is stored and round-tripped (`mapping/face_group_map.json`), but
+  **face-subset extraction is not implemented in the MVP**: the compiler uses
+  the whole named mesh and emits a warning, so prims sharing a mesh should
+  currently share one RF material.
 - **Mode 3 — RF proxy mesh (future)**: a high-poly visual mesh paired with a
   simplified RF proxy. Would add an `rf_proxy_uri` to MeshRef; not
   implemented in the MVP.

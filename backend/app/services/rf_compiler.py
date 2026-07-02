@@ -243,10 +243,47 @@ def _bsdf_id(material: Optional[RFMaterial], material_id: str) -> str:
     return f"mat-{material_id}"
 
 
+def _emit_bsdf(root: ET.Element, bsdf_id: str, material: Optional[RFMaterial]) -> None:
+    """One bsdf element per distinct id.
+
+    ITU-backed materials use a plain diffuse bsdf: Sionna RT's loader converts
+    ids matching (mat-)itu_* into built-in ITU RadioMaterials, and reflectance
+    (the preview color) is visual-only, never RF truth.
+
+    Everything else must be a "radio-material" plugin carrying its constant
+    parameters directly - Sionna 1.x load_scene REJECTS shapes whose bsdf is
+    not a radio material, so a diffuse bsdf for asphalt_custom would make the
+    whole scene unloadable.
+    """
+    if (
+        material is not None
+        and material.model == "itu_frequency_dependent"
+        and material.itu_name
+    ):
+        bsdf = ET.SubElement(root, "bsdf", {"type": "diffuse", "id": bsdf_id})
+        ET.SubElement(
+            bsdf,
+            "rgb",
+            {"name": "reflectance", "value": _hex_to_rgb01(material.preview_color)},
+        )
+        return
+
+    bsdf = ET.SubElement(root, "bsdf", {"type": "radio-material", "id": bsdf_id})
+    props: list[tuple[str, Optional[float]]] = [
+        ("relative_permittivity", material.relative_permittivity if material else None),
+        ("conductivity", material.conductivity_s_per_m if material else None),
+        ("scattering_coefficient", material.scattering_coefficient if material else None),
+        ("xpd_coefficient", material.xpd_coefficient if material else None),
+        ("thickness", material.thickness_m if material else None),
+    ]
+    for name, value in props:
+        if value is not None:
+            ET.SubElement(bsdf, "float", {"name": name, "value": f"{value:g}"})
+
+
 def _mitsuba_xml(material_groups: list[MaterialGroup], library: RFMaterialLibrary) -> bytes:
     """Mitsuba 3 scene XML for Sionna RT.
 
-    reflectance is the material preview color - visual-only, never RF truth.
     bsdfs are deduplicated by id: two library materials mapping to the same
     ITU built-in share one bsdf.
     """
@@ -258,11 +295,7 @@ def _mitsuba_xml(material_groups: list[MaterialGroup], library: RFMaterialLibrar
         if bsdf_id in emitted:
             continue
         emitted.add(bsdf_id)
-        preview = material.preview_color if material else "#888888"
-        bsdf = ET.SubElement(root, "bsdf", {"type": "diffuse", "id": bsdf_id})
-        ET.SubElement(
-            bsdf, "rgb", {"name": "reflectance", "value": _hex_to_rgb01(preview)}
-        )
+        _emit_bsdf(root, bsdf_id, material)
     for group in material_groups:
         material = library.get(group.rf_material_id)
         shape = ET.SubElement(
@@ -330,19 +363,27 @@ def _manifest(
 def _mappings(
     scene: Scene, material_groups: list[MaterialGroup]
 ) -> tuple[dict, dict]:
+    """prim id -> mesh/group maps covering EVERY mesh prim in the scene.
+
+    Uncompiled prims (no RF material / skipped) keep null rf fields, so the
+    file has one stable schema whether written by the demo generator or by a
+    compile - it is a full visual<->RF mapping, not just the compiled subset.
+    """
+    group_by_prim: dict[str, MaterialGroup] = {
+        prim_id: group for group in material_groups for prim_id in group.prim_ids
+    }
     object_map: dict[str, dict] = {}
     face_group_map: dict[str, Optional[str]] = {}
-    for group in material_groups:
-        for prim_id in group.prim_ids:
-            prim = scene.prim_by_id(prim_id)
-            if prim is None or prim.mesh_ref is None:
-                continue
-            object_map[prim_id] = {
-                "mesh_name": prim.mesh_ref.mesh_name,
-                "rf_material_id": group.rf_material_id,
-                "group_mesh_file": group.mesh_file,
-            }
-            face_group_map[prim_id] = prim.mesh_ref.face_group
+    for prim in scene.prims:
+        if prim.mesh_ref is None:
+            continue
+        group = group_by_prim.get(prim.id)
+        object_map[prim.id] = {
+            "mesh_name": prim.mesh_ref.mesh_name,
+            "rf_material_id": group.rf_material_id if group else None,
+            "group_mesh_file": group.mesh_file if group else None,
+        }
+        face_group_map[prim.id] = prim.mesh_ref.face_group
     return object_map, face_group_map
 
 

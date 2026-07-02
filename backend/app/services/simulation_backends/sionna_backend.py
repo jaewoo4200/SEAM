@@ -184,29 +184,44 @@ class SionnaBackend(RayTracingBackend):
             warnings.append(f"could not read compile manifest: {exc}")
             return
 
-        # Manifest layout is owned by the compiler module; accept both a
-        # top-level "materials" list and a mapping keyed by material id.
-        raw = manifest.get("materials", [])
-        entries = list(raw.values()) if isinstance(raw, dict) else raw
-        for entry in entries:
+        # Manifest layout (written by rf_compiler._manifest): {"groups":
+        # [{"rf_material_id", "itu_name", "custom_material": {...}|null, ...}]}
+        # where custom_material carries the constant-model parameters. The XML
+        # already embeds these via the radio-material plugin; this pass is a
+        # defensive re-sync that also surfaces missing materials as warnings.
+        for entry in manifest.get("groups", []):
             if not isinstance(entry, dict):
                 continue
-            if entry.get("model") != "constant":
-                continue
-            mat_id = entry.get("id") or entry.get("rf_material_id")
-            eps = entry.get("relative_permittivity")
-            sigma = entry.get("conductivity_s_per_m")
-            if not mat_id or eps is None:
+            custom = entry.get("custom_material")
+            mat_id = entry.get("rf_material_id")
+            if not mat_id or not isinstance(custom, dict):
                 continue
             try:
                 # Sionna 1.x: scene.radio_materials is a dict name->RadioMaterial
-                # with settable relative_permittivity / conductivity.
-                rt_mat = rt_scene.radio_materials.get(mat_id)
+                # with settable relative_permittivity / conductivity. The name
+                # may or may not keep the XML's "mat-" prefix depending on
+                # loader version, so try both.
+                materials = rt_scene.radio_materials
+                rt_mat = materials.get(mat_id) or materials.get(f"mat-{mat_id}")
                 if rt_mat is None:
+                    warnings.append(
+                        f"custom material {mat_id!r} from the compile manifest "
+                        "was not found in the loaded Sionna scene; its "
+                        "parameters were not applied"
+                    )
                     continue
-                rt_mat.relative_permittivity = float(eps)
+                eps = custom.get("relative_permittivity")
+                sigma = custom.get("conductivity_s_per_m")
+                if eps is not None:
+                    rt_mat.relative_permittivity = float(eps)
                 if sigma is not None:
                     rt_mat.conductivity = float(sigma)
+                scattering = custom.get("scattering_coefficient")
+                if scattering is not None:
+                    try:
+                        rt_mat.scattering_coefficient = float(scattering)
+                    except Exception:  # noqa: BLE001 - optional across versions
+                        pass
             except Exception as exc:  # noqa: BLE001 - per-material best effort
                 warnings.append(f"could not apply material {mat_id!r}: {exc}")
 

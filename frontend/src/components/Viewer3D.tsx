@@ -230,7 +230,7 @@ function FallbackPrims() {
 }
 
 class AssetBoundary extends Component<
-  { fallback: ReactNode; onFailed: () => void; children: ReactNode },
+  { url: string; fallback: ReactNode; onFailed: () => void; children: ReactNode },
   { failed: boolean }
 > {
   state = { failed: false };
@@ -240,6 +240,11 @@ class AssetBoundary extends Component<
   }
 
   componentDidCatch() {
+    // Evict the rejected entry from the drei/suspend-react loader cache:
+    // it caches rejections, so without this every later mount of the same
+    // URL re-throws instantly and the project is stuck on placeholders for
+    // the whole browser session even after the asset/backend recovers.
+    useGLTF.clear(this.props.url);
     this.props.onFailed();
   }
 
@@ -435,7 +440,7 @@ export default function Viewer3D() {
           }
         >
           {url && !assetFailed ? (
-            <AssetBoundary key={url} fallback={<FallbackPrims />} onFailed={() => setAssetFailed(true)}>
+            <AssetBoundary key={url} url={url} fallback={<FallbackPrims />} onFailed={() => setAssetFailed(true)}>
               <GLBScene url={url} />
             </AssetBoundary>
           ) : (
