@@ -15,6 +15,7 @@ from the "radio-material" bsdf plugin the compiler emits.
 import json
 import math
 from pathlib import Path
+from typing import Optional
 
 from app.schemas.devices import Antenna, Device
 from app.schemas.materials import RFMaterialLibrary
@@ -154,6 +155,93 @@ def _apply_arrays(
     rt_scene.rx_array = _make_planar_array(rx_antenna, warnings)
 
 
+def _actor_object_key(rt_scene, actor_id: str) -> Optional[str]:
+    """Resolve the SceneObject key for an actor's shape.
+
+    Sionna's XML shape id is ``shape-actor-<id>``, but the loader may keep or
+    strip the ``shape-`` prefix, and it MERGES every shape sharing one radio
+    material into a single ``merged-shapes`` object (verified on sionna-rt
+    2.0.1). When that happens the individual actor shape is no longer
+    addressable, so we return None and the caller warns instead of crashing.
+    The compiler gives each material its own bsdf and the demo actors use
+    materials (metal, human_body) not shared with static geometry, so they
+    stay individually movable there.
+    """
+    objs = rt_scene.objects
+    for candidate in (f"shape-actor-{actor_id}", f"actor-{actor_id}"):
+        if candidate in objs:
+            return candidate
+    return None
+
+
+def apply_actor_states(rt_scene, states, base_actors: dict) -> list[str]:
+    """Move each actor's SceneObject to the pose in ``states`` for one frame.
+
+    ``states`` is a list of ActorState (id/position/orientation_deg);
+    ``base_actors`` maps actor id -> the authored Actor (its scene pose). The
+    actor mesh is baked at the authored pose, and Sionna reports/accepts
+    ``SceneObject.position`` as the mesh's ABSOLUTE world centroid (verified by
+    probing: reading gives the baked centroid, writing replaces it). So to move
+    an actor whose authored base is ``p0`` to a new base ``p1`` we shift the
+    baked centroid by the delta ``p1 - p0`` - this is correct for box and mesh
+    actors alike without needing the centroid offset.
+
+    Orientation: only yaw (Z, radians) is set. Returns per-actor warnings for
+    unknown / unaddressable (merged) actors so the caller can surface them."""
+    import mitsuba as mi  # type: ignore[import-not-found]
+    import numpy as np
+
+    def vec3(dr_point) -> list[float]:
+        # SceneObject.position/orientation are Mitsuba Point3f; numpy yields a
+        # (3,1) array of drjit scalars. Flatten to three plain floats.
+        return [float(v) for v in np.array(dr_point).reshape(-1)[:3]]
+
+    # Setting SceneObject.position is ABSOLUTE (it replaces the mesh centroid),
+    # so a delta must always be measured from the AUTHORED baked pose, not the
+    # scene's current (already-moved) pose. We capture each actor's authored
+    # centroid/orientation the first time we see it and cache it on the scene,
+    # so repeated per-frame calls on a cached rt_scene stay correct.
+    authored = getattr(rt_scene, "_actor_authored_pose", None)
+    if authored is None:
+        authored = {}
+        setattr(rt_scene, "_actor_authored_pose", authored)
+
+    warnings: list[str] = []
+    for state in states:
+        base = base_actors.get(state.id)
+        if base is None:
+            warnings.append(f"actor state for unknown actor {state.id!r}; ignored")
+            continue
+        key = _actor_object_key(rt_scene, state.id)
+        if key is None:
+            warnings.append(
+                f"actor {state.id!r} shape not individually addressable in the "
+                "loaded scene (Sionna merged it with same-material geometry); "
+                "its per-frame movement was not applied"
+            )
+            continue
+        obj = rt_scene.objects[key]
+        if state.id not in authored:
+            authored[state.id] = (vec3(obj.position), vec3(obj.orientation))
+        baked_centroid, baked_orient = authored[state.id]
+        # Absolute target centroid = authored centroid + (target base - authored
+        # base). Correct for box and mesh actors without knowing the offset.
+        p0 = [float(v) for v in base.position]
+        p1 = [float(v) for v in state.position]
+        new_centroid = [baked_centroid[i] + (p1[i] - p0[i]) for i in range(3)]
+        obj.position = mi.Point3f(new_centroid[0], new_centroid[1], new_centroid[2])
+        # Yaw only. Sionna orientation is [alpha(Z-yaw), beta(Y), gamma(X)] rad;
+        # index 0 is the yaw. Preserve beta/gamma, set the new absolute yaw.
+        try:
+            yaw = baked_orient[0] + math.radians(
+                float(state.orientation_deg[2]) - float(base.orientation_deg[2])
+            )
+            obj.orientation = mi.Point3f(yaw, baked_orient[1], baked_orient[2])
+        except Exception as exc:  # noqa: BLE001 - orientation is best-effort
+            warnings.append(f"could not set actor {state.id!r} orientation: {exc}")
+    return warnings
+
+
 def noise_floor_dbm(config: SimulationConfig) -> float:
     """Thermal noise floor + receiver noise figure, in dBm.
 
@@ -180,9 +268,12 @@ class SionnaBackend(RayTracingBackend):
         scene: Scene,
         library: RFMaterialLibrary,
         config: SimulationConfig,
+        actor_states: Optional[list] = None,
     ) -> PathResultSet:
         try:
-            return self._simulate_paths_impl(project_dir, scene, library, config)
+            return self._simulate_paths_impl(
+                project_dir, scene, library, config, actor_states
+            )
         except Exception as exc:  # noqa: BLE001 - graceful degradation contract
             # A scene left half-mutated in the cache must not be reused.
             clear_scene_cache()
@@ -203,6 +294,7 @@ class SionnaBackend(RayTracingBackend):
         scene: Scene,
         library: RFMaterialLibrary,
         config: SimulationConfig,
+        actor_states: Optional[list] = None,
     ) -> PathResultSet:
         import numpy as np
 
@@ -276,6 +368,14 @@ class SionnaBackend(RayTracingBackend):
             )
 
         self._apply_custom_materials(project_dir, rt_scene, warnings)
+
+        # Per-frame actor movement: move each actor's SceneObject to its state
+        # for this frame before solving (scenario / live-sync flows). The scene
+        # is cached across frames, so apply_actor_states measures deltas from
+        # the captured authored pose to keep repeated calls correct.
+        if actor_states:
+            base_actors = {a.id: a for a in scene.actors}
+            warnings.extend(apply_actor_states(rt_scene, actor_states, base_actors))
 
         # Map Sionna's per-interaction object ids back to canonical prims.
         # Shape names are "shape-<rf_material_id>" (the compiler's convention),

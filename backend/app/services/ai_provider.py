@@ -231,6 +231,30 @@ def _probe_ollama(base_url: str) -> tuple[bool, str]:
     return ok, detail
 
 
+def _probe_openai(base_url: str) -> tuple[bool, str]:
+    """Reachability probe for an OpenAI-compatible server (LM Studio).
+
+    GET {base_url}/models with a short timeout, cached like the Ollama probe.
+    The cache is shared but keyed by url, so the OpenAI base url never collides
+    with the Ollama one.
+    """
+    now = time.monotonic()
+    cached = _probe_cache.get(base_url)
+    if cached is not None and now - cached[0] < _PROBE_TTL_S:
+        return cached[1], cached[2]
+    try:
+        import httpx  # lazy: optional runtime dependency path
+
+        response = httpx.get(f"{base_url}/models", timeout=1.5)
+        response.raise_for_status()
+        ok, detail = True, f"{base_url}: reachable"
+    except Exception as exc:
+        reason = str(exc) or exc.__class__.__name__
+        ok, detail = False, f"{base_url}: not reachable ({reason})"
+    _probe_cache[base_url] = (now, ok, detail)
+    return ok, detail
+
+
 class OllamaTextProvider(MaterialSuggestionProvider):
     """Local text LLM via an Ollama-compatible /api/chat endpoint.
 
@@ -353,6 +377,111 @@ class OllamaTextProvider(MaterialSuggestionProvider):
         ]
 
 
+class LocalOpenAIProvider(MaterialSuggestionProvider):
+    """Local SOTA LLM via LM Studio's OpenAI-compatible server.
+
+    Targets a reasoning model (e.g. google/gemma-4-31b) served at
+    ``settings.openai_url``/chat/completions. Reasoning models place their
+    chain-of-thought in ``message.reasoning_content`` and the actual answer in
+    ``message.content``; we read ``content`` (falling back to
+    ``reasoning_content`` only if content is empty) and let
+    :func:`parse_ai_response` strip any leftover preamble by extracting the
+    first ``{...}`` block. ``max_tokens`` is generous so the reasoning budget
+    does not starve the answer, and temperature is 0 for determinism.
+
+    Any failure (connect, timeout, bad JSON, schema mismatch) falls back
+    internally to the rule-based provider, exactly like the Ollama provider.
+    """
+
+    name = "local_openai"
+
+    def is_available(self) -> bool:
+        settings = get_settings().ai
+        if settings.enabled == "off":
+            return False
+        ok, _ = _probe_openai(settings.openai_url)
+        return ok
+
+    def suggest(
+        self, scene: Scene, library: RFMaterialLibrary, prim_ids: list[str]
+    ) -> MaterialSuggestionResponse:
+        settings = get_settings().ai
+        warnings: list[str] = []
+        evidence_list: list[dict] = []
+        for prim_id in prim_ids:
+            prim = scene.prim_by_id(prim_id)
+            if prim is None:
+                warnings.append(f"prim not found in scene: {prim_id}")
+                continue
+            evidence_list.append(build_evidence(prim, library))
+        if not evidence_list:
+            return MaterialSuggestionResponse(
+                suggestions=[],
+                provider=self.name,
+                model=settings.openai_model,
+                prompt_version=PROMPT_VERSION,
+                warnings=warnings,
+            )
+        try:
+            import httpx  # lazy: never required at import time
+
+            messages = OllamaTextProvider._build_messages(evidence_list, library)
+            response = httpx.post(
+                f"{settings.openai_url}/chat/completions",
+                json={
+                    "model": settings.openai_model,
+                    "messages": messages,
+                    "temperature": 0,
+                    # Reasoning models spend tokens on chain-of-thought before
+                    # the answer; keep the budget generous so JSON is not cut.
+                    "max_tokens": 2000,
+                    "stream": False,
+                },
+                timeout=settings.timeout_s,
+            )
+            response.raise_for_status()
+            raw_text = self._extract_content(response.json())
+            suggestions, parse_warnings = parse_ai_response(raw_text, scene, library)
+            return MaterialSuggestionResponse(
+                suggestions=suggestions,
+                provider=self.name,
+                model=settings.openai_model,
+                prompt_version=PROMPT_VERSION,
+                warnings=warnings + parse_warnings,
+            )
+        except Exception as exc:
+            reason = str(exc) or exc.__class__.__name__
+            fallback = RuleBasedProvider().suggest(scene, library, prim_ids)
+            fallback.warnings = [
+                f"local_openai failed: {reason}; fell back to rule_based",
+                *fallback.warnings,
+            ]
+            return fallback
+
+    @staticmethod
+    def _extract_content(payload: object) -> str:
+        """Pull the answer text out of an OpenAI chat-completions payload.
+
+        Prefers ``message.content``; falls back to ``message.reasoning_content``
+        only when content is empty (some reasoning servers stream the whole
+        answer, JSON included, into reasoning_content)."""
+        if not isinstance(payload, dict):
+            return ""
+        choices = payload.get("choices")
+        if not isinstance(choices, list) or not choices:
+            return ""
+        message = choices[0].get("message") if isinstance(choices[0], dict) else None
+        if not isinstance(message, dict):
+            return ""
+        content = message.get("content")
+        if isinstance(content, str) and content.strip():
+            return content
+        reasoning = message.get("reasoning_content")
+        if isinstance(reasoning, str):
+            return reasoning
+        return content if isinstance(content, str) else ""
+
+
 class DisabledProvider(MaterialSuggestionProvider):
     """Explicit manual-only mode (SIONNATWIN_AI_ENABLED=off)."""
 
@@ -374,6 +503,41 @@ class DisabledProvider(MaterialSuggestionProvider):
 
 
 _FENCED_BLOCK_RE = re.compile(r"^```(?:json)?\s*\n(.*?)\n?```\s*$", re.DOTALL)
+
+
+def _extract_json_object(text: str) -> Optional[str]:
+    """Return the first brace-balanced ``{...}`` block in ``text``, or None.
+
+    Reasoning models sometimes emit a chain-of-thought preamble before the JSON
+    answer. This scans for the first ``{``, then walks forward tracking brace
+    depth (ignoring braces inside double-quoted strings, honoring backslash
+    escapes) until the matching ``}``.
+    """
+    start = text.find("{")
+    if start == -1:
+        return None
+    depth = 0
+    in_string = False
+    escaped = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
+    return None
 
 
 def _clamp_confidence(value: object) -> object:
@@ -398,7 +562,16 @@ def parse_ai_response(
     try:
         payload = json.loads(text)
     except json.JSONDecodeError as exc:
-        raise AIParseError(f"AI response is not valid JSON: {exc}") from exc
+        # Reasoning models may wrap the answer in a chain-of-thought preamble:
+        # fall back to the first brace-balanced {...} block before giving up.
+        block = _extract_json_object(text)
+        if block is not None:
+            try:
+                payload = json.loads(block)
+            except json.JSONDecodeError:
+                raise AIParseError(f"AI response is not valid JSON: {exc}") from exc
+        else:
+            raise AIParseError(f"AI response is not valid JSON: {exc}") from exc
     if not isinstance(payload, dict) or not isinstance(payload.get("suggestions"), list):
         raise AIParseError("AI response is missing a top-level 'suggestions' list")
 
@@ -469,7 +642,19 @@ def get_provider_statuses() -> list[AIProviderStatus]:
     )
     try:
         settings = get_settings().ai
-        if settings.enabled == "off":
+        off = settings.enabled == "off"
+        if off:
+            statuses.append(
+                AIProviderStatus(
+                    name="local_openai",
+                    available=False,
+                    model=settings.openai_model,
+                    detail=(
+                        f"{settings.openai_url} ({settings.openai_model}): "
+                        "disabled (SIONNATWIN_AI_ENABLED=off)"
+                    ),
+                )
+            )
             statuses.append(
                 AIProviderStatus(
                     name="ollama_text",
@@ -479,6 +664,15 @@ def get_provider_statuses() -> list[AIProviderStatus]:
                 )
             )
         else:
+            ok_oai, detail_oai = _probe_openai(settings.openai_url)
+            statuses.append(
+                AIProviderStatus(
+                    name="local_openai",
+                    available=ok_oai,
+                    model=settings.openai_model,
+                    detail=f"{detail_oai} (model {settings.openai_model})",
+                )
+            )
             ok, detail = _probe_ollama(settings.base_url)
             statuses.append(
                 AIProviderStatus(
@@ -488,7 +682,6 @@ def get_provider_statuses() -> list[AIProviderStatus]:
                     detail=detail,
                 )
             )
-        off = settings.enabled == "off"
         statuses.append(
             AIProviderStatus(
                 name="disabled",
@@ -516,6 +709,7 @@ def get_provider_statuses() -> list[AIProviderStatus]:
 _PROVIDER_CLASSES: dict[str, type[MaterialSuggestionProvider]] = {
     RuleBasedProvider.name: RuleBasedProvider,
     OllamaTextProvider.name: OllamaTextProvider,
+    LocalOpenAIProvider.name: LocalOpenAIProvider,
     DisabledProvider.name: DisabledProvider,
 }
 
@@ -541,8 +735,14 @@ def _select_provider(request: SuggestMaterialsRequest) -> MaterialSuggestionProv
             )
         return provider_cls()
     # DisabledProvider is only available when SIONNATWIN_AI_ENABLED=off, in
-    # which case it must win; otherwise prefer the LLM, then keyword rules.
-    for provider in (DisabledProvider(), OllamaTextProvider(), RuleBasedProvider()):
+    # which case it must win; otherwise prefer the SOTA local LLM (LM Studio),
+    # then the Ollama text model, then keyword rules.
+    for provider in (
+        DisabledProvider(),
+        LocalOpenAIProvider(),
+        OllamaTextProvider(),
+        RuleBasedProvider(),
+    ):
         if provider.is_available():
             return provider
     return RuleBasedProvider()

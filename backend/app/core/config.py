@@ -8,6 +8,8 @@ Environment variables:
 - SIONNATWIN_OLLAMA_URL      default http://localhost:11434
 - SIONNATWIN_AI_TEXT_MODEL   default qwen3:8b
 - SIONNATWIN_AI_VISION_MODEL default qwen2.5vl:3b (used when screenshots are sent)
+- SIONNATWIN_OPENAI_URL      default http://localhost:1234/v1 (LM Studio, OpenAI-compatible)
+- SIONNATWIN_OPENAI_MODEL    default google/gemma-4-31b
 - SIONNATWIN_AI_TIMEOUT_S    default 60
 - SIONNATWIN_AI_AUTO_APPLY   "1"/"true" to let high-confidence suggestions
                              auto-apply (never the default; HANDOFF 9.5)
@@ -30,6 +32,9 @@ class AISettings:
     base_url: str = "http://localhost:11434"
     text_model: str = "qwen3:8b"
     vision_model: str = "qwen2.5vl:3b"
+    # LM Studio's OpenAI-compatible server (a SOTA local reasoning model).
+    openai_url: str = "http://localhost:1234/v1"
+    openai_model: str = "google/gemma-4-31b"
     timeout_s: float = 60.0
     auto_apply: bool = False
 
@@ -62,6 +67,10 @@ def get_settings() -> Settings:
         base_url=os.environ.get("SIONNATWIN_OLLAMA_URL", "http://localhost:11434").rstrip("/"),
         text_model=os.environ.get("SIONNATWIN_AI_TEXT_MODEL", "qwen3:8b"),
         vision_model=os.environ.get("SIONNATWIN_AI_VISION_MODEL", "qwen2.5vl:3b"),
+        openai_url=os.environ.get(
+            "SIONNATWIN_OPENAI_URL", "http://localhost:1234/v1"
+        ).rstrip("/"),
+        openai_model=os.environ.get("SIONNATWIN_OPENAI_MODEL", "google/gemma-4-31b"),
         timeout_s=float(os.environ.get("SIONNATWIN_AI_TIMEOUT_S", "60")),
         auto_apply=_bool_env("SIONNATWIN_AI_AUTO_APPLY", False),
     )

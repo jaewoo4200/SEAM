@@ -49,6 +49,9 @@ def main() -> None:
     ap.add_argument("--scene-id", default="lab_room")
     ap.add_argument("--name", default="Lab Room (imported, 28 GHz)")
     ap.add_argument("--out", default=str(REPO_ROOT / "examples" / "demo_project"))
+    ap.add_argument(
+        "--environment", choices=["auto", "indoor", "outdoor"], default="indoor"
+    )
     args = ap.parse_args()
 
     xml_path = Path(args.xml).resolve()
@@ -64,6 +67,18 @@ def main() -> None:
 
     if not scene.devices and args.scene_id == "lab_room":
         scene.devices = LAB_ROOM_DEVICES
+    elif not scene.devices and args.scene_id == "ftc_outdoor":
+        # FTC repro guide placement: TX on the FTC roof (+10 m), RX at
+        # ground level (+1.5 m over terrain).
+        scene.devices = [
+            Device(id="tx_001", name="FTC Roof TX", kind="tx",
+                   position=[65.415, -50.712, 44.7286], power_dbm=30.0,
+                   antenna=Antenna(pattern="tr38901", polarization="V")),
+            Device(id="rx_001", name="Ground RX", kind="rx",
+                   position=[87.690, -89.711, 9.1668],
+                   antenna=Antenna(pattern="dipole", polarization="cross")),
+        ]
+    scene.environment = args.environment
     scene.simulation_configs = [
         SimulationConfig(id="default", name="Default 28 GHz", backend="auto",
                          frequency_hz=28e9, max_depth=3)

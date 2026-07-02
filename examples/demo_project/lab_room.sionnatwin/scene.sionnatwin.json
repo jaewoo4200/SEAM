@@ -2,6 +2,7 @@
   "schema_version": "0.1.0",
   "scene_id": "lab_room",
   "name": "Lab Room (imported, 28 GHz)",
+  "environment": "indoor",
   "coordinate_system": {
     "type": "local_enu",
     "origin_lat_lon_alt": null,
@@ -336,6 +337,7 @@
       "color": "#2e9bff"
     }
   ],
+  "actors": [],
   "simulation_configs": [
     {
       "id": "default",
@@ -347,9 +349,15 @@
       "rx_ids": null,
       "los": true,
       "reflection": true,
-      "diffraction": false,
       "scattering": false,
-      "num_samples": 100000,
+      "refraction": false,
+      "diffraction": false,
+      "edge_diffraction": false,
+      "synthetic_array": true,
+      "seed": 42,
+      "num_samples": 1000000,
+      "bandwidth_hz": 100000000.0,
+      "noise_figure_db": 7.0,
       "radio_map": {
         "cell_size_m": 2.0,
         "height_m": 1.5,
@@ -357,54 +365,5 @@
       }
     }
   ],
-  "result_sets": [
-    {
-      "result_id": "sionna_paths_001",
-      "kind": "paths",
-      "backend": "sionna",
-      "simulation_config_id": "default",
-      "uri": "results/sionna_paths_001.json",
-      "created_at": "2026-07-02T08:11:30.447598+00:00"
-    },
-    {
-      "result_id": "sionna_radio_map_001",
-      "kind": "radio_map",
-      "backend": "sionna",
-      "simulation_config_id": "default",
-      "uri": "results/sionna_radio_map_001.json",
-      "created_at": "2026-07-02T08:11:39.637452+00:00"
-    },
-    {
-      "result_id": "sionna_paths_002",
-      "kind": "paths",
-      "backend": "sionna",
-      "simulation_config_id": "default",
-      "uri": "results/sionna_paths_002.json",
-      "created_at": "2026-07-02T08:12:45.465727+00:00"
-    },
-    {
-      "result_id": "sionna_paths_003",
-      "kind": "paths",
-      "backend": "sionna",
-      "simulation_config_id": "default",
-      "uri": "results/sionna_paths_003.json",
-      "created_at": "2026-07-02T08:47:24.955504+00:00"
-    },
-    {
-      "result_id": "sionna_paths_004",
-      "kind": "paths",
-      "backend": "sionna",
-      "simulation_config_id": "default",
-      "uri": "results/sionna_paths_004.json",
-      "created_at": "2026-07-02T08:47:26.360583+00:00"
-    },
-    {
-      "result_id": "sionna_radio_map_002",
-      "kind": "radio_map",
-      "backend": "sionna",
-      "simulation_config_id": "default",
-      "uri": "results/sionna_radio_map_002.json",
-      "created_at": "2026-07-02T08:47:30.965079+00:00"
-    }
-  ]
+  "result_sets": []
 }

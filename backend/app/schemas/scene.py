@@ -122,11 +122,71 @@ class Prim(StrictModel):
         return v
 
 
+ActorKind = Literal["car", "human", "custom"]
+
+# Default RF material, box size (l, w, h meters) and color per actor kind.
+ACTOR_DEFAULTS: dict[str, dict] = {
+    "car": {"rf_material_id": "metal", "size_m": [4.5, 1.8, 1.5], "color": "#ffd166"},
+    "human": {"rf_material_id": "human_body", "size_m": [0.5, 0.35, 1.7], "color": "#06d6a0"},
+    "custom": {"rf_material_id": "unknown_rf", "size_m": [1.0, 1.0, 1.0], "color": "#a78bfa"},
+}
+
+
+class ActorShape(StrictModel):
+    type: Literal["box", "mesh"] = "box"
+    # Box extents (length x width x height); the actor position is the base
+    # center (z = ground contact), matching vehicle/pedestrian placement.
+    size_m: Vec3 = Field(default_factory=lambda: [1.0, 1.0, 1.0])
+    # For type "mesh": named mesh in the project's visual asset.
+    mesh_ref: Optional[MeshRef] = None
+
+
+class ActorTrajectory(StrictModel):
+    waypoints: list[Vec3] = Field(default_factory=list)
+    dt_s: float = Field(default=0.1, gt=0.0)
+    loop: bool = False
+
+
+class Actor(StrictModel):
+    """Movable RF-relevant object (car, human, custom scatterer).
+
+    Compiled as its OWN Sionna shape (never merged into material groups) so
+    the backend can move it per frame and re-solve; may carry devices (V2X)."""
+
+    id: str = Field(pattern=r"^[a-z0-9_\-]+$")
+    name: str = ""
+    kind: ActorKind = "custom"
+    shape: ActorShape = Field(default_factory=ActorShape)
+    rf_material_id: Optional[str] = None
+    # Base position (z = ground contact plane of the shape).
+    position: Vec3
+    orientation_deg: Vec3 = Field(default_factory=lambda: [0.0, 0.0, 0.0])
+    trajectory: Optional[ActorTrajectory] = None
+    # Devices that move with this actor (offsets preserved from scene pose).
+    attached_device_ids: list[str] = Field(default_factory=list)
+    color: Optional[str] = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
+
+    @model_validator(mode="after")
+    def _kind_defaults(self) -> "Actor":
+        defaults = ACTOR_DEFAULTS[self.kind]
+        if self.rf_material_id is None:
+            object.__setattr__(self, "rf_material_id", defaults["rf_material_id"])
+        if self.color is None:
+            object.__setattr__(self, "color", defaults["color"])
+        # The generic 1x1x1 box default means "unspecified": adopt the kind's
+        # physical size (car 4.5x1.8x1.5, human 0.5x0.35x1.7).
+        if self.shape.type == "box" and self.shape.size_m == [1.0, 1.0, 1.0]:
+            object.__setattr__(
+                self.shape, "size_m", [float(v) for v in defaults["size_m"]]
+            )
+        return self
+
+
 class ResultSetRef(StrictModel):
     """Pointer from the scene to a stored result artifact."""
 
     result_id: str
-    kind: Literal["paths", "radio_map", "trajectory"]
+    kind: Literal["paths", "radio_map", "trajectory", "scenario"]
     backend: str
     simulation_config_id: str
     # Relative to the project folder, e.g. "results/paths.json".
@@ -138,10 +198,15 @@ class Scene(StrictModel):
     schema_version: str = SCHEMA_VERSION
     scene_id: str
     name: str = ""
+    # Drives UI/solver presets (marker scale, camera, cell size, max depth):
+    # "auto" infers from geometry extent.
+    environment: Literal["auto", "indoor", "outdoor"] = "auto"
     coordinate_system: CoordinateSystem = Field(default_factory=CoordinateSystem)
     assets: SceneAssets = Field(default_factory=SceneAssets)
     prims: list[Prim] = Field(default_factory=list)
     devices: list[Device] = Field(default_factory=list)
+    # Movable RF-relevant objects (cars, humans, ...).
+    actors: list[Actor] = Field(default_factory=list)
     simulation_configs: list[SimulationConfig] = Field(default_factory=list)
     result_sets: list[ResultSetRef] = Field(default_factory=list)
 
@@ -157,6 +222,11 @@ class Scene(StrictModel):
             if dev.id in dev_seen:
                 raise ValueError(f"duplicate device id: {dev.id!r}")
             dev_seen.add(dev.id)
+        actor_seen: set[str] = set()
+        for actor in self.actors:
+            if actor.id in actor_seen:
+                raise ValueError(f"duplicate actor id: {actor.id!r}")
+            actor_seen.add(actor.id)
         return self
 
     def prim_by_id(self, prim_id: str) -> Optional[Prim]:

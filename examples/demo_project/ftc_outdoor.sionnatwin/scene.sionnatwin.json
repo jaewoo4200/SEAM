@@ -1,0 +1,585 @@
+{
+  "schema_version": "0.1.0",
+  "scene_id": "ftc_outdoor",
+  "name": "FTC Outdoor (28 GHz)",
+  "environment": "outdoor",
+  "coordinate_system": {
+    "type": "local_enu",
+    "origin_lat_lon_alt": null,
+    "units": "meters"
+  },
+  "assets": {
+    "visual_scene_uri": "visual/scene.glb",
+    "tileset_uri": null
+  },
+  "prims": [
+    {
+      "id": "/ftc_unknown",
+      "name": "ftc_unknown",
+      "type": "mesh_primitive",
+      "parent_id": null,
+      "semantic_tags": [
+        "concrete"
+      ],
+      "mesh_ref": {
+        "asset_uri": "visual/scene.glb",
+        "mesh_name": "ftc_unknown",
+        "primitive_index": 0,
+        "face_group": null
+      },
+      "transform": {
+        "translation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_quat_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "visual": {
+        "material_id": null,
+        "material_name": "mat-FTC-unknown",
+        "base_color_texture": null,
+        "base_color_rgba": [
+          0.16,
+          0.16,
+          0.16,
+          1.0
+        ]
+      },
+      "rf": {
+        "material_id": "itu_concrete",
+        "thickness_m": null,
+        "scattering_coefficient": null,
+        "xpd_coefficient": null,
+        "assignment_status": "user_confirmed",
+        "assignment_sources": [
+          "imported_xml"
+        ],
+        "confidence": 1.0
+      }
+    },
+    {
+      "id": "/ftc_concrete",
+      "name": "ftc_concrete",
+      "type": "mesh_primitive",
+      "parent_id": null,
+      "semantic_tags": [
+        "concrete"
+      ],
+      "mesh_ref": {
+        "asset_uri": "visual/scene.glb",
+        "mesh_name": "ftc_concrete",
+        "primitive_index": 0,
+        "face_group": null
+      },
+      "transform": {
+        "translation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_quat_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "visual": {
+        "material_id": null,
+        "material_name": "mat-FTC-concrete",
+        "base_color_texture": null,
+        "base_color_rgba": [
+          0.5,
+          0.64,
+          0.58,
+          1.0
+        ]
+      },
+      "rf": {
+        "material_id": "itu_concrete",
+        "thickness_m": null,
+        "scattering_coefficient": null,
+        "xpd_coefficient": null,
+        "assignment_status": "user_confirmed",
+        "assignment_sources": [
+          "imported_xml"
+        ],
+        "confidence": 1.0
+      }
+    },
+    {
+      "id": "/ftc_glass",
+      "name": "ftc_glass",
+      "type": "mesh_primitive",
+      "parent_id": null,
+      "semantic_tags": [
+        "glass"
+      ],
+      "mesh_ref": {
+        "asset_uri": "visual/scene.glb",
+        "mesh_name": "ftc_glass",
+        "primitive_index": 0,
+        "face_group": null
+      },
+      "transform": {
+        "translation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_quat_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "visual": {
+        "material_id": null,
+        "material_name": "mat-FTC-glass",
+        "base_color_texture": null,
+        "base_color_rgba": [
+          0.36,
+          0.58,
+          0.82,
+          1.0
+        ]
+      },
+      "rf": {
+        "material_id": "itu_glass",
+        "thickness_m": null,
+        "scattering_coefficient": null,
+        "xpd_coefficient": null,
+        "assignment_status": "user_confirmed",
+        "assignment_sources": [
+          "imported_xml"
+        ],
+        "confidence": 1.0
+      }
+    },
+    {
+      "id": "/ftc_metal",
+      "name": "ftc_metal",
+      "type": "mesh_primitive",
+      "parent_id": null,
+      "semantic_tags": [
+        "metal"
+      ],
+      "mesh_ref": {
+        "asset_uri": "visual/scene.glb",
+        "mesh_name": "ftc_metal",
+        "primitive_index": 0,
+        "face_group": null
+      },
+      "transform": {
+        "translation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_quat_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "visual": {
+        "material_id": null,
+        "material_name": "mat-FTC-metal",
+        "base_color_texture": null,
+        "base_color_rgba": [
+          0.85,
+          0.47,
+          0.02,
+          1.0
+        ]
+      },
+      "rf": {
+        "material_id": "metal",
+        "thickness_m": null,
+        "scattering_coefficient": null,
+        "xpd_coefficient": null,
+        "assignment_status": "user_confirmed",
+        "assignment_sources": [
+          "imported_xml"
+        ],
+        "confidence": 1.0
+      }
+    },
+    {
+      "id": "/ftc_ground",
+      "name": "ftc_ground",
+      "type": "mesh_primitive",
+      "parent_id": null,
+      "semantic_tags": [],
+      "mesh_ref": {
+        "asset_uri": "visual/scene.glb",
+        "mesh_name": "ftc_ground",
+        "primitive_index": 0,
+        "face_group": null
+      },
+      "transform": {
+        "translation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_quat_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "visual": {
+        "material_id": null,
+        "material_name": "mat-FTC-ground",
+        "base_color_texture": null,
+        "base_color_rgba": [
+          0.55,
+          0.42,
+          0.24,
+          1.0
+        ]
+      },
+      "rf": {
+        "material_id": "ground_28ghz",
+        "thickness_m": null,
+        "scattering_coefficient": null,
+        "xpd_coefficient": null,
+        "assignment_status": "user_confirmed",
+        "assignment_sources": [
+          "imported_xml"
+        ],
+        "confidence": 1.0
+      }
+    },
+    {
+      "id": "/ftc_occlusion_blocker_slices_low",
+      "name": "ftc_occlusion_blocker_slices_low",
+      "type": "mesh_primitive",
+      "parent_id": null,
+      "semantic_tags": [],
+      "mesh_ref": {
+        "asset_uri": "visual/scene.glb",
+        "mesh_name": "ftc_occlusion_blocker_slices_low",
+        "primitive_index": 0,
+        "face_group": null
+      },
+      "transform": {
+        "translation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_quat_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "visual": {
+        "material_id": null,
+        "material_name": "mat-FTC-occlusion-blocker",
+        "base_color_texture": null,
+        "base_color_rgba": [
+          1.0,
+          0.25,
+          0.0,
+          1.0
+        ]
+      },
+      "rf": {
+        "material_id": "unknown_rf",
+        "thickness_m": null,
+        "scattering_coefficient": null,
+        "xpd_coefficient": null,
+        "assignment_status": "user_confirmed",
+        "assignment_sources": [
+          "imported_xml"
+        ],
+        "confidence": 1.0
+      }
+    },
+    {
+      "id": "/terrain",
+      "name": "terrain",
+      "type": "mesh_primitive",
+      "parent_id": null,
+      "semantic_tags": [
+        "concrete"
+      ],
+      "mesh_ref": {
+        "asset_uri": "visual/scene.glb",
+        "mesh_name": "terrain",
+        "primitive_index": 0,
+        "face_group": null
+      },
+      "transform": {
+        "translation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_quat_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "visual": {
+        "material_id": null,
+        "material_name": "mat-overlay",
+        "base_color_texture": null,
+        "base_color_rgba": [
+          0.38,
+          0.53,
+          0.36,
+          1.0
+        ]
+      },
+      "rf": {
+        "material_id": "itu_concrete",
+        "thickness_m": null,
+        "scattering_coefficient": null,
+        "xpd_coefficient": null,
+        "assignment_status": "user_confirmed",
+        "assignment_sources": [
+          "imported_xml"
+        ],
+        "confidence": 1.0
+      }
+    },
+    {
+      "id": "/map_2_osm_buildings_wall",
+      "name": "map_2_osm_buildings_wall",
+      "type": "mesh_primitive",
+      "parent_id": null,
+      "semantic_tags": [
+        "concrete"
+      ],
+      "mesh_ref": {
+        "asset_uri": "visual/scene.glb",
+        "mesh_name": "map_2_osm_buildings_wall",
+        "primitive_index": 0,
+        "face_group": null
+      },
+      "transform": {
+        "translation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_quat_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "visual": {
+        "material_id": null,
+        "material_name": "mat-wall",
+        "base_color_texture": null,
+        "base_color_rgba": [
+          0.82,
+          0.82,
+          0.82,
+          1.0
+        ]
+      },
+      "rf": {
+        "material_id": "itu_concrete",
+        "thickness_m": null,
+        "scattering_coefficient": null,
+        "xpd_coefficient": null,
+        "assignment_status": "user_confirmed",
+        "assignment_sources": [
+          "imported_xml"
+        ],
+        "confidence": 1.0
+      }
+    },
+    {
+      "id": "/map_2_osm_buildings_roof",
+      "name": "map_2_osm_buildings_roof",
+      "type": "mesh_primitive",
+      "parent_id": null,
+      "semantic_tags": [
+        "concrete"
+      ],
+      "mesh_ref": {
+        "asset_uri": "visual/scene.glb",
+        "mesh_name": "map_2_osm_buildings_roof",
+        "primitive_index": 0,
+        "face_group": null
+      },
+      "transform": {
+        "translation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_quat_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "visual": {
+        "material_id": null,
+        "material_name": "mat-roof",
+        "base_color_texture": null,
+        "base_color_rgba": [
+          0.58,
+          0.58,
+          0.58,
+          1.0
+        ]
+      },
+      "rf": {
+        "material_id": "itu_concrete",
+        "thickness_m": null,
+        "scattering_coefficient": null,
+        "xpd_coefficient": null,
+        "assignment_status": "user_confirmed",
+        "assignment_sources": [
+          "imported_xml"
+        ],
+        "confidence": 1.0
+      }
+    }
+  ],
+  "devices": [
+    {
+      "id": "tx_001",
+      "name": "FTC Roof TX",
+      "kind": "tx",
+      "position": [
+        65.415,
+        -50.712,
+        44.7286
+      ],
+      "orientation_deg": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "power_dbm": 30.0,
+      "antenna": {
+        "pattern": "tr38901",
+        "polarization": "V",
+        "num_rows": 1,
+        "num_cols": 1
+      },
+      "color": "#ff0000"
+    },
+    {
+      "id": "rx_001",
+      "name": "Ground RX",
+      "kind": "rx",
+      "position": [
+        87.69,
+        -89.711,
+        9.1668
+      ],
+      "orientation_deg": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "power_dbm": 30.0,
+      "antenna": {
+        "pattern": "dipole",
+        "polarization": "cross",
+        "num_rows": 1,
+        "num_cols": 1
+      },
+      "color": "#2e9bff"
+    }
+  ],
+  "actors": [],
+  "simulation_configs": [
+    {
+      "id": "default",
+      "name": "Default 28 GHz",
+      "backend": "auto",
+      "frequency_hz": 28000000000.0,
+      "max_depth": 3,
+      "tx_ids": null,
+      "rx_ids": null,
+      "los": true,
+      "reflection": true,
+      "scattering": false,
+      "refraction": false,
+      "diffraction": false,
+      "edge_diffraction": false,
+      "synthetic_array": true,
+      "seed": 42,
+      "num_samples": 1000000,
+      "bandwidth_hz": 100000000.0,
+      "noise_figure_db": 7.0,
+      "radio_map": {
+        "cell_size_m": 2.0,
+        "height_m": 1.5,
+        "metric": "path_gain_db"
+      }
+    }
+  ],
+  "result_sets": []
+}

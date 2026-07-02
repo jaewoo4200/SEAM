@@ -14,6 +14,8 @@ import type {
   BatchAssignRequest,
   BeamformingRequest,
   BeamformingResult,
+  ChannelAnalysisRequest,
+  ChannelAnalysisResult,
   CompileResult,
   HealthResponse,
   MaterialSuggestionResponse,
@@ -24,6 +26,8 @@ import type {
   RFDataExportSummary,
   RFMaterial,
   RFMaterialLibrary,
+  ScenarioResultSet,
+  ScenarioSimulateRequest,
   Scene,
   SimulateRequest,
   SuggestMaterialsRequest,
@@ -118,6 +122,16 @@ export const api = {
     request<TrajectoryResultSet>("POST", `/projects/${pid}/simulate/trajectory`, req),
   getTrajectory: (pid: string) =>
     request<TrajectoryResultSet>("GET", `/projects/${pid}/results/trajectory`),
+
+  // scenario playback (V2X): actors + devices moved per frame, links + optional paths.
+  simulateScenario: (pid: string, req: ScenarioSimulateRequest = {}) =>
+    request<ScenarioResultSet>("POST", `/projects/${pid}/simulate/scenario`, req),
+  getScenario: (pid: string) =>
+    request<ScenarioResultSet>("GET", `/projects/${pid}/results/scenario`),
+
+  // channel analysis: link budget + CIR/CFR + 38.901 path-loss comparison.
+  analyzeChannel: (pid: string, req: ChannelAnalysisRequest = {}) =>
+    request<ChannelAnalysisResult>("POST", `/projects/${pid}/analyze/channel`, req),
 
   simulateBeamforming: (pid: string, req: BeamformingRequest = {}) =>
     request<BeamformingResult>("POST", `/projects/${pid}/simulate/beamforming`, req),

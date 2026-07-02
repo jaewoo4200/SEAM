@@ -223,6 +223,10 @@ function GlobalSection() {
   const bfRxRows = useAppStore((s) => s.bfRxRows);
   const bfRxCols = useAppStore((s) => s.bfRxCols);
   const setBeamArray = useAppStore((s) => s.setBeamArray);
+  const liveMode = useAppStore((s) => s.liveMode);
+  const setLiveMode = useAppStore((s) => s.setLiveMode);
+  const sendScreenshot = useAppStore((s) => s.sendScreenshot);
+  const setSendScreenshot = useAppStore((s) => s.setSendScreenshot);
   const disabled = busy !== null;
 
   // Global fields live on both configs so backend/frequency/etc. stay in sync.
@@ -319,6 +323,29 @@ function GlobalSection() {
           Beamforming
         </button>
       </div>
+
+      <div className="solver-subhead">Live &amp; AI</div>
+      <label className="solver-check">
+        <input
+          type="checkbox"
+          checked={liveMode}
+          disabled={!projectId}
+          onChange={(e) => setLiveMode(e.target.checked)}
+        />
+        Live sync
+        {liveMode && <span className="live-badge">LIVE</span>}
+      </label>
+      <p className="hint" style={{ margin: "0 0 4px" }}>
+        Polls the scene every 2&nbsp;s and refreshes device/actor positions in the viewer.
+      </p>
+      <label className="solver-check">
+        <input
+          type="checkbox"
+          checked={sendScreenshot}
+          onChange={(e) => setSendScreenshot(e.target.checked)}
+        />
+        Attach viewport to AI
+      </label>
     </Section>
   );
 }

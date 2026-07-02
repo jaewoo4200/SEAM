@@ -1,0 +1,314 @@
+materials:
+- id: itu_concrete
+  display_name: ITU Concrete
+  category: concrete
+  model: itu_frequency_dependent
+  itu_name: itu_concrete
+  relative_permittivity: null
+  conductivity_s_per_m: null
+  thickness_m: 0.3
+  scattering_coefficient: 0.2
+  xpd_coefficient: 0.1
+  transmissive: true
+  preview_color: '#9e9e9e'
+  notes: Default structural concrete (ITU-R P.2040); S~0.2 (measurement-backed rough
+    surface).
+  builtin: true
+- id: itu_brick
+  display_name: ITU Brick
+  category: brick
+  model: itu_frequency_dependent
+  itu_name: itu_brick
+  relative_permittivity: null
+  conductivity_s_per_m: null
+  thickness_m: 0.24
+  scattering_coefficient: 0.2
+  xpd_coefficient: 0.1
+  transmissive: true
+  preview_color: '#b5551d'
+  notes: Fired-clay brick masonry (ITU-R P.2040); S~0.2 (measurement-backed).
+  builtin: true
+- id: itu_glass
+  display_name: ITU Glass
+  category: glass
+  model: itu_frequency_dependent
+  itu_name: itu_glass
+  relative_permittivity: null
+  conductivity_s_per_m: null
+  thickness_m: 0.012
+  scattering_coefficient: 0.02
+  xpd_coefficient: 0.05
+  transmissive: true
+  preview_color: '#4fc3f7'
+  notes: Standard window glass (ITU-R P.2040).
+  builtin: true
+- id: itu_wood
+  display_name: ITU Wood
+  category: wood
+  model: itu_frequency_dependent
+  itu_name: itu_wood
+  relative_permittivity: null
+  conductivity_s_per_m: null
+  thickness_m: 0.03
+  scattering_coefficient: 0.2
+  xpd_coefficient: 0.1
+  transmissive: true
+  preview_color: '#8d6e63'
+  notes: Plywood/timber (ITU-R P.2040).
+  builtin: true
+- id: metal
+  display_name: Metal
+  category: metal
+  model: itu_frequency_dependent
+  itu_name: itu_metal
+  relative_permittivity: null
+  conductivity_s_per_m: null
+  thickness_m: null
+  scattering_coefficient: 0.05
+  xpd_coefficient: 0.05
+  transmissive: false
+  preview_color: '#b0bec5'
+  notes: Perfect electric conductor approximation for steel/aluminum.
+  builtin: true
+- id: ground
+  display_name: Ground (medium dry)
+  category: ground
+  model: itu_frequency_dependent
+  itu_name: itu_medium_dry_ground
+  relative_permittivity: null
+  conductivity_s_per_m: null
+  thickness_m: null
+  scattering_coefficient: 0.3
+  xpd_coefficient: 0.15
+  transmissive: false
+  preview_color: '#795548'
+  notes: Medium dry soil half-space (ITU-R P.2040 / P.527).
+  builtin: true
+- id: asphalt_custom
+  display_name: Asphalt (custom)
+  category: asphalt
+  model: constant
+  itu_name: null
+  relative_permittivity: 5.72
+  conductivity_s_per_m: 0.005
+  thickness_m: null
+  scattering_coefficient: 0.25
+  xpd_coefficient: 0.1
+  transmissive: false
+  preview_color: '#37474f'
+  notes: Dense-graded asphalt concrete; literature values around 1-6 GHz.
+  builtin: true
+- id: vegetation_custom
+  display_name: Vegetation (custom)
+  category: vegetation
+  model: constant
+  itu_name: null
+  relative_permittivity: 5.0
+  conductivity_s_per_m: 0.1
+  thickness_m: 1.0
+  scattering_coefficient: 0.6
+  xpd_coefficient: 0.3
+  transmissive: true
+  preview_color: '#43a047'
+  notes: Coarse effective-medium stand-in for foliage; strongly scattering.
+  builtin: true
+- id: unknown_rf
+  display_name: Unknown RF material
+  category: unknown
+  model: constant
+  itu_name: null
+  relative_permittivity: 3.0
+  conductivity_s_per_m: 0.01
+  thickness_m: null
+  scattering_coefficient: 0.2
+  xpd_coefficient: 0.1
+  transmissive: true
+  preview_color: '#e91e63'
+  notes: Deliberate placeholder for surfaces the user could not classify.
+  builtin: true
+- id: itu_marble
+  display_name: ITU Marble
+  category: marble
+  model: itu_frequency_dependent
+  itu_name: itu_marble
+  relative_permittivity: null
+  conductivity_s_per_m: null
+  thickness_m: 0.02
+  scattering_coefficient: 0.05
+  xpd_coefficient: 0.05
+  transmissive: false
+  preview_color: '#d7ccc8'
+  notes: Polished stone floor / wall skirting (ITU-R P.2040).
+  builtin: true
+- id: itu_ceiling_board
+  display_name: ITU Ceiling board
+  category: ceiling_board
+  model: itu_frequency_dependent
+  itu_name: itu_ceiling_board
+  relative_permittivity: null
+  conductivity_s_per_m: null
+  thickness_m: 0.02
+  scattering_coefficient: 0.15
+  xpd_coefficient: 0.1
+  transmissive: true
+  preview_color: '#cfd8dc'
+  notes: Acoustic-tile suspended ceiling (ITU-R P.2040).
+  builtin: true
+- id: itu_plasterboard
+  display_name: ITU Plasterboard
+  category: plasterboard
+  model: itu_frequency_dependent
+  itu_name: itu_plasterboard
+  relative_permittivity: null
+  conductivity_s_per_m: null
+  thickness_m: 0.013
+  scattering_coefficient: 0.1
+  xpd_coefficient: 0.1
+  transmissive: true
+  preview_color: '#eceff1'
+  notes: Gypsum board interior partition (ITU-R P.2040).
+  builtin: true
+- id: itu_plywood
+  display_name: ITU Plywood
+  category: plywood
+  model: itu_frequency_dependent
+  itu_name: itu_plywood
+  relative_permittivity: null
+  conductivity_s_per_m: null
+  thickness_m: 0.012
+  scattering_coefficient: 0.15
+  xpd_coefficient: 0.1
+  transmissive: true
+  preview_color: '#a1887f'
+  notes: Plywood panel (ITU-R P.2040).
+  builtin: true
+- id: itu_chipboard
+  display_name: ITU Chipboard
+  category: chipboard
+  model: itu_frequency_dependent
+  itu_name: itu_chipboard
+  relative_permittivity: null
+  conductivity_s_per_m: null
+  thickness_m: 0.018
+  scattering_coefficient: 0.2
+  xpd_coefficient: 0.1
+  transmissive: true
+  preview_color: '#8d6e63'
+  notes: Particle board (ITU-R P.2040).
+  builtin: true
+- id: itu_floorboard
+  display_name: ITU Floorboard
+  category: floorboard
+  model: itu_frequency_dependent
+  itu_name: itu_floorboard
+  relative_permittivity: null
+  conductivity_s_per_m: null
+  thickness_m: 0.03
+  scattering_coefficient: 0.15
+  xpd_coefficient: 0.1
+  transmissive: false
+  preview_color: '#bcaaa4'
+  notes: Timber floorboard (ITU-R P.2040).
+  builtin: true
+- id: itu_very_dry_ground
+  display_name: ITU Very dry ground
+  category: ground
+  model: itu_frequency_dependent
+  itu_name: itu_very_dry_ground
+  relative_permittivity: null
+  conductivity_s_per_m: null
+  thickness_m: null
+  scattering_coefficient: 0.3
+  xpd_coefficient: 0.15
+  transmissive: false
+  preview_color: '#a1887f'
+  notes: ITU-R P.2040 very dry ground; ITU ground models are only valid up to ~10
+    GHz - use ground_28ghz above that.
+  builtin: true
+- id: itu_wet_ground
+  display_name: ITU Wet ground
+  category: ground
+  model: itu_frequency_dependent
+  itu_name: itu_wet_ground
+  relative_permittivity: null
+  conductivity_s_per_m: null
+  thickness_m: null
+  scattering_coefficient: 0.3
+  xpd_coefficient: 0.15
+  transmissive: false
+  preview_color: '#5d4037'
+  notes: ITU-R P.2040 wet ground; valid up to ~10 GHz - use ground_28ghz above that.
+  builtin: true
+- id: ground_28ghz
+  display_name: Ground (28 GHz-safe constant)
+  category: ground
+  model: constant
+  itu_name: null
+  relative_permittivity: 3.0
+  conductivity_s_per_m: 0.05
+  thickness_m: null
+  scattering_coefficient: 0.3
+  xpd_coefficient: 0.15
+  transmissive: false
+  preview_color: '#6d4c41'
+  notes: Constant dry-ground stand-in for mmWave (>10 GHz) where ITU ground models
+    are undefined; matches the bundle's 28 GHz-safe ground.
+  builtin: true
+- id: human_body
+  display_name: Human body (skin 28 GHz)
+  category: human
+  model: constant
+  itu_name: null
+  relative_permittivity: 8.6
+  conductivity_s_per_m: 19.0
+  thickness_m: 0.002
+  scattering_coefficient: 0.6
+  xpd_coefficient: 0.1
+  transmissive: false
+  preview_color: '#ff7043'
+  notes: In-vivo human skin at 28 GHz (Ghodgaonkar); recommended default human material
+    for mmWave ISAC.
+  builtin: true
+- id: human_body_skin22ghz
+  display_name: Human body (skin 22 GHz)
+  category: human
+  model: constant
+  itu_name: null
+  relative_permittivity: 6.04
+  conductivity_s_per_m: 17.61
+  thickness_m: 0.002
+  scattering_coefficient: 0.6
+  xpd_coefficient: 0.1
+  transmissive: false
+  preview_color: '#ff8a65'
+  notes: In-vivo human skin at 22 GHz (Tamyis/URSI).
+  builtin: true
+- id: human_body_effective_mid
+  display_name: Human body (effective mid)
+  category: human
+  model: constant
+  itu_name: null
+  relative_permittivity: 20.0
+  conductivity_s_per_m: 10.0
+  thickness_m: 0.04
+  scattering_coefficient: 0.6
+  xpd_coefficient: 0.1
+  transmissive: false
+  preview_color: '#ffab91'
+  notes: Engineering sweep midpoint between skin-surface and bulk-body behavior.
+  builtin: true
+- id: human_body_proxy
+  display_name: Human body (legacy proxy)
+  category: human
+  model: constant
+  itu_name: null
+  relative_permittivity: 38.0
+  conductivity_s_per_m: 1.5
+  thickness_m: 0.04
+  scattering_coefficient: 0.6
+  xpd_coefficient: 0.1
+  transmissive: false
+  preview_color: '#ffccbc'
+  notes: Historical placeholder proxy; kept for reproducing earlier runs (deprecated
+    - prefer human_body).
+  builtin: true

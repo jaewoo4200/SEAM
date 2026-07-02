@@ -1,9 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAppStore } from "../store/appStore";
+import ChannelPanel from "./ChannelPanel";
 import { PATH_COLORS, SELECTED_PATH_COLOR, formatVec } from "./common";
 import { filterPaths, pathColor, pathDepth, powerRange } from "../pathFilter";
 import type { ColorBy } from "../store/appStore";
-import type { PathType, RayPath, TrajectoryResultSet, Vec3 } from "../types/api";
+import type {
+  LinkMetrics,
+  PathType,
+  RayPath,
+  ScenarioResultSet,
+  TrajectoryResultSet,
+  Vec3,
+} from "../types/api";
 
 const SELECTED_COLOR = SELECTED_PATH_COLOR;
 
@@ -434,6 +442,188 @@ function PlaybackTrajectory({
   );
 }
 
+// -------------------------------------------------------- scenario section
+
+function LinkMetricsTable({ links }: { links: LinkMetrics[] }) {
+  const fmt = (v: number | null, digits = 1) => (v === null ? "—" : v.toFixed(digits));
+  if (links.length === 0) return <p className="hint">No links this frame.</p>;
+  return (
+    <table className="results-table">
+      <thead>
+        <tr>
+          <th>tx</th>
+          <th>rx</th>
+          <th>RSS</th>
+          <th>SINR</th>
+          <th>#p</th>
+        </tr>
+      </thead>
+      <tbody>
+        {links.map((l, i) => (
+          <tr key={`${l.tx_id}_${l.rx_id}_${i}`}>
+            <td className="mono">{l.tx_id}</td>
+            <td className="mono">{l.rx_id}</td>
+            <td className="mono">{fmt(l.rss_dbm)}</td>
+            <td className="mono">{fmt(l.sinr_db)}</td>
+            <td className="mono">{l.path_count}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function ScenarioPlayback({ scenario }: { scenario: ScenarioResultSet }) {
+  const scenarioFrame = useAppStore((s) => s.scenarioFrame);
+  const scenarioPlaying = useAppStore((s) => s.scenarioPlaying);
+  const scenarioSpeed = useAppStore((s) => s.scenarioSpeed);
+  const setScenarioFrame = useAppStore((s) => s.setScenarioFrame);
+  const setScenarioPlaying = useAppStore((s) => s.setScenarioPlaying);
+  const setScenarioSpeed = useAppStore((s) => s.setScenarioSpeed);
+
+  const last = scenario.frames.length - 1;
+  const frameIdx = Math.min(scenarioFrame, last);
+  const frame = scenario.frames[frameIdx];
+  const atEnd = frameIdx >= last;
+
+  // Frame dt for the playback period (from the frame times, fallback 0.1 s).
+  const dt =
+    scenario.frames.length > 1
+      ? Math.max(0.001, scenario.frames[1].time_s - scenario.frames[0].time_s)
+      : 0.1;
+
+  useEffect(() => {
+    if (!scenarioPlaying) return;
+    const period = Math.max(30, (dt * 1000) / scenarioSpeed);
+    const timer = setInterval(() => {
+      const st = useAppStore.getState();
+      const lastFrame = (st.scenario?.frames.length ?? 1) - 1;
+      if (st.scenarioFrame >= lastFrame) {
+        st.setScenarioPlaying(false);
+        return;
+      }
+      st.setScenarioFrame(st.scenarioFrame + 1);
+    }, period);
+    return () => clearInterval(timer);
+  }, [scenarioPlaying, scenarioSpeed, dt]);
+
+  return (
+    <div className="traj-playback">
+      <div className="results-meta">
+        {scenario.frames.length} frame(s) · backend <span className="mono">{scenario.backend}</span>
+      </div>
+      <div className="traj-transport">
+        <button
+          onClick={() => {
+            if (atEnd && !scenarioPlaying) setScenarioFrame(0);
+            setScenarioPlaying(!scenarioPlaying);
+          }}
+          title={scenarioPlaying ? "Pause" : "Play"}
+        >
+          {scenarioPlaying ? "⏸" : "▶"}
+        </button>
+        <input
+          type="range"
+          min={0}
+          max={last}
+          step={1}
+          value={frameIdx}
+          onChange={(e) => setScenarioFrame(Number(e.target.value))}
+        />
+        <span className="mono traj-frame-num">
+          {frameIdx + 1}/{last + 1}
+        </span>
+        <select
+          value={scenarioSpeed}
+          onChange={(e) => setScenarioSpeed(Number(e.target.value))}
+          title="Playback speed"
+        >
+          {[0.5, 1, 2, 4].map((s) => (
+            <option key={s} value={s}>
+              {s}×
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="results-meta">
+        t = <span className="mono">{frame.time_s.toFixed(2)} s</span> ·{" "}
+        {frame.actor_states.length} actor(s) · {frame.device_states.length} device(s)
+        {frame.paths && <> · {frame.paths.length} path(s)</>}
+      </div>
+      <h4 style={{ marginTop: 8 }}>Link metrics</h4>
+      <LinkMetricsTable links={frame.links} />
+    </div>
+  );
+}
+
+function ScenarioSection() {
+  const scenario = useAppStore((s) => s.scenario);
+  const simulateScenario = useAppStore((s) => s.simulateScenario);
+  const busy = useAppStore((s) => s.busy);
+  const projectId = useAppStore((s) => s.projectId);
+  const disabled = busy !== null;
+
+  const [numFrames, setNumFrames] = useState(20);
+  const [dt, setDt] = useState(0.1);
+  const [includePaths, setIncludePaths] = useState(false);
+
+  return (
+    <div className="traj-section">
+      <h4>Scenario (V2X)</h4>
+      <label className="solver-field">
+        <span className="solver-field-label">Num frames</span>
+        <span className="solver-field-input">
+          <input
+            type="number"
+            min={1}
+            max={500}
+            step={1}
+            value={numFrames}
+            disabled={disabled}
+            onChange={(e) => setNumFrames(Math.max(1, Math.min(500, Number(e.target.value))))}
+          />
+        </span>
+      </label>
+      <label className="solver-field">
+        <span className="solver-field-label">dt</span>
+        <span className="solver-field-input">
+          <input
+            type="number"
+            min={0.001}
+            step={0.05}
+            value={dt}
+            disabled={disabled}
+            onChange={(e) => setDt(Math.max(0.001, Number(e.target.value)))}
+          />
+          <span className="solver-unit">s</span>
+        </span>
+      </label>
+      <label className="solver-check">
+        <input
+          type="checkbox"
+          checked={includePaths}
+          disabled={disabled}
+          onChange={(e) => setIncludePaths(e.target.checked)}
+        />
+        Include paths (per frame)
+      </label>
+      <div className="panel-actions">
+        <button
+          className="primary"
+          disabled={!projectId || disabled}
+          onClick={() =>
+            void simulateScenario({ num_frames: numFrames, dt_s: dt, include_paths: includePaths })
+          }
+        >
+          Simulate scenario
+        </button>
+      </div>
+
+      {scenario && scenario.frames.length > 0 && <ScenarioPlayback scenario={scenario} />}
+    </div>
+  );
+}
+
 export default function ResultExplorer() {
   const pathResults = useAppStore((s) => s.pathResults);
   const selectedPathId = useAppStore((s) => s.selectedPathId);
@@ -516,8 +706,10 @@ export default function ResultExplorer() {
   const selectedPath = pathResults?.paths.find((p) => p.path_id === selectedPathId) ?? null;
 
   return (
-    <div className="panel">
-      <h3 className="panel-title">Results</h3>
+    <>
+      <ChannelPanel />
+      <div className="panel">
+        <h3 className="panel-title">Results</h3>
       <div className="panel-actions">
         <button
           className="primary"
@@ -711,7 +903,9 @@ export default function ResultExplorer() {
         </>
       )}
 
-      <TrajectorySection />
-    </div>
+        <TrajectorySection />
+        <ScenarioSection />
+      </div>
+    </>
   );
 }

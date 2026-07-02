@@ -97,7 +97,10 @@ h4 {
 }
 
 .app-body {
-  display: flex;
+  display: grid;
+  /* Columns are driven inline by usePanelSize:
+     [left] [handle 4px] [canvas 1fr] [handle 4px] [right] */
+  grid-template-columns: 280px 4px 1fr 4px 340px;
   flex: 1;
   min-height: 0;
 }
@@ -107,18 +110,35 @@ h4 {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 .sidebar.left {
-  width: 280px;
   border-right: 1px solid var(--border);
 }
 .sidebar.right {
-  width: 340px;
   border-left: 1px solid var(--border);
 }
 
+/* Drag strip between a sidebar and the canvas. 4px wide grid track; a wider
+   invisible hit area is layered on via ::before so it is easy to grab. */
+.panel-handle {
+  position: relative;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 0.12s ease;
+  z-index: 5;
+}
+.panel-handle::before {
+  content: "";
+  position: absolute;
+  inset: 0 -3px;
+}
+.panel-handle:hover,
+.panel-handle.active {
+  background: var(--accent);
+}
+
 .viewer-wrap {
-  flex: 1;
   min-width: 0;
   position: relative;
   background: #0d1420;
@@ -240,6 +260,69 @@ h4 {
 .toolbar-actions {
   display: flex;
   gap: 6px;
+}
+
+/* Environment select (next to the mode tabs). */
+.env-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.env-select-label {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.env-select select {
+  padding: 4px 6px;
+}
+
+/* Actions dropdown-menu button (collapses the secondary toolbar actions). */
+.actions-menu {
+  position: relative;
+  display: inline-flex;
+}
+.actions-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.actions-trigger.open:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.actions-caret {
+  font-size: 9px;
+  line-height: 1;
+}
+.actions-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 60;
+  min-width: 168px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  background: var(--panel-2);
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+}
+.actions-dropdown button {
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 6px 10px;
+  border-radius: 4px;
+}
+.actions-dropdown button:hover:not(:disabled) {
+  background: var(--panel-3);
+  border: none;
+  color: var(--accent);
 }
 
 /* --------------------------------------------------------- scene tree */
@@ -1127,6 +1210,87 @@ h4 {
   color: inherit;
   font-size: 15px;
   padding: 0 2px;
+}
+
+/* -------------------------------------------------- actors + live sync */
+
+/* LIVE badge next to the SolverControls live-sync toggle. */
+.live-badge {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #0b0f14;
+  background: var(--ok);
+  animation: live-pulse 1.6s ease-in-out infinite;
+}
+@keyframes live-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+/* Actor inspector: attached-device checkboxes + waypoint rows. */
+.actor-devices {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.actor-devices .solver-check {
+  gap: 6px;
+}
+.actor-waypoints {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+.actor-waypoint-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.actor-waypoint-row input {
+  width: 62px;
+  text-align: right;
+}
+.actor-wp-idx {
+  color: var(--muted);
+  width: 16px;
+  flex: none;
+  text-align: right;
+}
+.actor-waypoint-row .tree-del {
+  visibility: visible;
+  margin-left: 2px;
+}
+
+/* --------------------------------------------------- channel analysis */
+
+.channel-panel .solver-section {
+  margin-bottom: 0;
+}
+.channel-pl-table td,
+.channel-pl-table th {
+  padding: 3px 8px;
+}
+/* RT reference row is the highlighted InSite/operator baseline. */
+.channel-rt-row {
+  background: rgba(79, 195, 247, 0.14);
+  outline: 1px solid rgba(79, 195, 247, 0.4);
+}
+.channel-rt-row td {
+  color: var(--accent);
+  font-weight: 600;
+}
+.channel-pl-invalid td {
+  color: var(--muted);
 }
 
 /* --------------------------------------------------------- scrollbars */

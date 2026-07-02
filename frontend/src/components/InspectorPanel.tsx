@@ -9,7 +9,14 @@ import {
   materialById,
   rgbaToCss,
 } from "./common";
-import type { Antenna, Device, Prim, Vec3 } from "../types/api";
+import type {
+  Actor,
+  ActorTrajectory,
+  Antenna,
+  Device,
+  Prim,
+  Vec3,
+} from "../types/api";
 
 const ANTENNA_PATTERNS = ["iso", "dipole", "hw_dipole", "tr38901"];
 const POLARIZATIONS: Antenna["polarization"][] = ["V", "H", "VH", "cross"];
@@ -172,6 +179,306 @@ function DeviceCard({ device }: { device: Device }) {
   );
 }
 
+// --------------------------------------------------------------- actors
+
+interface ActorDraft {
+  name: string;
+  x: string;
+  y: string;
+  z: string;
+  yaw: string;
+  l: string;
+  w: string;
+  h: string;
+}
+
+function draftFromActor(a: Actor): ActorDraft {
+  return {
+    name: a.name,
+    x: String(a.position[0]),
+    y: String(a.position[1]),
+    z: String(a.position[2]),
+    // Orientation is [roll, pitch, yaw] Z-up; the UI edits yaw (index 2).
+    yaw: String(a.orientation_deg[2]),
+    l: String(a.shape.size_m[0]),
+    w: String(a.shape.size_m[1]),
+    h: String(a.shape.size_m[2]),
+  };
+}
+
+/** Editable actor inspector: pose, size, RF material, attached devices, trajectory. */
+function ActorCard({ actor }: { actor: Actor }) {
+  const materials = useAppStore((s) => s.materials);
+  const scene = useAppStore((s) => s.scene);
+  const updateActor = useAppStore((s) => s.updateActor);
+  const deleteActor = useAppStore((s) => s.deleteActor);
+  const busy = useAppStore((s) => s.busy);
+  const [draft, setDraft] = useState<ActorDraft>(() => draftFromActor(actor));
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDraft(draftFromActor(actor));
+    setErr(null);
+  }, [actor]);
+
+  const disabled = busy !== null;
+  const devices = scene?.devices ?? [];
+
+  const applyPose = () => {
+    const num = (raw: string, name: string): number => {
+      const n = Number(raw);
+      if (Number.isNaN(n)) throw new Error(`${name} is not a number`);
+      return n;
+    };
+    const pos = (raw: string, name: string): number => {
+      const n = num(raw, name);
+      if (!(n > 0)) throw new Error(`${name} must be > 0`);
+      return n;
+    };
+    try {
+      const position: Vec3 = [num(draft.x, "X"), num(draft.y, "Y"), num(draft.z, "Z")];
+      const orientation_deg: Vec3 = [
+        actor.orientation_deg[0],
+        actor.orientation_deg[1],
+        num(draft.yaw, "Yaw"),
+      ];
+      const size_m: Vec3 = [pos(draft.l, "L"), pos(draft.w, "W"), pos(draft.h, "H")];
+      setErr(null);
+      void updateActor(actor.id, {
+        name: draft.name,
+        position,
+        orientation_deg,
+        shape: { ...actor.shape, size_m },
+      });
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const numInput = (key: keyof ActorDraft, label: string, step = 0.1) => (
+    <label>
+      {label}
+      <input
+        type="number"
+        step={step}
+        value={draft[key]}
+        disabled={disabled}
+        onChange={(e) => setDraft({ ...draft, [key]: e.target.value })}
+      />
+    </label>
+  );
+
+  const toggleDevice = (deviceId: string) => {
+    const cur = actor.attached_device_ids;
+    const next = cur.includes(deviceId)
+      ? cur.filter((id) => id !== deviceId)
+      : [...cur, deviceId];
+    void updateActor(actor.id, { attached_device_ids: next });
+  };
+
+  return (
+    <div className="panel">
+      <h3 className="panel-title">
+        Actor · <span className="mono">{actor.id}</span>
+      </h3>
+      <Row label="Kind">
+        <span
+          className="badge"
+          style={{ borderColor: actor.color ?? "#a78bfa", color: actor.color ?? "#a78bfa" }}
+        >
+          {actor.kind}
+        </span>
+      </Row>
+
+      <div className="mat-editor" style={{ marginTop: 10 }}>
+        <h4>Pose &amp; size</h4>
+        <label style={{ display: "flex", flexDirection: "column", gap: 2, marginBottom: 6 }}>
+          Name
+          <input
+            type="text"
+            value={draft.name}
+            disabled={disabled}
+            onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+          />
+        </label>
+        <div className="field-grid">
+          {numInput("x", "X (m)")}
+          {numInput("y", "Y (m)")}
+          {numInput("z", "Z (m)")}
+          {numInput("yaw", "Yaw (°)", 5)}
+          {numInput("l", "Length (m)")}
+          {numInput("w", "Width (m)")}
+          {numInput("h", "Height (m)")}
+        </div>
+        <div className="editor-actions">
+          <button className="primary" onClick={applyPose} disabled={disabled}>
+            Apply
+          </button>
+          <button
+            className="on-reject"
+            onClick={() => void deleteActor(actor.id)}
+            disabled={disabled}
+            title="Delete this actor"
+          >
+            Delete
+          </button>
+          {err && <span className="field-error">{err}</span>}
+        </div>
+      </div>
+
+      <div style={{ marginTop: 12 }}>
+        <h4>RF material</h4>
+        <MaterialSelect
+          library={materials}
+          value={actor.rf_material_id}
+          placeholder="— assign material —"
+          disabled={disabled}
+          onSelect={(materialId) => void updateActor(actor.id, { rf_material_id: materialId })}
+        />
+      </div>
+
+      <div style={{ marginTop: 12 }}>
+        <h4>Attached devices</h4>
+        {devices.length === 0 ? (
+          <p className="hint">No devices in the scene.</p>
+        ) : (
+          <div className="actor-devices">
+            {devices.map((d) => (
+              <label key={d.id} className="solver-check">
+                <input
+                  type="checkbox"
+                  checked={actor.attached_device_ids.includes(d.id)}
+                  disabled={disabled}
+                  onChange={() => toggleDevice(d.id)}
+                />
+                <span className="device-icon" style={{ color: d.color }}>
+                  {d.kind === "tx" ? "▲" : "●"}
+                </span>
+                <span className="mono">{d.id}</span>
+              </label>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <ActorTrajectoryEditor actor={actor} />
+
+      <Row label="Color">
+        <Swatch color={actor.color ?? "#a78bfa"} />{" "}
+        <span className="mono">{actor.color ?? "—"}</span>
+      </Row>
+    </div>
+  );
+}
+
+/** Waypoint list editor with per-row XYZ, add/remove, dt_s and loop, plus a
+ *  "Record current pos" that appends the actor's current position. */
+function ActorTrajectoryEditor({ actor }: { actor: Actor }) {
+  const updateActor = useAppStore((s) => s.updateActor);
+  const busy = useAppStore((s) => s.busy);
+  const disabled = busy !== null;
+
+  const traj: ActorTrajectory = actor.trajectory ?? { waypoints: [], dt_s: 0.1, loop: false };
+  const enabled = actor.trajectory !== null;
+
+  const commit = (next: ActorTrajectory | null) => void updateActor(actor.id, { trajectory: next });
+
+  const setWaypoint = (i: number, axis: number, value: number) => {
+    const waypoints = traj.waypoints.map((wp, j) => {
+      if (j !== i) return wp;
+      const nwp: Vec3 = [...wp];
+      nwp[axis] = value;
+      return nwp;
+    });
+    commit({ ...traj, waypoints });
+  };
+
+  const addWaypoint = () => commit({ ...traj, waypoints: [...traj.waypoints, [...actor.position]] });
+  const removeWaypoint = (i: number) =>
+    commit({ ...traj, waypoints: traj.waypoints.filter((_, j) => j !== i) });
+  const recordCurrent = () =>
+    commit({ ...traj, waypoints: [...traj.waypoints, [...actor.position]] });
+
+  return (
+    <div style={{ marginTop: 12 }}>
+      <h4>Trajectory</h4>
+      <label className="solver-check" style={{ marginBottom: 6 }}>
+        <input
+          type="checkbox"
+          checked={enabled}
+          disabled={disabled}
+          onChange={(e) =>
+            commit(e.target.checked ? { waypoints: [[...actor.position]], dt_s: 0.1, loop: false } : null)
+          }
+        />
+        Define waypoints
+      </label>
+
+      {enabled && (
+        <>
+          <div className="actor-waypoints">
+            {traj.waypoints.length === 0 && <p className="hint">No waypoints yet.</p>}
+            {traj.waypoints.map((wp, i) => (
+              <div key={i} className="actor-waypoint-row">
+                <span className="mono actor-wp-idx">{i + 1}</span>
+                {[0, 1, 2].map((axis) => (
+                  <input
+                    key={axis}
+                    type="number"
+                    step={0.5}
+                    value={wp[axis]}
+                    disabled={disabled}
+                    onChange={(e) => setWaypoint(i, axis, Number(e.target.value))}
+                  />
+                ))}
+                <button
+                  className="tree-del"
+                  disabled={disabled}
+                  title="Remove waypoint"
+                  onClick={() => removeWaypoint(i)}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+          <div className="panel-actions">
+            <button disabled={disabled} onClick={addWaypoint}>
+              + Waypoint
+            </button>
+            <button disabled={disabled} onClick={recordCurrent} title="Append the actor's current position">
+              Record current pos
+            </button>
+          </div>
+          <label className="solver-field" style={{ marginTop: 6 }}>
+            <span className="solver-field-label">dt</span>
+            <span className="solver-field-input">
+              <input
+                type="number"
+                min={0.001}
+                step={0.05}
+                value={traj.dt_s}
+                disabled={disabled}
+                onChange={(e) => commit({ ...traj, dt_s: Math.max(0.001, Number(e.target.value)) })}
+              />
+              <span className="solver-unit">s</span>
+            </span>
+          </label>
+          <label className="solver-check" style={{ marginTop: 4 }}>
+            <input
+              type="checkbox"
+              checked={traj.loop}
+              disabled={disabled}
+              onChange={(e) => commit({ ...traj, loop: e.target.checked })}
+            />
+            Loop
+          </label>
+        </>
+      )}
+    </div>
+  );
+}
+
 function PrimCard({ prim }: { prim: Prim }) {
   const materials = useAppStore((s) => s.materials);
   const selection = useAppStore((s) => s.selection);
@@ -310,10 +617,16 @@ export default function InspectorPanel() {
   const scene = useAppStore((s) => s.scene);
   const selection = useAppStore((s) => s.selection);
   const selectedDeviceId = useAppStore((s) => s.selectedDeviceId);
+  const selectedActorId = useAppStore((s) => s.selectedActorId);
 
   if (selectedDeviceId) {
     const device = scene?.devices.find((d) => d.id === selectedDeviceId);
     if (device) return <DeviceCard device={device} />;
+  }
+
+  if (selectedActorId) {
+    const actor = scene?.actors.find((a) => a.id === selectedActorId);
+    if (actor) return <ActorCard actor={actor} />;
   }
 
   const primId = selection.length > 0 ? selection[selection.length - 1] : null;

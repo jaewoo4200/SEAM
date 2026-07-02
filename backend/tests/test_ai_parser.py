@@ -20,8 +20,10 @@ from app.schemas.scene import MeshRef, Prim, Scene, VisualBinding
 from app.services import ai_provider
 from app.services.ai_provider import (
     AIParseError,
+    LocalOpenAIProvider,
     OllamaTextProvider,
     RuleBasedProvider,
+    _extract_json_object,
     get_provider_statuses,
     parse_ai_response,
     suggest_materials,
@@ -245,6 +247,163 @@ def test_suggest_materials_defaults_to_unassigned_mesh_prims(scene, library):
     response = suggest_materials(scene, library, request)
     assert {s.prim_id for s in response.suggestions} == {WINDOW_ID, WALLS_ID, BLOB_ID}
     assert response.prompt_version == "v1"
+
+
+# ---------------------------------------------- reasoning-preamble extraction
+
+
+def test_extract_json_object_strips_reasoning_preamble():
+    text = (
+        "Let me think about this. The window is glass, so itu_glass fits.\n"
+        '{"suggestions": [{"prim_id": "x", "recommended_rf_material_id": "itu_glass"}]}'
+    )
+    block = _extract_json_object(text)
+    assert block is not None
+    assert json.loads(block)["suggestions"][0]["recommended_rf_material_id"] == "itu_glass"
+
+
+def test_extract_json_object_ignores_braces_in_strings():
+    # A brace inside a JSON string value must not confuse depth tracking.
+    text = 'prefix {"note": "a } brace", "n": 1} suffix'
+    block = _extract_json_object(text)
+    assert json.loads(block) == {"note": "a } brace", "n": 1}
+
+
+def test_extract_json_object_none_without_brace():
+    assert _extract_json_object("no json here at all") is None
+
+
+def test_parse_tolerates_reasoning_preamble(scene, library):
+    raw = (
+        "Reasoning: the prim name and texture both say glass, so I recommend "
+        "itu_glass with high confidence.\n\n"
+        + json.dumps(_valid_payload())
+    )
+    suggestions, warnings = parse_ai_response(raw, scene, library)
+    assert warnings == []
+    assert suggestions[0].recommended_rf_material_id == "itu_glass"
+
+
+# --------------------------------------------------------- local_openai (LM Studio)
+
+
+class _FakeResponse:
+    def __init__(self, payload: dict):
+        self._payload = payload
+
+    def raise_for_status(self):
+        return None
+
+    def json(self):
+        return self._payload
+
+
+def _openai_payload(content: str, reasoning: str = "") -> dict:
+    return {
+        "choices": [
+            {"message": {"content": content, "reasoning_content": reasoning}}
+        ]
+    }
+
+
+def test_local_openai_unavailable_when_probe_fails(monkeypatch):
+    def _raise(*args, **kwargs):
+        raise httpx.ConnectError("connection refused")
+
+    monkeypatch.setattr(httpx, "get", _raise)
+    assert LocalOpenAIProvider().is_available() is False
+
+
+def test_local_openai_available_when_probe_succeeds(monkeypatch):
+    monkeypatch.setattr(httpx, "get", lambda *a, **k: _FakeResponse({"data": []}))
+    # _FakeResponse.raise_for_status is a no-op, so the probe reads as reachable.
+    assert LocalOpenAIProvider().is_available() is True
+
+
+def test_local_openai_recommends_itu_glass_from_json_content(scene, library, monkeypatch):
+    payload = _openai_payload(json.dumps(_valid_payload()))
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: _FakeResponse(payload))
+    response = LocalOpenAIProvider().suggest(scene, library, [WINDOW_ID])
+    assert response.provider == "local_openai"
+    assert response.suggestions[0].recommended_rf_material_id == "itu_glass"
+
+
+def test_local_openai_extracts_json_after_reasoning_preamble(scene, library, monkeypatch):
+    content = (
+        "The prim is named window_12 and its visual material is blue_glass_pbr, "
+        "so glass is the right RF material.\n"
+        + json.dumps(_valid_payload())
+    )
+    monkeypatch.setattr(
+        httpx, "post", lambda *a, **k: _FakeResponse(_openai_payload(content))
+    )
+    response = LocalOpenAIProvider().suggest(scene, library, [WINDOW_ID])
+    assert response.provider == "local_openai"
+    assert response.suggestions[0].recommended_rf_material_id == "itu_glass"
+
+
+def test_local_openai_reads_reasoning_content_when_content_empty(scene, library, monkeypatch):
+    # Some reasoning servers put the whole answer (JSON included) in
+    # reasoning_content and leave content empty.
+    payload = _openai_payload("", reasoning=json.dumps(_valid_payload()))
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: _FakeResponse(payload))
+    response = LocalOpenAIProvider().suggest(scene, library, [WINDOW_ID])
+    assert response.provider == "local_openai"
+    assert response.suggestions[0].recommended_rf_material_id == "itu_glass"
+
+
+def test_local_openai_garbage_falls_back_to_rules(scene, library, monkeypatch):
+    payload = _openai_payload("I cannot help with that request, sorry.")
+    monkeypatch.setattr(httpx, "post", lambda *a, **k: _FakeResponse(payload))
+    response = LocalOpenAIProvider().suggest(scene, library, [WINDOW_ID])
+    assert response.provider == "rule_based"
+    assert response.warnings[0].startswith("local_openai failed:")
+    assert "fell back to rule_based" in response.warnings[0]
+    assert response.suggestions[0].recommended_rf_material_id == "itu_glass"
+
+
+def test_local_openai_connect_error_falls_back_to_rules(scene, library, monkeypatch):
+    def _raise(*args, **kwargs):
+        raise httpx.ConnectError("connection refused")
+
+    monkeypatch.setattr(httpx, "post", _raise)
+    response = LocalOpenAIProvider().suggest(scene, library, [WINDOW_ID])
+    assert response.provider == "rule_based"
+    assert response.warnings[0].startswith("local_openai failed:")
+
+
+def test_get_provider_statuses_includes_local_openai(monkeypatch):
+    monkeypatch.setenv("SIONNATWIN_OPENAI_URL", "http://127.0.0.1:9/v1")
+    monkeypatch.setenv("SIONNATWIN_OPENAI_MODEL", "google/gemma-4-31b")
+    get_settings.cache_clear()
+
+    def _raise(*args, **kwargs):
+        raise httpx.ConnectError("connection refused")
+
+    monkeypatch.setattr(httpx, "get", _raise)
+    by_name = {s.name: s for s in get_provider_statuses()}
+    assert "local_openai" in by_name
+    assert by_name["local_openai"].available is False
+    assert by_name["local_openai"].model == "google/gemma-4-31b"
+    assert "google/gemma-4-31b" in by_name["local_openai"].detail
+
+
+def test_local_openai_prefers_when_available(scene, library, monkeypatch):
+    # With the OpenAI probe up and Ollama down, the default chain must pick
+    # local_openai over ollama_text.
+    def _get(url, *args, **kwargs):
+        if "/models" in url:
+            return _FakeResponse({"data": []})  # OpenAI probe up
+        raise httpx.ConnectError("ollama down")  # Ollama /api/tags down
+
+    monkeypatch.setattr(httpx, "get", _get)
+    monkeypatch.setattr(
+        httpx, "post",
+        lambda *a, **k: _FakeResponse(_openai_payload(json.dumps(_valid_payload()))),
+    )
+    request = SuggestMaterialsRequest(prim_ids=[WINDOW_ID])
+    response = suggest_materials(scene, library, request)
+    assert response.provider == "local_openai"
 
 
 # ------------------------------------------------------------------- API

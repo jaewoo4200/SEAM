@@ -105,6 +105,10 @@ export default function SceneTree() {
   const addDevice = useAppStore((s) => s.addDevice);
   const deleteDevice = useAppStore((s) => s.deleteDevice);
   const clearDevices = useAppStore((s) => s.clearDevices);
+  const selectedActorId = useAppStore((s) => s.selectedActorId);
+  const selectActor = useAppStore((s) => s.selectActor);
+  const addActor = useAppStore((s) => s.addActor);
+  const deleteActor = useAppStore((s) => s.deleteActor);
   const busy = useAppStore((s) => s.busy);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
@@ -176,6 +180,52 @@ export default function SceneTree() {
             onClick={(e) => {
               e.stopPropagation();
               void deleteDevice(d.id);
+            }}
+          >
+            ×
+          </button>
+        </div>
+      ))}
+
+      <div className="tree-section tree-section-head" style={{ marginTop: 14 }}>
+        <span>Actors</span>
+        <span className="tree-head-actions">
+          <button disabled={busy !== null} onClick={() => void addActor("car")} title="Add car">
+            +Car
+          </button>
+          <button disabled={busy !== null} onClick={() => void addActor("human")} title="Add human">
+            +Human
+          </button>
+          <button
+            disabled={busy !== null}
+            onClick={() => void addActor("custom")}
+            title="Add custom scatterer"
+          >
+            +Custom
+          </button>
+        </span>
+      </div>
+      {scene.actors.length === 0 && <div className="empty-state">No actors</div>}
+      {scene.actors.map((a) => (
+        <div
+          key={a.id}
+          className={"tree-row" + (selectedActorId === a.id ? " selected" : "")}
+          style={{ paddingLeft: 22 }}
+          onClick={() => selectActor(a.id)}
+          title={`${a.kind} · ${a.id}`}
+        >
+          <span className="device-icon" style={{ color: a.color ?? "#a78bfa" }}>
+            {a.kind === "car" ? "▬" : a.kind === "human" ? "☖" : "◆"}
+          </span>
+          <span className="tree-name">{a.id}</span>
+          {a.name && <span className="tree-mat">{a.name}</span>}
+          <button
+            className="tree-del"
+            disabled={busy !== null}
+            title={`Delete ${a.id}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              void deleteActor(a.id);
             }}
           >
             ×

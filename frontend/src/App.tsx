@@ -1,5 +1,7 @@
 import { useEffect } from "react";
 import { useAppStore } from "./store/appStore";
+import { usePanelSize } from "./usePanelSize";
+import type { PanelSide } from "./usePanelSize";
 import Toolbar from "./components/Toolbar";
 import SceneTree from "./components/SceneTree";
 import Viewer3D from "./components/Viewer3D";
@@ -23,6 +25,8 @@ export default function App() {
   const notice = useAppStore((s) => s.notice);
   const dismissError = useAppStore((s) => s.dismissError);
   const dismissNotice = useAppStore((s) => s.dismissNotice);
+
+  const panel = usePanelSize();
 
   useEffect(() => {
     if (!booted) {
@@ -64,13 +68,30 @@ export default function App() {
     <div className="app">
       <Toolbar />
       {projectId ? (
-        <div className="app-body">
+        <div
+          className="app-body"
+          style={{
+            gridTemplateColumns: `${panel.left}px 4px 1fr 4px ${panel.right}px`,
+          }}
+        >
           <aside className="sidebar left">
             <SceneTree />
           </aside>
+          <PanelHandle
+            side="left"
+            active={panel.dragging === "left"}
+            onStart={panel.startDrag}
+            onReset={panel.reset}
+          />
           <main className="viewer-wrap">
             <Viewer3D />
           </main>
+          <PanelHandle
+            side="right"
+            active={panel.dragging === "right"}
+            onStart={panel.startDrag}
+            onReset={panel.reset}
+          />
           <aside className="sidebar right">{rightPanel}</aside>
         </div>
       ) : (
@@ -100,5 +121,30 @@ export default function App() {
         </div>
       )}
     </div>
+  );
+}
+
+/** Thin draggable strip between a sidebar and the canvas. Drag resizes the
+ *  panel; double-click resets it to the default width. */
+function PanelHandle({
+  side,
+  active,
+  onStart,
+  onReset,
+}: {
+  side: PanelSide;
+  active: boolean;
+  onStart: (side: PanelSide, e: React.PointerEvent) => void;
+  onReset: (side: PanelSide) => void;
+}) {
+  return (
+    <div
+      className={"panel-handle" + (active ? " active" : "")}
+      role="separator"
+      aria-orientation="vertical"
+      title="Drag to resize · double-click to reset"
+      onPointerDown={(e) => onStart(side, e)}
+      onDoubleClick={() => onReset(side)}
+    />
   );
 }

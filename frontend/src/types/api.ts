@@ -122,21 +122,52 @@ export interface SimulationConfig {
 
 export interface ResultSetRef {
   result_id: string;
-  kind: "paths" | "radio_map" | "trajectory";
+  kind: "paths" | "radio_map" | "trajectory" | "scenario";
   backend: string;
   simulation_config_id: string;
   uri: string;
   created_at: string | null;
 }
 
+export type ActorKind = "car" | "human" | "custom";
+
+export interface ActorShape {
+  type: "box" | "mesh";
+  size_m: Vec3;
+  mesh_ref: MeshRef | null;
+}
+
+export interface ActorTrajectory {
+  waypoints: Vec3[];
+  dt_s: number;
+  loop: boolean;
+}
+
+export interface Actor {
+  id: string;
+  name: string;
+  kind: ActorKind;
+  shape: ActorShape;
+  rf_material_id: string | null;
+  position: Vec3;
+  orientation_deg: Vec3;
+  trajectory: ActorTrajectory | null;
+  attached_device_ids: string[];
+  color: string | null;
+}
+
+export type Environment = "auto" | "indoor" | "outdoor";
+
 export interface Scene {
   schema_version: string;
   scene_id: string;
   name: string;
+  environment: Environment;
   coordinate_system: CoordinateSystem;
   assets: SceneAssets;
   prims: Prim[];
   devices: Device[];
+  actors: Actor[];
   simulation_configs: SimulationConfig[];
   result_sets: ResultSetRef[];
 }
@@ -342,6 +373,132 @@ export interface RFDataExportSummary {
   has_paths: boolean;
   has_radio_map: boolean;
   has_trajectory: boolean;
+}
+
+// ------------------------------------------------------- scenario / live
+
+export interface ActorState {
+  id: string;
+  position: Vec3;
+  orientation_deg: Vec3;
+}
+
+export interface DeviceState {
+  id: string;
+  position: Vec3;
+}
+
+export interface LinkMetrics {
+  tx_id: string;
+  rx_id: string;
+  rss_dbm: number | null;
+  path_gain_db: number | null;
+  sinr_db: number | null;
+  rms_delay_spread_ns: number | null;
+  path_count: number;
+}
+
+export interface ScenarioFrame {
+  time_s: number;
+  actor_states: ActorState[];
+  device_states: DeviceState[];
+  links: LinkMetrics[];
+  paths: RayPath[] | null;
+}
+
+export interface ScenarioResultSet {
+  result_id: string;
+  kind: "scenario";
+  backend: string;
+  simulation_config_id: string;
+  created_at: string | null;
+  frames: ScenarioFrame[];
+  warnings: string[];
+  metadata: Record<string, unknown>;
+}
+
+export interface ScenarioSimulateRequest {
+  config_id?: string | null;
+  config?: SimulationConfig | null;
+  num_frames?: number;
+  dt_s?: number;
+  include_paths?: boolean;
+}
+
+export interface LiveStateUpdate {
+  timestamp?: string | null;
+  devices?: DeviceState[];
+  actors?: ActorState[];
+  resimulate?: boolean;
+  persist?: boolean;
+}
+
+export interface LiveStateResponse {
+  applied_devices: string[];
+  applied_actors: string[];
+  unknown_ids: string[];
+  links: LinkMetrics[];
+  warnings: string[];
+}
+
+// --------------------------------------------------------------- channel
+
+export type PathLossModelName =
+  | "fspl"
+  | "tr38901_uma_los"
+  | "tr38901_uma_nlos"
+  | "tr38901_umi_los"
+  | "tr38901_umi_nlos"
+  | "tr38901_inh_los"
+  | "tr38901_inh_nlos"
+  | "ci_n2"
+  | "ci_n3";
+
+export interface CirTap {
+  delay_ns: number;
+  power_dbm: number;
+  phase_rad: number;
+  path_type: string;
+}
+
+export interface PathLossModelResult {
+  model: PathLossModelName;
+  path_loss_db: number | null;
+  delta_vs_rt_db: number | null;
+  valid: boolean;
+  notes: string;
+}
+
+export interface ChannelAnalysisRequest {
+  config_id?: string | null;
+  config?: SimulationConfig | null;
+  tx_id?: string | null;
+  rx_id?: string | null;
+  num_cfr_points?: number;
+}
+
+export interface ChannelAnalysisResult {
+  tx_id: string;
+  rx_id: string;
+  backend: string;
+  frequency_hz: number;
+  bandwidth_hz: number;
+  distance_3d_m: number;
+  rss_dbm: number | null;
+  rt_path_loss_db: number | null;
+  snr_db: number | null;
+  shannon_capacity_mbps: number | null;
+  num_paths: number;
+  k_factor_db: number | null;
+  mean_delay_ns: number | null;
+  rms_delay_spread_ns: number | null;
+  coherence_bandwidth_mhz: number | null;
+  cir: CirTap[];
+  cfr_freq_offset_hz: number[];
+  cfr_mag_db: number[];
+  pl_models: PathLossModelResult[];
+  warnings: string[];
+  metadata: Record<string, unknown>;
 }
 
 export interface BeamformingRequest {

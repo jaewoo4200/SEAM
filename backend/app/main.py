@@ -10,11 +10,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api import (
     ai,
     calibrate,
+    channel,
     compile as compile_api,
     export,
     health,
     materials,
     projects,
+    scenario,
     scene,
     simulate,
 )
@@ -41,7 +43,8 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     for module in (
-        health, projects, scene, materials, ai, compile_api, simulate, export, calibrate
+        health, projects, scene, materials, ai, compile_api, simulate, export,
+        calibrate, channel, scenario,
     ):
         app.include_router(module.router, prefix="/api")
     return app

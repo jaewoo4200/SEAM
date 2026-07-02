@@ -16,16 +16,18 @@ compile never crashes because the visual projection is incomplete.
 """
 
 import json
+import math
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Optional
 
+import numpy as np
 import trimesh
 
 from app.schemas.common import SCHEMA_VERSION
 from app.schemas.compile import CompileResult, MaterialGroup
 from app.schemas.materials import RFMaterial, RFMaterialLibrary
-from app.schemas.scene import Prim, Scene
+from app.schemas.scene import Actor, Prim, Scene
 from app.schemas.validation import ValidationReport
 from app.services import mesh_tools
 
@@ -55,12 +57,18 @@ def compile_project(
 
     generated: list[str] = []
     material_groups = _export_group_meshes(project_dir, grouped, generated)
-    _write_bytes(project_dir / SCENE_XML_REL, _mitsuba_xml(material_groups, library))
+    # Actors are compiled as individual shapes (never merged into a material
+    # group) so the backend can move each one per frame and re-solve.
+    actor_exports = _export_actor_meshes(project_dir, scene, library, warnings, generated)
+    _write_bytes(
+        project_dir / SCENE_XML_REL,
+        _mitsuba_xml(material_groups, actor_exports, library),
+    )
     generated.append(SCENE_XML_REL)
 
     _write_json(
         project_dir / MANIFEST_REL,
-        _manifest(scene, library, material_groups, skipped, warnings),
+        _manifest(scene, library, material_groups, actor_exports, skipped, warnings),
     )
     generated.append(MANIFEST_REL)
 
@@ -218,10 +226,116 @@ def _export_group_meshes(
         )
 
     # Remove meshes from previous compiles that no longer map to a group.
+    # Actor meshes (actor_*.ply) are handled by _export_actor_meshes and must
+    # not be pruned here.
     for stale in sorted(mesh_dir.glob("*.ply")):
+        if stale.name.startswith("actor_"):
+            continue
         if stale.name not in current_files:
             stale.unlink()
     return material_groups
+
+
+# --------------------------------------------------------------- actor export
+
+
+class ActorExport:
+    """One compiled actor: its own mesh, shape id, and material binding.
+
+    Kept out of the material groups so the shape stays individually
+    addressable (position/orientation settable per frame) in Sionna RT.
+    """
+
+    __slots__ = ("actor_id", "mesh_file", "rf_material_id")
+
+    def __init__(self, actor_id: str, mesh_file: str, rf_material_id: str):
+        self.actor_id = actor_id
+        self.mesh_file = mesh_file
+        self.rf_material_id = rf_material_id
+
+
+def _actor_box_mesh(actor: Actor) -> trimesh.Trimesh:
+    """Box actor baked at its authored pose: a box of ``size_m`` whose base
+    sits at ``actor.position`` (position is the ground-contact base center, so
+    the mesh centroid is lifted by height/2), rotated by the actor's yaw."""
+    length, width, height = (float(v) for v in actor.shape.size_m)
+    mesh = trimesh.creation.box(extents=[length, width, height])
+    yaw_rad = math.radians(float(actor.orientation_deg[2]))
+    if yaw_rad:
+        rot = trimesh.transformations.rotation_matrix(yaw_rad, [0.0, 0.0, 1.0])
+        mesh.apply_transform(rot)
+    px, py, pz = (float(v) for v in actor.position)
+    # position is the base-center: lift the origin-centered box by height/2.
+    mesh.apply_translation([px, py, pz + height / 2.0])
+    return mesh
+
+
+def _actor_mesh(
+    project_dir: Path, actor: Actor, warnings: list[str]
+) -> Optional[trimesh.Trimesh]:
+    """Build an actor's world-space RF mesh: a primitive box, or a named mesh
+    extracted from the visual asset (same machinery as prims)."""
+    if actor.shape.type == "mesh" and actor.shape.mesh_ref is not None:
+        tm_scene = mesh_tools.load_visual_scene(
+            project_dir, actor.shape.mesh_ref.asset_uri
+        )
+        if tm_scene is None:
+            warnings.append(
+                f"actor {actor.id} visual asset "
+                f"{actor.shape.mesh_ref.asset_uri!r} missing; skipped"
+            )
+            return None
+        mesh = mesh_tools.extract_prim_mesh(tm_scene, actor.shape.mesh_ref)
+        if mesh is None:
+            warnings.append(
+                f"actor {actor.id} mesh {actor.shape.mesh_ref.mesh_name!r} not "
+                f"found in {actor.shape.mesh_ref.asset_uri}; skipped"
+            )
+            return None
+        return mesh
+    return _actor_box_mesh(actor)
+
+
+def _export_actor_meshes(
+    project_dir: Path,
+    scene: Scene,
+    library: RFMaterialLibrary,
+    warnings: list[str],
+    generated: list[str],
+) -> list[ActorExport]:
+    """Export each actor as its own PLY + return the shape bindings.
+
+    Deterministic: actors are processed sorted by id. Actors with an unknown
+    RF material are skipped with a warning (the validator also flags this as an
+    UNKNOWN_RF_MATERIAL error, so a validated compile never reaches here)."""
+    mesh_dir = project_dir / MESH_DIR_REL
+    exports: list[ActorExport] = []
+    current_files: set[str] = set()
+    for actor in sorted(scene.actors, key=lambda a: a.id):
+        mat_id = actor.rf_material_id
+        if mat_id is None or library.get(mat_id) is None:
+            warnings.append(
+                f"actor {actor.id} references unknown RF material {mat_id!r}; skipped"
+            )
+            continue
+        mesh = _actor_mesh(project_dir, actor, warnings)
+        if mesh is None:
+            continue
+        mesh_dir.mkdir(parents=True, exist_ok=True)
+        # Pure geometry (drop visual attributes) like the group meshes.
+        mesh.visual = trimesh.visual.ColorVisuals(mesh=mesh)
+        filename = f"actor_{actor.id}.ply"
+        rel = f"{MESH_DIR_REL}/{filename}"
+        (mesh_dir / filename).write_bytes(mesh.export(file_type="ply"))
+        current_files.add(filename)
+        generated.append(rel)
+        exports.append(ActorExport(actor.id, rel, mat_id))
+
+    # Prune stale actor meshes from previous compiles.
+    for stale in sorted(mesh_dir.glob("actor_*.ply")):
+        if stale.name not in current_files:
+            stale.unlink()
+    return exports
 
 
 # --------------------------------------------------------------- XML output
@@ -284,21 +398,34 @@ def _emit_bsdf(root: ET.Element, bsdf_id: str, material: Optional[RFMaterial]) -
             ET.SubElement(bsdf, "float", {"name": name, "value": f"{value:g}"})
 
 
-def _mitsuba_xml(material_groups: list[MaterialGroup], library: RFMaterialLibrary) -> bytes:
+def _mitsuba_xml(
+    material_groups: list[MaterialGroup],
+    actor_exports: list["ActorExport"],
+    library: RFMaterialLibrary,
+) -> bytes:
     """Mitsuba 3 scene XML for Sionna RT.
 
     bsdfs are deduplicated by id: two library materials mapping to the same
-    ITU built-in share one bsdf.
+    ITU built-in share one bsdf. Actor shapes reference the same material
+    bsdfs as static geometry (same _bsdf_id machinery) but are emitted as
+    separate shapes so the backend can move them per frame.
     """
     root = ET.Element("scene", {"version": "2.1.0"})
     emitted: set[str] = set()
-    for group in material_groups:
-        material = library.get(group.rf_material_id)
-        bsdf_id = _bsdf_id(material, group.rf_material_id)
+
+    def emit_bsdf_for(material_id: str) -> None:
+        material = library.get(material_id)
+        bsdf_id = _bsdf_id(material, material_id)
         if bsdf_id in emitted:
-            continue
+            return
         emitted.add(bsdf_id)
         _emit_bsdf(root, bsdf_id, material)
+
+    for group in material_groups:
+        emit_bsdf_for(group.rf_material_id)
+    for actor in actor_exports:
+        emit_bsdf_for(actor.rf_material_id)
+
     for group in material_groups:
         material = library.get(group.rf_material_id)
         shape = ET.SubElement(
@@ -311,6 +438,22 @@ def _mitsuba_xml(material_groups: list[MaterialGroup], library: RFMaterialLibrar
         )
         ET.SubElement(
             shape, "ref", {"id": _bsdf_id(material, group.rf_material_id), "name": "bsdf"}
+        )
+        ET.SubElement(shape, "boolean", {"name": "face_normals", "value": "true"})
+
+    for actor in actor_exports:
+        material = library.get(actor.rf_material_id)
+        shape = ET.SubElement(
+            root, "shape", {"type": "ply", "id": f"shape-actor-{actor.actor_id}"}
+        )
+        # mesh_file is "rf/meshes/actor_<id>.ply"; XML filenames are relative
+        # to the XML (which lives in rf/), so strip the leading "rf/".
+        filename = actor.mesh_file
+        if filename.startswith("rf/"):
+            filename = filename[len("rf/"):]
+        ET.SubElement(shape, "string", {"name": "filename", "value": filename})
+        ET.SubElement(
+            shape, "ref", {"id": _bsdf_id(material, actor.rf_material_id), "name": "bsdf"}
         )
         ET.SubElement(shape, "boolean", {"name": "face_normals", "value": "true"})
     ET.indent(root, space="    ")
@@ -336,6 +479,7 @@ def _manifest(
     scene: Scene,
     library: RFMaterialLibrary,
     material_groups: list[MaterialGroup],
+    actor_exports: list["ActorExport"],
     skipped: list[str],
     warnings: list[str],
 ) -> dict:
@@ -354,10 +498,26 @@ def _manifest(
                 "custom_material": _custom_material(material),
             }
         )
+    # Actors: individual shapes the backend moves per frame. Also carry any
+    # actor material's constant parameters so _apply_custom_materials can
+    # re-sync them (their bsdf may be shared with a static group or unique).
+    actors = []
+    for actor in actor_exports:
+        material = library.get(actor.rf_material_id)
+        actors.append(
+            {
+                "actor_id": actor.actor_id,
+                "mesh_file": actor.mesh_file,
+                "rf_material_id": actor.rf_material_id,
+                "itu_name": material.itu_name if material else None,
+                "custom_material": _custom_material(material),
+            }
+        )
     return {
         "schema_version": SCHEMA_VERSION,
         "scene_id": scene.scene_id,
         "groups": groups,
+        "actors": actors,
         "skipped_prim_ids": skipped,
         "warnings": warnings,
     }

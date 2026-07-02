@@ -1,12 +1,22 @@
 import { create } from "zustand";
 import { api, ApiError } from "../api/client";
 import { defaultSimConfig, normalizeConfig } from "../simConfig";
+import {
+  ENV_RADIOMAP_DEPTH,
+  presetForEnvironment,
+  resolveEnvironment,
+} from "../envPresets";
+import type { ResolvedEnvironment } from "../envPresets";
 import type {
+  Actor,
+  ActorKind,
   AIProviderStatus,
   AssignRequest,
   BeamformingResult,
+  ChannelAnalysisResult,
   CompileResult,
   Device,
+  Environment,
   HealthResponse,
   MaterialSuggestionResponse,
   PathResultSet,
@@ -15,6 +25,7 @@ import type {
   RadioMapResultSet,
   RFMaterial,
   RFMaterialLibrary,
+  ScenarioResultSet,
   Scene,
   SimulationConfig,
   SuggestionDecision,
@@ -22,6 +33,7 @@ import type {
   ValidationReport,
   Vec3,
 } from "../types/api";
+import { ACTOR_DEFAULTS } from "../actorDefaults";
 
 export type Mode = "visual" | "rf" | "validation" | "ai" | "results";
 
@@ -37,12 +49,16 @@ interface AppState {
   projects: ProjectInfo[];
   projectId: string | null;
   scene: Scene | null;
+  /** scene.environment resolved to a concrete indoor/outdoor (auto → inferred).
+   *  Exposed so Viewer3D can pick a camera/marker scale without re-inferring. */
+  resolvedEnvironment: ResolvedEnvironment;
   materials: RFMaterialLibrary | null;
   health: HealthResponse | null;
   aiStatuses: AIProviderStatus[];
   mode: Mode;
   selection: string[];
   selectedDeviceId: string | null;
+  selectedActorId: string | null;
   validation: ValidationReport | null;
   compileResult: CompileResult | null;
   suggestions: MaterialSuggestionResponse | null;
@@ -80,6 +96,24 @@ interface AppState {
   trajPlaying: boolean;
   trajSpeed: number;
 
+  // --- scenario playback (V2X) ---
+  scenario: ScenarioResultSet | null;
+  scenarioFrame: number;
+  scenarioPlaying: boolean;
+  scenarioSpeed: number;
+
+  // --- channel analysis ---
+  channelResult: ChannelAnalysisResult | null;
+
+  // --- live sync + AI screenshot groundwork ---
+  liveMode: boolean;
+  /** Latest viewport JPEG data URL (captured on demand from Viewer3D). Kept in
+   *  the store as VLM groundwork; not yet wired to a request (contract gap). */
+  lastViewportShot: string | null;
+  /** When ON, the AI suggest-materials request *would* attach the viewport;
+   *  currently blocked by the StrictModel contract (see reported gap). */
+  sendScreenshot: boolean;
+
   busy: string | null;
   error: string | null;
   notice: string | null;
@@ -107,6 +141,9 @@ interface AppState {
   setDecision: (primId: string, decision: SuggestionDecision | null) => void;
   applyDecisions: () => Promise<void>;
 
+  // environment mode (Toolbar Environment select)
+  setEnvironment: (environment: Environment) => Promise<void>;
+
   // solver config
   setPathsConfig: (patch: Partial<SimulationConfig>) => void;
   setRadioMapConfig: (patch: Partial<SimulationConfig>) => void;
@@ -121,6 +158,12 @@ interface AppState {
   addDevice: (kind: "tx" | "rx") => Promise<void>;
   deleteDevice: (deviceId: string) => Promise<void>;
   clearDevices: () => Promise<void>;
+
+  // actor editing
+  addActor: (kind: ActorKind) => Promise<void>;
+  updateActor: (actorId: string, patch: Partial<Actor>) => Promise<void>;
+  deleteActor: (actorId: string) => Promise<void>;
+  selectActor: (actorId: string) => void;
 
   // viewer filters
   setPathTypeFilter: (f: PathType | "all") => void;
@@ -140,6 +183,27 @@ interface AppState {
   setTrajFrame: (frame: number) => void;
   setTrajPlaying: (playing: boolean) => void;
   setTrajSpeed: (speed: number) => void;
+
+  // scenario playback
+  simulateScenario: (params: {
+    num_frames: number;
+    dt_s: number;
+    include_paths: boolean;
+  }) => Promise<void>;
+  setScenarioFrame: (frame: number) => void;
+  setScenarioPlaying: (playing: boolean) => void;
+  setScenarioSpeed: (speed: number) => void;
+
+  // channel analysis
+  analyzeChannel: (txId: string, rxId: string) => Promise<void>;
+  clearChannel: () => void;
+
+  // live sync + AI screenshot groundwork
+  setLiveMode: (on: boolean) => void;
+  setSendScreenshot: (on: boolean) => void;
+  /** Viewer3D registers a canvas snapshot fn here; store calls it on demand. */
+  registerViewportCapture: (fn: (() => string | null) | null) => void;
+  captureViewport: () => string | null;
 
   dismissError: () => void;
   dismissNotice: () => void;
@@ -172,10 +236,27 @@ export const useAppStore = create<AppState>()((set, get) => {
     }
   }
 
+  /** Defensive: older/deployed backends may omit `actors` (and, in principle,
+   *  devices/prims) or send `environment: null` from GET/PUT scene even though
+   *  the pinned type marks them present. Coalesce the list fields to [] and a
+   *  null environment to "auto" so every consumer can safely map over them and
+   *  resolveEnvironment never yields undefined. Idempotent and cheap. */
+  function normalizeScene(scene: Scene): Scene {
+    const env = (scene.environment ?? "auto") as Environment;
+    if (scene.actors && scene.devices && scene.prims && scene.environment) return scene;
+    return {
+      ...scene,
+      environment: env,
+      prims: scene.prims ?? [],
+      devices: scene.devices ?? [],
+      actors: scene.actors ?? [],
+    };
+  }
+
   async function refetchSceneInner(): Promise<void> {
     const pid = get().projectId;
     if (!pid) return;
-    set({ scene: await api.getScene(pid) });
+    set({ scene: normalizeScene(await api.getScene(pid)) });
   }
 
   /** Beamforming is only valid for the current geometry/materials; any scene
@@ -216,10 +297,12 @@ export const useAppStore = create<AppState>()((set, get) => {
     }
   }
 
-  /** After a device/material edit: invalidate beamforming and fire any auto
+  /** After a device/material edit: invalidate beamforming, keep the auto-inferred
+   *  environment fresh (device spread may have changed), and fire any auto
    *  recomputes that are enabled. */
   function afterSceneEdit(): void {
     invalidateBeamforming();
+    refreshResolvedEnv();
     scheduleAuto("paths");
     scheduleAuto("radioMap");
   }
@@ -228,8 +311,35 @@ export const useAppStore = create<AppState>()((set, get) => {
   async function putSceneAndRefresh(scene: Scene): Promise<void> {
     const pid = get().projectId;
     if (!pid) return;
-    set({ scene: await api.putScene(pid, scene) });
+    set({ scene: normalizeScene(await api.putScene(pid, scene)) });
     await revalidateIfOpen();
+  }
+
+  /** Recompute resolvedEnvironment from the current scene (cheap; call after
+   *  scene loads or the environment changes). */
+  function refreshResolvedEnv(): void {
+    const scene = get().scene;
+    if (!scene) return;
+    set({ resolvedEnvironment: resolveEnvironment(scene.environment, scene) });
+  }
+
+  /** Apply an environment preset onto the two solver configs. Session-only:
+   *  this patches pathsConfig/radioMapConfig in the store, it does NOT persist
+   *  a project default (the user still Saves that explicitly). */
+  function applyEnvPreset(environment: Environment): void {
+    const scene = get().scene;
+    const resolved: ResolvedEnvironment = resolveEnvironment(environment, scene);
+    const preset = presetForEnvironment(environment, scene);
+    const { pathsConfig, radioMapConfig } = get();
+    set({
+      pathsConfig: { ...pathsConfig, ...preset.paths },
+      radioMapConfig: {
+        ...radioMapConfig,
+        ...preset.paths,
+        max_depth: ENV_RADIOMAP_DEPTH[resolved],
+        radio_map: { ...radioMapConfig.radio_map, ...preset.radioMap },
+      },
+    });
   }
 
   /** Next free zero-padded device id for a kind, e.g. tx_003 / rx_001. */
@@ -242,16 +352,96 @@ export const useAppStore = create<AppState>()((set, get) => {
     return `${kind}_${Date.now()}`;
   }
 
+  /** Next free actor id for a kind: car_001 / human_001 / obj_001 (custom). */
+  function nextActorId(kind: ActorKind): string {
+    const prefix = kind === "car" ? "car" : kind === "human" ? "human" : "obj";
+    const ids = new Set((get().scene?.actors ?? []).map((a) => a.id));
+    for (let n = 1; n < 1000; n++) {
+      const id = `${prefix}_${String(n).padStart(3, "0")}`;
+      if (!ids.has(id)) return id;
+    }
+    return `${prefix}_${Date.now()}`;
+  }
+
+  /** Scene center from device + prim extents; a new actor drops here. */
+  function sceneCenter(): Vec3 {
+    const scene = get().scene;
+    const pts: Vec3[] = [];
+    for (const d of scene?.devices ?? []) pts.push(d.position);
+    for (const p of scene?.prims ?? []) {
+      if (p.type === "mesh_primitive") pts.push(p.transform.translation);
+    }
+    if (pts.length === 0) return [0, 0, 0];
+    const c: Vec3 = [0, 0, 0];
+    for (const p of pts) {
+      c[0] += p[0];
+      c[1] += p[1];
+      c[2] += p[2];
+    }
+    // Actors sit on the ground plane (z = base contact), so drop z to 0.
+    return [c[0] / pts.length, c[1] / pts.length, 0];
+  }
+
+  // --- live sync: poll GET /scene every 2s, refresh device/actor positions ---
+  let liveTimer: ReturnType<typeof setInterval> | null = null;
+
+  function stopLivePoll(): void {
+    if (liveTimer) {
+      clearInterval(liveTimer);
+      liveTimer = null;
+    }
+  }
+
+  function startLivePoll(): void {
+    stopLivePoll();
+    liveTimer = setInterval(() => {
+      const { projectId, liveMode } = get();
+      if (!projectId || !liveMode) {
+        stopLivePoll();
+        return;
+      }
+      // Silent refresh (no busy spinner): pull the latest scene and merge only
+      // device/actor positions so an in-flight edit form is not clobbered.
+      void api
+        .getScene(projectId)
+        .then((raw) => {
+          const fresh = normalizeScene(raw);
+          const cur = get().scene;
+          if (!cur || !get().liveMode) return;
+          const devPos = new Map(fresh.devices.map((d) => [d.id, d.position]));
+          const actPos = new Map(
+            fresh.actors.map((a) => [a.id, { position: a.position, orientation_deg: a.orientation_deg }]),
+          );
+          const devices = cur.devices.map((d) =>
+            devPos.has(d.id) ? { ...d, position: devPos.get(d.id)! } : d,
+          );
+          const actors = cur.actors.map((a) => {
+            const p = actPos.get(a.id);
+            return p ? { ...a, position: p.position, orientation_deg: p.orientation_deg } : a;
+          });
+          set({ scene: { ...cur, devices, actors } });
+        })
+        .catch(() => {
+          // transient poll failure: keep the last good scene, try again next tick
+        });
+    }, 2000);
+  }
+
+  // Viewport screenshot capture fn, registered by Viewer3D (VLM groundwork).
+  let viewportCapture: (() => string | null) | null = null;
+
   return {
     projects: [],
     projectId: null,
     scene: null,
+    resolvedEnvironment: "outdoor",
     materials: null,
     health: null,
     aiStatuses: [],
     mode: "visual",
     selection: [],
     selectedDeviceId: null,
+    selectedActorId: null,
     validation: null,
     compileResult: null,
     suggestions: null,
@@ -284,6 +474,17 @@ export const useAppStore = create<AppState>()((set, get) => {
     trajPlaying: false,
     trajSpeed: 1,
 
+    scenario: null,
+    scenarioFrame: 0,
+    scenarioPlaying: false,
+    scenarioSpeed: 1,
+
+    channelResult: null,
+
+    liveMode: false,
+    lastViewportShot: null,
+    sendScreenshot: false,
+
     busy: null,
     error: null,
     notice: null,
@@ -302,10 +503,11 @@ export const useAppStore = create<AppState>()((set, get) => {
 
     openProject: async (projectId) => {
       await run(`Opening ${projectId}…`, async () => {
-        const [scene, materials] = await Promise.all([
+        const [rawScene, materials] = await Promise.all([
           api.getScene(projectId),
           api.getMaterials(projectId),
         ]);
+        const scene = normalizeScene(rawScene);
         // Seed both solver panels from the project's stored default config,
         // filling any missing (older-scene) fields with backend defaults.
         const stored = scene.simulation_configs[0];
@@ -313,9 +515,11 @@ export const useAppStore = create<AppState>()((set, get) => {
         set({
           projectId,
           scene,
+          resolvedEnvironment: resolveEnvironment(scene.environment, scene),
           materials,
           selection: [],
           selectedDeviceId: null,
+          selectedActorId: null,
           validation: null,
           compileResult: null,
           suggestions: null,
@@ -337,7 +541,16 @@ export const useAppStore = create<AppState>()((set, get) => {
           trajectory: null,
           trajFrame: 0,
           trajPlaying: false,
+          // Scenario/channel state resets per project.
+          scenario: null,
+          scenarioFrame: 0,
+          scenarioPlaying: false,
+          channelResult: null,
+          // Live sync is opt-in and reset per project (stops any prior poll).
+          liveMode: false,
         });
+        // Switching projects must stop a running live poll from the old one.
+        stopLivePoll();
         // Provider statuses: prefer the dedicated endpoint, fall back to health.
         try {
           set({ aiStatuses: await api.aiStatus(projectId) });
@@ -361,6 +574,12 @@ export const useAppStore = create<AppState>()((set, get) => {
         } catch {
           // no trajectory yet; ignore silently
         }
+        // Latest stored scenario (404-tolerant: endpoint may 404/501 or be absent).
+        try {
+          set({ scenario: await api.getScenario(projectId), scenarioFrame: 0 });
+        } catch {
+          // no scenario yet; ignore silently
+        }
       });
     },
 
@@ -380,12 +599,17 @@ export const useAppStore = create<AppState>()((set, get) => {
       } else {
         next = [primId];
       }
-      set({ selection: next, selectedDeviceId: null });
+      set({ selection: next, selectedDeviceId: null, selectedActorId: null });
     },
 
-    selectDevice: (deviceId) => set({ selectedDeviceId: deviceId, selection: [] }),
+    selectDevice: (deviceId) =>
+      set({ selectedDeviceId: deviceId, selection: [], selectedActorId: null }),
 
-    clearSelection: () => set({ selection: [], selectedDeviceId: null }),
+    selectActor: (actorId) =>
+      set({ selectedActorId: actorId, selection: [], selectedDeviceId: null }),
+
+    clearSelection: () =>
+      set({ selection: [], selectedDeviceId: null, selectedActorId: null }),
 
     selectPath: (pathId) => set({ selectedPathId: pathId }),
 
@@ -521,7 +745,12 @@ export const useAppStore = create<AppState>()((set, get) => {
     suggestMaterials: async () => {
       const pid = get().projectId;
       if (!pid) return;
-      const { selection } = get();
+      const { selection, sendScreenshot } = get();
+      // VLM groundwork: when the user opts in, capture the viewport now so
+      // lastViewportShot is populated. We deliberately do NOT put it on the
+      // request body: SuggestMaterialsRequest is a StrictModel(extra=forbid),
+      // so an unknown `screenshot_data_url` field would 422. See reported gap.
+      if (sendScreenshot) get().captureViewport();
       await run("Requesting RF material suggestions…", async () => {
         const resp = await api.suggestMaterials(pid, {
           prim_ids: selection.length > 0 ? selection : null,
@@ -565,6 +794,29 @@ export const useAppStore = create<AppState>()((set, get) => {
       afterSceneEdit();
     },
 
+    // ---------------------------------------------------- environment
+
+    setEnvironment: async (environment) => {
+      const { projectId, scene } = get();
+      if (!projectId || !scene) return;
+      if (scene.environment === environment) {
+        // No-op PUT avoided, but still (re)apply the preset so the user gets the
+        // solver defaults for the current mode, and refresh the resolved value.
+        applyEnvPreset(environment);
+        refreshResolvedEnv();
+        return;
+      }
+      await run("Updating environment…", async () => {
+        const next: Scene = { ...scene, environment };
+        set({ scene: normalizeScene(await api.putScene(projectId, next)) });
+        // Apply presets (session-only) and expose the resolved value.
+        applyEnvPreset(environment);
+        refreshResolvedEnv();
+        await revalidateIfOpen();
+        set({ notice: `Environment set to ${environment}` });
+      });
+    },
+
     // ---------------------------------------------------- solver config
 
     setPathsConfig: (patch) => set({ pathsConfig: { ...get().pathsConfig, ...patch } }),
@@ -596,7 +848,10 @@ export const useAppStore = create<AppState>()((set, get) => {
           ? [merged, ...scene.simulation_configs.slice(1)]
           : [merged];
         const next: Scene = { ...scene, simulation_configs: configs };
-        set({ scene: await api.putScene(projectId, next), notice: "Saved as project default config" });
+        set({
+          scene: normalizeScene(await api.putScene(projectId, next)),
+          notice: "Saved as project default config",
+        });
       });
     },
 
@@ -664,6 +919,56 @@ export const useAppStore = create<AppState>()((set, get) => {
       afterSceneEdit();
     },
 
+    // ---------------------------------------------------- actor editing
+
+    addActor: async (kind) => {
+      const scene = get().scene;
+      if (!scene) return;
+      const id = nextActorId(kind);
+      const d = ACTOR_DEFAULTS[kind];
+      // Seed the kind's defaults client-side; backend re-applies them anyway.
+      const actor: Actor = {
+        id,
+        name: kind === "car" ? "Car" : kind === "human" ? "Human" : "Object",
+        kind,
+        shape: { type: "box", size_m: [...d.size_m], mesh_ref: null },
+        rf_material_id: d.rf_material_id,
+        position: sceneCenter(),
+        orientation_deg: [0, 0, 0],
+        trajectory: null,
+        attached_device_ids: [],
+        color: d.color,
+      };
+      await run(`Adding ${id}…`, async () => {
+        await putSceneAndRefresh({ ...scene, actors: [...scene.actors, actor] });
+        set({ selectedActorId: id, selection: [], selectedDeviceId: null, notice: `Added ${id}` });
+      });
+      afterSceneEdit();
+    },
+
+    updateActor: async (actorId, patch) => {
+      const scene = get().scene;
+      if (!scene) return;
+      const actors = scene.actors.map((a) => (a.id === actorId ? { ...a, ...patch } : a));
+      await run("Updating actor…", async () => {
+        await putSceneAndRefresh({ ...scene, actors });
+        set({ notice: `Updated ${actorId}` });
+      });
+      afterSceneEdit();
+    },
+
+    deleteActor: async (actorId) => {
+      const scene = get().scene;
+      if (!scene) return;
+      const actors = scene.actors.filter((a) => a.id !== actorId);
+      await run(`Removing ${actorId}…`, async () => {
+        await putSceneAndRefresh({ ...scene, actors });
+        if (get().selectedActorId === actorId) set({ selectedActorId: null });
+        set({ notice: `Removed ${actorId}` });
+      });
+      afterSceneEdit();
+    },
+
     // ---------------------------------------------------- viewer filters
 
     setPathTypeFilter: (f) => set({ pathTypeFilter: f }),
@@ -704,6 +1009,79 @@ export const useAppStore = create<AppState>()((set, get) => {
     },
     setTrajPlaying: (playing) => set({ trajPlaying: playing }),
     setTrajSpeed: (speed) => set({ trajSpeed: speed }),
+
+    // ---------------------------------------------------- scenario playback
+
+    simulateScenario: async ({ num_frames, dt_s, include_paths }) => {
+      const pid = get().projectId;
+      if (!pid) return;
+      await run("Simulating scenario…", async () => {
+        const result = await api.simulateScenario(pid, {
+          config: get().pathsConfig,
+          num_frames,
+          dt_s,
+          include_paths,
+        });
+        set({
+          scenario: result,
+          scenarioFrame: 0,
+          scenarioPlaying: false,
+          mode: "results",
+          notice: `Scenario: ${result.frames.length} frame(s) via ${result.backend} backend`,
+        });
+        await refetchSceneInner(); // a ResultSetRef (kind 'scenario') was appended
+      });
+    },
+
+    setScenarioFrame: (frame) => {
+      const sc = get().scenario;
+      const max = sc ? sc.frames.length - 1 : 0;
+      set({ scenarioFrame: Math.max(0, Math.min(max, frame)) });
+    },
+    setScenarioPlaying: (playing) => set({ scenarioPlaying: playing }),
+    setScenarioSpeed: (speed) => set({ scenarioSpeed: speed }),
+
+    // ---------------------------------------------------- channel analysis
+
+    analyzeChannel: async (txId, rxId) => {
+      const pid = get().projectId;
+      if (!pid) return;
+      await run("Analyzing channel…", async () => {
+        const result = await api.analyzeChannel(pid, {
+          config: get().pathsConfig,
+          tx_id: txId,
+          rx_id: rxId,
+        });
+        set({
+          channelResult: result,
+          notice:
+            `Channel ${result.tx_id}→${result.rx_id}: ${result.num_paths} path(s) via ` +
+            `${result.backend} backend`,
+        });
+      });
+    },
+
+    clearChannel: () => set({ channelResult: null }),
+
+    // -------------------------------------------- live sync + screenshot
+
+    setLiveMode: (on) => {
+      set({ liveMode: on });
+      if (on) startLivePoll();
+      else stopLivePoll();
+    },
+
+    setSendScreenshot: (on) => set({ sendScreenshot: on }),
+
+    registerViewportCapture: (fn) => {
+      viewportCapture = fn;
+    },
+
+    captureViewport: () => {
+      const shot = viewportCapture ? viewportCapture() : null;
+      if (shot) set({ lastViewportShot: shot });
+      return shot;
+    },
 
     dismissError: () => set({ error: null }),
     dismissNotice: () => set({ notice: null }),

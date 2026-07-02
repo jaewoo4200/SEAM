@@ -268,6 +268,22 @@ def validate_scene(
                     )
                 )
 
+    # Actors are compiled as their own RF shapes, so an unknown RF material is
+    # as fatal for an actor as for a prim (reuse the same code, with the actor
+    # id in the message so the UI can point at it).
+    for actor in scene.actors:
+        if actor.rf_material_id is not None and actor.rf_material_id not in library_ids:
+            issues.append(
+                ValidationIssue(
+                    severity="error",
+                    code="UNKNOWN_RF_MATERIAL",
+                    message=(
+                        f"actor {actor.id!r} references RF material "
+                        f"{actor.rf_material_id!r} which is not in the project library"
+                    ),
+                )
+            )
+
     has_tx = any(d.kind == "tx" for d in scene.devices)
     has_rx = any(d.kind == "rx" for d in scene.devices)
     if not (has_tx and has_rx):

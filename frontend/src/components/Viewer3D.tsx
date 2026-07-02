@@ -1,7 +1,7 @@
 import { Component, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import * as THREE from "three";
-import { Canvas, useFrame } from "@react-three/fiber";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import type { ThreeEvent } from "@react-three/fiber";
 import { Html, Line, OrbitControls, PerspectiveCamera, useGLTF } from "@react-three/drei";
 import { useAppStore } from "../store/appStore";
@@ -12,10 +12,12 @@ import { api } from "../api/client";
 import type {
   Prim,
   RadioMapResultSet,
+  RayPath,
   RFMaterialLibrary,
   Scene,
   TrajectoryResultSet,
   ValidationReport,
+  Vec3,
 } from "../types/api";
 
 // All backend coordinates are Z-up ENU meters. The world is NOT rotated;
@@ -337,6 +339,88 @@ function Devices() {
   );
 }
 
+// ----------------------------------------------------------------- actors
+
+/** Actors as base-centered boxes (z = ground contact), colored by actor.color,
+ *  selectable like devices, with a yellow trajectory polyline when defined.
+ *  In scenario playback the boxes are driven by the current frame's states. */
+function Actors({ frameStates }: { frameStates?: Map<string, { position: Vec3; orientation_deg: Vec3 }> }) {
+  const scene = useAppStore((s) => s.scene);
+  const selectedActorId = useAppStore((s) => s.selectedActorId);
+  const selectActor = useAppStore((s) => s.selectActor);
+  if (!scene) return null;
+
+  return (
+    <group>
+      {scene.actors.map((a) => {
+        const state = frameStates?.get(a.id);
+        const position = state?.position ?? a.position;
+        const yawDeg = (state?.orientation_deg ?? a.orientation_deg)[2];
+        const [l, w, h] = a.shape.size_m;
+        const color = a.color ?? "#a78bfa";
+        const selected = a.id === selectedActorId;
+        // position is the base center: lift the box by half its height so it
+        // sits on the ground contact plane. Yaw about Z (up).
+        return (
+          <group key={a.id} position={position} rotation={[0, 0, (yawDeg * Math.PI) / 180]}>
+            <mesh
+              position={[0, 0, h / 2]}
+              onPointerDown={(e: ThreeEvent<PointerEvent>) => {
+                e.stopPropagation();
+                selectActor(a.id);
+              }}
+            >
+              <boxGeometry args={[l, w, h]} />
+              <meshStandardMaterial
+                color={color}
+                transparent
+                opacity={0.85}
+                emissive={selected ? PICKER_COLOR : "#000000"}
+                emissiveIntensity={selected ? 0.7 : 0}
+              />
+            </mesh>
+            <Html position={[0, 0, h + 0.4]} center zIndexRange={[10, 0]}>
+              <div className={"device-label" + (selected ? " selected" : "")}>{a.id}</div>
+            </Html>
+            {a.trajectory && a.trajectory.waypoints.length > 1 && (
+              // Waypoints are absolute world coords; render outside the actor's
+              // local rotation by placing an inverse-less sibling group.
+              <ActorTrajectoryLine waypoints={a.trajectory.waypoints} origin={position} yawDeg={yawDeg} />
+            )}
+          </group>
+        );
+      })}
+    </group>
+  );
+}
+
+/** Yellow polyline through an actor's absolute waypoints. Rendered as a child
+ *  of the actor group, so undo the group's translation+yaw to draw in world. */
+function ActorTrajectoryLine({
+  waypoints,
+  origin,
+  yawDeg,
+}: {
+  waypoints: Vec3[];
+  origin: Vec3;
+  yawDeg: number;
+}) {
+  const local = useMemo(() => {
+    const yaw = (yawDeg * Math.PI) / 180;
+    const cos = Math.cos(-yaw);
+    const sin = Math.sin(-yaw);
+    // Convert each absolute waypoint into the actor group's local frame
+    // (translate by -origin, then rotate by -yaw about Z).
+    return waypoints.map((wp): Vec3 => {
+      const dx = wp[0] - origin[0];
+      const dy = wp[1] - origin[1];
+      const dz = wp[2] - origin[2];
+      return [dx * cos - dy * sin, dx * sin + dy * cos, dz];
+    });
+  }, [waypoints, origin, yawDeg]);
+  return <Line points={local} color="#ffee58" lineWidth={2} />;
+}
+
 // -------------------------------------------------------------- ray paths
 
 function RayPaths() {
@@ -433,6 +517,116 @@ function TrajectoryOverlay({ trajectory }: { trajectory: TrajectoryResultSet }) 
   );
 }
 
+// ------------------------------------------------------------- scenario
+
+/** Per-frame device markers (positions from the scenario frame's device_states,
+ *  falling back to the scene device for kind/color). */
+function ScenarioDevices({ states }: { states: Map<string, Vec3> }) {
+  const scene = useAppStore((s) => s.scene);
+  if (!scene) return null;
+  const radius = deviceMarkerRadius(scene);
+  return (
+    <group>
+      {scene.devices.map((d) => {
+        const pos = states.get(d.id);
+        if (!pos) return null;
+        return (
+          <group key={d.id} position={pos}>
+            <mesh>
+              <sphereGeometry args={[radius, 24, 16]} />
+              <meshStandardMaterial color={d.color} />
+            </mesh>
+            <Html position={[0, 0, radius * 2.4]} center zIndexRange={[10, 0]}>
+              <div className="device-label">{d.id}</div>
+            </Html>
+          </group>
+        );
+      })}
+    </group>
+  );
+}
+
+/** Frame ray overlay: draws the current scenario frame's paths respecting the
+ *  existing store path filters (single source of truth with the results view). */
+function ScenarioPaths({ paths }: { paths: RayPath[] }) {
+  const selectedPathId = useAppStore((s) => s.selectedPathId);
+  const selectPath = useAppStore((s) => s.selectPath);
+  const pathTypeFilter = useAppStore((s) => s.pathTypeFilter);
+  const strongestN = useAppStore((s) => s.strongestN);
+  const minPowerDbm = useAppStore((s) => s.minPowerDbm);
+  const colorBy = useAppStore((s) => s.colorBy);
+  const lineWidthByPower = useAppStore((s) => s.lineWidthByPower);
+
+  const visible = useMemo(
+    () => filterPaths(paths, { pathTypeFilter, strongestN, minPowerDbm }),
+    [paths, pathTypeFilter, strongestN, minPowerDbm],
+  );
+  const range = useMemo(() => powerRange(visible), [visible]);
+
+  return (
+    <group>
+      {visible.map((p) => {
+        const selected = p.path_id === selectedPathId;
+        const color = selected ? SELECTED_PATH_COLOR : pathColor(p, colorBy, range);
+        const baseWidth = lineWidthByPower ? powerWidth(p, range) : 2;
+        return (
+          <Line
+            key={p.path_id}
+            points={p.vertices}
+            color={color}
+            lineWidth={selected ? Math.max(4, baseWidth) : baseWidth}
+            onClick={(e) => {
+              e.stopPropagation();
+              selectPath(p.path_id);
+            }}
+          />
+        );
+      })}
+    </group>
+  );
+}
+
+/** Whole scenario overlay for the current frame: actors + devices + paths. */
+function ScenarioOverlay({ showPaths }: { showPaths: boolean }) {
+  const scenario = useAppStore((s) => s.scenario);
+  const scenarioFrame = useAppStore((s) => s.scenarioFrame);
+  if (!scenario || scenario.frames.length === 0) return null;
+  const frame = scenario.frames[Math.max(0, Math.min(scenario.frames.length - 1, scenarioFrame))];
+
+  const actorStates = new Map(
+    frame.actor_states.map((s) => [s.id, { position: s.position, orientation_deg: s.orientation_deg }]),
+  );
+  const deviceStates = new Map(frame.device_states.map((s) => [s.id, s.position]));
+
+  return (
+    <group>
+      <Actors frameStates={actorStates} />
+      <ScenarioDevices states={deviceStates} />
+      {showPaths && frame.paths && <ScenarioPaths paths={frame.paths} />}
+    </group>
+  );
+}
+
+// ------------------------------------------------------------ screenshot
+
+/** Registers a viewport-capture fn with the store (VLM groundwork). Reads the
+ *  WebGL canvas as a JPEG data URL on demand; requires preserveDrawingBuffer. */
+function ScreenshotCapture() {
+  const gl = useThree((s) => s.gl);
+  const registerViewportCapture = useAppStore((s) => s.registerViewportCapture);
+  useEffect(() => {
+    registerViewportCapture(() => {
+      try {
+        return gl.domElement.toDataURL("image/jpeg", 0.6);
+      } catch {
+        return null;
+      }
+    });
+    return () => registerViewportCapture(null);
+  }, [gl, registerViewportCapture]);
+  return null;
+}
+
 // -------------------------------------------------------------- radio map
 
 function makeRadioMapTexture(rm: RadioMapResultSet): THREE.CanvasTexture {
@@ -504,6 +698,7 @@ export default function Viewer3D() {
   const pathResults = useAppStore((s) => s.pathResults);
   const radioMap = useAppStore((s) => s.radioMap);
   const trajectory = useAppStore((s) => s.trajectory);
+  const scenario = useAppStore((s) => s.scenario);
   const showPaths = useAppStore((s) => s.showPaths);
   const showRadioMapToggle = useAppStore((s) => s.showRadioMap);
   const clearSelection = useAppStore((s) => s.clearSelection);
@@ -517,9 +712,18 @@ export default function Viewer3D() {
   }, [url]);
 
   const showRadioMap = radioMap && mode === "results" && showRadioMapToggle;
+  // Scenario playback owns the actors/devices when a scenario is loaded in
+  // Results mode; otherwise actors render at their static scene poses.
+  const scenarioActive = scenario !== null && scenario.frames.length > 0 && mode === "results";
   return (
     <div className="viewer3d">
-      <Canvas dpr={[1, 2]} onPointerMissed={() => clearSelection()}>
+      <Canvas
+        dpr={[1, 2]}
+        // preserveDrawingBuffer lets captureViewport() read the canvas as a
+        // JPEG data URL (AI/VLM groundwork) after the frame has been presented.
+        gl={{ preserveDrawingBuffer: true }}
+        onPointerMissed={() => clearSelection()}
+      >
         {/* AODT-style dark viewer. */}
         <color attach="background" args={[SCENE_BACKGROUND]} />
         <PerspectiveCamera makeDefault up={[0, 0, 1]} position={[35, -35, 25]} fov={45} near={0.1} far={5000} />
@@ -530,6 +734,7 @@ export default function Viewer3D() {
         {/* gridHelper lies in XZ by default; rotate +90° about X into the XY ground plane. */}
         <gridHelper args={[200, 50, "#2c3947", "#1b2531"]} rotation={[Math.PI / 2, 0, 0]} />
         <axesHelper args={[4]} />
+        <ScreenshotCapture />
         <Suspense
           fallback={
             <Html center>
@@ -545,10 +750,19 @@ export default function Viewer3D() {
             <FallbackPrims />
           )}
         </Suspense>
-        {scene && <Devices />}
-        {pathResults && showPaths && <RayPaths />}
+        {scenarioActive ? (
+          <ScenarioOverlay showPaths={showPaths} />
+        ) : (
+          <>
+            {scene && <Devices />}
+            {scene && <Actors />}
+          </>
+        )}
+        {pathResults && showPaths && !scenarioActive && <RayPaths />}
         {showRadioMap && <RadioMapPlane radioMap={radioMap} />}
-        {trajectory && mode === "results" && <TrajectoryOverlay trajectory={trajectory} />}
+        {trajectory && mode === "results" && !scenarioActive && (
+          <TrajectoryOverlay trajectory={trajectory} />
+        )}
       </Canvas>
       {showRadioMap && <RadioMapLegend radioMap={radioMap} />}
       {scene && (!url || assetFailed) && (

@@ -19,6 +19,7 @@ from typing import Literal, Optional, Union
 from fastapi import APIRouter, HTTPException, Query
 
 from app.api.deps import get_store, load_scene_or_404
+from app.schemas.actors import ScenarioResultSet
 from app.schemas.results import (
     BeamformingResult,
     PathResultSet,
@@ -36,8 +37,10 @@ from app.services.simulation_backends import BackendUnavailableError, resolve_ba
 
 router = APIRouter(tags=["simulate"])
 
-ResultKind = Literal["paths", "radio_map", "trajectory"]
-AnyResult = Union[PathResultSet, RadioMapResultSet, TrajectoryResultSet]
+ResultKind = Literal["paths", "radio_map", "trajectory", "scenario"]
+AnyResult = Union[
+    PathResultSet, RadioMapResultSet, TrajectoryResultSet, ScenarioResultSet
+]
 
 
 def _persist_result(

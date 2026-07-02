@@ -43,6 +43,7 @@ from app.schemas import (  # noqa: E402
     SimulationConfig,
     VisualBinding,
 )
+from app.schemas.scene import Actor, ActorTrajectory  # noqa: E402
 from app.services.project_store import (  # noqa: E402
     ProjectStore,
     load_default_library,
@@ -289,12 +290,53 @@ def build_scene() -> Scene:
         ),
     ]
 
+    # Movable actors (compiled as their own RF shapes; moved per frame by the
+    # scenario/live-sync backends). The car drives down the road (y=0); the
+    # pedestrian takes a short walk near building b01's entrance (y~6).
+    actors = [
+        Actor(
+            id="car_001",
+            name="Sedan",
+            kind="car",  # metal box, 4.5 x 1.8 x 1.5 m
+            position=[-30.0, 0.0, 0.0],
+            orientation_deg=[0.0, 0.0, 0.0],
+            trajectory=ActorTrajectory(
+                waypoints=[
+                    [-30.0, 0.0, 0.0],
+                    [-15.0, 0.0, 0.0],
+                    [0.0, 0.0, 0.0],
+                    [15.0, 0.0, 0.0],
+                    [30.0, 0.0, 0.0],
+                ],
+                dt_s=0.5,
+                loop=True,
+            ),
+        ),
+        Actor(
+            id="human_001",
+            name="Pedestrian",
+            kind="human",  # human_body box, 0.5 x 0.35 x 1.7 m
+            position=[-14.0, 4.0, 0.0],
+            orientation_deg=[0.0, 0.0, 90.0],
+            trajectory=ActorTrajectory(
+                waypoints=[
+                    [-14.0, 4.0, 0.0],
+                    [-12.0, 4.5, 0.0],
+                    [-10.0, 5.0, 0.0],
+                ],
+                dt_s=0.5,
+                loop=False,
+            ),
+        ),
+    ]
+
     return Scene(
         scene_id=PROJECT_ID,
         name=SCENE_NAME,
         assets=SceneAssets(visual_scene_uri=GLB_URI),
         prims=prims,
         devices=devices,
+        actors=actors,
         simulation_configs=[
             SimulationConfig(
                 id="default",
@@ -356,18 +398,20 @@ def write_project(out_root: Path) -> Path:
 def verify(out_root: Path, project_dir: Path) -> None:
     store = ProjectStore(roots=[out_root])
     scene = store.load_scene(PROJECT_ID)
-    n_prims, n_devices = len(scene.prims), len(scene.devices)
-    if n_prims != 13 or n_devices != 2:
+    n_prims, n_devices, n_actors = len(scene.prims), len(scene.devices), len(scene.actors)
+    if n_prims != 13 or n_devices != 2 or n_actors != 2:
         raise RuntimeError(
-            f"expected 13 prims and 2 devices, got {n_prims} prims / {n_devices} devices"
+            f"expected 13 prims, 2 devices and 2 actors, got {n_prims} prims / "
+            f"{n_devices} devices / {n_actors} actors"
         )
     unassigned = [
         p.id for p in scene.prims
         if p.type == "mesh_primitive" and p.rf.material_id is None
     ]
     print(f"project: {project_dir}")
-    print(f"prims: {n_prims} (8 mesh + 5 group), devices: {n_devices}")
+    print(f"prims: {n_prims} (8 mesh + 5 group), devices: {n_devices}, actors: {n_actors}")
     print(f"rf unassigned mesh prims: {len(unassigned)}")
+    print("actors:", ", ".join(f"{a.id} ({a.kind}, {a.rf_material_id})" for a in scene.actors))
     print("GLB mesh names verified:", ", ".join(GEOMETRY_NAMES))
 
 
