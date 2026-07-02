@@ -3,6 +3,7 @@ import { api, ApiError } from "../api/client";
 import type {
   AIProviderStatus,
   AssignRequest,
+  BeamformingResult,
   CompileResult,
   HealthResponse,
   MaterialSuggestionResponse,
@@ -34,7 +35,12 @@ interface AppState {
   decisions: Record<string, SuggestionDecision>;
   pathResults: PathResultSet | null;
   radioMap: RadioMapResultSet | null;
+  beamforming: BeamformingResult | null;
   selectedPathId: string | null;
+  // Result-overlay visibility toggles (Result mode).
+  showPaths: boolean;
+  showRadioMap: boolean;
+  showBeamforming: boolean;
   busy: string | null;
   error: string | null;
   notice: string | null;
@@ -47,6 +53,7 @@ interface AppState {
   selectDevice: (deviceId: string) => void;
   clearSelection: () => void;
   selectPath: (pathId: string | null) => void;
+  toggleOverlay: (kind: "paths" | "radioMap" | "beamforming") => void;
   runValidation: () => Promise<void>;
   compileRF: () => Promise<void>;
   simulatePaths: () => Promise<void>;
@@ -111,7 +118,11 @@ export const useAppStore = create<AppState>()((set, get) => {
     decisions: {},
     pathResults: null,
     radioMap: null,
+    beamforming: null,
     selectedPathId: null,
+    showPaths: true,
+    showRadioMap: true,
+    showBeamforming: true,
     busy: null,
     error: null,
     notice: null,
@@ -192,6 +203,12 @@ export const useAppStore = create<AppState>()((set, get) => {
     clearSelection: () => set({ selection: [], selectedDeviceId: null }),
 
     selectPath: (pathId) => set({ selectedPathId: pathId }),
+
+    toggleOverlay: (kind) => {
+      if (kind === "paths") set({ showPaths: !get().showPaths });
+      else if (kind === "radioMap") set({ showRadioMap: !get().showRadioMap });
+      else set({ showBeamforming: !get().showBeamforming });
+    },
 
     runValidation: async () => {
       const pid = get().projectId;
@@ -276,7 +293,7 @@ export const useAppStore = create<AppState>()((set, get) => {
           `SVD ${fmt(r.svd_gain_db)}`,
         ];
         if (r.warnings.length) parts.push(r.warnings[0]);
-        set({ notice: parts.join(" · ") });
+        set({ beamforming: r, showBeamforming: true, mode: "results", notice: parts.join(" · ") });
       });
     },
 

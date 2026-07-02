@@ -2,12 +2,12 @@
   "/terrain/ground": {
     "mesh_name": "ground",
     "rf_material_id": "ground",
-    "group_mesh_file": null
+    "group_mesh_file": "rf/meshes/ground.ply"
   },
   "/roads/r01/surface": {
     "mesh_name": "road_surface",
     "rf_material_id": "asphalt_custom",
-    "group_mesh_file": null
+    "group_mesh_file": "rf/meshes/asphalt_custom.ply"
   },
   "/buildings/b01/walls": {
     "mesh_name": "building_01_walls",

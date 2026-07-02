@@ -453,6 +453,8 @@ export default function Viewer3D() {
   const mode = useAppStore((s) => s.mode);
   const pathResults = useAppStore((s) => s.pathResults);
   const radioMap = useAppStore((s) => s.radioMap);
+  const showPaths = useAppStore((s) => s.showPaths);
+  const showRadioMapToggle = useAppStore((s) => s.showRadioMap);
   const clearSelection = useAppStore((s) => s.clearSelection);
   const [assetFailed, setAssetFailed] = useState(false);
 
@@ -463,7 +465,7 @@ export default function Viewer3D() {
     setAssetFailed(false);
   }, [url]);
 
-  const showRadioMap = radioMap && mode === "results";
+  const showRadioMap = radioMap && mode === "results" && showRadioMapToggle;
   return (
     <div className="viewer3d">
       <Canvas dpr={[1, 2]} onPointerMissed={() => clearSelection()}>
@@ -493,7 +495,7 @@ export default function Viewer3D() {
           )}
         </Suspense>
         {scene && <Devices />}
-        {pathResults && <RayPaths />}
+        {pathResults && showPaths && <RayPaths />}
         {showRadioMap && <RadioMapPlane radioMap={radioMap} />}
       </Canvas>
       {showRadioMap && <RadioMapLegend radioMap={radioMap} />}

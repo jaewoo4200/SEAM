@@ -3,13 +3,14 @@ import { useAppStore } from "../store/appStore";
 import { formatVec } from "./common";
 import type { PathType, RayPath } from "../types/api";
 
+// Matches the viewer's AODT palette (Viewer3D PATH_COLORS).
 const PATH_COLORS: Record<PathType, string> = {
-  los: "#66bb6a",
-  reflection: "#4fc3f7",
-  diffraction: "#ab47bc",
-  scattering: "#ffa726",
-  transmission: "#f06292",
-  mixed: "#eceff1",
+  los: "#00e5ff",
+  reflection: "#ff00ff",
+  diffraction: "#ff9800",
+  scattering: "#00e676",
+  transmission: "#ff80ab",
+  mixed: "#b0bec5",
 };
 
 const SELECTED_COLOR = "#ffee58";
@@ -149,7 +150,13 @@ export default function ResultExplorer() {
   const selectPath = useAppStore((s) => s.selectPath);
   const simulatePaths = useAppStore((s) => s.simulatePaths);
   const simulateRadioMap = useAppStore((s) => s.simulateRadioMap);
+  const runBeamforming = useAppStore((s) => s.runBeamforming);
   const radioMap = useAppStore((s) => s.radioMap);
+  const beamforming = useAppStore((s) => s.beamforming);
+  const showPaths = useAppStore((s) => s.showPaths);
+  const showRadioMap = useAppStore((s) => s.showRadioMap);
+  const showBeamforming = useAppStore((s) => s.showBeamforming);
+  const toggleOverlay = useAppStore((s) => s.toggleOverlay);
   const projectId = useAppStore((s) => s.projectId);
   const busy = useAppStore((s) => s.busy);
 
@@ -221,7 +228,83 @@ export default function ResultExplorer() {
         >
           Simulate radio map
         </button>
+        <button
+          disabled={!projectId || busy !== null}
+          onClick={() => void runBeamforming()}
+          title="4x4 MIMO beamforming gain (TX-MRT and both-ends SVD)"
+        >
+          Beamforming
+        </button>
       </div>
+
+      <div className="overlay-toggles">
+        <span className="overlay-toggles-label">Show:</span>
+        <label className={pathResults ? "" : "disabled"}>
+          <input
+            type="checkbox"
+            checked={showPaths}
+            disabled={!pathResults}
+            onChange={() => toggleOverlay("paths")}
+          />{" "}
+          Rays
+        </label>
+        <label className={radioMap ? "" : "disabled"}>
+          <input
+            type="checkbox"
+            checked={showRadioMap}
+            disabled={!radioMap}
+            onChange={() => toggleOverlay("radioMap")}
+          />{" "}
+          Radio map
+        </label>
+        <label className={beamforming ? "" : "disabled"}>
+          <input
+            type="checkbox"
+            checked={showBeamforming}
+            disabled={!beamforming}
+            onChange={() => toggleOverlay("beamforming")}
+          />{" "}
+          Beamforming
+        </label>
+      </div>
+
+      {beamforming && showBeamforming && (
+        <div className="beamforming-card">
+          <h4>
+            Beamforming {beamforming.tx_array[0]}×{beamforming.tx_array[1]} →{" "}
+            {beamforming.rx_array[0]}×{beamforming.rx_array[1]}
+            <span className="mono"> · {beamforming.backend}</span>
+          </h4>
+          <div className="results-meta">
+            single element{" "}
+            <span className="mono">
+              {beamforming.single_element_dbm === null
+                ? "n/a"
+                : `${beamforming.single_element_dbm.toFixed(1)} dBm`}
+            </span>{" "}
+            · TX-MRT{" "}
+            <span className="mono">
+              {beamforming.tx_mrt_gain_db === null
+                ? "n/a"
+                : `+${beamforming.tx_mrt_gain_db.toFixed(1)} dB`}
+            </span>{" "}
+            · SVD{" "}
+            <span className="mono">
+              {beamforming.svd_gain_db === null
+                ? "n/a"
+                : `+${beamforming.svd_gain_db.toFixed(1)} dB`}
+            </span>{" "}
+            · {beamforming.num_paths} path(s)
+          </div>
+          {beamforming.warnings.length > 0 && (
+            <div className="ai-note">
+              {beamforming.warnings.map((w, i) => (
+                <div key={i}>{w}</div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {!pathResults ? (
         <div className="empty-state">

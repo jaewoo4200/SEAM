@@ -15,15 +15,29 @@ Z-up (the FTC conversion bakes the +90 deg X rotation), so no axis fix is
 applied here.
 """
 
+import math
 import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Optional
 
+import numpy as np
 import trimesh
 
 from app.schemas.materials import RFMaterialLibrary
 from app.schemas.scene import MeshRef, Prim, RFBinding, Scene, SceneAssets, VisualBinding
+
+
+# Token fallbacks for material ids that don't carry an ITU class string
+# (e.g. the outdoor scene's constant "mat-FTC-ground"). Checked as substrings.
+_SEMANTIC_FALLBACK: dict[str, str] = {
+    "ground": "ground_28ghz",
+    "concrete": "itu_concrete",
+    "glass": "itu_glass",
+    "metal": "metal",
+    "brick": "itu_brick",
+    "wood": "itu_wood",
+}
 
 
 def _class_to_library_id(library: RFMaterialLibrary) -> dict[str, str]:
@@ -80,6 +94,43 @@ def _parse_materials(root: ET.Element) -> dict[str, dict]:
     return materials
 
 
+def _parse_transform(shape: ET.Element) -> Optional[np.ndarray]:
+    """Compose a shape's Mitsuba <transform name="to_world"> into a 4x4 matrix.
+
+    Handles rotate (axis + angle deg), translate, scale, and matrix. Applied in
+    document order. Mitsuba's to_world maps object -> world, so the composed
+    matrix is the product with later children on the left."""
+    xform = shape.find("transform[@name='to_world']")
+    if xform is None:
+        return None
+    M = np.eye(4)
+
+    def vec(el, default):
+        v = el.get("value")
+        if v is not None:
+            parts = [float(x) for x in v.split()]
+            return parts if len(parts) == 3 else [parts[0]] * 3
+        return [float(el.get(a, d)) for a, d in zip("xyz", default)]
+
+    for child in list(xform):
+        T = np.eye(4)
+        if child.tag == "rotate":
+            axis = np.array([float(child.get(a, 0.0)) for a in "xyz"])
+            angle = math.radians(float(child.get("angle", 0.0)))
+            if np.linalg.norm(axis) > 0:
+                T = trimesh.transformations.rotation_matrix(angle, axis)
+        elif child.tag == "translate":
+            T[:3, 3] = vec(child, ("0", "0", "0"))
+        elif child.tag == "scale":
+            T[:3, :3] = np.diag(vec(child, ("1", "1", "1")))
+        elif child.tag == "matrix":
+            vals = [float(x) for x in child.get("value", "").split()]
+            if len(vals) == 16:
+                T = np.array(vals).reshape(4, 4)
+        M = T @ M
+    return M
+
+
 def _shape_base(shape_id: str, filename: str) -> str:
     for prefix in ("mesh-", "shape-"):
         if shape_id.startswith(prefix):
@@ -133,6 +184,13 @@ def import_mitsuba_scene(
             mesh = loaded if isinstance(loaded, trimesh.Trimesh) else None
             if mesh is None:
                 warnings.append(f"could not load mesh as a single Trimesh: {filename}")
+            else:
+                # Apply the shape's to_world transform (e.g. the +90 deg X
+                # Y-up->Z-up fix the outdoor scenes carry per shape).
+                xform = _parse_transform(shape)
+                if xform is not None:
+                    mesh = mesh.copy()
+                    mesh.apply_transform(xform)
 
         info = materials.get(mat_id, {}) if mat_id else {}
         color = info.get("color_rgba")
@@ -143,26 +201,25 @@ def import_mitsuba_scene(
                 )
             tm_scene.add_geometry(mesh, geom_name=base, node_name=base)
 
-        # Resolve RF material: itu class -> library id, else constant/unknown.
+        # Resolve RF material: itu class -> library id; then a token fallback
+        # (e.g. a constant "ground" material -> the 28 GHz-safe ground); else
+        # unknown_rf. The FTC occlusion blocker legitimately stays unknown.
         rf_id: Optional[str] = None
         itu_class = info.get("itu_class")
         if itu_class and itu_class in class_map:
             rf_id = class_map[itu_class]
-        elif info.get("constant"):
-            rf_id = "unknown_rf"
-            warnings.append(
-                f"shape {base}: constant material {mat_id} mapped to unknown_rf "
-                "(no matching library material)"
-            )
-        elif mat_id:
-            # try token match against known classes
-            for token, lib_id in class_map.items():
-                if token in (mat_id or "").lower():
+        if rf_id is None and mat_id:
+            low = mat_id.lower()
+            for token, lib_id in {**class_map, **_SEMANTIC_FALLBACK}.items():
+                if token in low:
                     rf_id = lib_id
                     break
         if rf_id is None:
             rf_id = "unknown_rf"
-            warnings.append(f"shape {base}: could not resolve RF material from {mat_id}")
+            warnings.append(
+                f"shape {base}: material {mat_id} mapped to unknown_rf "
+                "(no matching library material)"
+            )
 
         prims.append(
             Prim(

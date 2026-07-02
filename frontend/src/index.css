@@ -365,7 +365,38 @@ h4 {
   color: var(--accent);
 }
 
-/* Radio-map colorbar (viridis), matching Sionna's coverage-map legend. */
+/* Result overlay visibility toggles. */
+.overlay-toggles {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 6px 0;
+  font-size: 12px;
+}
+.overlay-toggles-label {
+  color: var(--muted);
+}
+.overlay-toggles label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+.overlay-toggles label.disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
+.beamforming-card {
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  background: rgba(79, 195, 247, 0.06);
+}
+
+/* Radio-map colorbar (jet), matching the AODT coverage-map legend. */
 .radiomap-legend {
   position: absolute;
   top: 16px;
