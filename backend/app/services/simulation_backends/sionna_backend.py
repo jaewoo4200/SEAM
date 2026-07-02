@@ -1,10 +1,15 @@
-"""Optional Sionna RT backend.
+"""Optional Sionna RT backend (targets sionna-rt 2.x, Dr.Jit/Mitsuba 3).
 
 Contract (HANDOFF.md sections 7.2, 14): Sionna is imported lazily inside
 methods, availability is probed without heavy imports, and ANY failure -
 missing install, version API drift, solver errors, incompatible scene -
 degrades to an empty result set with a warning instead of a 500. The app must
 never break because Sionna is absent or its API moved.
+
+Verified against sionna-rt 2.0.1 on this machine's Quadro RTX 8000 (Dr.Jit
+CUDA backend). Our compiled rf/generated_scene.xml loads directly: ITU
+materials resolve from the "mat-itu_*" bsdf ids and constant materials load
+from the "radio-material" bsdf plugin the compiler emits.
 """
 
 import json
@@ -12,13 +17,25 @@ import math
 from pathlib import Path
 
 from app.schemas.materials import RFMaterialLibrary
-from app.schemas.results import PathResultSet, RadioMapGrid, RadioMapResultSet, RayPath
+from app.schemas.results import (
+    PathInteraction,
+    PathResultSet,
+    RadioMapGrid,
+    RadioMapResultSet,
+    RayPath,
+)
 from app.schemas.scene import Scene
 from app.schemas.simulation import SimulationConfig
 
 from .base import UNSAVED_RESULT_ID, RayTracingBackend
 
-INTERACTION_WARNING = "sionna interaction->prim mapping not implemented (future)"
+# paths.objects sentinel for "no interaction at this depth" (uint32 max).
+_NO_OBJECT = 0xFFFFFFFF
+
+# Sionna RT interaction-type codes -> our schema interaction type. Code 0 is
+# "none"; the rest are mapped defensively (unknown codes fall back to
+# reflection) so a version bump cannot crash conversion.
+_INTERACTION_TYPES = {1: "reflection", 2: "scattering", 3: "transmission", 4: "diffraction"}
 
 
 class SionnaBackend(RayTracingBackend):
@@ -71,7 +88,7 @@ class SionnaBackend(RayTracingBackend):
             load_scene,
         )
 
-        warnings: list[str] = [INTERACTION_WARNING]
+        warnings: list[str] = []
 
         # Ensure the compiled RF projection exists; compile on demand.
         xml_path = project_dir / "rf" / "generated_scene.xml"
@@ -125,6 +142,7 @@ class SionnaBackend(RayTracingBackend):
                     name=dev.id,
                     position=list(dev.position),
                     orientation=[math.radians(a) for a in dev.orientation_deg],
+                    power_dbm=dev.power_dbm,
                 )
             )
         for dev in rxs:
@@ -138,20 +156,36 @@ class SionnaBackend(RayTracingBackend):
 
         self._apply_custom_materials(project_dir, rt_scene, warnings)
 
+        # Map Sionna's per-interaction object ids back to canonical prims.
+        # Shape names are "shape-<rf_material_id>" (the compiler's convention),
+        # so the object id -> rf material id, and (when a material group holds
+        # exactly one prim) -> a single canonical prim id.
+        objid_to_material: dict[int, str] = {}
+        for name, obj in rt_scene.objects.items():
+            mat_id = name[len("shape-"):] if name.startswith("shape-") else name
+            objid_to_material[int(obj.object_id)] = mat_id
+        material_to_prims: dict[str, list[str]] = {}
+        for prim in scene.prims:
+            if prim.rf.material_id:
+                material_to_prims.setdefault(prim.rf.material_id, []).append(prim.id)
+
         solver = PathSolver()
-        # Sionna 1.x PathSolver signature; refraction disabled because our
-        # compiled projection does not model interior volumes yet.
+        # refraction disabled: our compiled projection is single-sided surface
+        # geometry, not closed interior volumes. diffraction follows the config.
         solved = solver(
             rt_scene,
             max_depth=config.max_depth,
             los=config.los,
             specular_reflection=config.reflection,
             diffuse_reflection=config.scattering,
+            diffraction=config.diffraction,
             refraction=False,
-            samples_per_src=config.num_samples or 100_000,
+            samples_per_src=config.num_samples or 1_000_000,
         )
 
-        paths = self._convert_paths(solved, txs, rxs, config, warnings, np)
+        paths = self._convert_paths(
+            solved, txs, rxs, objid_to_material, material_to_prims, warnings, np
+        )
         return PathResultSet(
             result_id=UNSAVED_RESULT_ID,
             backend=self.name,
@@ -227,88 +261,131 @@ class SionnaBackend(RayTracingBackend):
 
     @staticmethod
     def _convert_paths(
-        solved, txs, rxs, config: SimulationConfig, warnings: list[str], np
+        solved,
+        txs,
+        rxs,
+        objid_to_material: dict[int, str],
+        material_to_prims: dict[str, list[str]],
+        warnings: list[str],
+        np,
     ) -> list[RayPath]:
-        """Normalize a Sionna Paths object into schema RayPath entries.
+        """Normalize a sionna-rt 2.x Paths object into schema RayPath entries.
 
-        Sionna 1.x shape assumptions (synthetic 1x1 arrays):
-        - solved.vertices: [max_depth, num_rx, num_tx, max_paths, 3]
-        - solved.tau:      [num_rx, num_tx, max_paths] (antenna dims squeezed)
-        - solved.a:        complex, [num_rx, .., num_tx, .., max_paths] or a
-                           (real, imag) tuple in some point releases
-        - solved.valid:    bool mask [num_rx, num_tx, max_paths]
-        Invalid entries carry tau < 0. Anything that does not fit is skipped
-        with a warning rather than raised.
+        Verified tensor layout (synthetic 1x1 arrays, synthetic_array=True):
+        - solved.a:            tuple(real, imag), each
+                               [num_rx, num_rx_ant, num_tx, num_tx_ant, num_paths]
+        - solved.tau:          [num_rx, num_tx, num_paths]
+        - solved.vertices:     [max_depth, num_rx, num_tx, num_paths, 3]
+        - solved.valid:        bool [num_rx, num_tx, num_paths]
+        - solved.interactions: uint [max_depth, num_rx, num_tx, num_paths]
+        - solved.objects:      uint [max_depth, num_rx, num_tx, num_paths],
+                               _NO_OBJECT where a depth slot is unused
+        Anything that does not fit is skipped with a warning, not raised.
         """
         def to_np(x):
             return np.asarray(x.numpy() if hasattr(x, "numpy") else x)
 
         tau = to_np(solved.tau)
-        a = solved.a
-        if isinstance(a, (tuple, list)) and len(a) == 2:
-            a = to_np(a[0]) + 1j * to_np(a[1])
+        a_raw = solved.a
+        if isinstance(a_raw, (tuple, list)) and len(a_raw) == 2:
+            a = to_np(a_raw[0]) + 1j * to_np(a_raw[1])
         else:
-            a = to_np(a)
+            a = to_np(a_raw)
+        # Drop the singleton antenna axes (1 and 3) so a aligns with tau.
+        while a.ndim > 3:
+            axes = tuple(i for i, s in enumerate(a.shape) if s == 1)
+            if not axes:
+                warnings.append(f"unexpected path-coefficient shape {a.shape}")
+                return []
+            a = a.squeeze(axis=axes[0])
+
         vertices = to_np(solved.vertices) if hasattr(solved, "vertices") else None
         valid = to_np(solved.valid) if hasattr(solved, "valid") else None
+        objects = to_np(solved.objects) if hasattr(solved, "objects") else None
+        itypes = to_np(solved.interactions) if hasattr(solved, "interactions") else None
 
-        # Squeeze any singleton antenna/pol dims so indexing is [rx, tx, path].
-        def squeeze_to_3d(arr):
-            while arr.ndim > 3:
-                singles = [i for i, s in enumerate(arr.shape) if s == 1]
-                if not singles:
-                    raise ValueError(f"unexpected solver output shape {arr.shape}")
-                arr = arr.squeeze(axis=singles[0])
-            return arr
-
-        tau = squeeze_to_3d(tau)
-        a = squeeze_to_3d(a)
+        num_rx = min(tau.shape[0], len(rxs))
+        num_tx = min(tau.shape[1], len(txs))
+        max_paths = tau.shape[-1]
 
         paths: list[RayPath] = []
         counter = 0
-        num_rx, num_tx, max_paths = tau.shape[0], tau.shape[1], tau.shape[-1]
-        for r in range(min(num_rx, len(rxs))):
-            for t in range(min(num_tx, len(txs))):
+        for r in range(num_rx):
+            for t in range(num_tx):
                 for p in range(max_paths):
-                    tau_s = float(tau[r, t, p])
-                    if tau_s < 0:
-                        continue  # Sionna marks invalid paths with tau=-1
                     if valid is not None and valid.ndim == 3 and not bool(valid[r, t, p]):
                         continue
-                    amp = complex(a[r, t, p])
+                    tau_s = float(tau[r, t, p])
+                    if tau_s < 0:
+                        continue
+                    amp = complex(a[r, t, p]) if a.ndim == 3 else 0j
                     mag = abs(amp)
                     if mag <= 0:
                         continue
+                    # |a| is the free-space/interaction channel gain; add the
+                    # transmit power to get received power in dBm.
                     power_dbm = 20.0 * math.log10(max(mag, 1e-30)) + txs[t].power_dbm
 
-                    # Bounce points: depth-major vertex tensor; unused depth
-                    # slots are zero/invalid, so keep only finite non-zero rows.
-                    bounce: list[list[float]] = []
-                    if vertices is not None and vertices.ndim == 5:
-                        for d in range(vertices.shape[0]):
-                            v = vertices[d, r, t, p]
-                            if np.all(np.isfinite(v)) and not np.allclose(v, 0.0):
-                                bounce.append([float(x) for x in v])
-                    verts = (
-                        [list(txs[t].position)] + bounce + [list(rxs[r].position)]
+                    bounce, interactions = SionnaBackend._path_interactions(
+                        r, t, p, vertices, objects, itypes,
+                        objid_to_material, material_to_prims, np,
                     )
+                    verts = [list(txs[t].position)] + bounce + [list(rxs[r].position)]
                     counter += 1
                     paths.append(
                         RayPath(
                             path_id=f"path_{counter:04d}",
                             tx_id=txs[t].id,
                             rx_id=rxs[r].id,
-                            path_type="los" if not bounce else "reflection",
+                            path_type=SionnaBackend._path_type(interactions),
                             vertices=verts,
                             power_dbm=power_dbm,
                             delay_ns=tau_s * 1e9,
                             phase_rad=math.atan2(amp.imag, amp.real),
-                            # Prim mapping needs the compiler's shape->prim
-                            # index; deferred (see INTERACTION_WARNING).
-                            interactions=[],
+                            interactions=interactions,
                         )
                     )
         return paths
+
+    @staticmethod
+    def _path_interactions(
+        r, t, p, vertices, objects, itypes, objid_to_material, material_to_prims, np
+    ) -> tuple[list[list[float]], list[PathInteraction]]:
+        """Extract a path's bounce points and per-interaction prim/material."""
+        bounce: list[list[float]] = []
+        interactions: list[PathInteraction] = []
+        if vertices is None or vertices.ndim != 5:
+            return bounce, interactions
+        for d in range(vertices.shape[0]):
+            obj_id = int(objects[d, r, t, p]) if objects is not None else _NO_OBJECT
+            if obj_id == _NO_OBJECT:
+                continue  # unused depth slot: no interaction here
+            v = vertices[d, r, t, p]
+            if not np.all(np.isfinite(v)):
+                continue
+            point = [float(x) for x in v]
+            bounce.append(point)
+            code = int(itypes[d, r, t, p]) if itypes is not None else 1
+            mat_id = objid_to_material.get(obj_id)
+            prims = material_to_prims.get(mat_id, []) if mat_id else []
+            interactions.append(
+                PathInteraction(
+                    # Only name a prim when the material group is a single prim;
+                    # otherwise the merged geometry is genuinely ambiguous.
+                    prim_id=prims[0] if len(prims) == 1 else None,
+                    rf_material_id=mat_id,
+                    type=_INTERACTION_TYPES.get(code, "reflection"),
+                    point=point,
+                )
+            )
+        return bounce, interactions
+
+    @staticmethod
+    def _path_type(interactions: list[PathInteraction]) -> str:
+        if not interactions:
+            return "los"
+        kinds = {i.type for i in interactions}
+        return next(iter(kinds)) if len(kinds) == 1 else "mixed"
 
     # --------------------------------------------------------- radio map
 
@@ -319,23 +396,145 @@ class SionnaBackend(RayTracingBackend):
         library: RFMaterialLibrary,
         config: SimulationConfig,
     ) -> RadioMapResultSet:
-        # MVP: Sionna's RadioMapSolver integration is deferred; return an
-        # empty grid with a warning so callers keep the same result shape.
+        try:
+            return self._simulate_radio_map_impl(project_dir, scene, library, config)
+        except Exception as exc:  # noqa: BLE001 - graceful degradation contract
+            txs = [d for d in scene.devices if d.kind == "tx"]
+            return RadioMapResultSet(
+                result_id=UNSAVED_RESULT_ID,
+                backend=self.name,
+                simulation_config_id=config.id,
+                tx_id=txs[0].id if txs else "",
+                metric=config.radio_map.metric,
+                grid=RadioMapGrid(
+                    origin=[0.0, 0.0, config.radio_map.height_m],
+                    cell_size_m=config.radio_map.cell_size_m,
+                    nx=1,
+                    ny=1,
+                    height_m=config.radio_map.height_m,
+                ),
+                values=[[None]],
+                warnings=[f"sionna radio map failed: {exc}; see logs"],
+                metadata={"frequency_hz": config.frequency_hz, "engine": "sionna"},
+            )
+
+    def _simulate_radio_map_impl(
+        self,
+        project_dir: Path,
+        scene: Scene,
+        library: RFMaterialLibrary,
+        config: SimulationConfig,
+    ) -> RadioMapResultSet:
+        import numpy as np
+
+        from sionna.rt import (  # type: ignore[import-not-found]
+            PlanarArray,
+            RadioMapSolver,
+            Transmitter,
+            load_scene,
+        )
+
+        warnings: list[str] = []
+        xml_path = project_dir / "rf" / "generated_scene.xml"
+        if not xml_path.is_file():
+            compile_result = self.compile(project_dir, scene, library)
+            if not compile_result.ok or not xml_path.is_file():
+                raise RuntimeError(
+                    "rf/generated_scene.xml missing and compile did not produce it: "
+                    + "; ".join(compile_result.errors or ["unknown compile error"])
+                )
+            warnings.append("rf projection was missing; compiled on demand")
+
         txs = [d for d in scene.devices if d.kind == "tx"]
+        if not txs:
+            raise RuntimeError("scene has no transmitters; cannot compute a radio map")
+
+        rt_scene = load_scene(str(xml_path))
+        rt_scene.frequency = config.frequency_hz
+        array = PlanarArray(num_rows=1, num_cols=1, pattern="iso", polarization="V")
+        rt_scene.tx_array = array
+        rt_scene.rx_array = array
+        self._apply_custom_materials(project_dir, rt_scene, warnings)
+        for dev in txs:
+            rt_scene.add(
+                Transmitter(name=dev.id, position=list(dev.position), power_dbm=dev.power_dbm)
+            )
+
+        # Horizontal measurement plane sized to the scene geometry (padded),
+        # at the configured height. Falls back to the tx extent if the mitsuba
+        # bbox is unavailable.
+        cell = float(config.radio_map.cell_size_m)
+        height = float(config.radio_map.height_m)
+        cx, cy, ext_x, ext_y = self._measurement_extent(rt_scene, txs, np)
+        # Plain Python floats: mitsuba Point3f/Point2f reject numpy scalars.
+        center = [float(cx), float(cy), float(height)]
+        size = [float(max(ext_x, cell * 2)), float(max(ext_y, cell * 2))]
+
+        solver = RadioMapSolver()
+        rm = solver(
+            rt_scene,
+            center=center,
+            # Horizontal plane (Z-up): zero orientation. Required to be
+            # non-None whenever center/size are given.
+            orientation=[0.0, 0.0, 0.0],
+            size=size,
+            cell_size=[cell, cell],
+            max_depth=config.max_depth,
+            los=config.los,
+            specular_reflection=config.reflection,
+            diffuse_reflection=config.scattering,
+            refraction=False,
+            samples_per_tx=config.num_samples or 1_000_000,
+        )
+
+        metric = config.radio_map.metric
+        raw = np.array(rm.rss if metric == "rss_dbm" else rm.path_gain)  # [num_tx, ny, nx]
+        agg = raw.max(axis=0)  # combine transmitters by strongest coverage
+        ny, nx = agg.shape
+        with np.errstate(divide="ignore"):
+            db = 10.0 * np.log10(np.where(agg > 0, agg, np.nan))
+        if metric == "rss_dbm":
+            db = db + 30.0  # Sionna rss is in Watts -> dBm
+        values = [
+            [None if not np.isfinite(db[j, i]) else float(db[j, i]) for i in range(nx)]
+            for j in range(ny)
+        ]
+
+        centers = np.array(rm.cell_centers)  # [ny, nx, 3]
+        origin = [
+            float(centers[0, 0, 0] - cell / 2.0),
+            float(centers[0, 0, 1] - cell / 2.0),
+            height,
+        ]
         return RadioMapResultSet(
             result_id=UNSAVED_RESULT_ID,
             backend=self.name,
             simulation_config_id=config.id,
-            tx_id=txs[0].id if txs else "",
-            metric=config.radio_map.metric,
+            tx_id=txs[0].id,
+            metric=metric,
             grid=RadioMapGrid(
-                origin=[0.0, 0.0, config.radio_map.height_m],
-                cell_size_m=config.radio_map.cell_size_m,
-                nx=1,
-                ny=1,
-                height_m=config.radio_map.height_m,
+                origin=origin, cell_size_m=cell, nx=nx, ny=ny, height_m=height
             ),
-            values=[[None]],
-            warnings=["sionna radio map not implemented; use mock"],
-            metadata={"frequency_hz": config.frequency_hz, "engine": "sionna"},
+            values=values,
+            warnings=warnings + (["multiple tx aggregated by max"] if len(txs) > 1 else []),
+            metadata={
+                "frequency_hz": config.frequency_hz,
+                "num_tx": len(txs),
+                "engine": "sionna",
+            },
         )
+
+    @staticmethod
+    def _measurement_extent(rt_scene, txs, np) -> tuple[float, float, float, float]:
+        """(center_x, center_y, size_x, size_y) covering the scene, padded 15 m."""
+        pad = 15.0
+        try:
+            bbox = rt_scene.mi_scene.bbox()
+            lo, hi = np.array(bbox.min), np.array(bbox.max)
+            cx, cy = (lo[0] + hi[0]) / 2.0, (lo[1] + hi[1]) / 2.0
+            return cx, cy, (hi[0] - lo[0]) + 2 * pad, (hi[1] - lo[1]) + 2 * pad
+        except Exception:  # noqa: BLE001 - fall back to transmitter extent
+            xs = [d.position[0] for d in txs]
+            ys = [d.position[1] for d in txs]
+            cx, cy = sum(xs) / len(xs), sum(ys) / len(ys)
+            return cx, cy, 60.0, 60.0

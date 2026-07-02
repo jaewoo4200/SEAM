@@ -23,7 +23,9 @@ dependencies = [
 dev = ["pytest>=8.2"]
 # The real ray-tracing backend. Never required: the Mock backend and the whole
 # app must work without it (HANDOFF.md rule: do not break when Sionna missing).
-sionna = ["sionna-rt>=1.0"]
+# Verified against sionna-rt 2.0.x (Dr.Jit/Mitsuba 3); needs a CUDA GPU or an
+# LLVM CPU backend at runtime.
+sionna = ["sionna-rt>=2.0"]
 # Future columnar result schemas (paths.parquet, radio_map.parquet, cir.zarr).
 results = ["duckdb>=1.0", "pyarrow>=16", "zarr>=2.18"]
 

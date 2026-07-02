@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from app.schemas.devices import Device
 from app.schemas.scene import MeshRef, Prim, RFBinding, Scene
 from app.schemas.simulation import SimulationConfig
+from app.services.availability import sionna_available
 from app.services.project_store import load_default_library
 from app.services.simulation_backends import (
     BackendUnavailableError,
@@ -20,6 +21,11 @@ from app.services.simulation_backends.mock_backend import (
     MockBackend,
 )
 from app.services.simulation_backends.sionna_backend import SionnaBackend
+
+# Whether Sionna RT is installed in this environment. The backend registry
+# tests below branch on it so the suite passes both with and without Sionna:
+# when installed, "auto" resolves to sionna and a named "sionna" request runs.
+SIONNA_INSTALLED = sionna_available()
 
 TX_POS = [0.0, 0.0, 10.0]
 RX_POS = [20.0, 0.0, 1.5]
@@ -205,18 +211,24 @@ def test_radio_map_is_deterministic(backend, scene, library, tmp_path):
 # --------------------------------------------------- backend registry/sionna
 
 
-def test_sionna_backend_unavailable_here():
-    assert SionnaBackend().is_available() is False
+def test_sionna_backend_availability_matches_probe():
+    assert SionnaBackend().is_available() == SIONNA_INSTALLED
 
 
-def test_resolve_named_sionna_raises():
+@pytest.mark.skipif(SIONNA_INSTALLED, reason="sionna installed: named request succeeds")
+def test_resolve_named_sionna_raises_when_absent():
     with pytest.raises(BackendUnavailableError):
         resolve_backend(SimulationConfig(backend="sionna"))
 
 
-def test_resolve_auto_falls_back_to_mock():
+def test_resolve_auto_prefers_sionna_when_available():
     backend = resolve_backend(SimulationConfig(backend="auto"))
-    assert backend.name == "mock"
+    assert backend.name == ("sionna" if SIONNA_INSTALLED else "mock")
+
+
+@pytest.mark.skipif(not SIONNA_INSTALLED, reason="requires sionna-rt installed")
+def test_resolve_named_sionna_when_installed():
+    assert resolve_backend(SimulationConfig(backend="sionna")).name == "sionna"
 
 
 def test_get_backend_unknown_name():
@@ -253,10 +265,15 @@ def api_client(tmp_path, monkeypatch):
         get_store.cache_clear()
 
 
+# Force the mock backend so these persistence/roundtrip assertions are
+# deterministic whether or not Sionna RT is installed in the environment.
+MOCK_REQ = {"config": {"backend": "mock"}}
+
+
 def test_api_simulate_and_results_roundtrip(api_client):
     client, root = api_client
 
-    resp = client.post("/api/projects/sim_test/simulate/paths", json={})
+    resp = client.post("/api/projects/sim_test/simulate/paths", json=MOCK_REQ)
     assert resp.status_code == 200
     body = resp.json()
     assert body["result_id"] == "mock_paths_001"
@@ -270,7 +287,7 @@ def test_api_simulate_and_results_roundtrip(api_client):
     assert result_file.is_file()
 
     # Second run increments the sequence number.
-    resp2 = client.post("/api/projects/sim_test/simulate/paths", json={})
+    resp2 = client.post("/api/projects/sim_test/simulate/paths", json=MOCK_REQ)
     assert resp2.status_code == 200
     assert resp2.json()["result_id"] == "mock_paths_002"
 
@@ -308,7 +325,7 @@ def test_api_radio_map_roundtrip_and_missing_result(api_client):
     # No radio map results yet -> 404.
     assert client.get("/api/projects/sim_test/results/radio-map").status_code == 404
 
-    resp = client.post("/api/projects/sim_test/simulate/radio-map", json={})
+    resp = client.post("/api/projects/sim_test/simulate/radio-map", json=MOCK_REQ)
     assert resp.status_code == 200
     body = resp.json()
     assert body["result_id"] == "mock_radio_map_001"
@@ -333,7 +350,8 @@ def test_api_unknown_config_id_404(api_client):
     assert resp.status_code == 404
 
 
-def test_api_named_sionna_backend_409(api_client):
+@pytest.mark.skipif(SIONNA_INSTALLED, reason="sionna installed: named request runs, no 409")
+def test_api_named_sionna_backend_409_when_absent(api_client):
     client, _root = api_client
     resp = client.post(
         "/api/projects/sim_test/simulate/paths",

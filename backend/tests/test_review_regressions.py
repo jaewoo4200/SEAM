@@ -174,8 +174,11 @@ def test_result_id_never_reuses_live_id_after_ref_pruning(api_client):
     ]
     assert api_client.put("/api/projects/collide/scene", json=scene).status_code == 200
 
-    first = api_client.post("/api/projects/collide/simulate/paths", json={}).json()
-    second = api_client.post("/api/projects/collide/simulate/paths", json={}).json()
+    # Force the mock backend so ids are deterministic whether or not Sionna
+    # RT is installed (with Sionna present, "auto" would resolve to sionna).
+    mock_req = {"config": {"backend": "mock"}}
+    first = api_client.post("/api/projects/collide/simulate/paths", json=mock_req).json()
+    second = api_client.post("/api/projects/collide/simulate/paths", json=mock_req).json()
     assert [first["result_id"], second["result_id"]] == [
         "mock_paths_001",
         "mock_paths_002",
@@ -188,7 +191,7 @@ def test_result_id_never_reuses_live_id_after_ref_pruning(api_client):
     ]
     assert api_client.put("/api/projects/collide/scene", json=scene).status_code == 200
 
-    third = api_client.post("/api/projects/collide/simulate/paths", json={}).json()
+    third = api_client.post("/api/projects/collide/simulate/paths", json=mock_req).json()
     assert third["result_id"] == "mock_paths_003"  # not a reused 002
 
     # The survivor is still retrievable and untouched.

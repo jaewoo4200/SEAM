@@ -34,7 +34,9 @@ HANDOFF.md  operating specification this implementation follows
 - Python 3.11+ (backend)
 - Node.js 20+ (frontend dev/build)
 - Optional: [Ollama](https://ollama.com) for local LLM material suggestions
-- Optional: `sionna-rt` for real ray tracing (the Mock backend always works)
+- Optional: `sionna-rt` for real ray tracing (the Mock backend always works).
+  Sionna RT runs on Dr.Jit's CUDA backend (NVIDIA GPU) or LLVM backend (CPU);
+  at least one must be available or the backend degrades to a warning.
 
 ## Setup
 
@@ -43,6 +45,9 @@ HANDOFF.md  operating specification this implementation follows
 python -m venv backend/.venv
 backend/.venv/Scripts/pip install -e "backend[dev]"    # Windows
 # backend/.venv/bin/pip install -e "backend[dev]"      # Linux/macOS
+
+# Optional: real ray tracing (pulls mitsuba + drjit; ~200 MB)
+backend/.venv/Scripts/pip install "sionna-rt>=2.0"
 
 # Frontend
 cd frontend && npm install
@@ -119,8 +124,15 @@ backend/.venv/Scripts/python examples/scripts/create_demo_project.py
   are short (`tx_001`); results always reference canonical prim ids.
 - **Backend interface** (`RayTracingBackend`): `mock` is always available;
   `sionna` lazy-imports and degrades to warnings on any failure; `auto`
-  resolves to Sionna when installed. AODT result import or remote solvers slot
-  in behind the same normalized result schemas.
+  resolves to Sionna when installed, else the mock. AODT result import or
+  remote solvers slot in behind the same normalized result schemas.
+- **Real Sionna RT path.** With `sionna-rt` installed, the compiled
+  `generated_scene.xml` loads directly into Sionna RT 2.x: ITU materials
+  resolve from the `mat-itu_*` bsdf ids and custom (constant) materials from
+  the `radio-material` bsdf plugin. Path and radio-map results are computed on
+  GPU (Dr.Jit CUDA) or CPU (Dr.Jit LLVM) and normalized into the same schema
+  as the mock, with ray interactions mapped back to canonical RF materials
+  (and to a prim when its material group is a single prim).
 - **AI provider chain**: forced provider → Ollama text (if reachable) →
   rule-based fallback. Strict JSON schema validation; unparseable output falls
   back with a warning. `SIONNATWIN_AI_ENABLED=off` gives manual-only mode.
@@ -135,8 +147,9 @@ Configuration is environment-driven (`SIONNATWIN_PROJECT_ROOTS`,
   meshes (Mode 3) are not implemented; whole named meshes are the unit.
 - Per-prim RF parameter overrides are not yet representable in the grouped
   RF export (a compile warning says so).
-- The Sionna backend performs a minimal path computation and does not yet map
-  interactions back to prim ids; radio maps come from the Mock backend.
+- The Sionna backend maps ray interactions to RF materials, but a specific
+  prim only when its material group holds one prim (Mode 2 merges geometry by
+  material). Finer interaction→prim mapping waits on face-group splitting.
 - Results persist as JSON (Parquet/Zarr layouts are schema-ready, per
   `docs/roadmap.md`); radio-map visualization in the viewer is basic.
 - Measurement calibration, mobility, mesh radio maps, and progressive
