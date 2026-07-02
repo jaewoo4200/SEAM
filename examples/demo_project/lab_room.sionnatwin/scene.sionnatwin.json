@@ -1,0 +1,361 @@
+{
+  "schema_version": "0.1.0",
+  "scene_id": "lab_room",
+  "name": "Lab Room (imported, 28 GHz)",
+  "coordinate_system": {
+    "type": "local_enu",
+    "origin_lat_lon_alt": null,
+    "units": "meters"
+  },
+  "assets": {
+    "visual_scene_uri": "visual/scene.glb",
+    "tileset_uri": null
+  },
+  "prims": [
+    {
+      "id": "/ceiling_board",
+      "name": "ceiling_board",
+      "type": "mesh_primitive",
+      "parent_id": null,
+      "semantic_tags": [
+        "ceiling_board"
+      ],
+      "mesh_ref": {
+        "asset_uri": "visual/scene.glb",
+        "mesh_name": "ceiling_board",
+        "primitive_index": 0,
+        "face_group": null
+      },
+      "transform": {
+        "translation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_quat_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "visual": {
+        "material_id": null,
+        "material_name": "mat-itu_ceiling_board",
+        "base_color_texture": null,
+        "base_color_rgba": [
+          0.9,
+          0.9,
+          0.88,
+          1.0
+        ]
+      },
+      "rf": {
+        "material_id": "itu_ceiling_board",
+        "thickness_m": null,
+        "scattering_coefficient": null,
+        "xpd_coefficient": null,
+        "assignment_status": "user_confirmed",
+        "assignment_sources": [
+          "imported_xml"
+        ],
+        "confidence": 1.0
+      }
+    },
+    {
+      "id": "/concrete",
+      "name": "concrete",
+      "type": "mesh_primitive",
+      "parent_id": null,
+      "semantic_tags": [
+        "concrete"
+      ],
+      "mesh_ref": {
+        "asset_uri": "visual/scene.glb",
+        "mesh_name": "concrete",
+        "primitive_index": 0,
+        "face_group": null
+      },
+      "transform": {
+        "translation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_quat_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "visual": {
+        "material_id": null,
+        "material_name": "mat-itu_concrete",
+        "base_color_texture": null,
+        "base_color_rgba": [
+          0.52,
+          0.52,
+          0.5,
+          1.0
+        ]
+      },
+      "rf": {
+        "material_id": "itu_concrete",
+        "thickness_m": null,
+        "scattering_coefficient": null,
+        "xpd_coefficient": null,
+        "assignment_status": "user_confirmed",
+        "assignment_sources": [
+          "imported_xml"
+        ],
+        "confidence": 1.0
+      }
+    },
+    {
+      "id": "/glass",
+      "name": "glass",
+      "type": "mesh_primitive",
+      "parent_id": null,
+      "semantic_tags": [
+        "glass"
+      ],
+      "mesh_ref": {
+        "asset_uri": "visual/scene.glb",
+        "mesh_name": "glass",
+        "primitive_index": 0,
+        "face_group": null
+      },
+      "transform": {
+        "translation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_quat_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "visual": {
+        "material_id": null,
+        "material_name": "mat-itu_glass",
+        "base_color_texture": null,
+        "base_color_rgba": [
+          0.3,
+          0.55,
+          0.75,
+          1.0
+        ]
+      },
+      "rf": {
+        "material_id": "itu_glass",
+        "thickness_m": null,
+        "scattering_coefficient": null,
+        "xpd_coefficient": null,
+        "assignment_status": "user_confirmed",
+        "assignment_sources": [
+          "imported_xml"
+        ],
+        "confidence": 1.0
+      }
+    },
+    {
+      "id": "/marble",
+      "name": "marble",
+      "type": "mesh_primitive",
+      "parent_id": null,
+      "semantic_tags": [
+        "marble"
+      ],
+      "mesh_ref": {
+        "asset_uri": "visual/scene.glb",
+        "mesh_name": "marble",
+        "primitive_index": 0,
+        "face_group": null
+      },
+      "transform": {
+        "translation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_quat_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "visual": {
+        "material_id": null,
+        "material_name": "mat-itu_marble",
+        "base_color_texture": null,
+        "base_color_rgba": [
+          0.8,
+          0.82,
+          0.78,
+          1.0
+        ]
+      },
+      "rf": {
+        "material_id": "itu_marble",
+        "thickness_m": null,
+        "scattering_coefficient": null,
+        "xpd_coefficient": null,
+        "assignment_status": "user_confirmed",
+        "assignment_sources": [
+          "imported_xml"
+        ],
+        "confidence": 1.0
+      }
+    },
+    {
+      "id": "/metal",
+      "name": "metal",
+      "type": "mesh_primitive",
+      "parent_id": null,
+      "semantic_tags": [
+        "metal"
+      ],
+      "mesh_ref": {
+        "asset_uri": "visual/scene.glb",
+        "mesh_name": "metal",
+        "primitive_index": 0,
+        "face_group": null
+      },
+      "transform": {
+        "translation": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "rotation_quat_xyzw": [
+          0.0,
+          0.0,
+          0.0,
+          1.0
+        ],
+        "scale": [
+          1.0,
+          1.0,
+          1.0
+        ]
+      },
+      "visual": {
+        "material_id": null,
+        "material_name": "mat-itu_metal",
+        "base_color_texture": null,
+        "base_color_rgba": [
+          0.6,
+          0.62,
+          0.66,
+          1.0
+        ]
+      },
+      "rf": {
+        "material_id": "metal",
+        "thickness_m": null,
+        "scattering_coefficient": null,
+        "xpd_coefficient": null,
+        "assignment_status": "user_confirmed",
+        "assignment_sources": [
+          "imported_xml"
+        ],
+        "confidence": 1.0
+      }
+    }
+  ],
+  "devices": [
+    {
+      "id": "tx_001",
+      "name": "Lab TX",
+      "kind": "tx",
+      "position": [
+        3.43,
+        2.66,
+        2.4
+      ],
+      "orientation_deg": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "power_dbm": 30.0,
+      "antenna": {
+        "pattern": "tr38901",
+        "polarization": "V",
+        "num_rows": 4,
+        "num_cols": 4
+      },
+      "color": "#ff0000"
+    },
+    {
+      "id": "rx_001",
+      "name": "Lab RX",
+      "kind": "rx",
+      "position": [
+        5.6,
+        4.2,
+        1.2
+      ],
+      "orientation_deg": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "power_dbm": 30.0,
+      "antenna": {
+        "pattern": "iso",
+        "polarization": "cross",
+        "num_rows": 4,
+        "num_cols": 4
+      },
+      "color": "#2e9bff"
+    }
+  ],
+  "simulation_configs": [
+    {
+      "id": "default",
+      "name": "Default 28 GHz",
+      "backend": "auto",
+      "frequency_hz": 28000000000.0,
+      "max_depth": 3,
+      "tx_ids": null,
+      "rx_ids": null,
+      "los": true,
+      "reflection": true,
+      "diffraction": false,
+      "scattering": false,
+      "num_samples": 100000,
+      "radio_map": {
+        "cell_size_m": 2.0,
+        "height_m": 1.5,
+        "metric": "path_gain_db"
+      }
+    }
+  ],
+  "result_sets": []
+}
