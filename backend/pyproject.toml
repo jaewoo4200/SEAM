@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sionnatwin-backend"
+version = "0.1.0"
+description = "SionnaTwin Studio backend - unified RF-visual scene authoring, validation, and Sionna RT compilation"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.111",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2.7",
+    "numpy>=1.26",
+    "trimesh>=4.4",
+    "pyyaml>=6.0",
+    "httpx>=0.27",
+    "pillow>=10.3",
+    "networkx>=3.2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.2"]
+# The real ray-tracing backend. Never required: the Mock backend and the whole
+# app must work without it (HANDOFF.md rule: do not break when Sionna missing).
+sionna = ["sionna-rt>=1.0"]
+# Future columnar result schemas (paths.parquet, radio_map.parquet, cir.zarr).
+results = ["duckdb>=1.0", "pyarrow>=16", "zarr>=2.18"]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

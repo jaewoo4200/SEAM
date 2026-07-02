@@ -1,0 +1,131 @@
+# Default RF material library shipped with SionnaTwin Studio.
+# Copied into each new project as rf/materials.yaml (projects may edit/extend).
+#
+# model: itu_frequency_dependent -> parameters follow ITU-R P.2040 at the
+#   simulation frequency (maps to Sionna RT built-in itu_* materials via
+#   itu_name). relative_permittivity/conductivity are left null because they
+#   are frequency-derived.
+# model: constant -> relative_permittivity / conductivity_s_per_m used as-is.
+#
+# preview_color drives the frontend RF overlay mode only - it has no
+# electromagnetic meaning.
+materials:
+  - id: itu_concrete
+    display_name: ITU Concrete
+    category: concrete
+    model: itu_frequency_dependent
+    itu_name: itu_concrete
+    thickness_m: 0.30
+    scattering_coefficient: 0.10
+    xpd_coefficient: 0.10
+    transmissive: true
+    preview_color: "#9e9e9e"
+    notes: Default structural concrete (ITU-R P.2040).
+    builtin: true
+
+  - id: itu_brick
+    display_name: ITU Brick
+    category: brick
+    model: itu_frequency_dependent
+    itu_name: itu_brick
+    thickness_m: 0.24
+    scattering_coefficient: 0.15
+    xpd_coefficient: 0.10
+    transmissive: true
+    preview_color: "#b5551d"
+    notes: Fired-clay brick masonry (ITU-R P.2040).
+    builtin: true
+
+  - id: itu_glass
+    display_name: ITU Glass
+    category: glass
+    model: itu_frequency_dependent
+    itu_name: itu_glass
+    thickness_m: 0.012
+    scattering_coefficient: 0.02
+    xpd_coefficient: 0.05
+    transmissive: true
+    preview_color: "#4fc3f7"
+    notes: Standard window glass (ITU-R P.2040).
+    builtin: true
+
+  - id: itu_wood
+    display_name: ITU Wood
+    category: wood
+    model: itu_frequency_dependent
+    itu_name: itu_wood
+    thickness_m: 0.03
+    scattering_coefficient: 0.20
+    xpd_coefficient: 0.10
+    transmissive: true
+    preview_color: "#8d6e63"
+    notes: Plywood/timber (ITU-R P.2040).
+    builtin: true
+
+  - id: metal
+    display_name: Metal
+    category: metal
+    model: itu_frequency_dependent
+    itu_name: itu_metal
+    thickness_m: null
+    scattering_coefficient: 0.05
+    xpd_coefficient: 0.05
+    transmissive: false
+    preview_color: "#b0bec5"
+    notes: Perfect electric conductor approximation for steel/aluminum.
+    builtin: true
+
+  - id: ground
+    display_name: Ground (medium dry)
+    category: ground
+    model: itu_frequency_dependent
+    itu_name: itu_medium_dry_ground
+    thickness_m: null
+    scattering_coefficient: 0.30
+    xpd_coefficient: 0.15
+    transmissive: false
+    preview_color: "#795548"
+    notes: Medium dry soil half-space (ITU-R P.2040 / P.527).
+    builtin: true
+
+  - id: asphalt_custom
+    display_name: Asphalt (custom)
+    category: asphalt
+    model: constant
+    relative_permittivity: 5.72
+    conductivity_s_per_m: 0.005
+    thickness_m: null
+    scattering_coefficient: 0.25
+    xpd_coefficient: 0.10
+    transmissive: false
+    preview_color: "#37474f"
+    notes: Dense-graded asphalt concrete; literature values around 1-6 GHz.
+    builtin: true
+
+  - id: vegetation_custom
+    display_name: Vegetation (custom)
+    category: vegetation
+    model: constant
+    relative_permittivity: 5.0
+    conductivity_s_per_m: 0.10
+    thickness_m: 1.0
+    scattering_coefficient: 0.60
+    xpd_coefficient: 0.30
+    transmissive: true
+    preview_color: "#43a047"
+    notes: Coarse effective-medium stand-in for foliage; strongly scattering.
+    builtin: true
+
+  - id: unknown_rf
+    display_name: Unknown RF material
+    category: unknown
+    model: constant
+    relative_permittivity: 3.0
+    conductivity_s_per_m: 0.01
+    thickness_m: null
+    scattering_coefficient: 0.20
+    xpd_coefficient: 0.10
+    transmissive: true
+    preview_color: "#e91e63"
+    notes: Deliberate placeholder for surfaces the user could not classify.
+    builtin: true
