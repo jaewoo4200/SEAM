@@ -165,6 +165,12 @@ Full ISAC target tracking (PADP/DBSCAN/Kalman) and CV material split
 (SAM2/DINOv2) are scoped in `docs/roadmap.md` — the RF/export integration
 points exist; the DSP and ML-model inference are external/future.
 
+**Research directions.** Paper-worthy directions grounded in these features
+(CV→RF fidelity evaluation, provenance-tracked material lifecycle, interactive
+material sensitivity, Monte-Carlo uncertainty overlays, differentiable
+calibration, and more) are collected in `docs/research_ideas.md`, with an
+engineering shortlist under "Novel features backlog" in `docs/roadmap.md`.
+
 ### vs. the official NVlabs `sionna-rt-gui`
 
 The official tool (Polyscope desktop app) loads a scene, places/animates TX/RX,

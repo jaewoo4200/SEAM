@@ -102,6 +102,10 @@ export default function SceneTree() {
   const scene = useAppStore((s) => s.scene);
   const selectedDeviceId = useAppStore((s) => s.selectedDeviceId);
   const selectDevice = useAppStore((s) => s.selectDevice);
+  const addDevice = useAppStore((s) => s.addDevice);
+  const deleteDevice = useAppStore((s) => s.deleteDevice);
+  const clearDevices = useAppStore((s) => s.clearDevices);
+  const busy = useAppStore((s) => s.busy);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
   const tree = useMemo(() => buildTree(scene?.prims ?? []), [scene]);
@@ -133,8 +137,23 @@ export default function SceneTree() {
         />
       ))}
 
-      <div className="tree-section" style={{ marginTop: 14 }}>
-        Devices
+      <div className="tree-section tree-section-head" style={{ marginTop: 14 }}>
+        <span>Devices</span>
+        <span className="tree-head-actions">
+          <button disabled={busy !== null} onClick={() => void addDevice("tx")} title="Add transmitter">
+            +TX
+          </button>
+          <button disabled={busy !== null} onClick={() => void addDevice("rx")} title="Add receiver">
+            +RX
+          </button>
+          <button
+            disabled={busy !== null || scene.devices.length === 0}
+            onClick={() => void clearDevices()}
+            title="Clear all radio devices"
+          >
+            Clear all
+          </button>
+        </span>
       </div>
       {scene.devices.length === 0 && <div className="empty-state">No devices</div>}
       {scene.devices.map((d) => (
@@ -150,6 +169,17 @@ export default function SceneTree() {
           </span>
           <span className="tree-name">{d.id}</span>
           {d.name && <span className="tree-mat">{d.name}</span>}
+          <button
+            className="tree-del"
+            disabled={busy !== null}
+            title={`Delete ${d.id}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              void deleteDevice(d.id);
+            }}
+          >
+            ×
+          </button>
         </div>
       ))}
     </div>

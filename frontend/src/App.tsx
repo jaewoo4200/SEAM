@@ -8,6 +8,7 @@ import RFMaterialPanel from "./components/RFMaterialPanel";
 import ValidationPanel from "./components/ValidationPanel";
 import AISuggestionPanel from "./components/AISuggestionPanel";
 import ResultExplorer from "./components/ResultExplorer";
+import SolverControls from "./components/SolverControls";
 
 // Guard against React 18 StrictMode double-mount kicking off two boots.
 let booted = false;
@@ -50,7 +51,12 @@ export default function App() {
       rightPanel = <AISuggestionPanel />;
       break;
     case "results":
-      rightPanel = <ResultExplorer />;
+      rightPanel = (
+        <>
+          <SolverControls />
+          <ResultExplorer />
+        </>
+      );
       break;
   }
 

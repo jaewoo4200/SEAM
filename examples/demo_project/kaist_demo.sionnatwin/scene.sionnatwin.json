@@ -359,16 +359,13 @@
         ]
       },
       "rf": {
-        "material_id": "itu_concrete",
+        "material_id": null,
         "thickness_m": null,
         "scattering_coefficient": null,
         "xpd_coefficient": null,
-        "assignment_status": "user_confirmed",
-        "assignment_sources": [
-          "ai:rule_based",
-          "user"
-        ],
-        "confidence": 0.9
+        "assignment_status": "unassigned",
+        "assignment_sources": [],
+        "confidence": null
       }
     },
     {
@@ -416,16 +413,13 @@
         ]
       },
       "rf": {
-        "material_id": "itu_glass",
+        "material_id": null,
         "thickness_m": null,
         "scattering_coefficient": null,
         "xpd_coefficient": null,
-        "assignment_status": "user_confirmed",
-        "assignment_sources": [
-          "ai:rule_based",
-          "user"
-        ],
-        "confidence": 0.9
+        "assignment_status": "unassigned",
+        "assignment_sources": [],
+        "confidence": null
       }
     },
     {
@@ -473,16 +467,13 @@
         ]
       },
       "rf": {
-        "material_id": "itu_glass",
+        "material_id": null,
         "thickness_m": null,
         "scattering_coefficient": null,
         "xpd_coefficient": null,
-        "assignment_status": "user_confirmed",
-        "assignment_sources": [
-          "ai:rule_based",
-          "user"
-        ],
-        "confidence": 0.9
+        "assignment_status": "unassigned",
+        "assignment_sources": [],
+        "confidence": null
       }
     },
     {
@@ -530,16 +521,13 @@
         ]
       },
       "rf": {
-        "material_id": "itu_concrete",
+        "material_id": null,
         "thickness_m": null,
         "scattering_coefficient": null,
         "xpd_coefficient": null,
-        "assignment_status": "user_confirmed",
-        "assignment_sources": [
-          "ai:rule_based",
-          "user"
-        ],
-        "confidence": 0.9
+        "assignment_status": "unassigned",
+        "assignment_sources": [],
+        "confidence": null
       }
     },
     {
@@ -587,16 +575,13 @@
         ]
       },
       "rf": {
-        "material_id": "itu_wood",
+        "material_id": null,
         "thickness_m": null,
         "scattering_coefficient": null,
         "xpd_coefficient": null,
-        "assignment_status": "user_confirmed",
-        "assignment_sources": [
-          "ai:rule_based",
-          "user"
-        ],
-        "confidence": 0.9
+        "assignment_status": "unassigned",
+        "assignment_sources": [],
+        "confidence": null
       }
     },
     {
@@ -644,16 +629,13 @@
         ]
       },
       "rf": {
-        "material_id": "vegetation_custom",
+        "material_id": null,
         "thickness_m": null,
         "scattering_coefficient": null,
         "xpd_coefficient": null,
-        "assignment_status": "user_confirmed",
-        "assignment_sources": [
-          "ai:rule_based",
-          "user"
-        ],
-        "confidence": 0.9
+        "assignment_status": "unassigned",
+        "assignment_sources": [],
+        "confidence": null
       }
     }
   ],
@@ -716,9 +698,15 @@
       "rx_ids": null,
       "los": true,
       "reflection": true,
-      "diffraction": false,
       "scattering": false,
-      "num_samples": 100000,
+      "refraction": false,
+      "diffraction": false,
+      "edge_diffraction": false,
+      "synthetic_array": true,
+      "seed": 42,
+      "num_samples": 1000000,
+      "bandwidth_hz": 100000000.0,
+      "noise_figure_db": 7.0,
       "radio_map": {
         "cell_size_m": 2.0,
         "height_m": 1.5,
@@ -726,54 +714,5 @@
       }
     }
   ],
-  "result_sets": [
-    {
-      "result_id": "sionna_paths_001",
-      "kind": "paths",
-      "backend": "sionna",
-      "simulation_config_id": "default",
-      "uri": "results/sionna_paths_001.json",
-      "created_at": "2026-07-02T08:49:00.043711+00:00"
-    },
-    {
-      "result_id": "sionna_paths_002",
-      "kind": "paths",
-      "backend": "sionna",
-      "simulation_config_id": "default",
-      "uri": "results/sionna_paths_002.json",
-      "created_at": "2026-07-02T08:50:03.771936+00:00"
-    },
-    {
-      "result_id": "sionna_radio_map_001",
-      "kind": "radio_map",
-      "backend": "sionna",
-      "simulation_config_id": "default",
-      "uri": "results/sionna_radio_map_001.json",
-      "created_at": "2026-07-02T08:50:09.267266+00:00"
-    },
-    {
-      "result_id": "sionna_radio_map_002",
-      "kind": "radio_map",
-      "backend": "sionna",
-      "simulation_config_id": "default",
-      "uri": "results/sionna_radio_map_002.json",
-      "created_at": "2026-07-02T08:50:57.684105+00:00"
-    },
-    {
-      "result_id": "sionna_radio_map_003",
-      "kind": "radio_map",
-      "backend": "sionna",
-      "simulation_config_id": "default",
-      "uri": "results/sionna_radio_map_003.json",
-      "created_at": "2026-07-02T08:50:58.419279+00:00"
-    },
-    {
-      "result_id": "sionna_radio_map_004",
-      "kind": "radio_map",
-      "backend": "sionna",
-      "simulation_config_id": "default",
-      "uri": "results/sionna_radio_map_004.json",
-      "created_at": "2026-07-02T08:50:59.215267+00:00"
-    }
-  ]
+  "result_sets": []
 }

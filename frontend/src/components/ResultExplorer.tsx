@@ -1,7 +1,9 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAppStore } from "../store/appStore";
 import { PATH_COLORS, SELECTED_PATH_COLOR, formatVec } from "./common";
-import type { PathType, RayPath } from "../types/api";
+import { filterPaths, pathColor, pathDepth, powerRange } from "../pathFilter";
+import type { ColorBy } from "../store/appStore";
+import type { PathType, RayPath, TrajectoryResultSet, Vec3 } from "../types/api";
 
 const SELECTED_COLOR = SELECTED_PATH_COLOR;
 
@@ -134,6 +136,304 @@ function PathDetail({ path }: { path: RayPath }) {
   );
 }
 
+// ------------------------------------------------- viewer render controls
+
+function ViewerControls({ range }: { range: { min: number; max: number } }) {
+  const strongestN = useAppStore((s) => s.strongestN);
+  const setStrongestN = useAppStore((s) => s.setStrongestN);
+  const minPowerDbm = useAppStore((s) => s.minPowerDbm);
+  const setMinPowerDbm = useAppStore((s) => s.setMinPowerDbm);
+  const colorBy = useAppStore((s) => s.colorBy);
+  const setColorBy = useAppStore((s) => s.setColorBy);
+  const lineWidthByPower = useAppStore((s) => s.lineWidthByPower);
+  const setLineWidthByPower = useAppStore((s) => s.setLineWidthByPower);
+
+  const minEnabled = minPowerDbm !== null;
+
+  return (
+    <div className="viewer-controls">
+      <label className="solver-slider">
+        <span className="solver-slider-head">
+          <span>Strongest N</span>
+          <span className="mono solver-slider-value">{strongestN}</span>
+        </span>
+        <input
+          type="range"
+          min={5}
+          max={200}
+          step={5}
+          value={strongestN}
+          onChange={(e) => setStrongestN(Number(e.target.value))}
+        />
+      </label>
+
+      <label className="solver-check">
+        <input
+          type="checkbox"
+          checked={minEnabled}
+          onChange={(e) =>
+            setMinPowerDbm(e.target.checked ? Math.round(range.min) : null)
+          }
+        />
+        Min power
+        <input
+          type="number"
+          className="min-power-input"
+          value={minEnabled ? minPowerDbm : ""}
+          step={1}
+          disabled={!minEnabled}
+          onChange={(e) => setMinPowerDbm(Number(e.target.value))}
+        />
+        <span className="solver-unit">dBm</span>
+      </label>
+
+      <label className="solver-field">
+        <span className="solver-field-label">Color by</span>
+        <select value={colorBy} onChange={(e) => setColorBy(e.target.value as ColorBy)}>
+          <option value="type">type</option>
+          <option value="power">power</option>
+          <option value="depth">depth</option>
+        </select>
+      </label>
+
+      <label className="solver-check">
+        <input
+          type="checkbox"
+          checked={lineWidthByPower}
+          onChange={(e) => setLineWidthByPower(e.target.checked)}
+        />
+        Line width by power
+      </label>
+    </div>
+  );
+}
+
+// ------------------------------------------------------- trajectory section
+
+function firstRxPosition(): Vec3 {
+  const scene = useAppStore.getState().scene;
+  const rx = scene?.devices.find((d) => d.kind === "rx");
+  return rx ? rx.position : [10, 0, 1.5];
+}
+
+function TrajectorySection() {
+  const trajectory = useAppStore((s) => s.trajectory);
+  const trajFrame = useAppStore((s) => s.trajFrame);
+  const trajPlaying = useAppStore((s) => s.trajPlaying);
+  const trajSpeed = useAppStore((s) => s.trajSpeed);
+  const setTrajFrame = useAppStore((s) => s.setTrajFrame);
+  const setTrajPlaying = useAppStore((s) => s.setTrajPlaying);
+  const setTrajSpeed = useAppStore((s) => s.setTrajSpeed);
+  const simulateTrajectory = useAppStore((s) => s.simulateTrajectory);
+  const busy = useAppStore((s) => s.busy);
+  const projectId = useAppStore((s) => s.projectId);
+
+  // Default: current first rx position -> +30 m in x.
+  const [start, setStart] = useState<Vec3>(() => firstRxPosition());
+  const [end, setEnd] = useState<Vec3>(() => {
+    const s = firstRxPosition();
+    return [s[0] + 30, s[1], s[2]];
+  });
+  const [numPoints, setNumPoints] = useState(8);
+  const [dt, setDt] = useState(0.1);
+
+  // Playback timer: advance frames by dt*1000/speed; stop at the last frame.
+  const dtRef = useRef(dt);
+  dtRef.current = dt;
+  useEffect(() => {
+    if (!trajPlaying || !trajectory) return;
+    const period = Math.max(30, (dtRef.current * 1000) / trajSpeed);
+    const timer = setInterval(() => {
+      const st = useAppStore.getState();
+      const last = (st.trajectory?.samples.length ?? 1) - 1;
+      if (st.trajFrame >= last) {
+        st.setTrajPlaying(false);
+        return;
+      }
+      st.setTrajFrame(st.trajFrame + 1);
+    }, period);
+    return () => clearInterval(timer);
+  }, [trajPlaying, trajSpeed, trajectory]);
+
+  const disabled = busy !== null;
+  const sample = trajectory?.samples[Math.min(trajFrame, trajectory.samples.length - 1)] ?? null;
+
+  const vecField = (label: string, v: Vec3, onChange: (v: Vec3) => void) => (
+    <label className="solver-field">
+      <span className="solver-field-label">{label}</span>
+      <span className="traj-vec">
+        {[0, 1, 2].map((i) => (
+          <input
+            key={i}
+            type="number"
+            step={1}
+            value={v[i]}
+            disabled={disabled}
+            onChange={(e) => {
+              const next: Vec3 = [...v];
+              next[i] = Number(e.target.value);
+              onChange(next);
+            }}
+          />
+        ))}
+      </span>
+    </label>
+  );
+
+  const kpi = (label: string, value: string) => (
+    <div className="traj-kpi">
+      <span className="traj-kpi-label">{label}</span>
+      <span className="traj-kpi-value mono">{value}</span>
+    </div>
+  );
+
+  const fmt = (v: number | null, unit: string, digits = 1) =>
+    v === null ? "n/a" : `${v.toFixed(digits)} ${unit}`;
+
+  return (
+    <div className="traj-section">
+      <h4>Trajectory</h4>
+      {vecField("Start", start, setStart)}
+      {vecField("End", end, setEnd)}
+      <label className="solver-field">
+        <span className="solver-field-label">Num points</span>
+        <span className="solver-field-input">
+          <input
+            type="number"
+            min={2}
+            max={200}
+            step={1}
+            value={numPoints}
+            disabled={disabled}
+            onChange={(e) => setNumPoints(Math.max(2, Math.min(200, Number(e.target.value))))}
+          />
+        </span>
+      </label>
+      <label className="solver-field">
+        <span className="solver-field-label">dt</span>
+        <span className="solver-field-input">
+          <input
+            type="number"
+            min={0.001}
+            step={0.05}
+            value={dt}
+            disabled={disabled}
+            onChange={(e) => setDt(Math.max(0.001, Number(e.target.value)))}
+          />
+          <span className="solver-unit">s</span>
+        </span>
+      </label>
+      <div className="panel-actions">
+        <button
+          className="primary"
+          disabled={!projectId || disabled}
+          onClick={() =>
+            void simulateTrajectory({ start_m: start, end_m: end, num_points: numPoints, dt_s: dt })
+          }
+        >
+          Simulate trajectory
+        </button>
+      </div>
+
+      {trajectory && trajectory.samples.length > 0 && (
+        <PlaybackTrajectory
+          trajectory={trajectory}
+          trajFrame={trajFrame}
+          trajPlaying={trajPlaying}
+          trajSpeed={trajSpeed}
+          setTrajFrame={setTrajFrame}
+          setTrajPlaying={setTrajPlaying}
+          setTrajSpeed={setTrajSpeed}
+          sample={sample}
+          kpi={kpi}
+          fmt={fmt}
+        />
+      )}
+    </div>
+  );
+}
+
+function PlaybackTrajectory({
+  trajectory,
+  trajFrame,
+  trajPlaying,
+  trajSpeed,
+  setTrajFrame,
+  setTrajPlaying,
+  setTrajSpeed,
+  sample,
+  kpi,
+  fmt,
+}: {
+  trajectory: TrajectoryResultSet;
+  trajFrame: number;
+  trajPlaying: boolean;
+  trajSpeed: number;
+  setTrajFrame: (f: number) => void;
+  setTrajPlaying: (p: boolean) => void;
+  setTrajSpeed: (s: number) => void;
+  sample: TrajectoryResultSet["samples"][number] | null;
+  kpi: (label: string, value: string) => JSX.Element;
+  fmt: (v: number | null, unit: string, digits?: number) => string;
+}) {
+  const last = trajectory.samples.length - 1;
+  const frame = Math.min(trajFrame, last);
+  const atEnd = frame >= last;
+
+  return (
+    <div className="traj-playback">
+      <div className="results-meta">
+        <span className="mono">{trajectory.ue_id}</span> · {trajectory.samples.length} sample(s) ·
+        backend <span className="mono">{trajectory.backend}</span>
+      </div>
+      <div className="traj-transport">
+        <button
+          onClick={() => {
+            if (atEnd && !trajPlaying) setTrajFrame(0);
+            setTrajPlaying(!trajPlaying);
+          }}
+          title={trajPlaying ? "Pause" : "Play"}
+        >
+          {trajPlaying ? "⏸" : "▶"}
+        </button>
+        <input
+          type="range"
+          min={0}
+          max={last}
+          step={1}
+          value={frame}
+          onChange={(e) => setTrajFrame(Number(e.target.value))}
+        />
+        <span className="mono traj-frame-num">
+          {frame + 1}/{last + 1}
+        </span>
+        <select
+          value={trajSpeed}
+          onChange={(e) => setTrajSpeed(Number(e.target.value))}
+          title="Playback speed"
+        >
+          {[0.5, 1, 2, 4].map((s) => (
+            <option key={s} value={s}>
+              {s}×
+            </option>
+          ))}
+        </select>
+      </div>
+      {sample && (
+        <div className="traj-kpis">
+          {kpi("t", `${sample.time_s.toFixed(2)} s`)}
+          {kpi("pos", formatVec(sample.position, 1))}
+          {kpi("RSS", fmt(sample.rss_dbm, "dBm"))}
+          {kpi("Path gain", fmt(sample.path_gain_db, "dB"))}
+          {kpi("SINR", fmt(sample.sinr_db, "dB"))}
+          {kpi("RMS delay", fmt(sample.rms_delay_spread_ns, "ns", 2))}
+          {kpi("Paths", String(sample.path_count))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ResultExplorer() {
   const pathResults = useAppStore((s) => s.pathResults);
   const selectedPathId = useAppStore((s) => s.selectedPathId);
@@ -150,7 +450,13 @@ export default function ResultExplorer() {
   const projectId = useAppStore((s) => s.projectId);
   const busy = useAppStore((s) => s.busy);
 
-  const [filter, setFilter] = useState<PathType | "all">("all");
+  // Filter state lives in the store so the viewer and table stay in sync.
+  const filter = useAppStore((s) => s.pathTypeFilter);
+  const setFilter = useAppStore((s) => s.setPathTypeFilter);
+  const strongestN = useAppStore((s) => s.strongestN);
+  const minPowerDbm = useAppStore((s) => s.minPowerDbm);
+  const colorBy = useAppStore((s) => s.colorBy);
+
   const [sortKey, setSortKey] = useState<SortKey>("power_dbm");
   const [sortDir, setSortDir] = useState<1 | -1>(-1);
 
@@ -160,10 +466,19 @@ export default function ResultExplorer() {
     return [...types];
   }, [pathResults]);
 
-  const filtered = useMemo(() => {
-    const paths = (pathResults?.paths ?? []).filter(
-      (p) => filter === "all" || p.path_type === filter,
-    );
+  // The set the viewer draws (type filter + min power + strongest N).
+  const visible = useMemo(
+    () =>
+      filterPaths(pathResults?.paths ?? [], {
+        pathTypeFilter: filter,
+        strongestN,
+        minPowerDbm,
+      }),
+    [pathResults, filter, strongestN, minPowerDbm],
+  );
+  const range = useMemo(() => powerRange(visible), [visible]);
+
+  const sorted = useMemo(() => {
     const value = (p: RayPath): string | number => {
       switch (sortKey) {
         case "path_id":
@@ -178,14 +493,14 @@ export default function ResultExplorer() {
           return p.interactions.length;
       }
     };
-    return [...paths].sort((a, b) => {
+    return [...visible].sort((a, b) => {
       const va = value(a);
       const vb = value(b);
       if (va < vb) return -sortDir;
       if (va > vb) return sortDir;
       return 0;
     });
-  }, [pathResults, filter, sortKey, sortDir]);
+  }, [visible, sortKey, sortDir]);
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -221,7 +536,7 @@ export default function ResultExplorer() {
         <button
           disabled={!projectId || busy !== null}
           onClick={() => void runBeamforming()}
-          title="4x4 MIMO beamforming gain (TX-MRT and both-ends SVD)"
+          title="MIMO beamforming gain (TX-MRT and both-ends SVD)"
         >
           Beamforming
         </button>
@@ -309,6 +624,9 @@ export default function ResultExplorer() {
             {pathResults.created_at && <> · {new Date(pathResults.created_at).toLocaleString()}</>}
             {" · "}
             {pathResults.paths.length} path(s)
+            {visible.length !== pathResults.paths.length && (
+              <> · showing {visible.length}</>
+            )}
             {radioMap && (
               <>
                 {" "}
@@ -323,6 +641,8 @@ export default function ResultExplorer() {
               ))}
             </div>
           )}
+
+          <ViewerControls range={range} />
 
           <div className="chips">
             <span
@@ -354,7 +674,7 @@ export default function ResultExplorer() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((p) => (
+              {sorted.map((p) => (
                 <tr
                   key={p.path_id}
                   className={p.path_id === selectedPathId ? "selected" : ""}
@@ -363,7 +683,11 @@ export default function ResultExplorer() {
                   <td className="mono">{p.path_id}</td>
                   <td>
                     <span className="path-type">
-                      <span className="dot" style={{ background: PATH_COLORS[p.path_type] }} />
+                      <span
+                        className="dot"
+                        style={{ background: pathColor(p, colorBy, range) }}
+                        title={colorBy === "depth" ? `depth ${pathDepth(p)}` : undefined}
+                      />
                       {p.path_type}
                     </span>
                   </td>
@@ -377,15 +701,17 @@ export default function ResultExplorer() {
 
           {selectedPath && <PathDetail path={selectedPath} />}
 
-          {pathResults.paths.length > 0 && (
+          {visible.length > 0 && (
             <DelayPowerScatter
-              paths={pathResults.paths}
+              paths={visible}
               selectedPathId={selectedPathId}
               onSelect={(id) => selectPath(id)}
             />
           )}
         </>
       )}
+
+      <TrajectorySection />
     </div>
   );
 }

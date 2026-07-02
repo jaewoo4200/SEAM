@@ -16,6 +16,7 @@ import json
 import math
 from pathlib import Path
 
+from app.schemas.devices import Antenna, Device
 from app.schemas.materials import RFMaterialLibrary
 from app.schemas.results import (
     BeamformingResult,
@@ -38,6 +39,130 @@ _NO_OBJECT = 0xFFFFFFFF
 # reflection) so a version bump cannot crash conversion.
 _INTERACTION_TYPES = {1: "reflection", 2: "scattering", 3: "transmission", 4: "diffraction"}
 
+# sionna.rt.PlanarArray patterns/polarizations we validate against (verified via
+# the antenna_pattern / polarization registries in sionna-rt 2.0.1). Unknown
+# pattern -> iso fallback with a warning so a bad device config never raises.
+_VALID_PATTERNS = ("iso", "dipole", "hw_dipole", "tr38901")
+_VALID_POLARIZATIONS = ("V", "H", "VH", "cross")
+
+
+# --------------------------------------------------------------- scene cache
+#
+# Loading generated_scene.xml is the dominant cost of a trajectory solve (one
+# Mitsuba scene compile per waypoint). We cache the loaded rt_scene keyed by
+# (xml path, mtime_ns) so N waypoints reuse a single load. Before each use the
+# caller strips the previously added transmitters/receivers and reapplies
+# frequency + arrays, so a cached scene is functionally identical to a fresh
+# load. A mtime change (the compiler rewriting the file, e.g. per calibration
+# trial) invalidates the entry automatically.
+_SCENE_CACHE: dict[str, tuple[int, object]] = {}
+# Test-visible counters: hits/misses/loads. Reset via clear_scene_cache().
+_CACHE_STATS = {"hits": 0, "misses": 0, "loads": 0}
+
+
+def clear_scene_cache() -> None:
+    """Drop all cached rt_scenes. Called defensively on any solver exception so
+    a scene left in a bad state is never reused. Hit/miss/load counters are
+    left intact (they are cumulative diagnostics, not cache state); a fresh
+    load after this will simply register as another miss."""
+    _SCENE_CACHE.clear()
+
+
+def cache_stats() -> dict:
+    """Hit/miss/load counters, exposed for tests to assert cache behaviour."""
+    return dict(_CACHE_STATS)
+
+
+def _load_scene_cached(xml_path: Path, warnings: list[str]):
+    """Return a loaded rt_scene for ``xml_path``, reusing the cached instance
+    when the file's mtime is unchanged. On a hit the returned scene still has
+    whatever tx/rx the previous caller added; ``_reset_scene_devices`` clears
+    them. On a miss (or mtime change) the file is (re)loaded."""
+    from sionna.rt import load_scene  # type: ignore[import-not-found]
+
+    key = str(xml_path)
+    try:
+        mtime = xml_path.stat().st_mtime_ns
+    except OSError:
+        mtime = -1
+    cached = _SCENE_CACHE.get(key)
+    if cached is not None and cached[0] == mtime:
+        _CACHE_STATS["hits"] += 1
+        return cached[1]
+    _CACHE_STATS["misses"] += 1
+    _CACHE_STATS["loads"] += 1
+    rt_scene = load_scene(str(xml_path))
+    _SCENE_CACHE[key] = (mtime, rt_scene)
+    return rt_scene
+
+
+def _reset_scene_devices(rt_scene) -> None:
+    """Remove every transmitter/receiver from a (possibly cached) scene so it
+    starts empty for the next solve. scene.transmitters/.receivers are dict
+    copies, so removing by key while iterating is safe."""
+    for name in list(rt_scene.transmitters.keys()):
+        rt_scene.remove(name)
+    for name in list(rt_scene.receivers.keys()):
+        rt_scene.remove(name)
+
+
+def _make_planar_array(antenna: Antenna, warnings: list[str], *, num_rows=None, num_cols=None):
+    """Build a sionna.rt.PlanarArray from a Device.antenna, validating the
+    pattern/polarization against the installed registries. Unknown pattern ->
+    iso with a warning; unknown polarization -> V with a warning. num_rows /
+    num_cols override the device geometry (used by beamforming's explicit
+    array request while keeping the device's pattern/polarization)."""
+    from sionna.rt import PlanarArray  # type: ignore[import-not-found]
+
+    pattern = antenna.pattern
+    if pattern not in _VALID_PATTERNS:
+        warnings.append(
+            f"unknown antenna pattern {pattern!r}; falling back to 'iso' "
+            f"(valid: {', '.join(_VALID_PATTERNS)})"
+        )
+        pattern = "iso"
+    polarization = antenna.polarization
+    if polarization not in _VALID_POLARIZATIONS:
+        warnings.append(
+            f"unknown antenna polarization {polarization!r}; falling back to 'V'"
+        )
+        polarization = "V"
+    rows = int(num_rows if num_rows is not None else antenna.num_rows)
+    cols = int(num_cols if num_cols is not None else antenna.num_cols)
+    return PlanarArray(
+        num_rows=max(1, rows),
+        num_cols=max(1, cols),
+        vertical_spacing=0.5,
+        horizontal_spacing=0.5,
+        pattern=pattern,
+        polarization=polarization,
+    )
+
+
+def _apply_arrays(
+    rt_scene,
+    txs: list[Device],
+    rxs: list[Device],
+    warnings: list[str],
+) -> None:
+    """Set rt_scene.tx_array / rx_array from the first selected TX/RX device's
+    antenna. Falls back to an isotropic 1x1 array when a side has no device."""
+    default = Antenna()
+    tx_antenna = txs[0].antenna if txs else default
+    rx_antenna = rxs[0].antenna if rxs else default
+    rt_scene.tx_array = _make_planar_array(tx_antenna, warnings)
+    rt_scene.rx_array = _make_planar_array(rx_antenna, warnings)
+
+
+def noise_floor_dbm(config: SimulationConfig) -> float:
+    """Thermal noise floor + receiver noise figure, in dBm.
+
+    kTB at 290 K is -174 dBm/Hz; add 10log10(bandwidth) and the NF. This is an
+    SNR reference (no interference term), so downstream SINR == SNR = signal -
+    noise_floor.
+    """
+    return -174.0 + 10.0 * math.log10(config.bandwidth_hz) + config.noise_figure_db
+
 
 class SionnaBackend(RayTracingBackend):
     name = "sionna"
@@ -59,6 +184,8 @@ class SionnaBackend(RayTracingBackend):
         try:
             return self._simulate_paths_impl(project_dir, scene, library, config)
         except Exception as exc:  # noqa: BLE001 - graceful degradation contract
+            # A scene left half-mutated in the cache must not be reused.
+            clear_scene_cache()
             # Keep the actionable frequency hints even on the failure path.
             return PathResultSet(
                 result_id=UNSAVED_RESULT_ID,
@@ -85,10 +212,8 @@ class SionnaBackend(RayTracingBackend):
         # try/except absorb anything older/newer.
         from sionna.rt import (  # type: ignore[import-not-found]
             PathSolver,
-            PlanarArray,
             Receiver,
             Transmitter,
-            load_scene,
         )
 
         warnings: list[str] = self._frequency_warnings(scene, library, config)
@@ -104,21 +229,10 @@ class SionnaBackend(RayTracingBackend):
                 )
             warnings.append("rf projection was missing; compiled on demand")
 
-        rt_scene = load_scene(str(xml_path))
+        # Cached scene load: reuse across waypoints/grid solves keyed by mtime.
+        rt_scene = _load_scene_cached(xml_path, warnings)
+        _reset_scene_devices(rt_scene)
         rt_scene.frequency = config.frequency_hz
-
-        # Single isotropic antenna per device keeps solver output shapes
-        # small and predictable across Sionna versions (synthetic array).
-        array = PlanarArray(
-            num_rows=1,
-            num_cols=1,
-            vertical_spacing=0.5,
-            horizontal_spacing=0.5,
-            pattern="iso",
-            polarization="V",
-        )
-        rt_scene.tx_array = array
-        rt_scene.rx_array = array
 
         txs = [
             d for d in scene.devices
@@ -138,6 +252,10 @@ class SionnaBackend(RayTracingBackend):
                 + ["scene has no matching tx/rx devices; no paths computed"],
                 metadata={"frequency_hz": config.frequency_hz, "engine": "sionna"},
             )
+
+        # Per-device antenna arrays: first selected TX/RX device drives the
+        # scene's tx_array/rx_array (pattern/polarization/geometry).
+        _apply_arrays(rt_scene, txs, rxs, warnings)
 
         for dev in txs:
             rt_scene.add(
@@ -173,16 +291,20 @@ class SionnaBackend(RayTracingBackend):
                 material_to_prims.setdefault(prim.rf.material_id, []).append(prim.id)
 
         solver = PathSolver()
-        # refraction disabled: our compiled projection is single-sided surface
-        # geometry, not closed interior volumes. diffraction follows the config.
+        # Full solver passthrough: every SimulationConfig interaction/mechanics
+        # flag maps to the matching PathSolver kwarg (verified against
+        # sionna-rt 2.0.1 PathSolver.__call__).
         solved = solver(
             rt_scene,
             max_depth=config.max_depth,
             los=config.los,
             specular_reflection=config.reflection,
             diffuse_reflection=config.scattering,
+            refraction=config.refraction,
             diffraction=config.diffraction,
-            refraction=False,
+            edge_diffraction=config.edge_diffraction,
+            synthetic_array=config.synthetic_array,
+            seed=config.seed,
             samples_per_src=config.num_samples or 1_000_000,
         )
 
@@ -233,6 +355,7 @@ class SionnaBackend(RayTracingBackend):
         try:
             return self._beamforming_impl(project_dir, scene, library, config, request, tx, rx, base)
         except Exception as exc:  # noqa: BLE001 - graceful degradation contract
+            clear_scene_cache()
             base.warnings.append(f"sionna beamforming failed: {exc}; see logs")
             return base
 
@@ -244,32 +367,37 @@ class SionnaBackend(RayTracingBackend):
         import numpy as np
         from sionna.rt import (  # type: ignore[import-not-found]
             PathSolver,
-            PlanarArray,
             Receiver,
             Transmitter,
-            load_scene,
         )
 
         base.warnings.extend(self._frequency_warnings(scene, library, config))
         xml_path = project_dir / "rf" / "generated_scene.xml"
         if not xml_path.is_file():
             self.compile(project_dir, scene, library)
-        rt_scene = load_scene(str(xml_path))
+        rt_scene = _load_scene_cached(xml_path, base.warnings)
+        _reset_scene_devices(rt_scene)
         rt_scene.frequency = config.frequency_hz
-        rt_scene.tx_array = PlanarArray(
-            num_rows=request.tx_rows, num_cols=request.tx_cols, pattern="iso", polarization="V"
+        # Beamforming keeps the request's explicit array geometry but adopts the
+        # device's pattern/polarization.
+        rt_scene.tx_array = _make_planar_array(
+            tx.antenna, base.warnings, num_rows=request.tx_rows, num_cols=request.tx_cols
         )
-        rt_scene.rx_array = PlanarArray(
-            num_rows=request.rx_rows, num_cols=request.rx_cols, pattern="iso", polarization="V"
+        rt_scene.rx_array = _make_planar_array(
+            rx.antenna, base.warnings, num_rows=request.rx_rows, num_cols=request.rx_cols
         )
         self._apply_custom_materials(project_dir, rt_scene, base.warnings)
         rt_scene.add(Transmitter(name=tx.id, position=list(tx.position), power_dbm=tx.power_dbm))
         rt_scene.add(Receiver(name=rx.id, position=list(rx.position)))
 
+        # synthetic_array=True keeps the per-antenna channel tensor dense so the
+        # MRT/SVD math below has a full [rx_ant, tx_ant] matrix per path.
         paths = PathSolver()(
             rt_scene, max_depth=config.max_depth, los=config.los,
             specular_reflection=config.reflection, diffuse_reflection=config.scattering,
-            refraction=False, synthetic_array=True, samples_per_src=config.num_samples or 1_000_000,
+            refraction=config.refraction, diffraction=config.diffraction,
+            edge_diffraction=config.edge_diffraction, synthetic_array=True,
+            seed=config.seed, samples_per_src=config.num_samples or 1_000_000,
         )
         a_raw = paths.a
         a = (np.asarray(a_raw[0]) + 1j * np.asarray(a_raw[1])) if isinstance(a_raw, (tuple, list)) else np.asarray(a_raw)
@@ -410,13 +538,24 @@ class SionnaBackend(RayTracingBackend):
             a = to_np(a_raw[0]) + 1j * to_np(a_raw[1])
         else:
             a = to_np(a_raw)
-        # Drop the singleton antenna axes (1 and 3) so a aligns with tau.
-        while a.ndim > 3:
-            axes = tuple(i for i, s in enumerate(a.shape) if s == 1)
-            if not axes:
-                warnings.append(f"unexpected path-coefficient shape {a.shape}")
-                return []
-            a = a.squeeze(axis=axes[0])
+        # a is [num_rx, num_rx_ant, num_tx, num_tx_ant, num_paths]; collapse the
+        # antenna axes (1 and 3) to [num_rx, num_tx, num_paths]. Singleton axes
+        # (synthetic_array / 1x1 arrays) squeeze cleanly; multi-antenna arrays
+        # (per-device tr38901 etc.) are reduced to a per-link amplitude by
+        # summing element power, so a real array still yields one entry per path.
+        if a.ndim == 5:
+            if a.shape[1] == 1 and a.shape[3] == 1:
+                a = a[:, 0, :, 0, :]
+            else:
+                power = (np.abs(a) ** 2).sum(axis=(1, 3))  # [num_rx, num_tx, num_paths]
+                a = np.sqrt(power).astype(complex)
+        else:
+            while a.ndim > 3:
+                axes = tuple(i for i, s in enumerate(a.shape) if s == 1)
+                if not axes:
+                    warnings.append(f"unexpected path-coefficient shape {a.shape}")
+                    return []
+                a = a.squeeze(axis=axes[0])
 
         vertices = to_np(solved.vertices) if hasattr(solved, "vertices") else None
         valid = to_np(solved.valid) if hasattr(solved, "valid") else None
@@ -518,6 +657,7 @@ class SionnaBackend(RayTracingBackend):
         try:
             return self._simulate_radio_map_impl(project_dir, scene, library, config)
         except Exception as exc:  # noqa: BLE001 - graceful degradation contract
+            clear_scene_cache()
             txs = [d for d in scene.devices if d.kind == "tx"]
             return RadioMapResultSet(
                 result_id=UNSAVED_RESULT_ID,
@@ -548,10 +688,8 @@ class SionnaBackend(RayTracingBackend):
         import numpy as np
 
         from sionna.rt import (  # type: ignore[import-not-found]
-            PlanarArray,
             RadioMapSolver,
             Transmitter,
-            load_scene,
         )
 
         warnings: list[str] = self._frequency_warnings(scene, library, config)
@@ -569,11 +707,12 @@ class SionnaBackend(RayTracingBackend):
         if not txs:
             raise RuntimeError("scene has no transmitters; cannot compute a radio map")
 
-        rt_scene = load_scene(str(xml_path))
+        rxs = [d for d in scene.devices if d.kind == "rx"]
+        rt_scene = _load_scene_cached(xml_path, warnings)
+        _reset_scene_devices(rt_scene)
         rt_scene.frequency = config.frequency_hz
-        array = PlanarArray(num_rows=1, num_cols=1, pattern="iso", polarization="V")
-        rt_scene.tx_array = array
-        rt_scene.rx_array = array
+        # First TX/RX device antenna drives the arrays (matches simulate_paths).
+        _apply_arrays(rt_scene, txs, rxs, warnings)
         self._apply_custom_materials(project_dir, rt_scene, warnings)
         for dev in txs:
             rt_scene.add(
@@ -591,6 +730,8 @@ class SionnaBackend(RayTracingBackend):
         size = [float(max(ext_x, cell * 2)), float(max(ext_y, cell * 2))]
 
         solver = RadioMapSolver()
+        # Full passthrough (RadioMapSolver has no synthetic_array kwarg; the
+        # rest match PathSolver). Verified against sionna-rt 2.0.1.
         rm = solver(
             rt_scene,
             center=center,
@@ -603,7 +744,10 @@ class SionnaBackend(RayTracingBackend):
             los=config.los,
             specular_reflection=config.reflection,
             diffuse_reflection=config.scattering,
-            refraction=False,
+            refraction=config.refraction,
+            diffraction=config.diffraction,
+            edge_diffraction=config.edge_diffraction,
+            seed=config.seed,
             samples_per_tx=config.num_samples or 1_000_000,
         )
 

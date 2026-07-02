@@ -320,6 +320,279 @@ h4 {
   white-space: nowrap;
 }
 
+/* device tree header actions + per-device delete */
+.tree-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.tree-head-actions {
+  display: flex;
+  gap: 4px;
+}
+.tree-head-actions button {
+  padding: 1px 6px;
+  font-size: 11px;
+  border-radius: 3px;
+}
+.tree-row .tree-del {
+  margin-left: 6px;
+  padding: 0 5px;
+  font-size: 13px;
+  line-height: 1;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  flex: none;
+  visibility: hidden;
+}
+.tree-row:hover .tree-del,
+.tree-row.selected .tree-del {
+  visibility: visible;
+}
+.tree-row .tree-del:hover:not(:disabled) {
+  color: var(--err);
+  border: none;
+}
+
+/* --------------------------------------------------- solver controls */
+
+.solver-controls .panel-title {
+  margin-bottom: 6px;
+}
+.solver-section {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin-bottom: 8px;
+  background: var(--panel-2);
+}
+.solver-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 8px 2px 2px;
+}
+.solver-caret {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 6px 8px;
+  text-align: left;
+}
+.solver-caret:hover:not(:disabled) {
+  color: var(--accent);
+  border: none;
+}
+.solver-caret .caret {
+  color: var(--muted);
+  font-size: 10px;
+  width: 12px;
+}
+.solver-section-actions {
+  font-size: 12px;
+  color: var(--muted);
+}
+.solver-section-body {
+  padding: 8px 10px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.solver-subhead {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.solver-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.solver-field-label {
+  color: var(--muted);
+  font-size: 12px;
+  flex: none;
+}
+.solver-field-input {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.solver-field-input input,
+.solver-field select,
+.solver-field-input {
+  min-width: 0;
+}
+.solver-field input[type="number"] {
+  width: 88px;
+  text-align: right;
+}
+.solver-field select {
+  width: 130px;
+}
+.solver-unit {
+  color: var(--muted);
+  font-size: 11px;
+  flex: none;
+}
+
+.solver-slider {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.solver-slider-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--muted);
+}
+.solver-slider-value {
+  color: var(--text);
+}
+.solver-slider input[type="range"],
+.viewer-controls input[type="range"],
+.traj-transport input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.solver-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.solver-mechanisms {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 10px;
+}
+.solver-auto {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.solver-array-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 6px 10px;
+}
+.solver-array-label {
+  color: var(--muted);
+  font-size: 12px;
+}
+.solver-array-selects {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.solver-array-selects select {
+  width: 52px;
+}
+.solver-times {
+  color: var(--muted);
+}
+
+/* --------------------------------------------------- viewer controls */
+
+.viewer-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  margin: 8px 0;
+}
+.viewer-controls .solver-check {
+  flex-wrap: wrap;
+}
+.min-power-input {
+  width: 64px;
+  text-align: right;
+}
+
+/* -------------------------------------------------------- trajectory */
+
+.traj-section {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.traj-vec {
+  display: inline-flex;
+  gap: 4px;
+}
+.traj-vec input {
+  width: 56px;
+  text-align: right;
+}
+.traj-playback {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+.traj-transport {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.traj-transport button {
+  flex: none;
+  min-width: 32px;
+}
+.traj-transport select {
+  width: 56px;
+  flex: none;
+}
+.traj-frame-num {
+  color: var(--muted);
+  font-size: 11px;
+  flex: none;
+}
+.traj-kpis {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px 10px;
+  margin-top: 8px;
+}
+.traj-kpi {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.traj-kpi-label {
+  color: var(--muted);
+  font-size: 11px;
+}
+.traj-kpi-value {
+  color: var(--text);
+}
+
 /* ------------------------------------------------------------- viewer */
 
 .viewer3d {

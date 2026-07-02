@@ -15,6 +15,7 @@ from app.schemas.results import TrajectoryResultSet, TrajectorySample
 from app.schemas.scene import Scene
 from app.schemas.simulation import SimulationConfig, TrajectorySimulateRequest
 from app.services.simulation_backends.base import UNSAVED_RESULT_ID, RayTracingBackend
+from app.services.simulation_backends.sionna_backend import noise_floor_dbm
 
 
 def resolve_waypoints(request: TrajectorySimulateRequest) -> list[list[float]]:
@@ -65,6 +66,10 @@ def run_trajectory(
     txs = [d for d in scene.devices if d.kind == "tx"]
     tx_power = txs[0].power_dbm if txs else 0.0
 
+    # SNR reference floor (thermal + NF). No interference model yet, so the
+    # reported sinr_db is really an SNR = rss_dbm - noise_floor.
+    noise_floor = noise_floor_dbm(config)
+
     warnings: list[str] = []
     samples: list[TrajectorySample] = []
     for i, wp in enumerate(waypoints):
@@ -80,6 +85,7 @@ def run_trajectory(
         powers = [p.power_dbm for p in result.paths]
         delays = [p.delay_ns for p in result.paths]
         rss, gain, rms, strongest = _aggregate(powers, delays, tx_power)
+        sinr = (rss - noise_floor) if rss is not None else None
         samples.append(
             TrajectorySample(
                 time_s=i * request.dt_s,
@@ -87,7 +93,7 @@ def run_trajectory(
                 position=[float(c) for c in wp],
                 rss_dbm=rss,
                 path_gain_db=gain,
-                sinr_db=None,  # needs a noise/interference model (future)
+                sinr_db=sinr,  # SNR (no interference model); rss - noise_floor
                 rms_delay_spread_ns=rms,
                 path_count=len(result.paths),
                 strongest_delay_ns=strongest,

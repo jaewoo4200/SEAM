@@ -108,9 +108,15 @@ export interface SimulationConfig {
   rx_ids: string[] | null;
   los: boolean;
   reflection: boolean;
-  diffraction: boolean;
   scattering: boolean;
+  refraction: boolean;
+  diffraction: boolean;
+  edge_diffraction: boolean;
+  synthetic_array: boolean;
+  seed: number;
   num_samples: number;
+  bandwidth_hz: number;
+  noise_figure_db: number;
   radio_map: RadioMapGridConfig;
 }
 

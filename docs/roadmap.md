@@ -152,3 +152,58 @@ Next steps:
 - optionally, a remote-worker backend implementing the `RayTracingBackend`
   protocol for live AODT sessions — `resolve_backend` and the HTTP 409
   unavailable convention already accommodate backends that come and go.
+
+## Novel features backlog
+
+Research-driven feature directions grounded in what the tool already ships,
+each a short hop from a working prototype. Full pitches, differentiation,
+experiment designs, implementation gaps, and candidate venues are in
+`docs/research_ideas.md`; this backlog is the engineering shortlist.
+
+Ordered by paper-value-per-effort (see the shortlist table in
+`research_ideas.md`):
+
+1. **CV → RF fidelity evaluation pipeline** (Idea 2). Port a CFR/NMSE +
+   trajectory-metric evaluator into a service (reuse `services/trajectory.py`
+   aggregation; add CFR via Sionna `Paths.cfr(f)`), and add a scene-variant A/B
+   harness that runs the same TX/RX/trajectory across two compiled projections
+   and diffs the metrics. Driven by the existing `POST /rf/batch-assign`
+   segment→material contract; CV inference stays external. *Effort: low–med.*
+2. **Interactive material-sensitivity analysis** (Idea 3). Factor the grid-sweep
+   loop out of `services/calibration.py` into a reusable `sensitivity` service
+   returning `(material, param, grid, kpi_values)` for arbitrary KPIs; add
+   `POST /analyze/sensitivity` and a heatmap/tornado frontend view. Reuse the
+   recompile-per-trial correctness verbatim. *Effort: low.*
+3. **Provenance-tracked material lifecycle closed loop** (Idea 1). Add a
+   lifecycle/provenance-yield report endpoint (aggregate `assignment_status` ×
+   surface area), extend `ProjectStore.append_provenance` with lifecycle-
+   transition events, and add a loop orchestrator chaining
+   `ai/suggest-materials → rf/batch-assign → calibrate/materials`. No schema
+   changes. *Effort: low–med.*
+4. **A/B scenario-diff radio maps** (Idea 6). `POST /analyze/scenario-diff`
+   over two config/scene variants → per-cell ΔKPI grid; diverging-colormap
+   overlay. Determinism guarantee (sorted groups, no timestamps) makes the diff
+   reproducible and attributable to the single changed field. *Effort: low.*
+5. **Monte-Carlo uncertainty / convergence overlays** (Idea 4). Ensemble runner
+   over `seed` / `num_samples` reducing to mean/std/count grids
+   (`RadioMapEnsembleResultSet`, `None`-hole convention); std/confidence
+   colormap toggle; mock-backend per-seed jitter for GPU-free UI. *Effort: med.*
+6. **Differentiable calibration UX** (Idea 5). `DifferentiableCalibrationBackend`
+   path inside the Sionna backend: mark `mi.traverse` material params trainable,
+   Adam over grouped materials with a held-out link split, return a
+   `CalibrationReport`-compatible result. Initialize from grid search (item 2)
+   and AI suggestions (item 3) to avoid bad-init/local-minima failure. Grid
+   search remains the non-GPU fallback. May need a per-material `fitted_values`
+   dict on the report schema — flag as a schema contract change. *Effort:
+   med–high.*
+7. **Mesh radio maps on facades/floors** (Idea 7, Milestone 9). New
+   `MeshRadioMapResultSet` (prim-keyed per-face values, `None` holes), extend
+   `ResultSetRef.kind`, generate measurement surfaces from tagged prims via the
+   compiler's mesh path, mock-backend surface falloff first, Sionna mesh solver
+   when available; vertex-color overlay. *Effort: med.*
+8. **LLM scenario authoring / human-target ISAC** (Idea 8). 8A: an
+   `ai/author-scenario` provider returning a validator-guarded typed action list
+   (reuse the strict-JSON + confirm-diff pattern). 8B: a `TrackingResultSet`
+   schema plus the PADP → MPC → DBSCAN → Kalman pipeline ported from
+   `rt_isac_paper_pipeline.py`; RF/material sides are ready, DSP is the work.
+   *Effort: med (8A) / high (8B).*

@@ -1,18 +1,20 @@
-import { Component, Suspense, useEffect, useMemo, useState } from "react";
+import { Component, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import * as THREE from "three";
-import { Canvas } from "@react-three/fiber";
+import { Canvas, useFrame } from "@react-three/fiber";
 import type { ThreeEvent } from "@react-three/fiber";
 import { Html, Line, OrbitControls, PerspectiveCamera, useGLTF } from "@react-three/drei";
 import { useAppStore } from "../store/appStore";
 import type { Mode } from "../store/appStore";
-import { PATH_COLORS, SELECTED_PATH_COLOR } from "./common";
+import { SELECTED_PATH_COLOR } from "./common";
+import { filterPaths, pathColor, powerRange, powerWidth } from "../pathFilter";
 import { api } from "../api/client";
 import type {
   Prim,
   RadioMapResultSet,
   RFMaterialLibrary,
   Scene,
+  TrajectoryResultSet,
   ValidationReport,
 } from "../types/api";
 
@@ -341,19 +343,34 @@ function RayPaths() {
   const pathResults = useAppStore((s) => s.pathResults);
   const selectedPathId = useAppStore((s) => s.selectedPathId);
   const selectPath = useAppStore((s) => s.selectPath);
+  const pathTypeFilter = useAppStore((s) => s.pathTypeFilter);
+  const strongestN = useAppStore((s) => s.strongestN);
+  const minPowerDbm = useAppStore((s) => s.minPowerDbm);
+  const colorBy = useAppStore((s) => s.colorBy);
+  const lineWidthByPower = useAppStore((s) => s.lineWidthByPower);
+
+  // Same filter pipeline as the results table (single source of truth).
+  const visible = useMemo(
+    () => filterPaths(pathResults?.paths ?? [], { pathTypeFilter, strongestN, minPowerDbm }),
+    [pathResults, pathTypeFilter, strongestN, minPowerDbm],
+  );
+  // Color/width ranges are computed over the visible set.
+  const range = useMemo(() => powerRange(visible), [visible]);
+
   if (!pathResults) return null;
 
   return (
     <group>
-      {pathResults.paths.map((p) => {
+      {visible.map((p) => {
         const selected = p.path_id === selectedPathId;
-        const color = selected ? SELECTED_PATH_COLOR : PATH_COLORS[p.path_type];
+        const color = selected ? SELECTED_PATH_COLOR : pathColor(p, colorBy, range);
+        const baseWidth = lineWidthByPower ? powerWidth(p, range) : 2;
         return (
           <group key={p.path_id}>
             <Line
               points={p.vertices}
               color={color}
-              lineWidth={selected ? 4 : 2}
+              lineWidth={selected ? Math.max(4, baseWidth) : baseWidth}
               onClick={(e) => {
                 e.stopPropagation();
                 selectPath(p.path_id);
@@ -368,6 +385,50 @@ function RayPaths() {
           </group>
         );
       })}
+    </group>
+  );
+}
+
+// ------------------------------------------------------------ trajectory
+
+/** UE marker (pulsing blue sphere) at the current sample + yellow visited trail. */
+function TrajectoryOverlay({ trajectory }: { trajectory: TrajectoryResultSet }) {
+  const trajFrame = useAppStore((s) => s.trajFrame);
+  const markerRef = useRef<THREE.Mesh>(null);
+
+  const samples = trajectory.samples;
+  const frame = Math.max(0, Math.min(samples.length - 1, trajFrame));
+  const current = samples[frame];
+
+  // Trail = visited sample positions up to and including the current frame.
+  const trail = useMemo(
+    () => samples.slice(0, frame + 1).map((s) => s.position),
+    [samples, frame],
+  );
+
+  // Pulse the emissive intensity of the UE marker.
+  useFrame((state) => {
+    const mat = markerRef.current?.material as THREE.MeshStandardMaterial | undefined;
+    if (mat) mat.emissiveIntensity = 0.5 + 0.4 * Math.sin(state.clock.elapsedTime * 4);
+  });
+
+  if (!current) return null;
+
+  return (
+    <group>
+      {trail.length > 1 && (
+        // Yellow trail (AODT legend convention).
+        <Line points={trail} color="#ffee58" lineWidth={2} />
+      )}
+      <group position={current.position}>
+        <mesh ref={markerRef}>
+          <sphereGeometry args={[0.5, 24, 16]} />
+          <meshStandardMaterial color="#2e9bff" emissive="#2e9bff" emissiveIntensity={0.6} />
+        </mesh>
+        <Html position={[0, 0, 1.4]} center zIndexRange={[10, 0]}>
+          <div className="device-label selected">{trajectory.ue_id}</div>
+        </Html>
+      </group>
     </group>
   );
 }
@@ -442,6 +503,7 @@ export default function Viewer3D() {
   const mode = useAppStore((s) => s.mode);
   const pathResults = useAppStore((s) => s.pathResults);
   const radioMap = useAppStore((s) => s.radioMap);
+  const trajectory = useAppStore((s) => s.trajectory);
   const showPaths = useAppStore((s) => s.showPaths);
   const showRadioMapToggle = useAppStore((s) => s.showRadioMap);
   const clearSelection = useAppStore((s) => s.clearSelection);
@@ -486,6 +548,7 @@ export default function Viewer3D() {
         {scene && <Devices />}
         {pathResults && showPaths && <RayPaths />}
         {showRadioMap && <RadioMapPlane radioMap={radioMap} />}
+        {trajectory && mode === "results" && <TrajectoryOverlay trajectory={trajectory} />}
       </Canvas>
       {showRadioMap && <RadioMapLegend radioMap={radioMap} />}
       {scene && (!url || assetFailed) && (

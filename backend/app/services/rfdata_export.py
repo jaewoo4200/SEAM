@@ -27,6 +27,7 @@ from app.schemas.results import (
 )
 from app.schemas.scene import Scene
 from app.schemas.simulation import SimulationConfig
+from app.services.simulation_backends.sionna_backend import noise_floor_dbm
 
 EXPORT_DIR_REL = "export/rfdata"
 
@@ -121,7 +122,10 @@ def _paths_json(paths: Optional[PathResultSet]) -> dict:
 
 
 def _trajectory_csv(
-    trajectory: Optional[TrajectoryResultSet], scene: Scene, paths: Optional[PathResultSet]
+    trajectory: Optional[TrajectoryResultSet],
+    scene: Scene,
+    paths: Optional[PathResultSet],
+    config: SimulationConfig,
 ) -> str:
     buf = io.StringIO()
     w = csv.writer(buf)
@@ -129,6 +133,9 @@ def _trajectory_csv(
 
     def fmt(v):
         return "" if v is None else round(v, 3)
+
+    # SNR reference (thermal + NF; no interference model, so sinr == snr).
+    noise_floor = noise_floor_dbm(config)
 
     if trajectory and trajectory.samples:
         for s in trajectory.samples:
@@ -151,11 +158,14 @@ def _trajectory_csv(
             lin = sum(10.0 ** (p.power_dbm / 10.0) for p in plist)
             rss = 10.0 * math.log10(lin) if lin > 0 else None
             gain = (rss - tx_power) if rss is not None else None
-            w.writerow([0.0, ue_id, *[round(c, 4) for c in pos], fmt(rss), "", fmt(gain)])
+            sinr = (rss - noise_floor) if rss is not None else None
+            w.writerow(
+                [0.0, ue_id, *[round(c, 4) for c in pos], fmt(rss), fmt(sinr), fmt(gain)]
+            )
     return buf.getvalue()
 
 
-def _radio_map_csv(rm: Optional[RadioMapResultSet]) -> str:
+def _radio_map_csv(rm: Optional[RadioMapResultSet], config: SimulationConfig) -> str:
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(["x_m", "y_m", "z_m", "rss_dbm", "sinr_db", "path_gain_db"])
@@ -163,6 +173,10 @@ def _radio_map_csv(rm: Optional[RadioMapResultSet]) -> str:
         ox, oy = rm.grid.origin[0], rm.grid.origin[1]
         z = rm.grid.height_m
         cs = rm.grid.cell_size_m
+        # SINR is only meaningful for an absolute rss_dbm map (sinr = rss -
+        # noise_floor); a path_gain_db map has no absolute power so it stays
+        # blank. No interference model, so this is SNR.
+        noise_floor = noise_floor_dbm(config)
         for j, row in enumerate(rm.values):
             for i, v in enumerate(row):
                 if v is None:
@@ -172,6 +186,7 @@ def _radio_map_csv(rm: Optional[RadioMapResultSet]) -> str:
                 cells = ["", "", ""]
                 if rm.metric == "rss_dbm":
                     cells[0] = round(v, 3)
+                    cells[1] = round(v - noise_floor, 3)  # sinr_db (SNR)
                 elif rm.metric == "path_gain_db":
                     cells[2] = round(v, 3)
                 w.writerow([round(x, 3), round(y, 3), round(z, 3), *cells])
@@ -235,8 +250,8 @@ def export_rfdata(
     write_json("scenario_meta.json", meta)
     write_json("devices.json", _devices(scene, config))
     write_json("paths.json", _paths_json(paths))
-    write_text("trajectory.csv", _trajectory_csv(trajectory, scene, paths))
-    write_text("radio_map.csv", _radio_map_csv(radio_map))
+    write_text("trajectory.csv", _trajectory_csv(trajectory, scene, paths, config))
+    write_text("radio_map.csv", _radio_map_csv(radio_map, config))
     write_json("calibration_points.json", _calibration_points(scene))
 
     return {

@@ -16,22 +16,35 @@ class RadioMapGridConfig(StrictModel):
 
 
 class SimulationConfig(StrictModel):
+    """Full Sionna RT solver parameter surface (mirrors PathSolver/
+    RadioMapSolver options so every knob is user-controllable in the UI)."""
+
     id: str = "default"
     name: str = "Default"
     # "auto" resolves to the sionna backend when installed, else mock.
     backend: Literal["auto", "mock", "sionna"] = "auto"
     # Default 28 GHz to match the FTC/lab-room mmWave ISAC digital twin.
     frequency_hz: float = Field(default=28e9, gt=0.0)
-    max_depth: int = Field(default=3, ge=0, le=10)
+    max_depth: int = Field(default=3, ge=0, le=12)
     # None means all devices of that kind in the scene.
     tx_ids: Optional[list[str]] = None
     rx_ids: Optional[list[str]] = None
+    # Interaction mechanisms (PathSolver/RadioMapSolver flags).
     los: bool = True
-    reflection: bool = True
+    reflection: bool = True  # specular_reflection
+    scattering: bool = False  # diffuse_reflection
+    refraction: bool = False  # transmission through slabs
     diffraction: bool = False
-    scattering: bool = False
+    edge_diffraction: bool = False
+    # Solver mechanics.
+    synthetic_array: bool = True
+    seed: int = Field(default=42, ge=0)
     # Ray-launching sample budget (consumer-level default, refinable later).
-    num_samples: int = Field(default=100_000, ge=1)
+    num_samples: int = Field(default=1_000_000, ge=1)
+    # Link-budget context for SNR/SINR readouts (no interference model yet, so
+    # SINR == SNR = RSS - (-174 dBm/Hz + 10log10(B) + NF)).
+    bandwidth_hz: float = Field(default=100e6, gt=0.0)
+    noise_figure_db: float = Field(default=7.0, ge=0.0)
     radio_map: RadioMapGridConfig = Field(default_factory=RadioMapGridConfig)
 
 
