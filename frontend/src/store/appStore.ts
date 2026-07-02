@@ -51,6 +51,7 @@ interface AppState {
   compileRF: () => Promise<void>;
   simulatePaths: () => Promise<void>;
   simulateRadioMap: () => Promise<void>;
+  exportRfdata: () => Promise<void>;
   assignMaterial: (req: AssignRequest) => Promise<void>;
   saveMaterial: (mat: RFMaterial) => Promise<void>;
   suggestMaterials: () => Promise<void>;
@@ -248,6 +249,17 @@ export const useAppStore = create<AppState>()((set, get) => {
           notice: `Radio map computed via ${result.backend} backend`,
         });
         await refetchSceneInner();
+      });
+    },
+
+    exportRfdata: async () => {
+      const pid = get().projectId;
+      if (!pid) return;
+      await run("Exporting RFData…", async () => {
+        const summary = await api.exportRfdata(pid, {});
+        set({
+          notice: `Exported ${summary.files.length} RFData files to ${summary.export_dir}`,
+        });
       });
     },
 

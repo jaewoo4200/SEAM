@@ -21,6 +21,7 @@ export default function Toolbar() {
   const runValidation = useAppStore((s) => s.runValidation);
   const compileRF = useAppStore((s) => s.compileRF);
   const simulatePaths = useAppStore((s) => s.simulatePaths);
+  const exportRfdata = useAppStore((s) => s.exportRfdata);
 
   const sionnaAvailable =
     health?.backends.some((b) => b.name === "sionna" && b.available) ?? false;
@@ -97,6 +98,13 @@ export default function Toolbar() {
           onClick={() => void simulatePaths()}
         >
           Simulate Paths
+        </button>
+        <button
+          disabled={!projectId || busy !== null}
+          title="Export the AODT-viewer RFData bundle (scenario_meta, devices, paths, trajectory, radio_map, calibration)"
+          onClick={() => void exportRfdata()}
+        >
+          Export RFData
         </button>
       </span>
     </header>

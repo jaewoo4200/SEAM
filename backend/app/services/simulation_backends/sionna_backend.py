@@ -88,7 +88,7 @@ class SionnaBackend(RayTracingBackend):
             load_scene,
         )
 
-        warnings: list[str] = []
+        warnings: list[str] = self._frequency_warnings(scene, library, config)
 
         # Ensure the compiled RF projection exists; compile on demand.
         xml_path = project_dir / "rf" / "generated_scene.xml"
@@ -199,6 +199,31 @@ class SionnaBackend(RayTracingBackend):
                 "engine": "sionna",
             },
         )
+
+    @staticmethod
+    def _frequency_warnings(
+        scene: Scene, library: RFMaterialLibrary, config: SimulationConfig
+    ) -> list[str]:
+        """ITU ground models (very_dry/medium_dry/wet) are only defined up to
+        ~10 GHz. Above that, warn and point at the constant ground material."""
+        if config.frequency_hz <= 10e9:
+            return []
+        flagged: set[str] = set()
+        for prim in scene.prims:
+            mat = library.get(prim.rf.material_id) if prim.rf.material_id else None
+            if (
+                mat
+                and mat.model == "itu_frequency_dependent"
+                and mat.category == "ground"
+            ):
+                flagged.add(mat.id)
+        if not flagged:
+            return []
+        return [
+            f"frequency {config.frequency_hz/1e9:.1f} GHz exceeds ~10 GHz: ITU "
+            f"ground material(s) {sorted(flagged)} are outside their valid band; "
+            "consider the 'ground_28ghz' constant material for mmWave scenes"
+        ]
 
     @staticmethod
     def _apply_custom_materials(project_dir: Path, rt_scene, warnings: list[str]) -> None:
@@ -434,7 +459,7 @@ class SionnaBackend(RayTracingBackend):
             load_scene,
         )
 
-        warnings: list[str] = []
+        warnings: list[str] = self._frequency_warnings(scene, library, config)
         xml_path = project_dir / "rf" / "generated_scene.xml"
         if not xml_path.is_file():
             compile_result = self.compile(project_dir, scene, library)

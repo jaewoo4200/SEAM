@@ -28,4 +28,5 @@ examples/**/rf/meshes/
 examples/**/results/
 examples/**/mapping/face_group_map.json
 examples/**/ai/suggestions.jsonl
+examples/**/export/
 projects/

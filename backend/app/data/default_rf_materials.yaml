@@ -129,3 +129,188 @@ materials:
     preview_color: "#e91e63"
     notes: Deliberate placeholder for surfaces the user could not classify.
     builtin: true
+
+  # ------------------------------------------------------------------ #
+  # Remaining ITU-R P.2040 materials (indoor lab-room + general use).   #
+  # itu_name lets the RF compiler resolve the Sionna built-in, which    #
+  # binds frequency-dependent permittivity/conductivity at solve time.  #
+  # ------------------------------------------------------------------ #
+  - id: itu_marble
+    display_name: ITU Marble
+    category: marble
+    model: itu_frequency_dependent
+    itu_name: itu_marble
+    thickness_m: 0.02
+    scattering_coefficient: 0.05
+    xpd_coefficient: 0.05
+    transmissive: false
+    preview_color: "#d7ccc8"
+    notes: Polished stone floor / wall skirting (ITU-R P.2040).
+    builtin: true
+
+  - id: itu_ceiling_board
+    display_name: ITU Ceiling board
+    category: ceiling_board
+    model: itu_frequency_dependent
+    itu_name: itu_ceiling_board
+    thickness_m: 0.02
+    scattering_coefficient: 0.15
+    xpd_coefficient: 0.10
+    transmissive: true
+    preview_color: "#cfd8dc"
+    notes: Acoustic-tile suspended ceiling (ITU-R P.2040).
+    builtin: true
+
+  - id: itu_plasterboard
+    display_name: ITU Plasterboard
+    category: plasterboard
+    model: itu_frequency_dependent
+    itu_name: itu_plasterboard
+    thickness_m: 0.013
+    scattering_coefficient: 0.10
+    xpd_coefficient: 0.10
+    transmissive: true
+    preview_color: "#eceff1"
+    notes: Gypsum board interior partition (ITU-R P.2040).
+    builtin: true
+
+  - id: itu_plywood
+    display_name: ITU Plywood
+    category: plywood
+    model: itu_frequency_dependent
+    itu_name: itu_plywood
+    thickness_m: 0.012
+    scattering_coefficient: 0.15
+    xpd_coefficient: 0.10
+    transmissive: true
+    preview_color: "#a1887f"
+    notes: Plywood panel (ITU-R P.2040).
+    builtin: true
+
+  - id: itu_chipboard
+    display_name: ITU Chipboard
+    category: chipboard
+    model: itu_frequency_dependent
+    itu_name: itu_chipboard
+    thickness_m: 0.018
+    scattering_coefficient: 0.20
+    xpd_coefficient: 0.10
+    transmissive: true
+    preview_color: "#8d6e63"
+    notes: Particle board (ITU-R P.2040).
+    builtin: true
+
+  - id: itu_floorboard
+    display_name: ITU Floorboard
+    category: floorboard
+    model: itu_frequency_dependent
+    itu_name: itu_floorboard
+    thickness_m: 0.03
+    scattering_coefficient: 0.15
+    xpd_coefficient: 0.10
+    transmissive: false
+    preview_color: "#bcaaa4"
+    notes: Timber floorboard (ITU-R P.2040).
+    builtin: true
+
+  - id: itu_very_dry_ground
+    display_name: ITU Very dry ground
+    category: ground
+    model: itu_frequency_dependent
+    itu_name: itu_very_dry_ground
+    thickness_m: null
+    scattering_coefficient: 0.30
+    xpd_coefficient: 0.15
+    transmissive: false
+    preview_color: "#a1887f"
+    notes: ITU-R P.2040 very dry ground; ITU ground models are only valid up to ~10 GHz - use ground_28ghz above that.
+    builtin: true
+
+  - id: itu_wet_ground
+    display_name: ITU Wet ground
+    category: ground
+    model: itu_frequency_dependent
+    itu_name: itu_wet_ground
+    thickness_m: null
+    scattering_coefficient: 0.30
+    xpd_coefficient: 0.15
+    transmissive: false
+    preview_color: "#5d4037"
+    notes: ITU-R P.2040 wet ground; valid up to ~10 GHz - use ground_28ghz above that.
+    builtin: true
+
+  - id: ground_28ghz
+    display_name: Ground (28 GHz-safe constant)
+    category: ground
+    model: constant
+    relative_permittivity: 3.0
+    conductivity_s_per_m: 0.05
+    thickness_m: null
+    scattering_coefficient: 0.30
+    xpd_coefficient: 0.15
+    transmissive: false
+    preview_color: "#6d4c41"
+    notes: Constant dry-ground stand-in for mmWave (>10 GHz) where ITU ground models are undefined; matches the bundle's 28 GHz-safe ground.
+    builtin: true
+
+  # ------------------------------------------------------------------ #
+  # Human body radio material with literature presets (ISAC sensing).   #
+  # Convention epsilon* = epsilon' - j*epsilon''; conductivity in S/m   #
+  # via sigma = 2*pi*f*eps0*epsilon''. See human_material_literature.md #
+  # in the reference bundle. Default = 28 GHz in-vivo skin.             #
+  # ------------------------------------------------------------------ #
+  - id: human_body
+    display_name: Human body (skin 28 GHz)
+    category: human
+    model: constant
+    relative_permittivity: 8.6
+    conductivity_s_per_m: 19.0
+    thickness_m: 0.002
+    scattering_coefficient: 0.60
+    xpd_coefficient: 0.10
+    transmissive: false
+    preview_color: "#ff7043"
+    notes: In-vivo human skin at 28 GHz (Ghodgaonkar); recommended default human material for mmWave ISAC.
+    builtin: true
+
+  - id: human_body_skin22ghz
+    display_name: Human body (skin 22 GHz)
+    category: human
+    model: constant
+    relative_permittivity: 6.04
+    conductivity_s_per_m: 17.61
+    thickness_m: 0.002
+    scattering_coefficient: 0.60
+    xpd_coefficient: 0.10
+    transmissive: false
+    preview_color: "#ff8a65"
+    notes: In-vivo human skin at 22 GHz (Tamyis/URSI).
+    builtin: true
+
+  - id: human_body_effective_mid
+    display_name: Human body (effective mid)
+    category: human
+    model: constant
+    relative_permittivity: 20.0
+    conductivity_s_per_m: 10.0
+    thickness_m: 0.04
+    scattering_coefficient: 0.60
+    xpd_coefficient: 0.10
+    transmissive: false
+    preview_color: "#ffab91"
+    notes: Engineering sweep midpoint between skin-surface and bulk-body behavior.
+    builtin: true
+
+  - id: human_body_proxy
+    display_name: Human body (legacy proxy)
+    category: human
+    model: constant
+    relative_permittivity: 38.0
+    conductivity_s_per_m: 1.5
+    thickness_m: 0.04
+    scattering_coefficient: 0.60
+    xpd_coefficient: 0.10
+    transmissive: false
+    preview_color: "#ffccbc"
+    notes: Historical placeholder proxy; kept for reproducing earlier runs (deprecated - prefer human_body).
+    builtin: true

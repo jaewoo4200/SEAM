@@ -690,9 +690,9 @@
   "simulation_configs": [
     {
       "id": "default",
-      "name": "Default 3.5 GHz",
+      "name": "Default 28 GHz",
       "backend": "auto",
-      "frequency_hz": 3500000000.0,
+      "frequency_hz": 28000000000.0,
       "max_depth": 3,
       "tx_ids": null,
       "rx_ids": null,

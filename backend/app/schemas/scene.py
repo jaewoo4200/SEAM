@@ -126,7 +126,7 @@ class ResultSetRef(StrictModel):
     """Pointer from the scene to a stored result artifact."""
 
     result_id: str
-    kind: Literal["paths", "radio_map"]
+    kind: Literal["paths", "radio_map", "trajectory"]
     backend: str
     simulation_config_id: str
     # Relative to the project folder, e.g. "results/paths.json".

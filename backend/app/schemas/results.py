@@ -62,6 +62,32 @@ class RadioMapGrid(StrictModel):
     height_m: float = 1.5
 
 
+class TrajectorySample(StrictModel):
+    """Per-waypoint RF metrics along a moving-RX (UE) trajectory."""
+
+    time_s: float
+    ue_id: str
+    position: Vec3
+    rss_dbm: Optional[float] = None
+    path_gain_db: Optional[float] = None
+    sinr_db: Optional[float] = None
+    rms_delay_spread_ns: Optional[float] = None
+    path_count: int = 0
+    strongest_delay_ns: Optional[float] = None
+
+
+class TrajectoryResultSet(StrictModel):
+    result_id: str
+    kind: Literal["trajectory"] = "trajectory"
+    backend: str
+    simulation_config_id: str
+    created_at: Optional[str] = None
+    ue_id: str
+    samples: list[TrajectorySample] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    metadata: dict = Field(default_factory=dict)
+
+
 class RadioMapResultSet(StrictModel):
     result_id: str
     kind: Literal["radio_map"] = "radio_map"

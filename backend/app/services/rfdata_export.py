@@ -1,0 +1,240 @@
+"""Export a project into the AODT-like viewer's RFData contract.
+
+Produces the exact file set the FTC AODT viewer guide specifies, under
+``export/rfdata/`` inside the project folder:
+
+    scenario_meta.json     units/frequency/coordinate transform/time window
+    devices.json           transmitters + receivers (positions in meters)
+    paths.json             time-indexed ray paths (schema_version "1.0")
+    trajectory.csv         per-waypoint UE metrics
+    radio_map.csv          plane heatmap samples
+    calibration_points.json 3 coordinate-check reference points
+
+All positions are meters, Z-up (our canonical frame). The viewer converts to
+Unreal centimeters via the coordinate_transform (scale 100).
+"""
+
+import csv
+import io
+import json
+from pathlib import Path
+from typing import Optional
+
+from app.schemas.results import (
+    PathResultSet,
+    RadioMapResultSet,
+    TrajectoryResultSet,
+)
+from app.schemas.scene import Scene
+from app.schemas.simulation import SimulationConfig
+
+EXPORT_DIR_REL = "export/rfdata"
+
+# our RayPath.path_type -> the guide's path type enum
+_PATH_TYPE_MAP = {
+    "los": "LOS",
+    "reflection": "REFLECTION",
+    "diffraction": "DIFFRACTION",
+    "scattering": "SCATTERING",
+    "transmission": "TRANSMISSION",
+    "mixed": "REFLECTION",
+}
+
+
+def _scenario_meta(scene: Scene, config: SimulationConfig, created_at: str) -> dict:
+    txs = [d for d in scene.devices if d.kind == "tx"]
+    end_s = 0.0
+    for ref in scene.result_sets:
+        if ref.kind == "trajectory":
+            end_s = max(end_s, 1.0)  # placeholder; refined from trajectory below
+    return {
+        "scenario_name": scene.name or scene.scene_id,
+        "description": f"SionnaTwin export of {scene.scene_id}",
+        "unit": "meter",
+        "unreal_unit": "centimeter",
+        "frequency_hz": config.frequency_hz,
+        "tx_power_dbm": txs[0].power_dbm if txs else 0.0,
+        "coordinate_transform": {
+            "scale": 100.0,
+            "axis_mapping": "XYZ_TO_XYZ",
+            "offset_m": [0.0, 0.0, 0.0],
+            "rotation_degrees": [0.0, 0.0, 0.0],
+        },
+        "time": {"start_s": 0.0, "end_s": end_s, "dt_s": 0.1},
+        "created_at": created_at,
+    }
+
+
+def _devices(scene: Scene, config: SimulationConfig) -> dict:
+    return {
+        "transmitters": [
+            {
+                "id": d.id,
+                "name": d.name or d.id,
+                "position_m": list(d.position),
+                "frequency_hz": config.frequency_hz,
+                "power_dbm": d.power_dbm,
+            }
+            for d in scene.devices
+            if d.kind == "tx"
+        ],
+        "receivers": [
+            {
+                "id": d.id,
+                "name": d.name or d.id,
+                "initial_position_m": list(d.position),
+            }
+            for d in scene.devices
+            if d.kind == "rx"
+        ],
+    }
+
+
+def _paths_json(paths: Optional[PathResultSet]) -> dict:
+    frames: list[dict] = []
+    if paths and paths.paths:
+        # A single snapshot at t=0, grouped per receiver (ue).
+        by_rx: dict[str, list] = {}
+        for p in paths.paths:
+            by_rx.setdefault(p.rx_id, []).append(p)
+        for ue_id, plist in by_rx.items():
+            frames.append(
+                {
+                    "time_s": 0.0,
+                    "ue_id": ue_id,
+                    "paths": [
+                        {
+                            "path_id": idx,
+                            "type": _PATH_TYPE_MAP.get(p.path_type, "UNKNOWN"),
+                            "power_db": round(p.power_dbm, 3),
+                            "delay_ns": round(p.delay_ns, 4),
+                            "points_m": [list(v) for v in p.vertices],
+                            "object_ids": [
+                                i.prim_id for i in p.interactions if i.prim_id
+                            ],
+                        }
+                        for idx, p in enumerate(plist)
+                    ],
+                }
+            )
+    return {"schema_version": "1.0", "paths_by_time": frames}
+
+
+def _trajectory_csv(
+    trajectory: Optional[TrajectoryResultSet], scene: Scene, paths: Optional[PathResultSet]
+) -> str:
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["time_s", "ue_id", "x_m", "y_m", "z_m", "rss_dbm", "sinr_db", "path_gain_db"])
+
+    def fmt(v):
+        return "" if v is None else round(v, 3)
+
+    if trajectory and trajectory.samples:
+        for s in trajectory.samples:
+            w.writerow(
+                [round(s.time_s, 4), s.ue_id, *[round(c, 4) for c in s.position],
+                 fmt(s.rss_dbm), fmt(s.sinr_db), fmt(s.path_gain_db)]
+            )
+    elif paths and paths.paths:
+        # No trajectory result: one row per receiver from the path snapshot.
+        import math
+
+        txs = [d for d in scene.devices if d.kind == "tx"]
+        tx_power = txs[0].power_dbm if txs else 0.0
+        by_rx: dict[str, list] = {}
+        for p in paths.paths:
+            by_rx.setdefault(p.rx_id, []).append(p)
+        for ue_id, plist in by_rx.items():
+            dev = scene.device_by_id(ue_id)
+            pos = dev.position if dev else [0.0, 0.0, 0.0]
+            lin = sum(10.0 ** (p.power_dbm / 10.0) for p in plist)
+            rss = 10.0 * math.log10(lin) if lin > 0 else None
+            gain = (rss - tx_power) if rss is not None else None
+            w.writerow([0.0, ue_id, *[round(c, 4) for c in pos], fmt(rss), "", fmt(gain)])
+    return buf.getvalue()
+
+
+def _radio_map_csv(rm: Optional[RadioMapResultSet]) -> str:
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["x_m", "y_m", "z_m", "rss_dbm", "sinr_db", "path_gain_db"])
+    if rm:
+        col = {"rss_dbm": 3, "path_gain_db": 5}.get(rm.metric)
+        ox, oy = rm.grid.origin[0], rm.grid.origin[1]
+        z = rm.grid.height_m
+        cs = rm.grid.cell_size_m
+        for j, row in enumerate(rm.values):
+            for i, v in enumerate(row):
+                if v is None:
+                    continue
+                x = ox + (i + 0.5) * cs
+                y = oy + (j + 0.5) * cs
+                cells = ["", "", ""]
+                if rm.metric == "rss_dbm":
+                    cells[0] = round(v, 3)
+                elif rm.metric == "path_gain_db":
+                    cells[2] = round(v, 3)
+                w.writerow([round(x, 3), round(y, 3), round(z, 3), *cells])
+    return buf.getvalue()
+
+
+def _calibration_points(scene: Scene) -> dict:
+    pts = []
+    for d in scene.devices[:2]:
+        pts.append(
+            {
+                "name": d.id,
+                "sionna_m": list(d.position),
+                "unreal_expected_cm": [c * 100.0 for c in d.position],
+            }
+        )
+    pts.append(
+        {
+            "name": "origin",
+            "sionna_m": [0.0, 0.0, 0.0],
+            "unreal_expected_cm": [0.0, 0.0, 0.0],
+        }
+    )
+    return {"points": pts}
+
+
+def export_rfdata(
+    project_dir: Path,
+    scene: Scene,
+    config: SimulationConfig,
+    created_at: str,
+    paths: Optional[PathResultSet] = None,
+    radio_map: Optional[RadioMapResultSet] = None,
+    trajectory: Optional[TrajectoryResultSet] = None,
+) -> dict:
+    out = project_dir / EXPORT_DIR_REL
+    out.mkdir(parents=True, exist_ok=True)
+
+    written: list[str] = []
+
+    def write_json(name: str, obj: dict) -> None:
+        (out / name).write_text(json.dumps(obj, indent=2), encoding="utf-8")
+        written.append(f"{EXPORT_DIR_REL}/{name}")
+
+    def write_text(name: str, text: str) -> None:
+        (out / name).write_text(text, encoding="utf-8", newline="")
+        written.append(f"{EXPORT_DIR_REL}/{name}")
+
+    meta = _scenario_meta(scene, config, created_at)
+    if trajectory and trajectory.samples:
+        meta["time"]["end_s"] = round(trajectory.samples[-1].time_s, 4)
+    write_json("scenario_meta.json", meta)
+    write_json("devices.json", _devices(scene, config))
+    write_json("paths.json", _paths_json(paths))
+    write_text("trajectory.csv", _trajectory_csv(trajectory, scene, paths))
+    write_text("radio_map.csv", _radio_map_csv(radio_map))
+    write_json("calibration_points.json", _calibration_points(scene))
+
+    return {
+        "export_dir": EXPORT_DIR_REL,
+        "files": written,
+        "has_paths": bool(paths and paths.paths),
+        "has_radio_map": radio_map is not None,
+        "has_trajectory": bool(trajectory and trajectory.samples),
+    }

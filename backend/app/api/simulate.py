@@ -19,14 +19,79 @@ from typing import Literal, Optional, Union
 from fastapi import APIRouter, HTTPException, Query
 
 from app.api.deps import get_store, load_scene_or_404
-from app.schemas.results import PathResultSet, RadioMapResultSet
+from app.schemas.results import PathResultSet, RadioMapResultSet, TrajectoryResultSet
 from app.schemas.scene import ResultSetRef, Scene
-from app.schemas.simulation import SimulateRequest, SimulationConfig
+from app.schemas.simulation import (
+    SimulateRequest,
+    SimulationConfig,
+    TrajectorySimulateRequest,
+)
 from app.services.simulation_backends import BackendUnavailableError, resolve_backend
 
 router = APIRouter(tags=["simulate"])
 
-ResultKind = Literal["paths", "radio_map"]
+ResultKind = Literal["paths", "radio_map", "trajectory"]
+AnyResult = Union[PathResultSet, RadioMapResultSet, TrajectoryResultSet]
+
+
+def _persist_result(
+    project_id: str,
+    scene: Scene,
+    project_dir,
+    kind: ResultKind,
+    backend_name: str,
+    config_id: str,
+    result: AnyResult,
+) -> AnyResult:
+    """Allocate a collision-free result id, save it, append a ResultSetRef,
+    and log provenance. Shared by every simulate endpoint."""
+    prefix = f"{backend_name}_{kind}_"
+    existing_ids = {ref.result_id for ref in scene.result_sets}
+    n = 1 + max(
+        (
+            int(ref.result_id[len(prefix):])
+            for ref in scene.result_sets
+            if ref.kind == kind
+            and ref.result_id.startswith(prefix)
+            and ref.result_id[len(prefix):].isdigit()
+        ),
+        default=0,
+    )
+    store = get_store()
+    while (
+        f"{prefix}{n:03d}" in existing_ids
+        or (project_dir / "results" / f"{prefix}{n:03d}.json").exists()
+    ):
+        n += 1
+    result.result_id = f"{prefix}{n:03d}"
+    result.backend = backend_name
+    result.created_at = datetime.now(timezone.utc).isoformat()
+
+    uri = f"results/{result.result_id}.json"
+    store.save_json(project_id, uri, result.model_dump(mode="json"))
+    scene.result_sets.append(
+        ResultSetRef(
+            result_id=result.result_id,
+            kind=kind,
+            backend=backend_name,
+            simulation_config_id=config_id,
+            uri=uri,
+            created_at=result.created_at,
+        )
+    )
+    store.save_scene(project_id, scene)
+    store.append_provenance(
+        project_id,
+        {
+            "type": "simulate",
+            "kind": kind,
+            "backend": backend_name,
+            "result_id": result.result_id,
+            "simulation_config_id": config_id,
+            "uri": uri,
+        },
+    )
+    return result
 
 
 def _resolve_config(scene: Scene, request: SimulateRequest) -> SimulationConfig:
@@ -66,55 +131,9 @@ def _run_simulation(
     else:
         result = backend.simulate_radio_map(project_dir, scene, library, config)
 
-    # Highest existing numeric suffix + 1, then bump past any id/file
-    # collision: a count-based scheme would reuse a live result_id (and
-    # overwrite its file) after the user prunes an earlier ref via PUT /scene.
-    prefix = f"{backend.name}_{kind}_"
-    existing_ids = {ref.result_id for ref in scene.result_sets}
-    n = 1 + max(
-        (
-            int(ref.result_id[len(prefix):])
-            for ref in scene.result_sets
-            if ref.kind == kind
-            and ref.result_id.startswith(prefix)
-            and ref.result_id[len(prefix):].isdigit()
-        ),
-        default=0,
+    return _persist_result(
+        project_id, scene, project_dir, kind, backend.name, config.id, result
     )
-    while (
-        f"{prefix}{n:03d}" in existing_ids
-        or (project_dir / "results" / f"{prefix}{n:03d}.json").exists()
-    ):
-        n += 1
-    result.result_id = f"{prefix}{n:03d}"
-    result.backend = backend.name  # actual backend used, never "auto"
-    result.created_at = datetime.now(timezone.utc).isoformat()
-
-    uri = f"results/{result.result_id}.json"
-    store.save_json(project_id, uri, result.model_dump(mode="json"))
-    scene.result_sets.append(
-        ResultSetRef(
-            result_id=result.result_id,
-            kind=kind,
-            backend=backend.name,
-            simulation_config_id=config.id,
-            uri=uri,
-            created_at=result.created_at,
-        )
-    )
-    store.save_scene(project_id, scene)
-    store.append_provenance(
-        project_id,
-        {
-            "type": "simulate",
-            "kind": kind,
-            "backend": backend.name,
-            "result_id": result.result_id,
-            "simulation_config_id": config.id,
-            "uri": uri,
-        },
-    )
-    return result
 
 
 def _load_result(project_id: str, kind: ResultKind, result_id: Optional[str]) -> dict:
@@ -173,4 +192,45 @@ def get_radio_map_result(
 ) -> RadioMapResultSet:
     return RadioMapResultSet.model_validate(
         _load_result(project_id, "radio_map", result_id)
+    )
+
+
+@router.post(
+    "/projects/{project_id}/simulate/trajectory", response_model=TrajectoryResultSet
+)
+def simulate_trajectory(
+    project_id: str, request: TrajectorySimulateRequest
+) -> TrajectoryResultSet:
+    from app.services.trajectory import run_trajectory
+
+    store = get_store()
+    scene = load_scene_or_404(store, project_id)
+    library = store.load_materials(project_id)
+    config = _resolve_config(
+        scene, SimulateRequest(config_id=request.config_id, config=request.config)
+    )
+    try:
+        backend = resolve_backend(config)
+    except BackendUnavailableError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+    project_dir = store.resolve(project_id)
+    try:
+        result = run_trajectory(backend, project_dir, scene, library, config, request)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    return _persist_result(
+        project_id, scene, project_dir, "trajectory", backend.name, config.id, result
+    )
+
+
+@router.get(
+    "/projects/{project_id}/results/trajectory", response_model=TrajectoryResultSet
+)
+def get_trajectory_result(
+    project_id: str, result_id: Optional[str] = Query(default=None)
+) -> TrajectoryResultSet:
+    return TrajectoryResultSet.model_validate(
+        _load_result(project_id, "trajectory", result_id)
     )

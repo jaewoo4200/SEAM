@@ -19,11 +19,14 @@ import type {
   ProjectCreateRequest,
   ProjectInfo,
   RadioMapResultSet,
+  RFDataExportSummary,
   RFMaterial,
   RFMaterialLibrary,
   Scene,
   SimulateRequest,
   SuggestMaterialsRequest,
+  TrajectoryResultSet,
+  TrajectorySimulateRequest,
   ValidationReport,
 } from "../types/api";
 
@@ -109,6 +112,14 @@ export const api = {
   getPathResults: (pid: string) => request<PathResultSet>("GET", `/projects/${pid}/results/paths`),
   getRadioMap: (pid: string) =>
     request<RadioMapResultSet>("GET", `/projects/${pid}/results/radio-map`),
+  simulateTrajectory: (pid: string, req: TrajectorySimulateRequest) =>
+    request<TrajectoryResultSet>("POST", `/projects/${pid}/simulate/trajectory`, req),
+  getTrajectory: (pid: string) =>
+    request<TrajectoryResultSet>("GET", `/projects/${pid}/results/trajectory`),
+
+  // AODT RFData export
+  exportRfdata: (pid: string, req: SimulateRequest = {}) =>
+    request<RFDataExportSummary>("POST", `/projects/${pid}/export/rfdata`, req),
 
   // static project assets (GLB, textures)
   assetUrl: (pid: string, uri: string) => `${BASE}/projects/${pid}/assets/${uri}`,

@@ -30,13 +30,20 @@ from .scene import (
     SceneAssets,
     VisualBinding,
 )
-from .simulation import RadioMapGridConfig, SimulateRequest, SimulationConfig
+from .simulation import (
+    RadioMapGridConfig,
+    SimulateRequest,
+    SimulationConfig,
+    TrajectorySimulateRequest,
+)
 from .results import (
     PathInteraction,
     PathResultSet,
     RadioMapGrid,
     RadioMapResultSet,
     RayPath,
+    TrajectoryResultSet,
+    TrajectorySample,
 )
 from .ai import (
     AIProviderStatus,
@@ -81,11 +88,14 @@ __all__ = [
     "RadioMapGridConfig",
     "SimulateRequest",
     "SimulationConfig",
+    "TrajectorySimulateRequest",
     "PathInteraction",
     "PathResultSet",
     "RadioMapGrid",
     "RadioMapResultSet",
     "RayPath",
+    "TrajectoryResultSet",
+    "TrajectorySample",
     "AIProviderStatus",
     "ApplySuggestionsRequest",
     "MaterialAlternative",

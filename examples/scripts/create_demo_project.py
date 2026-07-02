@@ -296,9 +296,9 @@ def build_scene() -> Scene:
         simulation_configs=[
             SimulationConfig(
                 id="default",
-                name="Default 3.5 GHz",
+                name="Default 28 GHz",
                 backend="auto",
-                frequency_hz=3.5e9,
+                frequency_hz=28e9,
                 max_depth=3,
             )
         ],

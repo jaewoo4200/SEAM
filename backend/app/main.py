@@ -7,7 +7,16 @@ Run locally:
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import ai, compile as compile_api, health, materials, projects, scene, simulate
+from app.api import (
+    ai,
+    compile as compile_api,
+    export,
+    health,
+    materials,
+    projects,
+    scene,
+    simulate,
+)
 from app.core.config import APP_VERSION
 
 
@@ -30,7 +39,7 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    for module in (health, projects, scene, materials, ai, compile_api, simulate):
+    for module in (health, projects, scene, materials, ai, compile_api, simulate, export):
         app.include_router(module.router, prefix="/api")
     return app
 

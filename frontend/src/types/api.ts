@@ -116,7 +116,7 @@ export interface SimulationConfig {
 
 export interface ResultSetRef {
   result_id: string;
-  kind: "paths" | "radio_map";
+  kind: "paths" | "radio_map" | "trajectory";
   backend: string;
   simulation_config_id: string;
   uri: string;
@@ -293,6 +293,49 @@ export interface RadioMapResultSet {
 export interface SimulateRequest {
   config_id?: string | null;
   config?: SimulationConfig | null;
+}
+
+export interface TrajectorySample {
+  time_s: number;
+  ue_id: string;
+  position: Vec3;
+  rss_dbm: number | null;
+  path_gain_db: number | null;
+  sinr_db: number | null;
+  rms_delay_spread_ns: number | null;
+  path_count: number;
+  strongest_delay_ns: number | null;
+}
+
+export interface TrajectoryResultSet {
+  result_id: string;
+  kind: "trajectory";
+  backend: string;
+  simulation_config_id: string;
+  created_at: string | null;
+  ue_id: string;
+  samples: TrajectorySample[];
+  warnings: string[];
+  metadata: Record<string, unknown>;
+}
+
+export interface TrajectorySimulateRequest {
+  config_id?: string | null;
+  config?: SimulationConfig | null;
+  ue_id?: string | null;
+  waypoints?: number[][] | null;
+  start_m?: number[] | null;
+  end_m?: number[] | null;
+  num_points?: number;
+  dt_s?: number;
+}
+
+export interface RFDataExportSummary {
+  export_dir: string;
+  files: string[];
+  has_paths: boolean;
+  has_radio_map: boolean;
+  has_trajectory: boolean;
 }
 
 // -------------------------------------------------------------------- ai
