@@ -338,6 +338,33 @@ export interface RFDataExportSummary {
   has_trajectory: boolean;
 }
 
+export interface BeamformingRequest {
+  config_id?: string | null;
+  config?: SimulationConfig | null;
+  tx_id?: string | null;
+  rx_id?: string | null;
+  tx_rows?: number;
+  tx_cols?: number;
+  rx_rows?: number;
+  rx_cols?: number;
+}
+
+export interface BeamformingResult {
+  backend: string;
+  simulation_config_id: string;
+  tx_id: string;
+  rx_id: string;
+  frequency_hz: number;
+  tx_array: [number, number];
+  rx_array: [number, number];
+  num_paths: number;
+  single_element_dbm: number | null;
+  tx_mrt_gain_db: number | null;
+  svd_gain_db: number | null;
+  warnings: string[];
+  metadata: Record<string, unknown>;
+}
+
 // -------------------------------------------------------------------- ai
 
 export interface MaterialAlternative {

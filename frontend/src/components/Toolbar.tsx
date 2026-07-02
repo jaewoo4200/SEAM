@@ -22,6 +22,7 @@ export default function Toolbar() {
   const compileRF = useAppStore((s) => s.compileRF);
   const simulatePaths = useAppStore((s) => s.simulatePaths);
   const exportRfdata = useAppStore((s) => s.exportRfdata);
+  const runBeamforming = useAppStore((s) => s.runBeamforming);
 
   const sionnaAvailable =
     health?.backends.some((b) => b.name === "sionna" && b.available) ?? false;
@@ -98,6 +99,13 @@ export default function Toolbar() {
           onClick={() => void simulatePaths()}
         >
           Simulate Paths
+        </button>
+        <button
+          disabled={!projectId || busy !== null}
+          title="4x4 MIMO beamforming gain (TX-MRT and both-ends SVD) over the first TX->RX link"
+          onClick={() => void runBeamforming()}
+        >
+          Beamforming
         </button>
         <button
           disabled={!projectId || busy !== null}

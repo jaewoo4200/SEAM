@@ -12,9 +12,9 @@ from pathlib import Path
 
 from app.schemas.compile import CompileResult
 from app.schemas.materials import RFMaterialLibrary
-from app.schemas.results import PathResultSet, RadioMapResultSet
+from app.schemas.results import BeamformingResult, PathResultSet, RadioMapResultSet
 from app.schemas.scene import Scene
-from app.schemas.simulation import SimulationConfig
+from app.schemas.simulation import BeamformingRequest, SimulationConfig
 
 # Placeholder result_id used by backends; the API layer replaces it with the
 # canonical "<backend>_<kind>_<nnn>" id when the result is stored.
@@ -66,3 +66,25 @@ class RayTracingBackend(abc.ABC):
         library: RFMaterialLibrary,
         config: SimulationConfig,
     ) -> RadioMapResultSet: ...
+
+    def simulate_beamforming(
+        self,
+        project_dir: Path,
+        scene: Scene,
+        library: RFMaterialLibrary,
+        config: SimulationConfig,
+        request: "BeamformingRequest",
+    ) -> BeamformingResult:
+        """MIMO beamforming gain over one link. Default: unsupported."""
+        txs = [d for d in scene.devices if d.kind == "tx"]
+        rxs = [d for d in scene.devices if d.kind == "rx"]
+        return BeamformingResult(
+            backend=self.name,
+            simulation_config_id=config.id,
+            tx_id=txs[0].id if txs else "",
+            rx_id=rxs[0].id if rxs else "",
+            frequency_hz=config.frequency_hz,
+            tx_array=[request.tx_rows, request.tx_cols],
+            rx_array=[request.rx_rows, request.rx_cols],
+            warnings=[f"beamforming not supported by the {self.name} backend"],
+        )

@@ -31,12 +31,14 @@ from .scene import (
     VisualBinding,
 )
 from .simulation import (
+    BeamformingRequest,
     RadioMapGridConfig,
     SimulateRequest,
     SimulationConfig,
     TrajectorySimulateRequest,
 )
 from .results import (
+    BeamformingResult,
     PathInteraction,
     PathResultSet,
     RadioMapGrid,
@@ -89,6 +91,8 @@ __all__ = [
     "SimulateRequest",
     "SimulationConfig",
     "TrajectorySimulateRequest",
+    "BeamformingRequest",
+    "BeamformingResult",
     "PathInteraction",
     "PathResultSet",
     "RadioMapGrid",

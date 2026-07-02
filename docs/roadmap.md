@@ -6,6 +6,39 @@ Milestone numbers follow HANDOFF.md section 12. Each item lists concrete
 next steps grounded in the current code so a future contributor can start
 without re-deriving the design.
 
+## FTC / AODT alignment (from the reference bundle)
+
+Alignment with `sionna-rt-gui-jaewoo-examples/` (the FTC 28 GHz ISAC digital
+twin). Status:
+
+- **Done** — AODT-style dark viewer palette (LOS cyan / reflection magenta /
+  diffraction orange, TX red / UE blue, jet radio map); full ITU-R P.2040
+  material set + `human_body` presets; 28 GHz default with a >10 GHz ITU-ground
+  safety warning; RFData export contract (`services/rfdata_export.py`);
+  trajectory RF metrics (`services/trajectory.py`); Mitsuba/Sionna XML import
+  (`services/mitsuba_import.py`, ships the imported `lab_room` scene); and
+  **MIMO beamforming gain** — real TX-MRT + both-ends SVD from the Sionna
+  channel (`SionnaBackend.simulate_beamforming`, `POST /simulate/beamforming`),
+  verified ~12 dB (4x4 MRT) / ~24 dB (SVD), matching the 1124 handoff numbers.
+
+- **ISAC target tracking** (planned, DSP-heavy) — the 1124 handoff's PADP →
+  MPC peak extraction → DBSCAN clustering → Kalman tracking pipeline, with a
+  moving `human_target` mesh (material `human_body`, already in the library).
+  Next steps: a `TrackingResultSet` schema (GT + estimate + cluster samples,
+  per-frame), a target-motion + human-scatterer model, and overlays (green GT,
+  yellow clusters, red estimate/trail, black GT path) matching the handoff
+  colors. The synthetic PADP/tracking math is a research module ported from
+  `rt_isac_paper_pipeline.py`; it is not reproduced here yet.
+
+- **CV material split** (planned, external-model) — SAM2 + DINOv2/CLIP segment
+  masks → material labels → per-face mesh split. The RF side is already
+  compatible: the material taxonomy matches the CV classes
+  (concrete/glass/metal/ground/unknown) and `POST /rf/batch-assign` accepts a
+  segment→material mapping, so a CV pipeline can drive assignment today. The
+  segmentation/embedding inference itself needs the SAM2/DINOv2 models and is
+  out of scope for this environment; the integration point is the batch-assign
+  API plus the material-split PLY grouping the compiler already emits.
+
 ## Milestone 8 — Result explorer polish (near-term)
 
 The backend-neutral result schemas (`PathResultSet`, `RayPath`,

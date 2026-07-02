@@ -52,6 +52,7 @@ interface AppState {
   simulatePaths: () => Promise<void>;
   simulateRadioMap: () => Promise<void>;
   exportRfdata: () => Promise<void>;
+  runBeamforming: () => Promise<void>;
   assignMaterial: (req: AssignRequest) => Promise<void>;
   saveMaterial: (mat: RFMaterial) => Promise<void>;
   suggestMaterials: () => Promise<void>;
@@ -260,6 +261,22 @@ export const useAppStore = create<AppState>()((set, get) => {
         set({
           notice: `Exported ${summary.files.length} RFData files to ${summary.export_dir}`,
         });
+      });
+    },
+
+    runBeamforming: async () => {
+      const pid = get().projectId;
+      if (!pid) return;
+      await run("Computing beamforming…", async () => {
+        const r = await api.simulateBeamforming(pid, { tx_rows: 4, tx_cols: 4, rx_rows: 4, rx_cols: 4 });
+        const fmt = (v: number | null) => (v === null ? "n/a" : `${v.toFixed(1)} dB`);
+        const parts = [
+          `Beamforming ${r.tx_array[0]}x${r.tx_array[1]}→${r.rx_array[0]}x${r.rx_array[1]} (${r.backend})`,
+          `TX-MRT ${fmt(r.tx_mrt_gain_db)}`,
+          `SVD ${fmt(r.svd_gain_db)}`,
+        ];
+        if (r.warnings.length) parts.push(r.warnings[0]);
+        set({ notice: parts.join(" · ") });
       });
     },
 

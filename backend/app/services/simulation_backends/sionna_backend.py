@@ -18,6 +18,7 @@ from pathlib import Path
 
 from app.schemas.materials import RFMaterialLibrary
 from app.schemas.results import (
+    BeamformingResult,
     PathInteraction,
     PathResultSet,
     RadioMapGrid,
@@ -25,7 +26,7 @@ from app.schemas.results import (
     RayPath,
 )
 from app.schemas.scene import Scene
-from app.schemas.simulation import SimulationConfig
+from app.schemas.simulation import BeamformingRequest, SimulationConfig
 
 from .base import UNSAVED_RESULT_ID, RayTracingBackend
 
@@ -199,6 +200,97 @@ class SionnaBackend(RayTracingBackend):
                 "engine": "sionna",
             },
         )
+
+    # ------------------------------------------------------ beamforming
+
+    def simulate_beamforming(
+        self,
+        project_dir: Path,
+        scene: Scene,
+        library: RFMaterialLibrary,
+        config: SimulationConfig,
+        request: BeamformingRequest,
+    ) -> BeamformingResult:
+        txs = [d for d in scene.devices if d.kind == "tx"]
+        rxs = [d for d in scene.devices if d.kind == "rx"]
+        tx = next((d for d in txs if d.id == request.tx_id), txs[0] if txs else None)
+        rx = next((d for d in rxs if d.id == request.rx_id), rxs[0] if rxs else None)
+        base = BeamformingResult(
+            backend=self.name,
+            simulation_config_id=config.id,
+            tx_id=tx.id if tx else "",
+            rx_id=rx.id if rx else "",
+            frequency_hz=config.frequency_hz,
+            tx_array=[request.tx_rows, request.tx_cols],
+            rx_array=[request.rx_rows, request.rx_cols],
+            metadata={"engine": "sionna"},
+        )
+        if tx is None or rx is None:
+            base.warnings.append("scene needs at least one tx and one rx")
+            return base
+        try:
+            return self._beamforming_impl(project_dir, scene, library, config, request, tx, rx, base)
+        except Exception as exc:  # noqa: BLE001 - graceful degradation contract
+            base.warnings.append(f"sionna beamforming failed: {exc}; see logs")
+            return base
+
+    def _beamforming_impl(
+        self, project_dir, scene, library, config, request, tx, rx, base
+    ) -> BeamformingResult:
+        import math
+
+        import numpy as np
+        from sionna.rt import (  # type: ignore[import-not-found]
+            PathSolver,
+            PlanarArray,
+            Receiver,
+            Transmitter,
+            load_scene,
+        )
+
+        base.warnings.extend(self._frequency_warnings(scene, library, config))
+        xml_path = project_dir / "rf" / "generated_scene.xml"
+        if not xml_path.is_file():
+            self.compile(project_dir, scene, library)
+        rt_scene = load_scene(str(xml_path))
+        rt_scene.frequency = config.frequency_hz
+        rt_scene.tx_array = PlanarArray(
+            num_rows=request.tx_rows, num_cols=request.tx_cols, pattern="iso", polarization="V"
+        )
+        rt_scene.rx_array = PlanarArray(
+            num_rows=request.rx_rows, num_cols=request.rx_cols, pattern="iso", polarization="V"
+        )
+        self._apply_custom_materials(project_dir, rt_scene, base.warnings)
+        rt_scene.add(Transmitter(name=tx.id, position=list(tx.position), power_dbm=tx.power_dbm))
+        rt_scene.add(Receiver(name=rx.id, position=list(rx.position)))
+
+        paths = PathSolver()(
+            rt_scene, max_depth=config.max_depth, los=config.los,
+            specular_reflection=config.reflection, diffuse_reflection=config.scattering,
+            refraction=False, synthetic_array=True, samples_per_src=config.num_samples or 1_000_000,
+        )
+        a_raw = paths.a
+        a = (np.asarray(a_raw[0]) + 1j * np.asarray(a_raw[1])) if isinstance(a_raw, (tuple, list)) else np.asarray(a_raw)
+        # a: [num_rx, num_rx_ant, num_tx, num_tx_ant, num_paths]; sum over paths
+        # to a per-antenna-pair channel H for the first tx/rx device.
+        if a.ndim != 5 or a.shape[-1] == 0:
+            base.warnings.append(f"unexpected/empty path coefficients {a.shape}; no beamforming")
+            return base
+        H = a[0, :, 0, :, :].sum(axis=-1)  # [num_rx_ant, num_tx_ant]
+        base.num_paths = int(a.shape[-1])
+        h00 = abs(H[0, 0]) ** 2
+        if h00 <= 0:
+            base.warnings.append("degenerate channel (zero reference element); no gain computed")
+            return base
+        base.single_element_dbm = 10.0 * math.log10(h00) + tx.power_dbm
+        # TX-MRT toward the first RX antenna: power = ||H[0, :]||^2.
+        h0 = H[0, :]
+        tx_mrt = float(np.vdot(h0, h0).real)
+        base.tx_mrt_gain_db = 10.0 * math.log10(max(tx_mrt / h00, 1e-30))
+        # Both-ends SVD: largest singular value squared.
+        sigma_max = float(np.linalg.svd(H, compute_uv=False)[0])
+        base.svd_gain_db = 10.0 * math.log10(max(sigma_max ** 2 / h00, 1e-30))
+        return base
 
     @staticmethod
     def _frequency_warnings(

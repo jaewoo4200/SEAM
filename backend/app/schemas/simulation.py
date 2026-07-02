@@ -44,6 +44,19 @@ class SimulateRequest(StrictModel):
     config: Optional[SimulationConfig] = None
 
 
+class BeamformingRequest(StrictModel):
+    """Body for POST /simulate/beamforming: MRT/SVD gain over a MIMO link."""
+
+    config_id: Optional[str] = None
+    config: Optional[SimulationConfig] = None
+    tx_id: Optional[str] = None  # None = first tx
+    rx_id: Optional[str] = None  # None = first rx
+    tx_rows: int = Field(default=4, ge=1, le=16)
+    tx_cols: int = Field(default=4, ge=1, le=16)
+    rx_rows: int = Field(default=4, ge=1, le=16)
+    rx_cols: int = Field(default=4, ge=1, le=16)
+
+
 class TrajectorySimulateRequest(StrictModel):
     """Body for POST /simulate/trajectory: move one RX along waypoints."""
 

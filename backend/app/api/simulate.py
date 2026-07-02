@@ -19,9 +19,15 @@ from typing import Literal, Optional, Union
 from fastapi import APIRouter, HTTPException, Query
 
 from app.api.deps import get_store, load_scene_or_404
-from app.schemas.results import PathResultSet, RadioMapResultSet, TrajectoryResultSet
+from app.schemas.results import (
+    BeamformingResult,
+    PathResultSet,
+    RadioMapResultSet,
+    TrajectoryResultSet,
+)
 from app.schemas.scene import ResultSetRef, Scene
 from app.schemas.simulation import (
+    BeamformingRequest,
     SimulateRequest,
     SimulationConfig,
     TrajectorySimulateRequest,
@@ -234,3 +240,26 @@ def get_trajectory_result(
     return TrajectoryResultSet.model_validate(
         _load_result(project_id, "trajectory", result_id)
     )
+
+
+@router.post(
+    "/projects/{project_id}/simulate/beamforming", response_model=BeamformingResult
+)
+def simulate_beamforming(
+    project_id: str, request: Optional[BeamformingRequest] = None
+) -> BeamformingResult:
+    """MIMO beamforming gain (MRT / SVD) over one TX->RX link. Computed on
+    demand and returned directly (not stored as a result set)."""
+    request = request or BeamformingRequest()
+    store = get_store()
+    scene = load_scene_or_404(store, project_id)
+    library = store.load_materials(project_id)
+    config = _resolve_config(
+        scene, SimulateRequest(config_id=request.config_id, config=request.config)
+    )
+    try:
+        backend = resolve_backend(config)
+    except BackendUnavailableError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    project_dir = store.resolve(project_id)
+    return backend.simulate_beamforming(project_dir, scene, library, config, request)

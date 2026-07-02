@@ -12,6 +12,8 @@ import type {
   AssignRequest,
   AssignResponse,
   BatchAssignRequest,
+  BeamformingRequest,
+  BeamformingResult,
   CompileResult,
   HealthResponse,
   MaterialSuggestionResponse,
@@ -116,6 +118,9 @@ export const api = {
     request<TrajectoryResultSet>("POST", `/projects/${pid}/simulate/trajectory`, req),
   getTrajectory: (pid: string) =>
     request<TrajectoryResultSet>("GET", `/projects/${pid}/results/trajectory`),
+
+  simulateBeamforming: (pid: string, req: BeamformingRequest = {}) =>
+    request<BeamformingResult>("POST", `/projects/${pid}/simulate/beamforming`, req),
 
   // AODT RFData export
   exportRfdata: (pid: string, req: SimulateRequest = {}) =>

@@ -14,6 +14,7 @@ from typing import Optional
 from app.schemas.devices import Device
 from app.schemas.materials import RFMaterialLibrary
 from app.schemas.results import (
+    BeamformingResult,
     PathInteraction,
     PathResultSet,
     RadioMapGrid,
@@ -21,7 +22,7 @@ from app.schemas.results import (
     RayPath,
 )
 from app.schemas.scene import Prim, Scene
-from app.schemas.simulation import SimulationConfig
+from app.schemas.simulation import BeamformingRequest, SimulationConfig
 
 from .base import UNSAVED_RESULT_ID, RayTracingBackend
 
@@ -384,3 +385,43 @@ class MockBackend(RayTracingBackend):
             warnings=warnings,
             metadata=metadata,
         )
+
+    # ------------------------------------------------------ beamforming
+
+    def simulate_beamforming(
+        self,
+        project_dir: Path,
+        scene: Scene,
+        library: RFMaterialLibrary,
+        config: SimulationConfig,
+        request: BeamformingRequest,
+    ) -> BeamformingResult:
+        """Analytic array-gain stub (deterministic). Real per-antenna channel
+        beamforming requires the Sionna backend; this gives the frontend/tests
+        a plausible readout without a solver."""
+        txs = _select_devices(scene, "tx", [request.tx_id] if request.tx_id else None)
+        rxs = _select_devices(scene, "rx", [request.rx_id] if request.rx_id else None)
+        n_tx = request.tx_rows * request.tx_cols
+        n_rx = request.rx_rows * request.rx_cols
+        result = BeamformingResult(
+            backend=self.name,
+            simulation_config_id=config.id,
+            tx_id=txs[0].id if txs else "",
+            rx_id=rxs[0].id if rxs else "",
+            frequency_hz=config.frequency_hz,
+            tx_array=[request.tx_rows, request.tx_cols],
+            rx_array=[request.rx_rows, request.rx_cols],
+            warnings=["mock beamforming is an analytic array-gain stub; "
+                      "use the sionna backend for channel-based MRT/SVD"],
+            metadata={"engine": ENGINE},
+        )
+        if not txs or not rxs:
+            result.warnings.append("scene has no matching tx/rx device")
+            return result
+        dist = _dist(txs[0].position, rxs[0].position)
+        result.single_element_dbm = friis_dbm(txs[0].power_dbm, config.frequency_hz, dist)
+        # Idealized array gains: TX-MRT ~ 10log10(N_tx); both-ends adds RX gain.
+        result.tx_mrt_gain_db = 10.0 * math.log10(n_tx)
+        result.svd_gain_db = 10.0 * math.log10(n_tx) + 10.0 * math.log10(n_rx)
+        result.num_paths = 1  # analytic LoS only
+        return result

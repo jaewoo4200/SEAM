@@ -53,6 +53,29 @@ class PathResultSet(StrictModel):
     metadata: dict = Field(default_factory=dict)
 
 
+class BeamformingResult(StrictModel):
+    """MIMO beamforming gain summary for one TX->RX link.
+
+    Gains are relative to a single antenna element (dB):
+    - tx_mrt_gain_db: transmit maximum-ratio combining toward the RX;
+    - svd_gain_db: both-ends SVD precoding (full-CSI upper bound).
+    """
+
+    backend: str
+    simulation_config_id: str
+    tx_id: str
+    rx_id: str
+    frequency_hz: float
+    tx_array: list[int] = Field(min_length=2, max_length=2)  # [rows, cols]
+    rx_array: list[int] = Field(min_length=2, max_length=2)
+    num_paths: int = 0
+    single_element_dbm: Optional[float] = None
+    tx_mrt_gain_db: Optional[float] = None
+    svd_gain_db: Optional[float] = None
+    warnings: list[str] = Field(default_factory=list)
+    metadata: dict = Field(default_factory=dict)
+
+
 class RadioMapGrid(StrictModel):
     # World position of cell (0, 0)'s corner.
     origin: Vec3

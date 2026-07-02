@@ -141,6 +141,30 @@ Configuration is environment-driven (`SIONNATWIN_PROJECT_ROOTS`,
 `SIONNATWIN_OLLAMA_URL`, `SIONNATWIN_AI_TEXT_MODEL`, ...) — see
 `backend/app/core/config.py` and `docs/ai_assistant.md`.
 
+## FTC / AODT alignment
+
+Aligned with the `sionna-rt-gui-jaewoo-examples/` reference bundle (a 28 GHz
+FTC/lab-room ISAC digital twin):
+
+- **AODT-style viewer** — dark scene, LOS cyan / reflection magenta /
+  diffraction orange paths, TX red / UE blue markers, jet radio map, scale-
+  aware markers.
+- **28 GHz default** with the full **ITU-R P.2040** material set plus a
+  `human_body` material (literature presets) for sensing targets.
+- **RFData export** (`Export RFData`) writes the AODT viewer contract
+  (`scenario_meta / devices / paths / trajectory.csv / radio_map.csv /
+  calibration_points`) under `export/rfdata/`.
+- **Trajectory metrics** — move an RX along waypoints and get per-point
+  RSS / path gain / RMS delay spread (`POST /simulate/trajectory`).
+- **Scene import** — `examples/scripts/import_bundle_scene.py` turns the
+  bundle's Sionna/Mitsuba XML scenes into loadable projects (ships `lab_room`).
+- **MIMO beamforming** (`Beamforming`) — real TX-MRT + both-ends SVD gain from
+  the Sionna channel (~12 dB / ~24 dB at 4x4), matching the handoff numbers.
+
+Full ISAC target tracking (PADP/DBSCAN/Kalman) and CV material split
+(SAM2/DINOv2) are scoped in `docs/roadmap.md` — the RF/export integration
+points exist; the DSP and ML-model inference are external/future.
+
 ## Current limitations (MVP)
 
 - Face-group splitting (Mode 2 sub-mesh granularity) and simplified RF proxy
