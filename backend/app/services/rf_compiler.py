@@ -200,6 +200,9 @@ def _export_group_meshes(
     for material_id in sorted(grouped):
         prim_meshes = grouped[material_id]
         combined = mesh_tools.concatenate_meshes([mesh for _, mesh in prim_meshes])
+        # RF meshes are pure geometry: drop visual attributes (vertex colors
+        # trigger Mitsuba loader warnings and bloat the PLY).
+        combined.visual = trimesh.visual.ColorVisuals(mesh=combined)
         filename = f"{material_id}.ply"
         rel = f"{MESH_DIR_REL}/{filename}"
         (mesh_dir / filename).write_bytes(combined.export(file_type="ply"))

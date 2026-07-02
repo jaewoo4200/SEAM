@@ -160,7 +160,6 @@ def _radio_map_csv(rm: Optional[RadioMapResultSet]) -> str:
     w = csv.writer(buf)
     w.writerow(["x_m", "y_m", "z_m", "rss_dbm", "sinr_db", "path_gain_db"])
     if rm:
-        col = {"rss_dbm": 3, "path_gain_db": 5}.get(rm.metric)
         ox, oy = rm.grid.origin[0], rm.grid.origin[1]
         z = rm.grid.height_m
         cs = rm.grid.cell_size_m
@@ -180,22 +179,26 @@ def _radio_map_csv(rm: Optional[RadioMapResultSet]) -> str:
 
 
 def _calibration_points(scene: Scene) -> dict:
-    pts = []
-    for d in scene.devices[:2]:
-        pts.append(
-            {
-                "name": d.id,
-                "sionna_m": list(d.position),
-                "unreal_expected_cm": [c * 100.0 for c in d.position],
-            }
-        )
-    pts.append(
+    """At least 3 reference points (the viewer guide's minimum for its
+    coordinate check), padded with axis references when devices are scarce."""
+    pts = [
         {
-            "name": "origin",
-            "sionna_m": [0.0, 0.0, 0.0],
-            "unreal_expected_cm": [0.0, 0.0, 0.0],
+            "name": d.id,
+            "sionna_m": list(d.position),
+            "unreal_expected_cm": [c * 100.0 for c in d.position],
         }
-    )
+        for d in scene.devices[:2]
+    ]
+    for name, p in (
+        ("origin", [0.0, 0.0, 0.0]),
+        ("x_axis_10m", [10.0, 0.0, 0.0]),
+        ("y_axis_10m", [0.0, 10.0, 0.0]),
+    ):
+        if len(pts) >= 3 and name != "origin":
+            break
+        pts.append(
+            {"name": name, "sionna_m": p, "unreal_expected_cm": [c * 100.0 for c in p]}
+        )
     return {"points": pts}
 
 
@@ -224,6 +227,11 @@ def export_rfdata(
     meta = _scenario_meta(scene, config, created_at)
     if trajectory and trajectory.samples:
         meta["time"]["end_s"] = round(trajectory.samples[-1].time_s, 4)
+        if len(trajectory.samples) >= 2:
+            # Actual sampling interval, so viewer playback timing stays in sync.
+            meta["time"]["dt_s"] = round(
+                trajectory.samples[1].time_s - trajectory.samples[0].time_s, 6
+            )
     write_json("scenario_meta.json", meta)
     write_json("devices.json", _devices(scene, config))
     write_json("paths.json", _paths_json(paths))

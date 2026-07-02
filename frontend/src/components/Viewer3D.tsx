@@ -6,9 +6,9 @@ import type { ThreeEvent } from "@react-three/fiber";
 import { Html, Line, OrbitControls, PerspectiveCamera, useGLTF } from "@react-three/drei";
 import { useAppStore } from "../store/appStore";
 import type { Mode } from "../store/appStore";
+import { PATH_COLORS, SELECTED_PATH_COLOR } from "./common";
 import { api } from "../api/client";
 import type {
-  PathType,
   Prim,
   RadioMapResultSet,
   RFMaterialLibrary,
@@ -24,22 +24,11 @@ const UNASSIGNED_COLOR = "#ff9800";
 const UNMATCHED_COLOR = "#4b5563";
 
 // AODT-style dark viewer (matches the FTC/lab-room GUI conventions in the
-// reference bundle, not Sionna's white built-in preview).
+// reference bundle, not Sionna's white built-in preview). Path colors come
+// from the shared palette in common.tsx (single source of truth with the
+// results table).
 const SCENE_BACKGROUND = "#0d1420";
-const PICKER_COLOR = "#ffee58"; // bright highlight for the selected element
-const SELECTED_PATH_COLOR = PICKER_COLOR;
-
-// Path colors follow the AODT-like viewer palette (guide section 17):
-// LOS cyan, reflection magenta, diffraction orange; scattering/transmission
-// filled in with distinct emissive hues; mixed a neutral gray.
-const PATH_COLORS: Record<PathType, string> = {
-  los: "#00e5ff", // cyan
-  reflection: "#ff00ff", // magenta
-  diffraction: "#ff9800", // orange
-  scattering: "#00e676", // green
-  transmission: "#ff80ab", // pink
-  mixed: "#b0bec5", // gray
-};
+const PICKER_COLOR = SELECTED_PATH_COLOR; // bright highlight for selection
 
 // Jet colormap (blue -> cyan -> green -> yellow -> red), the AODT-like radio
 // map convention (guide section 10.5 / 17), not viridis.
@@ -408,7 +397,7 @@ function makeRadioMapTexture(rm: RadioMapResultSet): THREE.CanvasTexture {
       const v = row[ix];
       if (v === null || v === undefined) continue;
       const t = (v - min) / span;
-      // Viridis: Sionna RT's default radio-map colormap (low -> high).
+      // Jet: the AODT-like radio-map colormap (low blue -> high red).
       ctx.fillStyle = radioMapCss(t);
       // Canvas rows grow downward; world +Y is row iy, so flip vertically.
       ctx.fillRect(ix, ny - 1 - iy, 1, 1);
@@ -506,7 +495,7 @@ export default function Viewer3D() {
   );
 }
 
-/** Viridis colorbar for the radio-map overlay, matching Sionna's rendering. */
+/** Jet colorbar for the radio-map overlay, matching the AODT convention. */
 function RadioMapLegend({ radioMap }: { radioMap: RadioMapResultSet }) {
   let min = Infinity;
   let max = -Infinity;

@@ -71,6 +71,39 @@
       "result_id": "sionna_paths_002",
       "simulation_config_id": "default",
       "uri": "results/sionna_paths_002.json"
+    },
+    {
+      "timestamp": "2026-07-02T08:46:41.340013+00:00",
+      "type": "compile",
+      "ok": true,
+      "groups": 5
+    },
+    {
+      "timestamp": "2026-07-02T08:47:24.957504+00:00",
+      "type": "simulate",
+      "kind": "paths",
+      "backend": "sionna",
+      "result_id": "sionna_paths_003",
+      "simulation_config_id": "default",
+      "uri": "results/sionna_paths_003.json"
+    },
+    {
+      "timestamp": "2026-07-02T08:47:26.371584+00:00",
+      "type": "simulate",
+      "kind": "paths",
+      "backend": "sionna",
+      "result_id": "sionna_paths_004",
+      "simulation_config_id": "default",
+      "uri": "results/sionna_paths_004.json"
+    },
+    {
+      "timestamp": "2026-07-02T08:47:30.980572+00:00",
+      "type": "simulate",
+      "kind": "radio_map",
+      "backend": "sionna",
+      "result_id": "sionna_radio_map_002",
+      "simulation_config_id": "default",
+      "uri": "results/sionna_radio_map_002.json"
     }
   ]
 }

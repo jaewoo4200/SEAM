@@ -59,12 +59,14 @@ class SionnaBackend(RayTracingBackend):
         try:
             return self._simulate_paths_impl(project_dir, scene, library, config)
         except Exception as exc:  # noqa: BLE001 - graceful degradation contract
+            # Keep the actionable frequency hints even on the failure path.
             return PathResultSet(
                 result_id=UNSAVED_RESULT_ID,
                 backend=self.name,
                 simulation_config_id=config.id,
                 paths=[],
-                warnings=[f"sionna backend failed: {exc}; see logs"],
+                warnings=self._frequency_warnings(scene, library, config)
+                + [f"sionna backend failed: {exc}; see logs"],
                 metadata={"frequency_hz": config.frequency_hz, "engine": "sionna"},
             )
 
@@ -531,7 +533,8 @@ class SionnaBackend(RayTracingBackend):
                     height_m=config.radio_map.height_m,
                 ),
                 values=[[None]],
-                warnings=[f"sionna radio map failed: {exc}; see logs"],
+                warnings=self._frequency_warnings(scene, library, config)
+                + [f"sionna radio map failed: {exc}; see logs"],
                 metadata={"frequency_hz": config.frequency_hz, "engine": "sionna"},
             )
 
@@ -643,11 +646,16 @@ class SionnaBackend(RayTracingBackend):
 
     @staticmethod
     def _measurement_extent(rt_scene, txs, np) -> tuple[float, float, float, float]:
-        """(center_x, center_y, size_x, size_y) covering the scene, padded 15 m."""
-        pad = 15.0
+        """(center_x, center_y, size_x, size_y) covering the scene.
+
+        Padding adapts to scene size: a 7 m lab room gets ~3 m of margin
+        instead of the 15 m appropriate for a campus, so indoor radio maps
+        don't waste most of their cells outside the room."""
         try:
             bbox = rt_scene.mi_scene.bbox()
             lo, hi = np.array(bbox.min), np.array(bbox.max)
+            ext = max(hi[0] - lo[0], hi[1] - lo[1])
+            pad = min(15.0, max(3.0, 0.15 * float(ext)))
             cx, cy = (lo[0] + hi[0]) / 2.0, (lo[1] + hi[1]) / 2.0
             return cx, cy, (hi[0] - lo[0]) + 2 * pad, (hi[1] - lo[1]) + 2 * pad
         except Exception:  # noqa: BLE001 - fall back to transmitter extent

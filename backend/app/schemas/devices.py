@@ -6,9 +6,9 @@ directly (HANDOFF.md section 11 examples). The frontend scene tree shows them
 under a synthetic "/devices" node.
 """
 
-from typing import Literal
+from typing import Literal, Optional
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from .common import StrictModel, Vec3
 
@@ -31,6 +31,14 @@ class Device(StrictModel):
     # Transmit power; ignored for rx.
     power_dbm: float = 30.0
     antenna: Antenna = Field(default_factory=Antenna)
-    # Display color for viewer markers. Default is Sionna RT's transmitter red
-    # (1,0,0); receivers are typically set to Sionna's green (#66cc66).
-    color: str = Field(default="#ff0000", pattern=r"^#[0-9a-fA-F]{6}$")
+    # Display color for viewer markers; defaults by kind per the AODT legend
+    # (TX red, UE/RX blue) when not explicitly set.
+    color: Optional[str] = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
+
+    @model_validator(mode="after")
+    def _default_color_by_kind(self) -> "Device":
+        if self.color is None:
+            object.__setattr__(
+                self, "color", "#ff0000" if self.kind == "tx" else "#2e9bff"
+            )
+        return self

@@ -104,23 +104,43 @@ def calibrate_material(
     warnings: list[str] = []
 
     baseline_value = getattr(mat, request.param, None)
+    # Recompile with each candidate library BEFORE solving: the Sionna backend
+    # reads materials from the on-disk projection (generated_scene.xml +
+    # compile_manifest.json), so an in-memory trial library alone never
+    # reaches the solver (this was a confirmed no-op bug).
+    backend.compile(project_dir, scene, library)
     base_sim = _simulate_path_gains(backend, project_dir, scene, library, config, request)
     before, _, _ = _stats(measured, base_sim)
 
     grid = request.grid or _DEFAULT_GRIDS[request.param]
-    grid_rmse: list[float] = []
+    grid_rmse: list[Optional[float]] = []
     best_value: Optional[float] = None
     best_rmse = float("inf")
     best_sim = base_sim
-    for value in grid:
-        trial = library.model_copy(deep=True)
-        tmat = trial.get(request.target_material_id)
-        setattr(tmat, request.param, value)
-        sim = _simulate_path_gains(backend, project_dir, scene, library=trial, config=config, request=request)
-        stats, _, _ = _stats(measured, sim)
-        grid_rmse.append(stats.rmse_db)
-        if stats.n_links > 0 and stats.rmse_db < best_rmse:
-            best_rmse, best_value, best_sim = stats.rmse_db, value, sim
+    try:
+        for value in grid:
+            trial = library.model_copy(deep=True)
+            tmat = trial.get(request.target_material_id)
+            setattr(tmat, request.param, value)
+            compile_result = backend.compile(project_dir, scene, trial)
+            if not compile_result.ok:
+                warnings.append(
+                    f"grid value {value}: compile failed "
+                    f"({'; '.join(compile_result.errors) or 'unknown'}); skipped"
+                )
+                grid_rmse.append(None)
+                continue
+            sim = _simulate_path_gains(
+                backend, project_dir, scene, library=trial, config=config, request=request
+            )
+            stats, _, _ = _stats(measured, sim)
+            grid_rmse.append(stats.rmse_db)
+            if stats.n_links > 0 and stats.rmse_db < best_rmse:
+                best_rmse, best_value, best_sim = stats.rmse_db, value, sim
+    finally:
+        # Leave the on-disk projection matching the stored (original) library;
+        # if the caller applies the fit, its own recompile picks it up.
+        backend.compile(project_dir, scene, library)
 
     after, _, idx = _stats(measured, best_sim)
     per_link = [
@@ -134,15 +154,39 @@ def calibrate_material(
     ]
     if before.n_links == 0:
         warnings.append("no links produced paths; check device/geometry setup")
-    if best_value is not None and abs(best_rmse - before.rmse_db) < 1e-9:
-        warnings.append(
-            "grid search found no material sensitivity (the mock backend ignores "
-            "material EM params — use the sionna backend for a real fit)"
+    # Meaningful improvement gate: never report/apply a fit when the sweep did
+    # not actually move the error (parameter insensitive at this geometry/
+    # frequency, or the target material touches no simulated path).
+    finite = [r for r in grid_rmse if r is not None]  # skip failed compiles
+    no_sensitivity = bool(finite) and (max(finite) - min(finite)) < 1e-6
+    # Meaningful either absolutely (>0.05 dB, beyond measurement noise) or
+    # relatively (halving the residual, which matters for already-small RMSE).
+    improved = (
+        best_value is not None
+        and before.n_links > 0
+        and (
+            best_rmse < before.rmse_db - 0.05
+            or (before.rmse_db > 0 and best_rmse < before.rmse_db * 0.5)
         )
+    )
+    if no_sensitivity:
+        warnings.append(
+            f"grid sweep of {request.param!r} on {request.target_material_id!r} "
+            f"did not change the {backend.name} prediction; the parameter may be "
+            "insensitive for this geometry/frequency or the material touches no "
+            "simulated path"
+        )
+        best_value = None
 
     applied = False
-    if request.apply and best_value is not None:
-        applied = True  # caller persists; report signals intent
+    if request.apply:
+        if improved and best_value is not None:
+            applied = True  # caller persists; report signals intent
+        else:
+            warnings.append(
+                "apply skipped: the sweep produced no meaningful RMSE "
+                "improvement over the baseline"
+            )
 
     return CalibrationReport(
         target_material_id=request.target_material_id,

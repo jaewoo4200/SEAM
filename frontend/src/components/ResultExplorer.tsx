@@ -1,19 +1,9 @@
 import { useMemo, useState } from "react";
 import { useAppStore } from "../store/appStore";
-import { formatVec } from "./common";
+import { PATH_COLORS, SELECTED_PATH_COLOR, formatVec } from "./common";
 import type { PathType, RayPath } from "../types/api";
 
-// Matches the viewer's AODT palette (Viewer3D PATH_COLORS).
-const PATH_COLORS: Record<PathType, string> = {
-  los: "#00e5ff",
-  reflection: "#ff00ff",
-  diffraction: "#ff9800",
-  scattering: "#00e676",
-  transmission: "#ff80ab",
-  mixed: "#b0bec5",
-};
-
-const SELECTED_COLOR = "#ffee58";
+const SELECTED_COLOR = SELECTED_PATH_COLOR;
 
 type SortKey = "path_id" | "path_type" | "power_dbm" | "delay_ns" | "interactions";
 

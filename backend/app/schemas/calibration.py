@@ -61,7 +61,8 @@ class CalibrationReport(StrictModel):
     before: CalibrationStats
     after: CalibrationStats
     grid_values: list[float] = Field(default_factory=list)
-    grid_rmse_db: list[float] = Field(default_factory=list)
+    # None marks grid values whose compile failed (skipped, not zero-error).
+    grid_rmse_db: list[Optional[float]] = Field(default_factory=list)
     per_link_after: list[LinkError] = Field(default_factory=list)
     applied: bool = False
     backend: str = ""

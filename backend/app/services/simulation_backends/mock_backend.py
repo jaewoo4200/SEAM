@@ -27,7 +27,7 @@ from app.schemas.simulation import BeamformingRequest, SimulationConfig
 from .base import UNSAVED_RESULT_ID, RayTracingBackend
 
 SPEED_OF_LIGHT = 299_792_458.0
-ENGINE = "mock-deterministic-v1"
+ENGINE = "mock-deterministic-v2"
 # Consumer-level guardrail: never build a radio map bigger than this.
 MAX_RADIO_MAP_CELLS = 40_000
 GROUND_REFLECTION_LOSS_DB = 10.0
@@ -38,6 +38,29 @@ def friis_dbm(p_tx_dbm: float, freq_hz: float, dist_m: float) -> float:
     """Friis free-space received power; FSPL = 20log10(d) + 20log10(f) - 147.55."""
     d = max(dist_m, 0.1)
     return p_tx_dbm - (20.0 * math.log10(d) + 20.0 * math.log10(freq_hz) - 147.55)
+
+
+def reflection_loss_db(material, base_db: float) -> float:
+    """Deterministic, physics-flavored reflection loss for a bounce.
+
+    Depends monotonically on the material's parameters so material edits (and
+    calibration grid sweeps) visibly change mock results:
+    - diffuse scattering drains the specular bounce: +10*S dB;
+    - constant-model materials add a normal-incidence Fresnel term,
+      -10*log10(R) with R = ((sqrt(eps)-1)/(sqrt(eps)+1))^2.
+    ITU frequency-dependent materials contribute only the scattering term
+    (their eps/sigma live inside Sionna, not in the library entry).
+    """
+    loss = base_db
+    if material is None:
+        return loss
+    loss += 10.0 * float(material.scattering_coefficient or 0.0)
+    eps = material.relative_permittivity
+    if material.model == "constant" and eps and eps > 1.0:
+        sq = math.sqrt(eps)
+        reflectance = ((sq - 1.0) / (sq + 1.0)) ** 2
+        loss += -10.0 * math.log10(max(reflectance, 1e-6))
+    return loss
 
 
 def _dist(a: list[float], b: list[float]) -> float:
@@ -137,14 +160,14 @@ class MockBackend(RayTracingBackend):
                     paths.append(self._los_path(next_id(), tx, rx, config))
                 if reflections_on:
                     ground = self._ground_bounce_path(
-                        next_id, tx, rx, config, ground_prim
+                        next_id, tx, rx, config, ground_prim, library
                     )
                     if ground is not None:
                         paths.append(ground)
                     if wall_prim is not None:
                         paths.append(
                             self._wall_bounce_path(
-                                next_id(), tx, rx, config, wall_prim, wall_anchor_xy
+                                next_id(), tx, rx, config, wall_prim, wall_anchor_xy, library
                             )
                         )
 
@@ -185,6 +208,7 @@ class MockBackend(RayTracingBackend):
         rx: Device,
         config: SimulationConfig,
         ground_prim: Optional[Prim],
+        library: Optional[RFMaterialLibrary] = None,
     ) -> Optional[RayPath]:
         # Image method across the z=0 plane: reflect tx to (x, y, -z); the
         # straight line image->rx crosses z=0 at the specular point.
@@ -204,6 +228,11 @@ class MockBackend(RayTracingBackend):
             rf_material_id=ground_prim.rf.material_id if ground_prim else None,
             point=point,
         )
+        ground_mat = (
+            library.get(ground_prim.rf.material_id)
+            if library and ground_prim and ground_prim.rf.material_id
+            else None
+        )
         return RayPath(
             path_id=next_id(),
             tx_id=tx.id,
@@ -211,7 +240,7 @@ class MockBackend(RayTracingBackend):
             path_type="reflection",
             vertices=[list(tx.position), point, list(rx.position)],
             power_dbm=friis_dbm(tx.power_dbm, config.frequency_hz, total)
-            - GROUND_REFLECTION_LOSS_DB,
+            - reflection_loss_db(ground_mat, GROUND_REFLECTION_LOSS_DB),
             delay_ns=_delay_ns(total),
             phase_rad=_phase_rad(total, config.frequency_hz),
             interactions=[interaction],
@@ -253,6 +282,7 @@ class MockBackend(RayTracingBackend):
         config: SimulationConfig,
         wall_prim: Prim,
         anchor_xy: Optional[list[float]],
+        library: Optional[RFMaterialLibrary] = None,
     ) -> RayPath:
         if anchor_xy is None:
             # Deterministic last resort: offset perpendicular to the tx-rx
@@ -272,6 +302,11 @@ class MockBackend(RayTracingBackend):
             rf_material_id=wall_prim.rf.material_id,
             point=bounce,
         )
+        wall_mat = (
+            library.get(wall_prim.rf.material_id)
+            if library and wall_prim.rf.material_id
+            else None
+        )
         return RayPath(
             path_id=path_id,
             tx_id=tx.id,
@@ -279,7 +314,7 @@ class MockBackend(RayTracingBackend):
             path_type="reflection",
             vertices=[list(tx.position), bounce, list(rx.position)],
             power_dbm=friis_dbm(tx.power_dbm, config.frequency_hz, total)
-            - WALL_REFLECTION_LOSS_DB,
+            - reflection_loss_db(wall_mat, WALL_REFLECTION_LOSS_DB),
             delay_ns=_delay_ns(total),
             phase_rad=_phase_rad(total, config.frequency_hz),
             interactions=[interaction],

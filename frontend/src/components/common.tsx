@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import type {
   AssignmentStatus,
+  PathType,
   RFMaterial,
   RFMaterialLibrary,
   Severity,
@@ -8,6 +9,20 @@ import type {
 } from "../types/api";
 
 export const ACCENT = "#4fc3f7";
+
+// AODT-like viewer path palette (guide section 17): LOS cyan, reflection
+// magenta, diffraction orange. Single source of truth for the 3D viewer,
+// the results table, and the scatter plot.
+export const PATH_COLORS: Record<PathType, string> = {
+  los: "#00e5ff",
+  reflection: "#ff00ff",
+  diffraction: "#ff9800",
+  scattering: "#00e676",
+  transmission: "#ff80ab",
+  mixed: "#b0bec5",
+};
+
+export const SELECTED_PATH_COLOR = "#ffee58";
 
 export const STATUS_COLORS: Record<AssignmentStatus, string> = {
   unassigned: "#ff9800",

@@ -157,7 +157,12 @@ export const useAppStore = create<AppState>()((set, get) => {
           decisions: {},
           pathResults: null,
           radioMap: null,
+          beamforming: null,
           selectedPathId: null,
+          // Overlay visibility starts fresh per project.
+          showPaths: true,
+          showRadioMap: true,
+          showBeamforming: true,
         });
         // Provider statuses: prefer the dedicated endpoint, fall back to health.
         try {

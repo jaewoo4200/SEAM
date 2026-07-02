@@ -75,9 +75,12 @@ def _parse_materials(root: ET.Element) -> dict[str, dict]:
         type_str = bsdf.find("string[@name='type']")
         if type_str is not None:
             info["itu_class"] = type_str.get("value")
-        # preview color: reflectance (nested diffuse) or color
-        info["color_rgba"] = _rgb(bsdf.find(".//rgb[@name='reflectance']")) or _rgb(
-            bsdf.find("rgb[@name='color']")
+        # preview color: reflectance (nested diffuse), color, or the
+        # principled bsdf's base_color (textured/preview XML variants).
+        info["color_rgba"] = (
+            _rgb(bsdf.find(".//rgb[@name='reflectance']"))
+            or _rgb(bsdf.find("rgb[@name='color']"))
+            or _rgb(bsdf.find(".//rgb[@name='base_color']"))
         )
         # constant radio-material params
         if btype == "radio-material":
@@ -115,7 +118,12 @@ def _parse_transform(shape: ET.Element) -> Optional[np.ndarray]:
     for child in list(xform):
         T = np.eye(4)
         if child.tag == "rotate":
-            axis = np.array([float(child.get(a, 0.0)) for a in "xyz"])
+            # Mitsuba accepts both <rotate x="1" angle="90"/> and
+            # <rotate value="ax ay az" angle="90"/>.
+            if child.get("value") is not None:
+                axis = np.array([float(v) for v in child.get("value").split()[:3]])
+            else:
+                axis = np.array([float(child.get(a, 0.0)) for a in "xyz"])
             angle = math.radians(float(child.get("angle", 0.0)))
             if np.linalg.norm(axis) > 0:
                 T = trimesh.transformations.rotation_matrix(angle, axis)
@@ -177,29 +185,29 @@ def import_mitsuba_scene(
 
         mesh_path = (xml_dir / filename).resolve()
         if not mesh_path.is_file():
-            warnings.append(f"mesh not found, prim created without geometry: {filename}")
-            mesh = None
-        else:
-            loaded = trimesh.load(mesh_path, force="mesh")
-            mesh = loaded if isinstance(loaded, trimesh.Trimesh) else None
-            if mesh is None:
-                warnings.append(f"could not load mesh as a single Trimesh: {filename}")
-            else:
-                # Apply the shape's to_world transform (e.g. the +90 deg X
-                # Y-up->Z-up fix the outdoor scenes carry per shape).
-                xform = _parse_transform(shape)
-                if xform is not None:
-                    mesh = mesh.copy()
-                    mesh.apply_transform(xform)
+            # Skip entirely: a prim whose mesh_ref points at nothing in the
+            # combined GLB would be a dangling reference validation can't see.
+            warnings.append(f"mesh not found, shape skipped: {filename}")
+            continue
+        loaded = trimesh.load(mesh_path, force="mesh")
+        mesh = loaded if isinstance(loaded, trimesh.Trimesh) else None
+        if mesh is None:
+            warnings.append(f"could not load mesh as a single Trimesh, shape skipped: {filename}")
+            continue
+        # Apply the shape's to_world transform (e.g. the +90 deg X
+        # Y-up->Z-up fix the outdoor scenes carry per shape).
+        xform = _parse_transform(shape)
+        if xform is not None:
+            mesh = mesh.copy()
+            mesh.apply_transform(xform)
 
         info = materials.get(mat_id, {}) if mat_id else {}
         color = info.get("color_rgba")
-        if mesh is not None:
-            if color:
-                mesh.visual = trimesh.visual.ColorVisuals(
-                    mesh=mesh, face_colors=[int(c * 255) for c in color[:3]] + [255]
-                )
-            tm_scene.add_geometry(mesh, geom_name=base, node_name=base)
+        if color:
+            mesh.visual = trimesh.visual.ColorVisuals(
+                mesh=mesh, face_colors=[int(c * 255) for c in color[:3]] + [255]
+            )
+        tm_scene.add_geometry(mesh, geom_name=base, node_name=base)
 
         # Resolve RF material: itu class -> library id; then a token fallback
         # (e.g. a constant "ground" material -> the 28 GHz-safe ground); else

@@ -118,7 +118,7 @@ def test_simulate_paths_los_and_reflections(backend, scene, library, tmp_path):
     assert [p.path_id for p in result.paths] == [
         f"path_{i:04d}" for i in range(1, len(result.paths) + 1)
     ]
-    assert result.metadata["engine"] == "mock-deterministic-v1"
+    assert result.metadata["engine"] == "mock-deterministic-v2"
     assert result.metadata["num_tx"] == 1
     assert result.metadata["num_rx"] == 1
 

@@ -25,6 +25,85 @@
       "result_id": "sionna_paths_002",
       "simulation_config_id": "default",
       "uri": "results/sionna_paths_002.json"
+    },
+    {
+      "timestamp": "2026-07-02T08:49:00.059156+00:00",
+      "type": "simulate",
+      "kind": "paths",
+      "backend": "sionna",
+      "result_id": "sionna_paths_001",
+      "simulation_config_id": "default",
+      "uri": "results/sionna_paths_001.json"
+    },
+    {
+      "timestamp": "2026-07-02T08:49:15.926387+00:00",
+      "type": "compile",
+      "ok": true,
+      "groups": 2
+    },
+    {
+      "timestamp": "2026-07-02T08:49:45.843791+00:00",
+      "type": "ai_apply",
+      "approved": 6,
+      "rejected": 0,
+      "edited": 0
+    },
+    {
+      "timestamp": "2026-07-02T08:49:56.388222+00:00",
+      "type": "compile",
+      "ok": true,
+      "groups": 6
+    },
+    {
+      "timestamp": "2026-07-02T08:50:01.053532+00:00",
+      "type": "compile",
+      "ok": true,
+      "groups": 6
+    },
+    {
+      "timestamp": "2026-07-02T08:50:03.783789+00:00",
+      "type": "simulate",
+      "kind": "paths",
+      "backend": "sionna",
+      "result_id": "sionna_paths_002",
+      "simulation_config_id": "default",
+      "uri": "results/sionna_paths_002.json"
+    },
+    {
+      "timestamp": "2026-07-02T08:50:09.294356+00:00",
+      "type": "simulate",
+      "kind": "radio_map",
+      "backend": "sionna",
+      "result_id": "sionna_radio_map_001",
+      "simulation_config_id": "default",
+      "uri": "results/sionna_radio_map_001.json"
+    },
+    {
+      "timestamp": "2026-07-02T08:50:57.700109+00:00",
+      "type": "simulate",
+      "kind": "radio_map",
+      "backend": "sionna",
+      "result_id": "sionna_radio_map_002",
+      "simulation_config_id": "default",
+      "uri": "results/sionna_radio_map_002.json"
+    },
+    {
+      "timestamp": "2026-07-02T08:50:58.449985+00:00",
+      "type": "simulate",
+      "kind": "radio_map",
+      "backend": "sionna",
+      "result_id": "sionna_radio_map_003",
+      "simulation_config_id": "default",
+      "uri": "results/sionna_radio_map_003.json"
+    },
+    {
+      "timestamp": "2026-07-02T08:50:59.238850+00:00",
+      "type": "simulate",
+      "kind": "radio_map",
+      "backend": "sionna",
+      "result_id": "sionna_radio_map_004",
+      "simulation_config_id": "default",
+      "uri": "results/sionna_radio_map_004.json"
     }
   ]
 }
