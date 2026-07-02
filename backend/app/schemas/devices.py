@@ -31,5 +31,6 @@ class Device(StrictModel):
     # Transmit power; ignored for rx.
     power_dbm: float = 30.0
     antenna: Antenna = Field(default_factory=Antenna)
-    # Display color for viewer markers.
-    color: str = Field(default="#ff4136", pattern=r"^#[0-9a-fA-F]{6}$")
+    # Display color for viewer markers. Default is Sionna RT's transmitter red
+    # (1,0,0); receivers are typically set to Sionna's green (#66cc66).
+    color: str = Field(default="#ff0000", pattern=r"^#[0-9a-fA-F]{6}$")

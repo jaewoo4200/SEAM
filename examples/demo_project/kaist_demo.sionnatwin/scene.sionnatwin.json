@@ -661,7 +661,7 @@
         "num_rows": 1,
         "num_cols": 1
       },
-      "color": "#ff4136"
+      "color": "#ff0000"
     },
     {
       "id": "rx_001",
@@ -684,7 +684,7 @@
         "num_rows": 1,
         "num_cols": 1
       },
-      "color": "#2ecc40"
+      "color": "#2e9bff"
     }
   ],
   "simulation_configs": [
@@ -704,7 +704,7 @@
       "radio_map": {
         "cell_size_m": 2.0,
         "height_m": 1.5,
-        "metric": "rss_dbm"
+        "metric": "path_gain_db"
       }
     }
   ],

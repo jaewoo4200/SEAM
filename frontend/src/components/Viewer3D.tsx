@@ -12,6 +12,7 @@ import type {
   Prim,
   RadioMapResultSet,
   RFMaterialLibrary,
+  Scene,
   ValidationReport,
 } from "../types/api";
 
@@ -21,16 +22,53 @@ import type {
 const ACCENT = "#4fc3f7";
 const UNASSIGNED_COLOR = "#ff9800";
 const UNMATCHED_COLOR = "#4b5563";
-const SELECTED_PATH_COLOR = "#ffee58";
 
+// AODT-style dark viewer (matches the FTC/lab-room GUI conventions in the
+// reference bundle, not Sionna's white built-in preview).
+const SCENE_BACKGROUND = "#0d1420";
+const PICKER_COLOR = "#ffee58"; // bright highlight for the selected element
+const SELECTED_PATH_COLOR = PICKER_COLOR;
+
+// Path colors follow the AODT-like viewer palette (guide section 17):
+// LOS cyan, reflection magenta, diffraction orange; scattering/transmission
+// filled in with distinct emissive hues; mixed a neutral gray.
 const PATH_COLORS: Record<PathType, string> = {
-  los: "#66bb6a",
-  reflection: "#4fc3f7",
-  diffraction: "#ab47bc",
-  scattering: "#ffa726",
-  transmission: "#f06292",
-  mixed: "#eceff1",
+  los: "#00e5ff", // cyan
+  reflection: "#ff00ff", // magenta
+  diffraction: "#ff9800", // orange
+  scattering: "#00e676", // green
+  transmission: "#ff80ab", // pink
+  mixed: "#b0bec5", // gray
 };
+
+// Jet colormap (blue -> cyan -> green -> yellow -> red), the AODT-like radio
+// map convention (guide section 10.5 / 17), not viridis.
+const JET: [number, number, number][] = [
+  [0, 0, 131],
+  [0, 60, 170],
+  [5, 255, 255],
+  [255, 255, 0],
+  [250, 0, 0],
+  [128, 0, 0],
+];
+
+function jet(t: number): [number, number, number] {
+  const x = Math.min(1, Math.max(0, t)) * (JET.length - 1);
+  const i = Math.floor(x);
+  const f = x - i;
+  const a = JET[i];
+  const b = JET[Math.min(i + 1, JET.length - 1)];
+  return [
+    Math.round(a[0] + (b[0] - a[0]) * f),
+    Math.round(a[1] + (b[1] - a[1]) * f),
+    Math.round(a[2] + (b[2] - a[2]) * f),
+  ];
+}
+
+export function radioMapCss(t: number): string {
+  const [r, g, b] = jet(t);
+  return `rgb(${r}, ${g}, ${b})`;
+}
 
 type PrimSeverity = "error" | "warning";
 
@@ -255,11 +293,26 @@ class AssetBoundary extends Component<
 
 // ---------------------------------------------------------------- devices
 
+/** Marker radius scaled to scene size: small indoor rooms need ~0.08 m
+ *  markers, outdoor campuses ~0.5 m. Derived from the device position spread
+ *  (the 1124 handoff overrides indoor TX/RX markers to 0.08 m). */
+function deviceMarkerRadius(scene: Scene): number {
+  const pos = scene.devices.map((d) => d.position);
+  if (pos.length < 1) return 0.5;
+  let maxSpan = 0;
+  for (let axis = 0; axis < 3; axis++) {
+    const vals = pos.map((p) => p[axis]);
+    maxSpan = Math.max(maxSpan, Math.max(...vals) - Math.min(...vals));
+  }
+  return Math.min(0.6, Math.max(0.08, maxSpan * 0.02));
+}
+
 function Devices() {
   const scene = useAppStore((s) => s.scene);
   const selectedDeviceId = useAppStore((s) => s.selectedDeviceId);
   const selectDevice = useAppStore((s) => s.selectDevice);
   if (!scene) return null;
+  const radius = deviceMarkerRadius(scene);
 
   return (
     <group>
@@ -274,27 +327,16 @@ function Devices() {
               selectDevice(d.id);
             }}
           >
-            {d.kind === "tx" ? (
-              // Cone apex is +Y by default; rotate +90° about X so it points +Z (up).
-              <mesh rotation={[Math.PI / 2, 0, 0]}>
-                <coneGeometry args={[0.45, 1.1, 16]} />
-                <meshStandardMaterial
-                  color={d.color}
-                  emissive={selected ? ACCENT : "#000000"}
-                  emissiveIntensity={selected ? 0.8 : 0}
-                />
-              </mesh>
-            ) : (
-              <mesh>
-                <sphereGeometry args={[0.5, 24, 16]} />
-                <meshStandardMaterial
-                  color={d.color}
-                  emissive={selected ? ACCENT : "#000000"}
-                  emissiveIntensity={selected ? 0.8 : 0}
-                />
-              </mesh>
-            )}
-            <Html position={[0, 0, 1.2]} center zIndexRange={[10, 0]}>
+            {/* Radio devices are spheres, colored by kind (AODT: TX red, UE blue). */}
+            <mesh>
+              <sphereGeometry args={[radius, 24, 16]} />
+              <meshStandardMaterial
+                color={d.color}
+                emissive={selected ? PICKER_COLOR : "#000000"}
+                emissiveIntensity={selected ? 0.9 : 0}
+              />
+            </mesh>
+            <Html position={[0, 0, radius * 2.4]} center zIndexRange={[10, 0]}>
               <div className={"device-label" + (selected ? " selected" : "")}>{d.id}</div>
             </Html>
           </group>
@@ -366,8 +408,8 @@ function makeRadioMapTexture(rm: RadioMapResultSet): THREE.CanvasTexture {
       const v = row[ix];
       if (v === null || v === undefined) continue;
       const t = (v - min) / span;
-      // Jet-ish: blue (low) -> red (high).
-      ctx.fillStyle = `hsl(${Math.round((1 - t) * 240)}, 90%, 55%)`;
+      // Viridis: Sionna RT's default radio-map colormap (low -> high).
+      ctx.fillStyle = radioMapCss(t);
       // Canvas rows grow downward; world +Y is row iy, so flip vertically.
       ctx.fillRect(ix, ny - 1 - iy, 1, 1);
     }
@@ -421,13 +463,16 @@ export default function Viewer3D() {
     setAssetFailed(false);
   }, [url]);
 
+  const showRadioMap = radioMap && mode === "results";
   return (
     <div className="viewer3d">
       <Canvas dpr={[1, 2]} onPointerMissed={() => clearSelection()}>
-        <color attach="background" args={["#0d1420"]} />
-        <PerspectiveCamera makeDefault up={[0, 0, 1]} position={[35, -35, 25]} fov={50} near={0.1} far={5000} />
+        {/* AODT-style dark viewer. */}
+        <color attach="background" args={[SCENE_BACKGROUND]} />
+        <PerspectiveCamera makeDefault up={[0, 0, 1]} position={[35, -35, 25]} fov={45} near={0.1} far={5000} />
         <OrbitControls makeDefault target={[0, 0, 0]} />
-        <ambientLight intensity={0.7} />
+        <ambientLight intensity={0.75} />
+        <hemisphereLight args={["#dfe9f3", "#20262e", 0.5]} />
         <directionalLight position={[30, -20, 50]} intensity={1.1} />
         {/* gridHelper lies in XZ by default; rotate +90° about X into the XY ground plane. */}
         <gridHelper args={[200, 50, "#2c3947", "#1b2531"]} rotation={[Math.PI / 2, 0, 0]} />
@@ -449,11 +494,43 @@ export default function Viewer3D() {
         </Suspense>
         {scene && <Devices />}
         {pathResults && <RayPaths />}
-        {radioMap && mode === "results" && <RadioMapPlane radioMap={radioMap} />}
+        {showRadioMap && <RadioMapPlane radioMap={radioMap} />}
       </Canvas>
+      {showRadioMap && <RadioMapLegend radioMap={radioMap} />}
       {scene && (!url || assetFailed) && (
         <div className="viewer-banner">Visual asset missing — showing placeholder geometry</div>
       )}
+    </div>
+  );
+}
+
+/** Viridis colorbar for the radio-map overlay, matching Sionna's rendering. */
+function RadioMapLegend({ radioMap }: { radioMap: RadioMapResultSet }) {
+  let min = Infinity;
+  let max = -Infinity;
+  for (const row of radioMap.values) {
+    for (const v of row) {
+      if (v !== null) {
+        if (v < min) min = v;
+        if (v > max) max = v;
+      }
+    }
+  }
+  if (!Number.isFinite(min)) return null;
+  const stops = Array.from({ length: 11 }, (_, i) => radioMapCss(i / 10)).join(", ");
+  const unit = radioMap.metric === "rss_dbm" ? "dBm" : "dB";
+  const label = radioMap.metric === "rss_dbm" ? "RSS" : "Path gain";
+  return (
+    <div className="radiomap-legend">
+      <div className="radiomap-legend-title">{label}</div>
+      <div className="radiomap-legend-scale">
+        <div className="radiomap-legend-bar" style={{ background: `linear-gradient(to top, ${stops})` }} />
+        <div className="radiomap-legend-ticks">
+          <span>{max.toFixed(0)} {unit}</span>
+          <span>{((min + max) / 2).toFixed(0)}</span>
+          <span>{min.toFixed(0)} {unit}</span>
+        </div>
+      </div>
     </div>
   );
 }

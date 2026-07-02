@@ -11,7 +11,8 @@ class RadioMapGridConfig(StrictModel):
     cell_size_m: float = Field(default=2.0, gt=0.0)
     # Height above ground for the planar measurement grid.
     height_m: float = 1.5
-    metric: Literal["path_gain_db", "rss_dbm"] = "rss_dbm"
+    # Default matches Sionna RT's preview/render default (path gain in dB).
+    metric: Literal["path_gain_db", "rss_dbm"] = "path_gain_db"
 
 
 class SimulationConfig(StrictModel):

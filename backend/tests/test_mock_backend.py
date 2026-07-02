@@ -185,11 +185,12 @@ def test_radio_map_grid_dimensions(backend, scene, library, tmp_path):
     assert all(len(row) == result.grid.nx for row in result.values)
     assert all(v is not None for row in result.values for v in row)
     assert result.tx_id == "tx_001"
-    assert result.metric == "rss_dbm"
+    # Default metric follows Sionna RT (path gain in dB).
+    assert result.metric == "path_gain_db"
 
 
 def test_radio_map_metric_switch_shifts_by_tx_power(backend, scene, library, tmp_path):
-    rss_cfg = SimulationConfig()
+    rss_cfg = SimulationConfig(radio_map={"metric": "rss_dbm"})
     gain_cfg = SimulationConfig(radio_map={"metric": "path_gain_db"})
     rss = backend.simulate_radio_map(tmp_path, scene, library, rss_cfg)
     gain = backend.simulate_radio_map(tmp_path, scene, library, gain_cfg)

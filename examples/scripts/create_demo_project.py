@@ -267,6 +267,8 @@ def build_scene() -> Scene:
         ),
     ]
 
+    # Device colors follow the AODT-like viewer legend: red transmitters,
+    # blue UE/receivers.
     devices = [
         Device(
             id="tx_001",
@@ -274,14 +276,14 @@ def build_scene() -> Scene:
             kind="tx",
             position=[-9.0, 7.0, 10.5],
             power_dbm=30.0,
-            color="#ff4136",
+            color="#ff0000",
         ),
         Device(
             id="rx_001",
             name="Street RX",
             kind="rx",
             position=[10.0, 0.0, 1.5],
-            color="#2ecc40",
+            color="#2e9bff",
         ),
     ]
 
