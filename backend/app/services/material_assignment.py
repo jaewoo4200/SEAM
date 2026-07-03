@@ -62,6 +62,42 @@ def assign_materials(
     )
 
 
+def unassign_materials(scene: Scene, prim_ids: list[str]) -> AssignResponse:
+    """Clear the RF material binding on each prim, returning it to 'unassigned'.
+
+    Like :func:`assign_materials`, this mutates the scene in place and leaves
+    persistence to the caller. A fresh default ``RFBinding`` is written so the
+    material id, per-prim overrides, sources and confidence are all cleared and
+    the status/material invariant (unassigned <=> material_id is None) holds.
+    Unknown prim ids are skipped (never an error) with a warning.
+    """
+    updated: list[str] = []
+    skipped: list[str] = []
+    warnings: list[str] = []
+    for prim_id in prim_ids:
+        prim = scene.prim_by_id(prim_id)
+        if prim is None:
+            skipped.append(prim_id)
+            warnings.append(f"prim not found: {prim_id}")
+            continue
+        prim.rf = RFBinding(
+            material_id=None,
+            assignment_status="unassigned",
+            assignment_sources=["user"],
+        )
+        updated.append(prim_id)
+    return AssignResponse(
+        updated_prim_ids=updated,
+        skipped_prim_ids=skipped,
+        warnings=warnings,
+    )
+
+
+def prims_using_material(scene: Scene, material_id: str) -> list[str]:
+    """Ids of every prim whose RF binding references ``material_id``."""
+    return [p.id for p in scene.prims if p.rf.material_id == material_id]
+
+
 def apply_batch(
     scene: Scene,
     batch: BatchAssignRequest,

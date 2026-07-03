@@ -3,8 +3,9 @@ import type { ReactNode } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import type { ThreeEvent } from "@react-three/fiber";
-import { Html, Line, OrbitControls, PerspectiveCamera, useGLTF } from "@react-three/drei";
+import { Html, Line, OrbitControls, PerspectiveCamera, TransformControls, useGLTF } from "@react-three/drei";
 import { useAppStore } from "../store/appStore";
+import type { ResolvedEnvironment } from "../envPresets";
 import type { Mode } from "../store/appStore";
 import { SELECTED_PATH_COLOR } from "./common";
 import { filterPaths, pathColor, powerRange, powerWidth } from "../pathFilter";
@@ -209,6 +210,13 @@ function GLBScene({ url }: { url: string }) {
           color: new THREE.Color(color),
           roughness: 0.85,
           metalness: 0.05,
+          // Self-illumination floor: RF/validation/AI overlays must stay
+          // readable regardless of viewport lighting or flipped mesh normals
+          // (a fully light-dependent material can render black on bad
+          // normals - reported as "buildings turn black" in those modes).
+          emissive: new THREE.Color(color),
+          emissiveIntensity: 0.45,
+          side: THREE.DoubleSide,
         });
         if (selected) {
           overlay.emissive = new THREE.Color(ACCENT);
@@ -327,40 +335,43 @@ class AssetBoundary extends Component<
 
 // ---------------------------------------------------------------- devices
 
-/** Marker radius scaled to scene size: small indoor rooms need ~0.08 m
- *  markers, outdoor campuses ~0.5 m. Derived from the device position spread
- *  (the 1124 handoff overrides indoor TX/RX markers to 0.08 m). */
-function deviceMarkerRadius(scene: Scene): number {
+/** Environment scale multiplier: indoor scenes get compact markers and
+ *  interaction dots, outdoor scenes larger ones (수정사항 #5/#9). */
+export function envScale(env: ResolvedEnvironment): number {
+  return env === "indoor" ? 0.35 : 1.0;
+}
+
+/** Marker radius scaled to scene size AND environment: small indoor rooms
+ *  need ~0.08 m markers, outdoor campuses ~0.5 m. */
+function deviceMarkerRadius(scene: Scene, env: ResolvedEnvironment = "outdoor"): number {
   const pos = scene.devices.map((d) => d.position);
-  if (pos.length < 1) return 0.5;
-  let maxSpan = 0;
-  for (let axis = 0; axis < 3; axis++) {
-    const vals = pos.map((p) => p[axis]);
-    maxSpan = Math.max(maxSpan, Math.max(...vals) - Math.min(...vals));
-  }
-  return Math.min(0.6, Math.max(0.08, maxSpan * 0.02));
+  const base = (() => {
+    if (pos.length < 1) return 0.5;
+    let maxSpan = 0;
+    for (let axis = 0; axis < 3; axis++) {
+      const vals = pos.map((p) => p[axis]);
+      maxSpan = Math.max(maxSpan, Math.max(...vals) - Math.min(...vals));
+    }
+    return Math.min(0.6, Math.max(0.08, maxSpan * 0.02));
+  })();
+  return Math.max(0.06, base * envScale(env));
 }
 
 function Devices() {
   const scene = useAppStore((s) => s.scene);
+  const env = useAppStore((s) => s.resolvedEnvironment);
   const selectedDeviceId = useAppStore((s) => s.selectedDeviceId);
   const selectDevice = useAppStore((s) => s.selectDevice);
+  const updateDevice = useAppStore((s) => s.updateDevice);
   if (!scene) return null;
-  const radius = deviceMarkerRadius(scene);
+  const radius = deviceMarkerRadius(scene, env);
 
   return (
     <group>
       {scene.devices.map((d) => {
         const selected = d.id === selectedDeviceId;
-        return (
-          <group
-            key={d.id}
-            position={d.position}
-            onPointerDown={(e: ThreeEvent<PointerEvent>) => {
-              e.stopPropagation();
-              selectDevice(d.id);
-            }}
-          >
+        const marker = (
+          <>
             {/* Radio devices are spheres, colored by kind (AODT: TX red, UE blue). */}
             <mesh>
               <sphereGeometry args={[radius, 24, 16]} />
@@ -371,8 +382,50 @@ function Devices() {
               />
             </mesh>
             <Html position={[0, 0, radius * 2.4]} center zIndexRange={[10, 0]}>
-              <div className={"device-label" + (selected ? " selected" : "")}>{d.id}</div>
+              <div className={"device-label" + (selected ? " selected" : "")} title={d.id}>
+                {d.name || d.id}
+              </div>
             </Html>
+          </>
+        );
+        // Selected device gets a translate gizmo (RT GUI parity); releasing
+        // the handle commits the new position through the normal update flow
+        // (auto-update solvers included). drei pauses OrbitControls while
+        // dragging.
+        return selected ? (
+          <TransformControls
+            key={d.id}
+            mode="translate"
+            position={d.position}
+            size={0.7}
+            onMouseUp={(e) => {
+              const obj = (e?.target as { object?: THREE.Object3D } | undefined)?.object;
+              if (obj) {
+                void updateDevice(d.id, {
+                  position: [obj.position.x, obj.position.y, obj.position.z],
+                });
+              }
+            }}
+          >
+            <group
+              onPointerDown={(e: ThreeEvent<PointerEvent>) => {
+                e.stopPropagation();
+                selectDevice(d.id);
+              }}
+            >
+              {marker}
+            </group>
+          </TransformControls>
+        ) : (
+          <group
+            key={d.id}
+            position={d.position}
+            onPointerDown={(e: ThreeEvent<PointerEvent>) => {
+              e.stopPropagation();
+              selectDevice(d.id);
+            }}
+          >
+            {marker}
           </group>
         );
       })}
@@ -389,6 +442,7 @@ function Actors({ frameStates }: { frameStates?: Map<string, { position: Vec3; o
   const scene = useAppStore((s) => s.scene);
   const selectedActorId = useAppStore((s) => s.selectedActorId);
   const selectActor = useAppStore((s) => s.selectActor);
+  const updateActor = useAppStore((s) => s.updateActor);
   if (!scene) return null;
 
   return (
@@ -396,14 +450,15 @@ function Actors({ frameStates }: { frameStates?: Map<string, { position: Vec3; o
       {scene.actors.map((a) => {
         const state = frameStates?.get(a.id);
         const position = state?.position ?? a.position;
-        const yawDeg = (state?.orientation_deg ?? a.orientation_deg)[2];
+        // orientation_deg is [yaw, pitch, roll] - yaw is index 0.
+        const yawDeg = (state?.orientation_deg ?? a.orientation_deg)[0];
         const [l, w, h] = a.shape.size_m;
         const color = a.color ?? "#a78bfa";
         const selected = a.id === selectedActorId;
         // position is the base center: lift the box by half its height so it
         // sits on the ground contact plane. Yaw about Z (up).
-        return (
-          <group key={a.id} position={position} rotation={[0, 0, (yawDeg * Math.PI) / 180]}>
+        const body = (
+          <>
             <mesh
               position={[0, 0, h / 2]}
               onPointerDown={(e: ThreeEvent<PointerEvent>) => {
@@ -421,13 +476,40 @@ function Actors({ frameStates }: { frameStates?: Map<string, { position: Vec3; o
               />
             </mesh>
             <Html position={[0, 0, h + 0.4]} center zIndexRange={[10, 0]}>
-              <div className={"device-label" + (selected ? " selected" : "")}>{a.id}</div>
+              <div className={"device-label" + (selected ? " selected" : "")} title={a.id}>
+                {a.name || a.id}
+              </div>
             </Html>
             {a.trajectory && a.trajectory.waypoints.length > 1 && (
               // Waypoints are absolute world coords; render outside the actor's
               // local rotation by placing an inverse-less sibling group.
               <ActorTrajectoryLine waypoints={a.trajectory.waypoints} origin={position} yawDeg={yawDeg} />
             )}
+          </>
+        );
+        // Selected actor (outside scenario playback) gets the same translate
+        // gizmo as devices; release commits via updateActor.
+        return selected && !frameStates ? (
+          <TransformControls
+            key={a.id}
+            mode="translate"
+            position={position}
+            rotation={[0, 0, (yawDeg * Math.PI) / 180]}
+            size={0.7}
+            onMouseUp={(e) => {
+              const obj = (e?.target as { object?: THREE.Object3D } | undefined)?.object;
+              if (obj) {
+                void updateActor(a.id, {
+                  position: [obj.position.x, obj.position.y, obj.position.z],
+                });
+              }
+            }}
+          >
+            <group>{body}</group>
+          </TransformControls>
+        ) : (
+          <group key={a.id} position={position} rotation={[0, 0, (yawDeg * Math.PI) / 180]}>
+            {body}
           </group>
         );
       })}
@@ -476,6 +558,10 @@ function PathLines({ paths, showInteractions = true }: { paths: RayPath[]; showI
   const minPowerDbm = useAppStore((s) => s.minPowerDbm);
   const colorBy = useAppStore((s) => s.colorBy);
   const lineWidthByPower = useAppStore((s) => s.lineWidthByPower);
+  const env = useAppStore((s) => s.resolvedEnvironment);
+  // Interaction dots shrink indoors (수정사항 #9): 0.18 m outdoors was
+  // oversized for a lab room.
+  const interactionRadius = 0.18 * envScale(env);
 
   // Same filter pipeline as the results table (single source of truth).
   const visible = useMemo(
@@ -505,7 +591,7 @@ function PathLines({ paths, showInteractions = true }: { paths: RayPath[]; showI
             {showInteractions &&
               p.interactions.map((it, i) => (
                 <mesh key={`${p.path_id}_i${i}`} position={it.point}>
-                  <sphereGeometry args={[0.18, 12, 8]} />
+                  <sphereGeometry args={[interactionRadius, 12, 8]} />
                   <meshBasicMaterial color={color} />
                 </mesh>
               ))}
@@ -856,7 +942,10 @@ function ViewerHotkeys() {
   // Local clipping must be on for the slice plane to work at all.
   useEffect(() => {
     gl.localClippingEnabled = true;
-  }, [gl]);
+    // Dev/debug handle: lets tooling (and bug reports) inspect the live
+    // three.js graph without a React devtools round-trip.
+    (window as unknown as { __stwScene?: THREE.Scene }).__stwScene = three;
+  }, [gl, three]);
 
   useEffect(() => {
     const canvas = gl.domElement;
@@ -970,6 +1059,7 @@ export default function Viewer3D() {
   const clearSelection = useAppStore((s) => s.clearSelection);
   const viewport = useAppStore((s) => s.viewport);
   const setViewport = useAppStore((s) => s.setViewport);
+  const resolvedEnv = useAppStore((s) => s.resolvedEnvironment);
   const [assetFailed, setAssetFailed] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
 
@@ -1012,7 +1102,12 @@ export default function Viewer3D() {
         <PerspectiveCamera makeDefault up={[0, 0, 1]} position={[35, -35, 25]} fov={45} near={0.1} far={5000} />
         <OrbitControls makeDefault target={[0, 0, 0]} />
         <ambientLight intensity={viewport.ambientIntensity} />
-        <hemisphereLight args={["#dfe9f3", "#20262e", viewport.hemisphereIntensity]} />
+        {/* position defines the hemisphere axis: +Z sky in our Z-up world
+            (three's default +Y axis put the "sky" color on the horizon). */}
+        <hemisphereLight
+          args={["#dfe9f3", "#20262e", viewport.hemisphereIntensity]}
+          position={[0, 0, 1]}
+        />
         <directionalLight
           position={dirPos}
           intensity={viewport.directionalIntensity}
@@ -1020,7 +1115,10 @@ export default function Viewer3D() {
         />
         {/* gridHelper lies in XZ by default; rotate +90° about X into the XY ground plane. */}
         {viewport.showGrid && (
-          <gridHelper args={[200, 50, "#2c3947", "#1b2531"]} rotation={[Math.PI / 2, 0, 0]} />
+          <gridHelper
+            args={resolvedEnv === "indoor" ? [30, 30, "#2c3947", "#1b2531"] : [200, 50, "#2c3947", "#1b2531"]}
+            rotation={[Math.PI / 2, 0, 0]}
+          />
         )}
         {viewport.showAxes && <axesHelper args={[4]} />}
         <ScreenshotCapture />

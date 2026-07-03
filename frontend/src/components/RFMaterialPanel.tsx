@@ -1,11 +1,13 @@
 import { useState } from "react";
 import { useAppStore } from "../store/appStore";
+import { api, ApiError } from "../api/client";
 import { Swatch } from "./common";
 import type { RFMaterial } from "../types/api";
 
 const ID_PATTERN = /^[a-z0-9_]+$/;
 
 interface DraftFields {
+  display_name: string;
   relative_permittivity: string;
   conductivity_s_per_m: string;
   thickness_m: string;
@@ -16,6 +18,7 @@ interface DraftFields {
 
 function draftFrom(mat: RFMaterial): DraftFields {
   return {
+    display_name: mat.display_name,
     relative_permittivity: mat.relative_permittivity?.toString() ?? "",
     conductivity_s_per_m: mat.conductivity_s_per_m?.toString() ?? "",
     thickness_m: mat.thickness_m?.toString() ?? "",
@@ -28,14 +31,18 @@ function draftFrom(mat: RFMaterial): DraftFields {
 function MaterialEditor({
   material,
   onSave,
+  onDelete,
   disabled,
 }: {
   material: RFMaterial;
   onSave: (mat: RFMaterial) => void;
+  onDelete: () => Promise<string | null>;
   disabled: boolean;
 }) {
   const [draft, setDraft] = useState<DraftFields>(() => draftFrom(material));
   const [fieldError, setFieldError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const numField = (key: keyof DraftFields, label: string) => (
     <label>
@@ -58,6 +65,7 @@ function MaterialEditor({
     try {
       const updated: RFMaterial = {
         ...material,
+        display_name: draft.display_name.trim() || material.id,
         relative_permittivity: parse(draft.relative_permittivity, "relative permittivity"),
         conductivity_s_per_m: parse(draft.conductivity_s_per_m, "conductivity"),
         thickness_m: parse(draft.thickness_m, "thickness"),
@@ -79,6 +87,14 @@ function MaterialEditor({
         Edit · {material.display_name} <span className="mono">({material.id})</span>
       </h4>
       <div className="field-grid">
+        <label>
+          Display name
+          <input
+            type="text"
+            value={draft.display_name}
+            onChange={(e) => setDraft({ ...draft, display_name: e.target.value })}
+          />
+        </label>
         {numField("relative_permittivity", "Relative permittivity εr")}
         {numField("conductivity_s_per_m", "Conductivity σ (S/m)")}
         {numField("thickness_m", "Thickness (m)")}
@@ -97,7 +113,26 @@ function MaterialEditor({
         <button className="primary" onClick={save} disabled={disabled}>
           Save material
         </button>
+        {material.builtin ? (
+          <span className="hint">Builtin material — cannot be deleted.</span>
+        ) : (
+          <button
+            className="danger"
+            disabled={disabled || deleting}
+            title="Delete this custom material from the project library"
+            onClick={() => {
+              setDeleteError(null);
+              setDeleting(true);
+              void onDelete()
+                .then((err) => setDeleteError(err))
+                .finally(() => setDeleting(false));
+            }}
+          >
+            {deleting ? "Deleting…" : "Delete material"}
+          </button>
+        )}
         {fieldError && <span className="field-error">{fieldError}</span>}
+        {deleteError && <span className="field-error">{deleteError}</span>}
       </div>
       <p className="hint">
         Model: {material.model}
@@ -111,13 +146,49 @@ function MaterialEditor({
 export default function RFMaterialPanel() {
   const materials = useAppStore((s) => s.materials);
   const selection = useAppStore((s) => s.selection);
+  const projectId = useAppStore((s) => s.projectId);
   const assignMaterial = useAppStore((s) => s.assignMaterial);
   const saveMaterial = useAppStore((s) => s.saveMaterial);
+  const refetchScene = useAppStore((s) => s.refetchScene);
+  const openProject = useAppStore((s) => s.openProject);
   const busy = useAppStore((s) => s.busy);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [unassignError, setUnassignError] = useState<string | null>(null);
+  const [unassigning, setUnassigning] = useState(false);
 
   const list = materials?.materials ?? [];
   const active = list.find((m) => m.id === activeId) ?? null;
+
+  const unassignSelection = async () => {
+    if (!projectId || selection.length === 0) return;
+    setUnassignError(null);
+    setUnassigning(true);
+    try {
+      await api.unassign(projectId, selection);
+      // Refresh the scene so prim RF bindings reflect the cleared assignment.
+      await refetchScene();
+    } catch (err) {
+      setUnassignError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setUnassigning(false);
+    }
+  };
+
+  /** Delete a custom material. Returns an error string (e.g. the 409 "still
+   *  assigned" message) to surface inline, or null on success. On success the
+   *  project is reloaded so the library list drops the material. */
+  const deleteMaterial = async (materialId: string): Promise<string | null> => {
+    if (!projectId) return "no project open";
+    try {
+      await api.deleteMaterial(projectId, materialId);
+      if (activeId === materialId) setActiveId(null);
+      // Reload materials (and scene) via the project open action.
+      await openProject(projectId);
+      return null;
+    } catch (err) {
+      return err instanceof ApiError ? err.message : String(err);
+    }
+  };
 
   const createCustom = () => {
     const id = window.prompt("New material id (lowercase a-z, 0-9, _):", "custom_material");
@@ -219,16 +290,29 @@ export default function RFMaterialPanel() {
         >
           Assign to selection ({selection.length})
         </button>
+        <button
+          disabled={selection.length === 0 || busy !== null || unassigning}
+          title={
+            selection.length === 0
+              ? "Select assigned prims to clear their RF material"
+              : `Clear the RF material on ${selection.length} prim(s)`
+          }
+          onClick={() => void unassignSelection()}
+        >
+          {unassigning ? "Unassigning…" : `Unassign selection (${selection.length})`}
+        </button>
         <button onClick={createCustom} disabled={busy !== null}>
           New custom material
         </button>
       </div>
+      {unassignError && <div className="field-error">{unassignError}</div>}
 
       {active && (
         <MaterialEditor
           key={active.id}
           material={active}
           onSave={(mat) => void saveMaterial(mat)}
+          onDelete={() => deleteMaterial(active.id)}
           disabled={busy !== null}
         />
       )}

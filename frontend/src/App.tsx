@@ -56,9 +56,12 @@ export default function App() {
       break;
     case "results":
       rightPanel = (
+        // Keyed by project so every panel's local form state (trajectory
+        // endpoints, scenario/dataset params, channel selects) resets per
+        // scene instead of leaking coordinates across projects.
         <>
-          <SolverControls />
-          <ResultExplorer />
+          <SolverControls key={`sc-${projectId}`} />
+          <ResultExplorer key={`re-${projectId}`} />
         </>
       );
       break;

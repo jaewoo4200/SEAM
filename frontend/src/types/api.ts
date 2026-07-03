@@ -241,6 +241,11 @@ export interface BatchAssignRequest {
   assignments: AssignRequest[];
 }
 
+// POST /projects/{pid}/rf/unassign — clear the RF binding on these prims.
+export interface UnassignRequest {
+  prim_ids: string[];
+}
+
 export interface AssignResponse {
   updated_prim_ids: string[];
   skipped_prim_ids: string[];

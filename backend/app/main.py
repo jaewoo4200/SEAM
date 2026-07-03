@@ -16,6 +16,7 @@ from app.api import (
     engines,
     export,
     health,
+    import_scene,
     materials,
     projects,
     scenario,
@@ -45,8 +46,8 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     for module in (
-        health, projects, scene, materials, ai, compile_api, simulate, export,
-        calibrate, channel, scenario, engines, datasets,
+        health, projects, import_scene, scene, materials, ai, compile_api,
+        simulate, export, calibrate, channel, scenario, engines, datasets,
     ):
         app.include_router(module.router, prefix="/api")
     # Load user plugins (plugins/<name>/plugin.py). Failures are contained in

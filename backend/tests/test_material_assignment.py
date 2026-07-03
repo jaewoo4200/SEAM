@@ -251,6 +251,104 @@ class TestMaterialsAPI:
             == 400
         )
 
+    def test_unassign_clears_binding_and_persists(self, api_client):
+        pid = self._create_project(api_client, name="Unassign")
+        scene_json = make_demo_scene(scene_id=pid).model_dump(mode="json")
+        api_client.put(f"/api/projects/{pid}/scene", json=scene_json)
+        # WALL starts user_confirmed with itu_concrete; unassign it.
+        resp = api_client.post(
+            f"/api/projects/{pid}/rf/unassign", json={"prim_ids": [WALL]}
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["updated_prim_ids"] == [WALL]
+
+        reloaded = api_client.get(f"/api/projects/{pid}/scene").json()
+        wall = next(p for p in reloaded["prims"] if p["id"] == WALL)
+        assert wall["rf"]["material_id"] is None
+        assert wall["rf"]["assignment_status"] == "unassigned"
+
+        # Provenance recorded the unassign.
+        provenance = json.loads(
+            (Path(api_client.get(f"/api/projects/{pid}").json()["path"])
+             / "provenance.json").read_text(encoding="utf-8")
+        )
+        assert any(e.get("type") == "rf_unassign" for e in provenance["events"])
+
+    def test_unassign_unknown_prim_is_skipped(self, api_client):
+        pid = self._create_project(api_client, name="Unassign Skip")
+        scene_json = make_demo_scene(scene_id=pid).model_dump(mode="json")
+        api_client.put(f"/api/projects/{pid}/scene", json=scene_json)
+        resp = api_client.post(
+            f"/api/projects/{pid}/rf/unassign",
+            json={"prim_ids": ["/nope", WALL]},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["updated_prim_ids"] == [WALL]
+        assert body["skipped_prim_ids"] == ["/nope"]
+
+    def test_delete_custom_unassigned_material(self, api_client):
+        pid = self._create_project(api_client, name="Del Custom")
+        # Create a custom material via PUT (upsert).
+        custom = {
+            "id": "my_custom", "display_name": "My Custom", "category": "custom",
+            "model": "constant", "itu_name": None, "relative_permittivity": 3.0,
+            "conductivity_s_per_m": 0.01, "thickness_m": 0.1,
+            "scattering_coefficient": 0.0, "xpd_coefficient": 0.0,
+            "transmissive": True, "preview_color": "#9e9e9e", "notes": "",
+            "builtin": False,
+        }
+        put = api_client.put(
+            f"/api/projects/{pid}/rf/materials/my_custom", json=custom
+        )
+        assert put.status_code == 200, put.text
+        assert "my_custom" in {m["id"] for m in put.json()["materials"]}
+        # Delete it (unassigned, custom): succeeds and it is gone.
+        deleted = api_client.delete(f"/api/projects/{pid}/rf/materials/my_custom")
+        assert deleted.status_code == 200, deleted.text
+        assert "my_custom" not in {m["id"] for m in deleted.json()["materials"]}
+
+    def test_delete_builtin_material_refused(self, api_client):
+        pid = self._create_project(api_client, name="Del Builtin")
+        resp = api_client.delete(f"/api/projects/{pid}/rf/materials/itu_glass")
+        assert resp.status_code == 400, resp.text
+        assert "builtin" in resp.json()["detail"]
+        # Still present.
+        library = api_client.get(f"/api/projects/{pid}/rf/materials").json()
+        assert "itu_glass" in {m["id"] for m in library["materials"]}
+
+    def test_delete_assigned_material_conflicts(self, api_client):
+        pid = self._create_project(api_client, name="Del Assigned")
+        scene_json = make_demo_scene(scene_id=pid).model_dump(mode="json")
+        api_client.put(f"/api/projects/{pid}/scene", json=scene_json)
+        # Make a custom material and assign it to the window.
+        custom = {
+            "id": "assigned_custom", "display_name": "Assigned", "category": "custom",
+            "model": "constant", "itu_name": None, "relative_permittivity": 3.0,
+            "conductivity_s_per_m": 0.01, "thickness_m": 0.1,
+            "scattering_coefficient": 0.0, "xpd_coefficient": 0.0,
+            "transmissive": True, "preview_color": "#9e9e9e", "notes": "",
+            "builtin": False,
+        }
+        api_client.put(f"/api/projects/{pid}/rf/materials/assigned_custom", json=custom)
+        api_client.post(
+            f"/api/projects/{pid}/rf/assign",
+            json={"prim_ids": [WINDOW], "rf_material_id": "assigned_custom"},
+        )
+        resp = api_client.delete(f"/api/projects/{pid}/rf/materials/assigned_custom")
+        assert resp.status_code == 409, resp.text
+        detail = resp.json()["detail"]
+        assert WINDOW in detail["prim_ids"]
+        # Unassign, then the delete succeeds.
+        api_client.post(f"/api/projects/{pid}/rf/unassign", json={"prim_ids": [WINDOW]})
+        again = api_client.delete(f"/api/projects/{pid}/rf/materials/assigned_custom")
+        assert again.status_code == 200, again.text
+
+    def test_delete_unknown_material_404(self, api_client):
+        pid = self._create_project(api_client, name="Del Unknown")
+        resp = api_client.delete(f"/api/projects/{pid}/rf/materials/ghost_material")
+        assert resp.status_code == 404
+
     def test_missing_asset_is_404(self, api_client):
         pid = self._create_project(api_client, name="Assets")
         response = api_client.get(

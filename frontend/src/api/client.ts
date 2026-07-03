@@ -52,6 +52,25 @@ export class ApiError extends Error {
   }
 }
 
+async function parseError(res: Response): Promise<ApiError> {
+  let detail = `${res.status} ${res.statusText}`;
+  try {
+    const data: unknown = await res.json();
+    if (data !== null && typeof data === "object" && "detail" in data) {
+      const d = (data as { detail: unknown }).detail;
+      // Some endpoints (e.g. delete-conflict) return a structured detail with
+      // a human message + prim_ids; surface the message when present.
+      if (typeof d === "string") detail = d;
+      else if (d !== null && typeof d === "object" && "message" in d) {
+        detail = String((d as { message: unknown }).message);
+      } else detail = JSON.stringify(d);
+    }
+  } catch {
+    // non-JSON error body; keep the status text
+  }
+  return new ApiError(res.status, detail);
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const init: RequestInit = { method };
   if (body !== undefined) {
@@ -64,19 +83,20 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   } catch (err) {
     throw new ApiError(0, `backend unreachable: ${err instanceof Error ? err.message : String(err)}`);
   }
-  if (!res.ok) {
-    let detail = `${res.status} ${res.statusText}`;
-    try {
-      const data: unknown = await res.json();
-      if (data !== null && typeof data === "object" && "detail" in data) {
-        const d = (data as { detail: unknown }).detail;
-        detail = typeof d === "string" ? d : JSON.stringify(d);
-      }
-    } catch {
-      // non-JSON error body; keep the status text
-    }
-    throw new ApiError(res.status, detail);
+  if (!res.ok) throw await parseError(res);
+  return (await res.json()) as T;
+}
+
+/** Multipart POST (FormData). Do NOT set Content-Type: the browser adds the
+ *  multipart boundary. Used by the scene-import upload. */
+async function postForm<T>(path: string, form: FormData): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(BASE + path, { method: "POST", body: form });
+  } catch (err) {
+    throw new ApiError(0, `backend unreachable: ${err instanceof Error ? err.message : String(err)}`);
   }
+  if (!res.ok) throw await parseError(res);
   return (await res.json()) as T;
 }
 
@@ -92,6 +112,10 @@ export const api = {
   listProjects: () => request<ProjectInfo[]>("GET", "/projects"),
   createProject: (req: ProjectCreateRequest) => request<ProjectInfo>("POST", "/projects", req),
   getProject: (pid: string) => request<ProjectInfo>("GET", `/projects/${pid}`),
+  // Import a Mitsuba/Sionna scene XML (+ optional companion mesh files) as a
+  // new project. `form` carries: file (the .xml), project_id, name,
+  // environment, and zero or more `meshes` file parts.
+  importScene: (form: FormData) => postForm<ProjectInfo>("/projects/import", form),
 
   // scene
   getScene: (pid: string) => request<Scene>("GET", `/projects/${pid}/scene`),
@@ -103,8 +127,12 @@ export const api = {
   getMaterials: (pid: string) => request<RFMaterialLibrary>("GET", `/projects/${pid}/rf/materials`),
   putMaterial: (pid: string, mat: RFMaterial) =>
     request<RFMaterialLibrary>("PUT", `/projects/${pid}/rf/materials/${mat.id}`, mat),
+  deleteMaterial: (pid: string, materialId: string) =>
+    request<RFMaterialLibrary>("DELETE", `/projects/${pid}/rf/materials/${materialId}`),
   assign: (pid: string, req: AssignRequest) =>
     request<AssignResponse>("POST", `/projects/${pid}/rf/assign`, req),
+  unassign: (pid: string, primIds: string[]) =>
+    request<AssignResponse>("POST", `/projects/${pid}/rf/unassign`, { prim_ids: primIds }),
   batchAssign: (pid: string, req: BatchAssignRequest) =>
     request<AssignResponse>("POST", `/projects/${pid}/rf/batch-assign`, req),
 

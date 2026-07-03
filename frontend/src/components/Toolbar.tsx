@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useAppStore } from "../store/appStore";
 import type { Mode } from "../store/appStore";
+import { api, ApiError } from "../api/client";
 import type { Environment } from "../types/api";
+
+const PROJECT_ID_PATTERN = /^[a-z0-9_-]+$/;
 
 const MODES: { id: Mode; label: string }[] = [
   { id: "visual", label: "Visual" },
@@ -21,6 +24,7 @@ export default function Toolbar() {
   const projects = useAppStore((s) => s.projects);
   const projectId = useAppStore((s) => s.projectId);
   const openProject = useAppStore((s) => s.openProject);
+  const init = useAppStore((s) => s.init);
   const mode = useAppStore((s) => s.mode);
   const setMode = useAppStore((s) => s.setMode);
   const scene = useAppStore((s) => s.scene);
@@ -62,6 +66,15 @@ export default function Toolbar() {
           </option>
         ))}
       </select>
+
+      <ImportSceneButton
+        disabled={busy !== null}
+        existingIds={projects.map((p) => p.project_id)}
+        onImported={async (newId) => {
+          await init();
+          await openProject(newId);
+        }}
+      />
 
       <nav className="mode-tabs">
         {MODES.map((m) => (
@@ -152,6 +165,186 @@ export default function Toolbar() {
         </button>
       </span>
     </header>
+  );
+}
+
+function slugifyId(name: string): string {
+  return name.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "_").replace(/^_+|_+$/g, "");
+}
+
+/** "Import" button + inline popover: upload a Mitsuba/Sionna .xml (with any
+ *  companion .ply/.obj meshes) as a new project. On success reloads the project
+ *  list and opens the new project. Errors surface inline in the popover. */
+function ImportSceneButton({
+  disabled,
+  existingIds,
+  onImported,
+}: {
+  disabled: boolean;
+  existingIds: string[];
+  onImported: (newId: string) => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [xml, setXml] = useState<File | null>(null);
+  const [meshes, setMeshes] = useState<File[]>([]);
+  const [projectId, setProjectId] = useState("");
+  const [idTouched, setIdTouched] = useState(false);
+  const [name, setName] = useState("");
+  const [environment, setEnvironment] = useState<Environment>("auto");
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const wrapRef = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDocDown(e: PointerEvent): void {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: KeyboardEvent): void {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("pointerdown", onDocDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onDocDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  const reset = () => {
+    setXml(null);
+    setMeshes([]);
+    setProjectId("");
+    setIdTouched(false);
+    setName("");
+    setEnvironment("auto");
+    setError(null);
+    setSubmitting(false);
+  };
+
+  // Auto-derive the id from the name until the user edits the id field.
+  const effectiveId = idTouched ? projectId : slugifyId(name);
+  const idValid = effectiveId.length > 0 && PROJECT_ID_PATTERN.test(effectiveId);
+  const dupId = existingIds.includes(effectiveId);
+  const canSubmit = xml !== null && idValid && !dupId && !submitting;
+
+  const submit = async () => {
+    if (!xml || !idValid) return;
+    setSubmitting(true);
+    setError(null);
+    const form = new FormData();
+    form.append("file", xml, xml.name);
+    form.append("project_id", effectiveId);
+    form.append("name", name.trim() || effectiveId);
+    form.append("environment", environment);
+    for (const m of meshes) form.append("meshes", m, m.name);
+    try {
+      const info = await api.importScene(form);
+      setOpen(false);
+      reset();
+      await onImported(info.project_id);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err));
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <span className="import-scene" ref={wrapRef}>
+      <button
+        className="import-trigger"
+        disabled={disabled}
+        title="Import a Mitsuba/Sionna scene XML as a new project"
+        onClick={() => {
+          setOpen((v) => !v);
+          setError(null);
+        }}
+      >
+        Import
+      </button>
+      {open && (
+        <div className="import-popover" role="dialog" aria-label="Import scene">
+          <h4>Import scene</h4>
+          <label>
+            Scene XML
+            <input
+              type="file"
+              accept=".xml"
+              onChange={(e) => {
+                const f = e.target.files?.[0] ?? null;
+                setXml(f);
+                if (f && !name) setName(f.name.replace(/\.xml$/i, ""));
+              }}
+            />
+          </label>
+          <label>
+            Mesh files (optional .ply/.obj)
+            <input
+              type="file"
+              accept=".ply,.obj,.stl"
+              multiple
+              onChange={(e) => setMeshes(Array.from(e.target.files ?? []))}
+            />
+          </label>
+          <label>
+            Name
+            <input
+              type="text"
+              value={name}
+              placeholder="My Scene"
+              onChange={(e) => setName(e.target.value)}
+            />
+          </label>
+          <label>
+            Project id
+            <input
+              type="text"
+              value={effectiveId}
+              placeholder="my_scene"
+              onChange={(e) => {
+                setIdTouched(true);
+                setProjectId(e.target.value);
+              }}
+            />
+          </label>
+          <label>
+            Environment
+            <select
+              value={environment}
+              onChange={(e) => setEnvironment(e.target.value as Environment)}
+            >
+              {ENVIRONMENTS.map((env) => (
+                <option key={env.id} value={env.id}>
+                  {env.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          {effectiveId.length > 0 && !idValid && (
+            <span className="field-error">id: lowercase letters, digits, - and _ only</span>
+          )}
+          {dupId && <span className="field-error">a project “{effectiveId}” already exists</span>}
+          {error && <span className="field-error">{error}</span>}
+          <div className="import-actions">
+            <button className="primary" disabled={!canSubmit} onClick={() => void submit()}>
+              {submitting ? "Importing…" : "Import"}
+            </button>
+            <button
+              onClick={() => {
+                setOpen(false);
+                reset();
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+          <p className="hint">
+            Self-contained scenes: upload the .xml with its referenced meshes. For large
+            multi-file bundles use examples/scripts/import_bundle_scene.py.
+          </p>
+        </div>
+      )}
+    </span>
   );
 }
 

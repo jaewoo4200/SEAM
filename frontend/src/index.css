@@ -1487,3 +1487,59 @@ h4 {
 ::-webkit-scrollbar-thumb:hover {
   background: #3d4c5e;
 }
+
+/* --------------------------------------------------- scene import popover */
+
+.import-scene {
+  position: relative;
+  display: inline-flex;
+}
+.import-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 70;
+  width: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+}
+.import-popover h4 {
+  margin: 0 0 2px 0;
+  font-size: 13px;
+  color: var(--text);
+}
+.import-popover label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.import-popover input[type="text"],
+.import-popover select {
+  width: 100%;
+}
+.import-popover input[type="file"] {
+  font-size: 11px;
+  color: var(--muted);
+}
+.import-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* Destructive action button (delete custom material). */
+button.danger:not(:disabled) {
+  border-color: var(--err);
+  color: var(--err);
+}
+button.danger:hover:not(:disabled) {
+  background: rgba(239, 83, 80, 0.14);
+}

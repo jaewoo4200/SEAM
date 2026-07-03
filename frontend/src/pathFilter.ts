@@ -14,9 +14,11 @@ export interface PathFilterParams {
 }
 
 /**
- * Apply type filter -> min-power threshold -> keep the strongest N by power.
- * Returned order is strongest-first (stable enough for rendering; the table
- * re-sorts by its own column).
+ * Apply type filter -> min-power threshold -> keep the strongest N by power
+ * PER TX->RX LINK. A global top-N would let one strong short link crowd out
+ * every path of weaker links in multi-TX/RX scenes (reported as "rays missing
+ * in Results with multiple devices"); per-link capping keeps each link
+ * represented. Returned order is strongest-first within the concatenation.
  */
 export function filterPaths(paths: RayPath[], p: PathFilterParams): RayPath[] {
   let out = paths;
@@ -27,12 +29,23 @@ export function filterPaths(paths: RayPath[], p: PathFilterParams): RayPath[] {
     const min = p.minPowerDbm;
     out = out.filter((path) => path.power_dbm >= min);
   }
-  // Strongest N by power (descending); slice to the cap.
-  out = [...out].sort((a, b) => b.power_dbm - a.power_dbm);
-  if (p.strongestN > 0 && out.length > p.strongestN) {
-    out = out.slice(0, p.strongestN);
+  const byLink = new Map<string, RayPath[]>();
+  for (const path of out) {
+    const key = `${path.tx_id}|${path.rx_id}`;
+    const bucket = byLink.get(key);
+    if (bucket) bucket.push(path);
+    else byLink.set(key, [path]);
   }
-  return out;
+  const result: RayPath[] = [];
+  for (const bucket of byLink.values()) {
+    bucket.sort((a, b) => b.power_dbm - a.power_dbm);
+    result.push(
+      ...(p.strongestN > 0 && bucket.length > p.strongestN
+        ? bucket.slice(0, p.strongestN)
+        : bucket),
+    );
+  }
+  return result;
 }
 
 /** Min/max power over a set of paths (finite fallback when empty). */

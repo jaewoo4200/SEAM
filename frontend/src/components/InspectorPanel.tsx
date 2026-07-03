@@ -22,6 +22,7 @@ const ANTENNA_PATTERNS = ["iso", "dipole", "hw_dipole", "tr38901"];
 const POLARIZATIONS: Antenna["polarization"][] = ["V", "H", "VH", "cross"];
 
 interface DeviceDraft {
+  name: string;
   x: string;
   y: string;
   z: string;
@@ -36,6 +37,7 @@ interface DeviceDraft {
 
 function draftFromDevice(d: Device): DeviceDraft {
   return {
+    name: d.name,
     x: String(d.position[0]),
     y: String(d.position[1]),
     z: String(d.position[2]),
@@ -88,6 +90,7 @@ function DeviceCard({ device }: { device: Device }) {
       };
       setErr(null);
       void updateDevice(device.id, {
+        name: draft.name,
         position,
         power_dbm: num(draft.power_dbm, "power"),
         antenna,
@@ -125,6 +128,15 @@ function DeviceCard({ device }: { device: Device }) {
       <div className="mat-editor" style={{ marginTop: 10 }}>
         <h4>Edit device</h4>
         <div className="field-grid">
+          <label>
+            Name
+            <input
+              value={draft.name}
+              disabled={disabled}
+              placeholder={device.id}
+              onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+            />
+          </label>
           {numInput("x", "X (m)")}
           {numInput("y", "Y (m)")}
           {numInput("z", "Z (m)")}
@@ -206,8 +218,8 @@ function draftFromActor(a: Actor): ActorDraft {
     x: String(a.position[0]),
     y: String(a.position[1]),
     z: String(a.position[2]),
-    // Orientation is [roll, pitch, yaw] Z-up; the UI edits yaw (index 2).
-    yaw: String(a.orientation_deg[2]),
+    // Orientation is [yaw, pitch, roll] (yaw about +Z); the UI edits index 0.
+    yaw: String(a.orientation_deg[0]),
     l: String(a.shape.size_m[0]),
     w: String(a.shape.size_m[1]),
     h: String(a.shape.size_m[2]),
@@ -246,9 +258,9 @@ function ActorCard({ actor }: { actor: Actor }) {
     try {
       const position: Vec3 = [num(draft.x, "X"), num(draft.y, "Y"), num(draft.z, "Z")];
       const orientation_deg: Vec3 = [
-        actor.orientation_deg[0],
-        actor.orientation_deg[1],
         num(draft.yaw, "Yaw"),
+        actor.orientation_deg[1],
+        actor.orientation_deg[2],
       ];
       const size_m: Vec3 = [pos(draft.l, "L"), pos(draft.w, "W"), pos(draft.h, "H")];
       setErr(null);
