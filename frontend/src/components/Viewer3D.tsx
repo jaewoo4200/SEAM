@@ -708,15 +708,34 @@ function RadioMapPlane({ radioMap }: { radioMap: RadioMapResultSet }) {
  *  own Suspense/error boundary by the caller so a missing overlay is silent. */
 function OverlayScene({ url }: { url: string }) {
   const gltf = useGLTF(url);
+  const gl = useThree((s) => s.gl);
   const group = useRef<THREE.Group>(null);
   // Clone so multiple viewers / remounts don't fight over one cached graph, and
   // so we can freely disable raycasting on this instance's meshes.
   const object = useMemo(() => gltf.scene.clone(true), [gltf]);
   useEffect(() => {
+    const maxAniso = gl.capabilities.getMaxAnisotropy();
+    let unlit = 0;
     object.traverse((obj) => {
       // Disabling raycast makes the whole backdrop non-interactive: pointer
       // events pass straight through to the pickable scene beneath it.
       (obj as THREE.Object3D).raycast = () => null;
+      const mesh = obj as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      const replaced = mats.map((mat) => {
+        const map = (mat as THREE.MeshStandardMaterial).map;
+        if (!map) return mat; // untextured backdrop parts keep their lit look
+        // Photogrammetry textures have the capture lighting baked in; running
+        // scene lights over the scan's noisy normals only adds shading blotches.
+        // Render textured backdrop parts unlit (Cesium/3D-Tiles convention),
+        // with anisotropy so grazing-angle facades stay legible.
+        map.anisotropy = Math.min(8, maxAniso);
+        map.needsUpdate = true;
+        unlit += 1;
+        return new THREE.MeshBasicMaterial({ map, side: mat.side });
+      });
+      mesh.material = Array.isArray(mesh.material) ? replaced : replaced[0];
     });
     // World-space bounds after the Y-up -> Z-up rotation below; must match the
     // RF scene.glb footprint. Kept as a debug line so misaligned overlays are
@@ -728,9 +747,10 @@ function OverlayScene({ url }: { url: string }) {
         "[overlay] world bounds",
         box.min.toArray().map((v) => Number(v.toFixed(1))),
         box.max.toArray().map((v) => Number(v.toFixed(1))),
+        `| unlit textured mats: ${unlit}`,
       );
     }
-  }, [object]);
+  }, [object, gl]);
   // Overlay GLBs follow the glTF spec (+Y up); the app world is Z-up ENU
   // (camera up=[0,0,1]; scene.glb is baked to Z-up at import, external
   // overlays are copied verbatim). Rotating +90 deg about X maps
