@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import type { ThreeEvent } from "@react-three/fiber";
-import { Html, Line, OrbitControls, PerspectiveCamera, TransformControls, useGLTF } from "@react-three/drei";
+import { Html, Line, OrbitControls, PerspectiveCamera, useGLTF } from "@react-three/drei";
 import { useAppStore } from "../store/appStore";
 import type { ResolvedEnvironment } from "../envPresets";
 import type { Mode } from "../store/appStore";
@@ -206,22 +206,14 @@ function GLBScene({ url }: { url: string }) {
           mesh.material = orig;
         }
       } else {
-        const overlay = new THREE.MeshStandardMaterial({
-          color: new THREE.Color(color),
-          roughness: 0.85,
-          metalness: 0.05,
-          // Self-illumination floor: RF/validation/AI overlays must stay
-          // readable regardless of viewport lighting or flipped mesh normals
-          // (a fully light-dependent material can render black on bad
-          // normals - reported as "buildings turn black" in those modes).
-          emissive: new THREE.Color(color),
-          emissiveIntensity: 0.45,
+        // RF/validation/AI overlays render UNLIT (MeshBasicMaterial):
+        // material-ID colors are data, not shading, and an unlit flat view
+        // (CAD convention) can never go black under any lighting, normals or
+        // tone-mapping state (reported twice as "buildings turn black").
+        const overlay = new THREE.MeshBasicMaterial({
+          color: new THREE.Color(selected ? ACCENT : color),
           side: THREE.DoubleSide,
         });
-        if (selected) {
-          overlay.emissive = new THREE.Color(ACCENT);
-          overlay.emissiveIntensity = 0.6;
-        }
         created.push(overlay);
         mesh.material = overlay;
       }
@@ -357,6 +349,79 @@ function deviceMarkerRadius(scene: Scene, env: ResolvedEnvironment = "outdoor"):
   return Math.max(0.06, base * envScale(env));
 }
 
+/** Owned drag-to-move wrapper (replaces TransformControls, which conflicted
+ *  with OrbitControls input). Click selects; dragging a SELECTED marker moves
+ *  it on the horizontal plane through its base (hold Shift for vertical Z
+ *  movement). Orbit is paused only while actually dragging; release commits
+ *  through onCommit so auto-update solvers rerun. */
+function DraggableGroup({
+  position,
+  rotation,
+  selected,
+  onSelect,
+  onCommit,
+  children,
+}: {
+  position: Vec3;
+  rotation?: [number, number, number];
+  selected: boolean;
+  onSelect: () => void;
+  onCommit: (pos: Vec3) => void;
+  children: ReactNode;
+}) {
+  const controls = useThree((s) => s.controls) as { enabled?: boolean } | null;
+  const [live, setLive] = useState<Vec3 | null>(null);
+  const drag = useRef<{ plane: THREE.Plane; vertical: boolean } | null>(null);
+  // A different device/deselect while dragging must not leave stale state.
+  useEffect(() => setLive(null), [position, selected]);
+
+  const shown = live ?? position;
+  return (
+    <group
+      position={shown}
+      rotation={rotation ?? [0, 0, 0]}
+      onPointerDown={(e: ThreeEvent<PointerEvent>) => {
+        e.stopPropagation();
+        if (!selected) {
+          onSelect();
+          return;
+        }
+        const vertical = e.nativeEvent.shiftKey;
+        const base = new THREE.Vector3(...shown);
+        const plane = vertical
+          ? new THREE.Plane().setFromNormalAndCoplanarPoint(
+              // Camera-facing vertical plane: drag maps to Z (and lateral).
+              new THREE.Vector3().subVectors(e.ray.origin, base).setZ(0).normalize(),
+              base,
+            )
+          : new THREE.Plane(new THREE.Vector3(0, 0, 1), -base.z);
+        drag.current = { plane, vertical };
+        controls && (controls.enabled = false);
+        (e.target as Element).setPointerCapture(e.pointerId);
+      }}
+      onPointerMove={(e: ThreeEvent<PointerEvent>) => {
+        const d = drag.current;
+        if (!d) return;
+        e.stopPropagation();
+        const hit = new THREE.Vector3();
+        if (e.ray.intersectPlane(d.plane, hit)) {
+          setLive(d.vertical ? [position[0], position[1], hit.z] : [hit.x, hit.y, position[2]]);
+        }
+      }}
+      onPointerUp={(e: ThreeEvent<PointerEvent>) => {
+        if (!drag.current) return;
+        e.stopPropagation();
+        drag.current = null;
+        controls && (controls.enabled = true);
+        (e.target as Element).releasePointerCapture(e.pointerId);
+        if (live) onCommit(live);
+      }}
+    >
+      {children}
+    </group>
+  );
+}
+
 function Devices() {
   const scene = useAppStore((s) => s.scene);
   const env = useAppStore((s) => s.resolvedEnvironment);
@@ -388,45 +453,16 @@ function Devices() {
             </Html>
           </>
         );
-        // Selected device gets a translate gizmo (RT GUI parity); releasing
-        // the handle commits the new position through the normal update flow
-        // (auto-update solvers included). drei pauses OrbitControls while
-        // dragging.
-        return selected ? (
-          <TransformControls
-            key={d.id}
-            mode="translate"
-            position={d.position}
-            size={0.7}
-            onMouseUp={(e) => {
-              const obj = (e?.target as { object?: THREE.Object3D } | undefined)?.object;
-              if (obj) {
-                void updateDevice(d.id, {
-                  position: [obj.position.x, obj.position.y, obj.position.z],
-                });
-              }
-            }}
-          >
-            <group
-              onPointerDown={(e: ThreeEvent<PointerEvent>) => {
-                e.stopPropagation();
-                selectDevice(d.id);
-              }}
-            >
-              {marker}
-            </group>
-          </TransformControls>
-        ) : (
-          <group
+        return (
+          <DraggableGroup
             key={d.id}
             position={d.position}
-            onPointerDown={(e: ThreeEvent<PointerEvent>) => {
-              e.stopPropagation();
-              selectDevice(d.id);
-            }}
+            selected={selected}
+            onSelect={() => selectDevice(d.id)}
+            onCommit={(pos) => void updateDevice(d.id, { position: pos })}
           >
             {marker}
-          </group>
+          </DraggableGroup>
         );
       })}
     </group>
@@ -459,13 +495,8 @@ function Actors({ frameStates }: { frameStates?: Map<string, { position: Vec3; o
         // sits on the ground contact plane. Yaw about Z (up).
         const body = (
           <>
-            <mesh
-              position={[0, 0, h / 2]}
-              onPointerDown={(e: ThreeEvent<PointerEvent>) => {
-                e.stopPropagation();
-                selectActor(a.id);
-              }}
-            >
+            {/* Selection/drag is handled by the wrapping DraggableGroup. */}
+            <mesh position={[0, 0, h / 2]}>
               <boxGeometry args={[l, w, h]} />
               <meshStandardMaterial
                 color={color}
@@ -487,30 +518,21 @@ function Actors({ frameStates }: { frameStates?: Map<string, { position: Vec3; o
             )}
           </>
         );
-        // Selected actor (outside scenario playback) gets the same translate
-        // gizmo as devices; release commits via updateActor.
-        return selected && !frameStates ? (
-          <TransformControls
-            key={a.id}
-            mode="translate"
-            position={position}
-            rotation={[0, 0, (yawDeg * Math.PI) / 180]}
-            size={0.7}
-            onMouseUp={(e) => {
-              const obj = (e?.target as { object?: THREE.Object3D } | undefined)?.object;
-              if (obj) {
-                void updateActor(a.id, {
-                  position: [obj.position.x, obj.position.y, obj.position.z],
-                });
-              }
-            }}
-          >
-            <group>{body}</group>
-          </TransformControls>
-        ) : (
+        return frameStates ? (
           <group key={a.id} position={position} rotation={[0, 0, (yawDeg * Math.PI) / 180]}>
             {body}
           </group>
+        ) : (
+          <DraggableGroup
+            key={a.id}
+            position={position}
+            rotation={[0, 0, (yawDeg * Math.PI) / 180]}
+            selected={selected}
+            onSelect={() => selectActor(a.id)}
+            onCommit={(pos) => void updateActor(a.id, { position: pos })}
+          >
+            {body}
+          </DraggableGroup>
         );
       })}
     </group>
@@ -1092,6 +1114,7 @@ export default function Viewer3D() {
     <div className="viewer3d">
       <Canvas
         dpr={[1, 2]}
+        flat
         // preserveDrawingBuffer lets captureViewport() read the canvas as a
         // JPEG data URL (AI/VLM) after the frame has been presented.
         gl={{ preserveDrawingBuffer: true }}
@@ -1148,7 +1171,7 @@ export default function Viewer3D() {
           </>
         )}
         {/* Static rays yield to live trajectory-frame rays when those are shown. */}
-        {pathResults && showPaths && !scenarioActive && !trajFramePaths && <RayPaths />}
+        {pathResults && showPaths && mode === "results" && !scenarioActive && !trajFramePaths && <RayPaths />}
         {showRadioMap && <RadioMapPlane radioMap={radioMap} />}
         {trajActive && <TrajectoryOverlay trajectory={trajectory} />}
       </Canvas>
