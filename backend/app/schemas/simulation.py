@@ -41,6 +41,9 @@ class SimulationConfig(StrictModel):
     refraction: bool = False  # transmission through slabs
     diffraction: bool = False
     edge_diffraction: bool = False
+    # sionna-rt >= 1.2: also generate diffracted paths inside the lit region
+    # (not only the shadow zone). Ignored by engines that predate the flag.
+    diffraction_lit_region: bool = False
     # Solver mechanics.
     synthetic_array: bool = True
     seed: int = Field(default=42, ge=0)

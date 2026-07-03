@@ -425,6 +425,7 @@ class SionnaBackend(RayTracingBackend):
                 "scattering": config.scattering, "refraction": config.refraction,
                 "diffraction": config.diffraction,
                 "edge_diffraction": config.edge_diffraction,
+                "diffraction_lit_region": config.diffraction_lit_region,
             },
             "txs": [dev_json(d) for d in txs],
             "rxs": [dev_json(d) for d in rxs],
@@ -562,6 +563,7 @@ class SionnaBackend(RayTracingBackend):
             refraction=config.refraction,
             diffraction=config.diffraction,
             edge_diffraction=config.edge_diffraction,
+            diffraction_lit_region=config.diffraction_lit_region,
             synthetic_array=config.synthetic_array,
             seed=config.seed,
             samples_per_src=config.num_samples or 1_000_000,
@@ -668,7 +670,8 @@ class SionnaBackend(RayTracingBackend):
             rt_scene, max_depth=config.max_depth, los=config.los,
             specular_reflection=config.reflection, diffuse_reflection=config.scattering,
             refraction=config.refraction, diffraction=config.diffraction,
-            edge_diffraction=config.edge_diffraction, synthetic_array=True,
+            edge_diffraction=config.edge_diffraction,
+            diffraction_lit_region=config.diffraction_lit_region, synthetic_array=True,
             seed=config.seed, samples_per_src=config.num_samples or 1_000_000,
         )
         a_raw = paths.a
@@ -1039,6 +1042,7 @@ class SionnaBackend(RayTracingBackend):
             refraction=config.refraction,
             diffraction=config.diffraction,
             edge_diffraction=config.edge_diffraction,
+            diffraction_lit_region=config.diffraction_lit_region,
             seed=config.seed,
             samples_per_tx=config.num_samples or 1_000_000,
         )

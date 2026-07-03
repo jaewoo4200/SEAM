@@ -117,6 +117,7 @@ def _solver_kwargs(solver, job, warnings: list) -> dict:
         "refraction": flags.get("refraction", False),
         "diffraction": flags.get("diffraction", False),
         "edge_diffraction": flags.get("edge_diffraction", False),
+        "diffraction_lit_region": flags.get("diffraction_lit_region", False),
         "synthetic_array": job.get("synthetic_array", True),
         "seed": job.get("seed", 42),
         "samples_per_src": job.get("num_samples") or 1_000_000,

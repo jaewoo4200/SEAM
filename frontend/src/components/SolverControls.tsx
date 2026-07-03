@@ -141,6 +141,7 @@ const MECHANISMS: { key: keyof SimulationConfig; label: string }[] = [
   { key: "refraction", label: "Refraction" },
   { key: "diffraction", label: "Diffraction" },
   { key: "edge_diffraction", label: "Edge diffraction" },
+  { key: "diffraction_lit_region", label: "Lit-region diffraction" },
 ];
 
 /** log10 of num_samples clamped to the 10^4..10^7 slider range. */

@@ -116,6 +116,8 @@ export interface SimulationConfig {
   refraction: boolean;
   diffraction: boolean;
   edge_diffraction: boolean;
+  // sionna-rt >= 1.2: diffracted paths in the lit region too (not only shadow).
+  diffraction_lit_region: boolean;
   synthetic_array: boolean;
   seed: number;
   num_samples: number;
