@@ -223,7 +223,9 @@ def _actor_object_key(rt_scene, actor_id: str) -> Optional[str]:
     return None
 
 
-def apply_actor_states(rt_scene, states, base_actors: dict) -> list[str]:
+def apply_actor_states(
+    rt_scene, states, base_actors: dict, velocities: Optional[dict] = None
+) -> list[str]:
     """Move each actor's SceneObject to the pose in ``states`` for one frame.
 
     ``states`` is a list of ActorState (id/position/orientation_deg);
@@ -234,6 +236,12 @@ def apply_actor_states(rt_scene, states, base_actors: dict) -> list[str]:
     an actor whose authored base is ``p0`` to a new base ``p1`` we shift the
     baked centroid by the delta ``p1 - p0`` - this is correct for box and mesh
     actors alike without needing the centroid offset.
+
+    ``velocities`` (optional) maps actor id -> [vx, vy, vz] m/s in the world
+    frame; when present, each addressable actor's SceneObject.velocity is set so
+    solved paths that interact with it carry a per-bounce Doppler shift (effect
+    #2 in docs/dynamic_scattering.md). Velocity does not change the geometry or
+    ray tracing, only the Doppler channel.
 
     Orientation: only yaw (Z, radians) is set. Returns per-actor warnings for
     unknown / unaddressable (merged) actors so the caller can surface them."""
@@ -289,6 +297,18 @@ def apply_actor_states(rt_scene, states, base_actors: dict) -> list[str]:
             obj.orientation = mi.Point3f(yaw, baked_orient[1], baked_orient[2])
         except Exception as exc:  # noqa: BLE001 - orientation is best-effort
             warnings.append(f"could not set actor {state.id!r} orientation: {exc}")
+        # Per-frame actor velocity -> per-path Doppler. SceneObject.velocity is
+        # a single world-frame m/s vector (scene_object.py:266); setting it does
+        # not move geometry. Best-effort: a version without the attribute must
+        # not break a solve.
+        vel = velocities.get(state.id) if velocities else None
+        if vel is not None:
+            try:
+                obj.velocity = mi.Vector3f(
+                    float(vel[0]), float(vel[1]), float(vel[2])
+                )
+            except Exception as exc:  # noqa: BLE001 - velocity is best-effort
+                warnings.append(f"could not set actor {state.id!r} velocity: {exc}")
     return warnings
 
 
@@ -319,6 +339,7 @@ class SionnaBackend(RayTracingBackend):
         library: RFMaterialLibrary,
         config: SimulationConfig,
         actor_states: Optional[list] = None,
+        actor_velocities: Optional[dict] = None,
     ) -> PathResultSet:
         try:
             # Alternate engine venvs (config.engine) run through the subprocess
@@ -328,7 +349,7 @@ class SionnaBackend(RayTracingBackend):
                     project_dir, scene, library, config, actor_states
                 )
             return self._simulate_paths_impl(
-                project_dir, scene, library, config, actor_states
+                project_dir, scene, library, config, actor_states, actor_velocities
             )
         except Exception as exc:  # noqa: BLE001 - graceful degradation contract
             # A scene left half-mutated in the cache must not be reused.
@@ -457,6 +478,7 @@ class SionnaBackend(RayTracingBackend):
         library: RFMaterialLibrary,
         config: SimulationConfig,
         actor_states: Optional[list] = None,
+        actor_velocities: Optional[dict] = None,
     ) -> PathResultSet:
         import numpy as np
 
@@ -511,21 +533,34 @@ class SionnaBackend(RayTracingBackend):
         # scene's tx_array/rx_array (pattern/polarization/geometry).
         _apply_arrays(rt_scene, txs, rxs, warnings)
 
+        # Device velocity -> per-path Doppler. RadioDevice.velocity is a
+        # world-frame m/s vector (radio_device.py:109-119); None on our schema
+        # means stationary, so we only pass it through when set. Velocity leaves
+        # the static geometry/ray tracing unchanged (verified sionna-rt 2.0.1).
+        any_velocity = False
         for dev in txs:
+            vel = dev.velocity_m_s
+            if vel is not None:
+                any_velocity = True
             rt_scene.add(
                 Transmitter(
                     name=dev.id,
                     position=list(dev.position),
                     orientation=[math.radians(a) for a in dev.orientation_deg],
                     power_dbm=dev.power_dbm,
+                    velocity=[float(c) for c in vel] if vel is not None else None,
                 )
             )
         for dev in rxs:
+            vel = dev.velocity_m_s
+            if vel is not None:
+                any_velocity = True
             rt_scene.add(
                 Receiver(
                     name=dev.id,
                     position=list(dev.position),
                     orientation=[math.radians(a) for a in dev.orientation_deg],
+                    velocity=[float(c) for c in vel] if vel is not None else None,
                 )
             )
 
@@ -537,7 +572,13 @@ class SionnaBackend(RayTracingBackend):
         # the captured authored pose to keep repeated calls correct.
         if actor_states:
             base_actors = {a.id: a for a in scene.actors}
-            warnings.extend(apply_actor_states(rt_scene, actor_states, base_actors))
+            if actor_velocities:
+                any_velocity = True
+            warnings.extend(
+                apply_actor_states(
+                    rt_scene, actor_states, base_actors, actor_velocities
+                )
+            )
 
         # Map Sionna's per-interaction object ids back to canonical prims.
         # Shape names are "shape-<rf_material_id>" (the compiler's convention),
@@ -571,21 +612,27 @@ class SionnaBackend(RayTracingBackend):
             samples_per_src=config.num_samples or 1_000_000,
         )
 
-        paths = self._convert_paths(
+        paths, doppler_hz = self._convert_paths(
             solved, txs, rxs, objid_to_material, material_to_prims, warnings, np
         )
+        metadata = {
+            "frequency_hz": config.frequency_hz,
+            "num_tx": len(txs),
+            "num_rx": len(rxs),
+            "engine": "sionna",
+        }
+        # Per-path Doppler [Hz] aligned 1:1 with ``paths`` (RayPath has no
+        # doppler field, so it rides in metadata). Only surfaced when something
+        # in the link actually moves, so a static solve stays byte-identical.
+        if any_velocity and doppler_hz is not None:
+            metadata["doppler_hz"] = doppler_hz
         return PathResultSet(
             result_id=UNSAVED_RESULT_ID,
             backend=self.name,
             simulation_config_id=config.id,
             paths=paths,
             warnings=warnings,
-            metadata={
-                "frequency_hz": config.frequency_hz,
-                "num_tx": len(txs),
-                "num_rx": len(rxs),
-                "engine": "sionna",
-            },
+            metadata=metadata,
         )
 
     # ------------------------------------------------------ beamforming
@@ -812,7 +859,7 @@ class SionnaBackend(RayTracingBackend):
         material_to_prims: dict[str, list[str]],
         warnings: list[str],
         np,
-    ) -> list[RayPath]:
+    ) -> tuple[list[RayPath], Optional[list[float]]]:
         """Normalize a sionna-rt 2.x Paths object into schema RayPath entries.
 
         Verified tensor layout (synthetic 1x1 arrays, synthetic_array=True):
@@ -824,12 +871,31 @@ class SionnaBackend(RayTracingBackend):
         - solved.interactions: uint [max_depth, num_rx, num_tx, num_paths]
         - solved.objects:      uint [max_depth, num_rx, num_tx, num_paths],
                                _NO_OBJECT where a depth slot is unused
+        - solved.doppler:      [num_rx, num_tx, num_paths] (synthetic), Hz
         Anything that does not fit is skipped with a warning, not raised.
+
+        Returns (paths, doppler_hz) where doppler_hz is a per-path list aligned
+        1:1 with paths, or None when the Paths object exposes no doppler (older
+        API). RayPath has no doppler field, so the caller stashes it in
+        metadata.
         """
         def to_np(x):
             return np.asarray(x.numpy() if hasattr(x, "numpy") else x)
 
         tau = to_np(solved.tau)
+        # doppler is [num_rx, num_tx, num_paths] for synthetic arrays; for
+        # non-synthetic it carries antenna axes we reduce over below. Best-effort:
+        # a Paths without .doppler yields None (no Doppler surfaced).
+        doppler = None
+        if hasattr(solved, "doppler"):
+            try:
+                doppler = to_np(solved.doppler)
+                # Collapse any antenna axes so doppler is [num_rx, num_tx,
+                # num_paths] (Doppler is antenna-independent for a given path).
+                if doppler.ndim == 5:
+                    doppler = doppler[:, 0, :, 0, :]
+            except Exception:  # noqa: BLE001 - doppler is optional
+                doppler = None
         a_raw = solved.a
         if isinstance(a_raw, (tuple, list)) and len(a_raw) == 2:
             a = to_np(a_raw[0]) + 1j * to_np(a_raw[1])
@@ -864,6 +930,7 @@ class SionnaBackend(RayTracingBackend):
         max_paths = tau.shape[-1]
 
         paths: list[RayPath] = []
+        doppler_hz: list[float] = []
         counter = 0
         for r in range(num_rx):
             for t in range(num_tx):
@@ -900,7 +967,12 @@ class SionnaBackend(RayTracingBackend):
                             interactions=interactions,
                         )
                     )
-        return paths
+                    if doppler is not None and doppler.ndim == 3:
+                        doppler_hz.append(float(doppler[r, t, p]))
+        # Only return a doppler list when it lines up with every kept path;
+        # otherwise the alignment is unreliable and we drop it.
+        aligned = doppler_hz if len(doppler_hz) == len(paths) else None
+        return paths, aligned
 
     @staticmethod
     def _path_interactions(

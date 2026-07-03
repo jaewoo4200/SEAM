@@ -31,6 +31,9 @@ interface DeviceDraft {
   polarization: Antenna["polarization"];
   num_rows: string;
   num_cols: string;
+  vx: string;
+  vy: string;
+  vz: string;
   v_spacing: string;
   h_spacing: string;
 }
@@ -44,6 +47,9 @@ function draftFromDevice(d: Device): DeviceDraft {
     power_dbm: String(d.power_dbm),
     pattern: d.antenna.pattern,
     polarization: d.antenna.polarization,
+    vx: String(d.velocity_m_s?.[0] ?? 0),
+    vy: String(d.velocity_m_s?.[1] ?? 0),
+    vz: String(d.velocity_m_s?.[2] ?? 0),
     num_rows: String(d.antenna.num_rows),
     num_cols: String(d.antenna.num_cols),
     v_spacing: String(d.antenna.vertical_spacing ?? 0.5),
@@ -89,9 +95,11 @@ function DeviceCard({ device }: { device: Device }) {
         horizontal_spacing: num(draft.h_spacing, "h spacing"),
       };
       setErr(null);
+      const vel: Vec3 = [num(draft.vx, "vx"), num(draft.vy, "vy"), num(draft.vz, "vz")];
       void updateDevice(device.id, {
         name: draft.name,
         position,
+        velocity_m_s: vel.some((v) => v !== 0) ? vel : null,
         power_dbm: num(draft.power_dbm, "power"),
         antenna,
       });
@@ -175,6 +183,9 @@ function DeviceCard({ device }: { device: Device }) {
           {numInput("num_cols", "Array cols", 1)}
           {numInput("v_spacing", "V spacing (λ)", 0.05)}
           {numInput("h_spacing", "H spacing (λ)", 0.05)}
+          {numInput("vx", "Vel X (m/s)", 0.5)}
+          {numInput("vy", "Vel Y (m/s)", 0.5)}
+          {numInput("vz", "Vel Z (m/s)", 0.5)}
         </div>
         <div className="editor-actions">
           <button className="primary" onClick={apply} disabled={disabled}>

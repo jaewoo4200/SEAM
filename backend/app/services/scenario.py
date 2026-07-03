@@ -89,6 +89,20 @@ def actor_heading_at(actor: Actor, time_s: float, eps_s: float = 1e-3) -> float:
     return math.degrees(math.atan2(dy, dx))
 
 
+def actor_velocity_at(actor: Actor, time_s: float, eps_s: float = 1e-3) -> list[float]:
+    """Actor velocity [m/s] (world frame, Z-up) at ``time_s``, from a central
+    finite difference of the interpolated trajectory position (tangent x speed).
+    All-zero for a static actor (no trajectory) or a degenerate step."""
+    if actor.trajectory is None or not actor.trajectory.waypoints:
+        return [0.0, 0.0, 0.0]
+    p_before = actor_position_at(actor, max(0.0, time_s - eps_s))
+    p_after = actor_position_at(actor, time_s + eps_s)
+    span = (time_s + eps_s) - max(0.0, time_s - eps_s)
+    if span <= 0.0:
+        return [0.0, 0.0, 0.0]
+    return [(p_after[a] - p_before[a]) / span for a in range(3)]
+
+
 def _actor_states_at(scene: Scene, time_s: float) -> list[ActorState]:
     """ActorState for every actor at ``time_s`` (moving and static alike).
 
@@ -137,6 +151,38 @@ def _device_states_at(
     return states, device_positions
 
 
+def _velocities_at(
+    scene: Scene, time_s: float
+) -> tuple[dict[str, list[float]], dict[str, list[float]]]:
+    """(actor_velocities, device_velocities) at ``time_s`` [m/s], for every
+    MOVING actor and any device attached to one. A device rides with its
+    actor, so it inherits the actor's velocity. Static actors/devices are
+    omitted (no key) so the caller only sets velocity where something moves."""
+    actor_velocities: dict[str, list[float]] = {}
+    device_velocities: dict[str, list[float]] = {}
+    for actor in scene.actors:
+        v = actor_velocity_at(actor, time_s)
+        if v == [0.0, 0.0, 0.0]:
+            continue
+        actor_velocities[actor.id] = v
+        for dev_id in actor.attached_device_ids:
+            device_velocities[dev_id] = v
+    return actor_velocities, device_velocities
+
+
+def _doppler_spread_hz(powers_dbm: list[float], doppler_hz: list[float]):
+    """Power-weighted std of per-path Doppler [Hz]; None if misaligned/empty."""
+    if not powers_dbm or len(powers_dbm) != len(doppler_hz):
+        return None
+    lin = [10.0 ** (p / 10.0) for p in powers_dbm]
+    total = sum(lin)
+    if total <= 0.0:
+        return None
+    mean = sum(w * d for w, d in zip(lin, doppler_hz)) / total
+    var = sum(w * (d - mean) ** 2 for w, d in zip(lin, doppler_hz)) / total
+    return math.sqrt(max(var, 0.0))
+
+
 def _pair_metrics(
     paths: list[RayPath],
     tx_id: str,
@@ -179,22 +225,29 @@ def _solve_frame_paths(
     config: SimulationConfig,
     actor_states: list[ActorState],
     device_positions: dict[str, list[float]],
+    actor_velocities: dict[str, list[float]],
+    device_velocities: dict[str, list[float]],
 ):
     """Solve one frame's paths. Sionna moves the cached scene's actor objects;
     every other backend gets a deep-copied scene with actor (and attached
-    device) positions overwritten."""
+    device) positions overwritten. Actor/device velocities (from the trajectory
+    tangent) are applied so moving actors and attached devices carry Doppler."""
     if backend.name == "sionna":
         # Attached devices still need to move: splice their positions into a
         # light scene copy (cheap vs. the Mitsuba solve) so the transmitters/
         # receivers are placed correctly, while actors move via SceneObjects.
+        # Attached-device velocity rides on the same copy (RadioDevice.velocity).
         frame_scene = scene
-        if device_positions:
+        if device_positions or device_velocities:
             frame_scene = scene.model_copy(deep=True)
             for dev in frame_scene.devices:
                 if dev.id in device_positions:
                     dev.position = [float(c) for c in device_positions[dev.id]]
+                if dev.id in device_velocities:
+                    dev.velocity_m_s = [float(c) for c in device_velocities[dev.id]]
         return backend.simulate_paths(
-            project_dir, frame_scene, library, config, actor_states=actor_states
+            project_dir, frame_scene, library, config,
+            actor_states=actor_states, actor_velocities=actor_velocities or None,
         )
     # Mock / other backends: move actor authored positions in a scene copy.
     frame_scene = scene.model_copy(deep=True)
@@ -207,6 +260,8 @@ def _solve_frame_paths(
     for dev in frame_scene.devices:
         if dev.id in device_positions:
             dev.position = [float(c) for c in device_positions[dev.id]]
+        if dev.id in device_velocities:
+            dev.velocity_m_s = [float(c) for c in device_velocities[dev.id]]
     return backend.simulate_paths(project_dir, frame_scene, library, config)
 
 
@@ -240,17 +295,32 @@ def run_scenario(
         warnings.append("scene has no actors; scenario frames are static")
 
     frames: list[ScenarioFrame] = []
+    frame_doppler_spread: list[Optional[float]] = []
     for i in range(request.num_frames):
         t = i * request.dt_s
         actor_states = _actor_states_at(scene, t)
         device_states, device_positions = _device_states_at(scene, actor_states)
+        actor_velocities, device_velocities = _velocities_at(scene, t)
 
         result = _solve_frame_paths(
             backend, project_dir, scene, library, config,
             actor_states, device_positions,
+            actor_velocities, device_velocities,
         )
         if i == 0:
             warnings.extend(result.warnings)
+        # Per-frame Doppler spread [Hz]: power-weighted std of per-path Doppler
+        # across every path in the frame (backend supplies doppler_hz aligned to
+        # result.paths). None when nothing moves or the backend has no Doppler.
+        raw_doppler = result.metadata.get("doppler_hz")
+        if isinstance(raw_doppler, list) and len(raw_doppler) == len(result.paths):
+            frame_doppler_spread.append(
+                _doppler_spread_hz(
+                    [p.power_dbm for p in result.paths], raw_doppler
+                )
+            )
+        else:
+            frame_doppler_spread.append(None)
 
         links = [
             _pair_metrics(result.paths, tx.id, rx.id, tx_power.get(tx.id, 0.0), noise_floor)
@@ -279,5 +349,12 @@ def run_scenario(
             "dt_s": request.dt_s,
             "num_actors": len(scene.actors),
             "engine": backend.name,
+            # Per-frame Doppler spread [Hz] aligned to ``frames``. Omitted when
+            # no frame produced a Doppler value (mock output stays unchanged).
+            **(
+                {"doppler_spread_hz": frame_doppler_spread}
+                if any(s is not None for s in frame_doppler_spread)
+                else {}
+            ),
         },
     )

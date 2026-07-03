@@ -47,6 +47,33 @@ def _aggregate(powers_dbm: list[float], delays_ns: list[float], tx_power_dbm: fl
     return rss_dbm, path_gain_db, rms, strongest_delay
 
 
+def _waypoint_velocity(
+    waypoints: list[list[float]], i: int, dt_s: float
+) -> list[float]:
+    """UE velocity [m/s] at waypoint ``i`` from a finite difference of adjacent
+    waypoints over dt. Forward difference in the interior/start, backward at the
+    last point; zero when there is only one waypoint or dt is degenerate."""
+    n = len(waypoints)
+    if n < 2 or dt_s <= 0.0:
+        return [0.0, 0.0, 0.0]
+    j = i + 1 if i + 1 < n else i  # backward diff at the last point
+    k = j - 1
+    return [(waypoints[j][a] - waypoints[k][a]) / dt_s for a in range(3)]
+
+
+def _doppler_spread_hz(powers_dbm: list[float], doppler_hz: list[float]):
+    """Power-weighted std of per-path Doppler [Hz]; None if misaligned/empty."""
+    if not powers_dbm or len(powers_dbm) != len(doppler_hz):
+        return None
+    lin = [10.0 ** (p / 10.0) for p in powers_dbm]
+    total = sum(lin)
+    if total <= 0.0:
+        return None
+    mean = sum(w * d for w, d in zip(lin, doppler_hz)) / total
+    var = sum(w * (d - mean) ** 2 for w, d in zip(lin, doppler_hz)) / total
+    return math.sqrt(max(var, 0.0))
+
+
 def run_trajectory(
     backend: RayTracingBackend,
     project_dir: Path,
@@ -72,12 +99,18 @@ def run_trajectory(
 
     warnings: list[str] = []
     samples: list[TrajectorySample] = []
+    doppler_spreads: list[Optional[float]] = []
     for i, wp in enumerate(waypoints):
-        # Solve with the UE parked at this waypoint; only this RX is active.
+        # Solve with the UE parked at this waypoint; only this RX is active. Its
+        # velocity is the finite difference of adjacent waypoints over dt, so
+        # the solved paths carry the moving-UE Doppler (effect #2 in
+        # docs/dynamic_scattering.md). Velocity does not move the RX geometry.
+        ue_velocity = _waypoint_velocity(waypoints, i, request.dt_s)
         step_scene = scene.model_copy(deep=True)
         for dev in step_scene.devices:
             if dev.id == ue_id:
                 dev.position = [float(c) for c in wp]
+                dev.velocity_m_s = ue_velocity
         step_cfg = config.model_copy(update={"rx_ids": [ue_id]})
         result = backend.simulate_paths(project_dir, step_scene, library, step_cfg)
         if i == 0:
@@ -85,6 +118,15 @@ def run_trajectory(
         powers = [p.power_dbm for p in result.paths]
         delays = [p.delay_ns for p in result.paths]
         rss, gain, rms, strongest = _aggregate(powers, delays, tx_power)
+        # Per-waypoint Doppler spread (power-weighted std of per-path Doppler),
+        # from the backend's per-path doppler_hz (aligned to result.paths).
+        raw_doppler = result.metadata.get("doppler_hz")
+        spread = (
+            _doppler_spread_hz(powers, raw_doppler)
+            if isinstance(raw_doppler, list)
+            else None
+        )
+        doppler_spreads.append(spread)
         sinr = (rss - noise_floor) if rss is not None else None
         frame_paths = None
         if request.include_paths:
@@ -119,5 +161,14 @@ def run_trajectory(
             "frequency_hz": config.frequency_hz,
             "num_waypoints": len(waypoints),
             "engine": backend.name,
+            # Per-waypoint Doppler spread [Hz] (power-weighted std of per-path
+            # Doppler), aligned to ``samples``. None where the backend does not
+            # model Doppler or the UE is momentarily stationary. Omitted when no
+            # waypoint produced a Doppler value (keeps mock output unchanged).
+            **(
+                {"doppler_spread_hz": doppler_spreads}
+                if any(s is not None for s in doppler_spreads)
+                else {}
+            ),
         },
     )

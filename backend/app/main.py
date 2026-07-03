@@ -19,6 +19,7 @@ from app.api import (
     import_scene,
     materials,
     projects,
+    render,
     scenario,
     scene,
     simulate,
@@ -48,6 +49,7 @@ def create_app() -> FastAPI:
     for module in (
         health, projects, import_scene, scene, materials, ai, compile_api,
         simulate, export, calibrate, channel, scenario, engines, datasets,
+        render,
     ):
         app.include_router(module.router, prefix="/api")
     # Load user plugins (plugins/<name>/plugin.py). Failures are contained in

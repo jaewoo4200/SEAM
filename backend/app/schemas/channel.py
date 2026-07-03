@@ -27,6 +27,10 @@ class CirTap(StrictModel):
     power_dbm: float
     phase_rad: float
     path_type: str = "reflection"
+    # Per-path Doppler shift [Hz] (v.k/lambda summed over interactions), when
+    # the backend supplies it (moving tx/rx or actors). None on backends that
+    # do not model Doppler.
+    doppler_hz: Optional[float] = None
 
 
 class PathLossModelResult(StrictModel):
@@ -46,6 +50,17 @@ class ChannelAnalysisRequest(StrictModel):
     tx_id: Optional[str] = None  # None = first tx
     rx_id: Optional[str] = None  # None = first rx
     num_cfr_points: int = Field(default=128, ge=8, le=4096)
+    # Time-varying CIR (Doppler) evolution. num_time_steps=1 (default) is a
+    # static snapshot: no per-tap time series is emitted, but per-path Doppler
+    # and the Doppler-spread scalar are always computed from device velocities.
+    # >1 synthesizes the coherent CIR magnitude over time via paths.cir().
+    # Capped at 64 to keep the response bounded.
+    num_time_steps: int = Field(default=1, ge=1, le=64)
+    # CIR resampling rate [Hz] for the time evolution window (length =
+    # num_time_steps / sampling_frequency_hz seconds). None => 2x the max
+    # per-path |Doppler| (Nyquist) so the fastest tap is resolved, falling back
+    # to 1 kHz when no path has any Doppler.
+    sampling_frequency_hz: Optional[float] = Field(default=None, gt=0.0)
 
 
 class ChannelAnalysisResult(StrictModel):
@@ -66,10 +81,23 @@ class ChannelAnalysisResult(StrictModel):
     mean_delay_ns: Optional[float] = None
     rms_delay_spread_ns: Optional[float] = None
     coherence_bandwidth_mhz: Optional[float] = None  # ~1/(2*pi*rms_ds)
+    # Doppler / time-variability metrics (moving tx/rx/actors). All None on
+    # backends that do not model Doppler, or when nothing in the link moves.
+    doppler_spread_hz: Optional[float] = None  # power-weighted std of per-path Doppler
+    mean_doppler_hz: Optional[float] = None  # power-weighted mean shift
+    max_doppler_hz: Optional[float] = None  # max |per-path Doppler|
+    coherence_time_ms: Optional[float] = None  # ~0.42 / max|Doppler|
     # Channel responses.
     cir: list[CirTap] = Field(default_factory=list)
     cfr_freq_offset_hz: list[float] = Field(default_factory=list)
     cfr_mag_db: list[float] = Field(default_factory=list)
+    # Time-varying channel envelope (only when request.num_time_steps > 1),
+    # i.e. the Doppler fading curve |h(t)| = |sum_i a_i e^{j2 pi f_d,i t}| in dB
+    # sampled at cir_time_s seconds. Per-tap magnitude is time-invariant under
+    # pure Doppler (only phase rotates), so the useful time series is the
+    # coherent sum: its ripple is the fading the Doppler spread produces.
+    cir_time_s: list[float] = Field(default_factory=list)
+    cir_time_envelope_db: list[float] = Field(default_factory=list)
     # Empirical model comparison.
     pl_models: list[PathLossModelResult] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)

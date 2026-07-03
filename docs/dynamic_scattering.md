@@ -265,3 +265,38 @@ print("a:", a.shape, a.dtype, "| tau:", tau.shape)  # a: (...,16) complex64
 **저장소 근거(설치 Sionna RT 2.0.1, repo 검증):** `backend/.venv/Lib/site-packages/sionna/rt/scene_object.py:252-283`, `radio_devices/radio_device.py:50-119`, `radio_materials/scattering_pattern.py:201-416`, `radio_materials/radio_material.py:220-263`, `path_solvers/path_solver.py:144-157`, `path_solvers/field_calculator.py:256-300,526-562`, `path_solvers/paths.py:336-524,660-,1215-1246`, `scene.py:1055,1073-1078`. **통합 지점:** `backend/app/services/simulation_backends/sionna_backend.py:226-292,555-572,748-805`; `backend/app/services/trajectory.py:75-108`; `backend/app/schemas/scene.py:147-177`; `backend/app/schemas/simulation.py:109`.
 
 **미검증 항목:** ITU-R P.2040/P.1411 절 단위 원문(재료/확산 가이드 참조로만 인용, 미인출) **(미검증)**.
+
+---
+
+## 구현 완료 (Design A — 속도기반 경로별 Doppler + 시변 CIR)
+
+본 절의 계획 중 **Design A**(효과 #2: 속도기반 경로별 Doppler)를 구현했다. Design B(산란패턴/XPD)·C(프레임내 확산 시계열)는 후속 작업으로 남긴다. 아래 API 는 모두 설치된 sionna-rt 2.0.1 에 대해 라이브 프로브로 재검증했다.
+
+### 사용한 정확 API (재검증)
+
+- `Transmitter(..., velocity=[vx,vy,vz])` / `Receiver(..., velocity=...)` 생성자 인자, 및 `.velocity` 세터(`mi.Vector3f` 래핑) — `radio_devices/radio_device.py:45-71,108-119`. 라이브 확인: 빈 씬 순수 LOS, 3.5 GHz, RX 가 TX 로 30 m/s 접근 → `paths.doppler == 350.2423 Hz == v/λ = 30/0.085655`. 접근 → 양(+) Doppler.
+- `SceneObject.velocity = mi.Vector3f(...)` (액터 메쉬) — `scene_object.py:252-283`. 물체당 단일 벡터, 기하 불변.
+- `Paths.doppler` — 경로별 Doppler [Hz], synthetic array 형상 `[num_rx, num_tx, num_paths]`(`paths.py:335-385`). `num_time_steps` 무관하게 항상 채워짐.
+- `Paths.cir(*, sampling_frequency, num_time_steps, out_type="numpy")` — 시변 CIR(`paths.py:387-524`). `num_time_steps>1` 일 때만 `a·e^{j2π f_Δ t}` 적용. 프로브: `a` 형상 `(...,num_time_steps)` complex64, 크기 일정·위상 회전, 스텝당 위상 = `2π f_Δ/fs` 정확 일치.
+
+### 구현 내역 (파일별)
+
+- **`backend/app/schemas/devices.py`** — `Device.velocity_m_s: Optional[Vec3] = None`(world frame m/s, Z-up). None=정지, 기하/레이트레이싱 불변.
+- **`backend/app/schemas/channel.py`** — `ChannelAnalysisRequest` 에 `num_time_steps: int(1..64, 기본 1)`, `sampling_frequency_hz: Optional[float]`(None→Nyquist=2·max|f_Δ|, 무운동시 1 kHz) 추가. `CirTap.doppler_hz: Optional[float]`. `ChannelAnalysisResult` 에 `doppler_spread_hz`, `mean_doppler_hz`, `max_doppler_hz`, `coherence_time_ms`(≈0.42/max|f_Δ|), `cir_time_s`, `cir_time_envelope_db`(시변 페이딩 포락 `|Σ_i a_i e^{j2π f_Δ,i t}|` dB) 추가.
+- **`backend/app/services/simulation_backends/sionna_backend.py`** — Transmitter/Receiver 생성 시 `velocity_m_s` 통과. `apply_actor_states(..., velocities=)` 인자로 액터별 `obj.velocity` 설정. `simulate_paths`/`_simulate_paths_impl` 에 `actor_velocities` 옵션 kwarg. `_convert_paths` 가 `solved.doppler` 를 읽어 유지된 경로와 1:1 정렬된 리스트 반환 → 무언가 움직일 때만 `PathResultSet.metadata["doppler_hz"]` 로 노출(정적 solve 는 바이트 동일 유지). RayPath 스키마는 소유 밖이라 metadata 로 운반.
+- **`backend/app/services/channel_analysis.py`** — `doppler_metrics()`(파워가중 mean/spread/max, coherence time), `doppler_time_envelope()`(백엔드 무관, per-path power/phase/doppler 로 시변 포락 합성 — `paths.cir` 와 동일 모델). `build_cir(paths, doppler_by_path_id)` 로 탭별 `doppler_hz` 충전. `analyze_channel` 이 `metadata["doppler_hz"]` 를 path_id 로 매핑해 링크 필터·지연 정렬을 건너뛰어 정렬 유지.
+- **`backend/app/services/trajectory.py`** — 웨이포인트 유한차분 `(wp[i+1]-wp[i])/dt`(마지막점은 후방차분)로 UE 속도 도출→ 이동 RX 의 `velocity_m_s` 설정. 웨이포인트별 Doppler 확산을 `metadata["doppler_spread_hz"]`(samples 정렬 리스트)로 노출.
+- **`backend/app/services/scenario.py`** — `actor_velocity_at()`(궤적 접선 중앙차분 = 접선×속력) 추가. 프레임별 액터 속도 + 부착 디바이스 속도(액터 속도 상속)를 solve 로 전달. 프레임별 Doppler 확산을 `ScenarioResultSet.metadata["doppler_spread_hz"]` 로 노출. (LinkMetrics/ScenarioFrame/TrajectorySample 스키마는 소유 밖이라 metadata 채널 사용.)
+- **`backend/tests/test_doppler.py`** (신규) — 스키마 속도 필드, Doppler 스펙트럼 수식(손계산), 시변 포락 리플, 서비스 속도 배관(캡처 페이크 백엔드로 sionna 불요), sionna-guarded 실솔브(이동 RX Doppler ≈ v/λ, 정적 링크는 doppler_hz 미노출, 채널분석 Doppler 지표 충전) 18 케이스.
+
+### 추가된 스키마 필드 (프론트엔드 타입 미러링용)
+
+- `Device.velocity_m_s: [vx,vy,vz] | null` (m/s, Z-up world frame).
+- `ChannelAnalysisRequest.num_time_steps: int`, `.sampling_frequency_hz: float | null`.
+- `CirTap.doppler_hz: float | null`.
+- `ChannelAnalysisResult`: `doppler_spread_hz`, `mean_doppler_hz`, `max_doppler_hz`, `coherence_time_ms`, `cir_time_s: float[]`, `cir_time_envelope_db: float[]` (모두 이동체 없으면 None/[]).
+- `TrajectoryResultSet.metadata.doppler_spread_hz: (float|null)[]` (samples 정렬), `ScenarioResultSet.metadata.doppler_spread_hz: (float|null)[]` (frames 정렬), `PathResultSet.metadata.doppler_hz: float[]` (paths 정렬, 이동시에만).
+
+### 테스트 결과
+
+`tests/test_doppler.py tests/test_sionna_backend.py tests/test_channel_analysis.py tests/test_scenario.py` → 전부 통과(57 passed). 전체 스위트는 `test_render.py`(본 작업 무관, Mitsuba 전역 플러그인 상태 오염으로 후행 sionna GPU 테스트를 무너뜨리는 기존 테스트격리 문제)를 제외하면 **249 passed, 2 skipped, 0 failed**. `test_render.py` 는 velocity/doppler/simulate_paths/channel/trajectory/scenario 코드를 전혀 참조하지 않으며, 신규 테스트 파일을 제외해도 동일 6건이 실패하므로 본 변경의 회귀가 아니다.

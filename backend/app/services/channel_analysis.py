@@ -268,14 +268,19 @@ def _lin_from_dbm(power_dbm: float) -> float:
     return 10.0 ** (power_dbm / 10.0)
 
 
-def build_cir(paths: list[RayPath]) -> list[CirTap]:
-    """One CIR tap per ray path, sorted by delay."""
+def build_cir(
+    paths: list[RayPath], doppler_by_path_id: Optional[dict[str, float]] = None
+) -> list[CirTap]:
+    """One CIR tap per ray path, sorted by delay. ``doppler_by_path_id`` (when
+    given) fills each tap's ``doppler_hz`` by the path's id."""
+    dop = doppler_by_path_id or {}
     taps = [
         CirTap(
             delay_ns=p.delay_ns,
             power_dbm=p.power_dbm,
             phase_rad=p.phase_rad,
             path_type=p.path_type,
+            doppler_hz=dop.get(p.path_id),
         )
         for p in paths
     ]
@@ -360,6 +365,84 @@ def compute_cfr(
     return offsets, mags_db
 
 
+# ================================================================== Doppler
+#
+# Doppler shift per path (f_d = v.k/lambda summed over interactions) comes from
+# the backend (sionna surfaces it in PathResultSet.metadata["doppler_hz"],
+# aligned 1:1 with paths). From that plus per-path power we derive the classic
+# Doppler-spectrum scalars: power-weighted mean/spread and the coherence time.
+
+
+def doppler_metrics(
+    paths: list[RayPath], doppler_hz: Optional[list[float]]
+) -> tuple[Optional[float], Optional[float], Optional[float], Optional[float]]:
+    """(mean, spread, max_abs, coherence_time_ms) from per-path Doppler.
+
+    - mean:   power-weighted mean shift (Hz);
+    - spread: power-weighted std of the per-path shifts (Hz) - the RMS Doppler
+              spread that broadens the Doppler power spectrum;
+    - max_abs: max |per-path Doppler| (Hz);
+    - coherence_time_ms: T_c ~= 0.42 / max|Doppler| (classic Clarke/Jakes rule),
+                         None when nothing moves (max Doppler 0).
+
+    Returns all-None when there is no Doppler information or zero total power.
+    """
+    if not paths or not doppler_hz or len(doppler_hz) != len(paths):
+        return None, None, None, None
+    weights = [_lin_from_dbm(p.power_dbm) for p in paths]
+    total = sum(weights)
+    if total <= 0.0:
+        return None, None, None, None
+    mean = sum(w * d for w, d in zip(weights, doppler_hz)) / total
+    var = sum(w * (d - mean) ** 2 for w, d in zip(weights, doppler_hz)) / total
+    spread = math.sqrt(max(var, 0.0))
+    max_abs = max(abs(d) for d in doppler_hz)
+    coherence_time_ms = (0.42 / max_abs * 1e3) if max_abs > 0.0 else None
+    return mean, spread, max_abs, coherence_time_ms
+
+
+def doppler_time_envelope(
+    paths: list[RayPath],
+    doppler_hz: Optional[list[float]],
+    num_time_steps: int,
+    sampling_frequency_hz: Optional[float],
+) -> tuple[list[float], list[float]]:
+    """Time-varying channel envelope |h(t)| in dB over ``num_time_steps``.
+
+    h(t) = sum_i a_i e^{j phase_i} e^{j 2 pi f_d,i t}, sampled at t = n/fs. This
+    is the coherent superposition the Doppler shifts produce: its ripple is the
+    fast fading. Mirrors ``paths.cir(num_time_steps=N)`` in sionna (same
+    a_i e^{j2 pi f_d t} model, paths.py:405) but is backend-agnostic - computed
+    from the per-path (power, phase, doppler) the result already carries.
+
+    Returns ([] , []) when num_time_steps <= 1 or no Doppler is available. When
+    ``sampling_frequency_hz`` is None it defaults to Nyquist (2x max|Doppler|),
+    falling back to 1 kHz so a window still exists when nothing moves.
+    """
+    if num_time_steps <= 1 or not paths or not doppler_hz:
+        return [], []
+    if len(doppler_hz) != len(paths):
+        return [], []
+    fs = sampling_frequency_hz
+    if fs is None:
+        max_abs = max((abs(d) for d in doppler_hz), default=0.0)
+        fs = 2.0 * max_abs if max_abs > 0.0 else 1000.0
+    amps: list[complex] = []
+    for p in paths:
+        amp_mag = math.sqrt(_lin_from_dbm(p.power_dbm))
+        amps.append(amp_mag * complex(math.cos(p.phase_rad), math.sin(p.phase_rad)))
+    times = [n / fs for n in range(num_time_steps)]
+    env_db: list[float] = []
+    for t in times:
+        acc = 0j
+        for a, fd in zip(amps, doppler_hz):
+            angle = 2.0 * math.pi * fd * t
+            acc += a * complex(math.cos(angle), math.sin(angle))
+        mag = abs(acc)
+        env_db.append(20.0 * math.log10(mag) if mag > 0.0 else -300.0)
+    return times, env_db
+
+
 # ============================================================ orchestration
 
 
@@ -415,8 +498,23 @@ def analyze_channel(
     link_cfg = config.model_copy(update={"tx_ids": [tx.id], "rx_ids": [rx.id]})
     result = backend.simulate_paths(project_dir, scene, library, link_cfg)
     warnings.extend(result.warnings)
+    # Per-path Doppler rides in metadata aligned 1:1 with result.paths (RayPath
+    # has no doppler field). Map it by path id so it survives the link filter
+    # and the delay sort below.
+    raw_doppler = result.metadata.get("doppler_hz")
+    doppler_by_path_id: dict[str, float] = {}
+    if isinstance(raw_doppler, list) and len(raw_doppler) == len(result.paths):
+        doppler_by_path_id = {
+            p.path_id: float(d) for p, d in zip(result.paths, raw_doppler)
+        }
     # Defensive: the backend may (in multi-tx scenes) return extra links.
     paths = [p for p in result.paths if p.tx_id == tx.id and p.rx_id == rx.id]
+    # Per-path Doppler for exactly this link, aligned to ``paths`` order.
+    link_doppler: Optional[list[float]] = (
+        [doppler_by_path_id[p.path_id] for p in paths]
+        if doppler_by_path_id and all(p.path_id in doppler_by_path_id for p in paths)
+        else None
+    )
 
     dist_3d = math.dist(list(tx.position), list(rx.position))
     h_bs = float(tx.position[2])
@@ -436,10 +534,16 @@ def analyze_channel(
         shannon_capacity_mbps = config.bandwidth_hz * math.log2(1.0 + snr_lin) / 1e6
 
     # ---- Dispersion / fading metrics.
-    cir = build_cir(paths)
+    cir = build_cir(paths, doppler_by_path_id)
     kf = k_factor_db(paths)
     mean_delay, rms_ds = delay_metrics(paths)
     coh_bw = coherence_bandwidth_mhz(rms_ds)
+
+    # ---- Doppler / time-variability metrics (moving tx/rx/actors).
+    mean_dop, dop_spread, max_dop, coh_time_ms = doppler_metrics(paths, link_doppler)
+    cir_time_s, cir_time_env = doppler_time_envelope(
+        paths, link_doppler, request.num_time_steps, request.sampling_frequency_hz
+    )
 
     # ---- Channel responses.
     cfr_offsets, cfr_mag = compute_cfr(paths, config.bandwidth_hz, request.num_cfr_points)
@@ -484,9 +588,15 @@ def analyze_channel(
         mean_delay_ns=mean_delay,
         rms_delay_spread_ns=rms_ds,
         coherence_bandwidth_mhz=coh_bw,
+        doppler_spread_hz=dop_spread,
+        mean_doppler_hz=mean_dop,
+        max_doppler_hz=max_dop,
+        coherence_time_ms=coh_time_ms,
         cir=cir,
         cfr_freq_offset_hz=cfr_offsets,
         cfr_mag_db=cfr_mag,
+        cir_time_s=cir_time_s,
+        cir_time_envelope_db=cir_time_env,
         pl_models=pl_models,
         warnings=warnings,
         metadata={

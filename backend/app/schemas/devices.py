@@ -32,6 +32,11 @@ class Device(StrictModel):
     position: Vec3
     # Yaw, pitch, roll in degrees (ENU frame).
     orientation_deg: Vec3 = Field(default_factory=lambda: [0.0, 0.0, 0.0])
+    # Velocity [vx, vy, vz] m/s in the scene's Z-up world frame. When set, the
+    # Sionna backend applies it to this device's Transmitter/Receiver so solved
+    # paths carry a per-path Doppler shift (f_d = v.k/lambda). None (default) =
+    # stationary; the device geometry/ray tracing is unaffected either way.
+    velocity_m_s: Optional[Vec3] = None
     # Transmit power; ignored for rx.
     power_dbm: float = 30.0
     antenna: Antenna = Field(default_factory=Antenna)

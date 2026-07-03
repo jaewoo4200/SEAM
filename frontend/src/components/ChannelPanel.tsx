@@ -315,6 +315,8 @@ export default function ChannelPanel() {
               {budget("K-factor", fmt(r.k_factor_db, "dB"))}
               {budget("RMS DS", fmt(r.rms_delay_spread_ns, "ns", 2))}
               {budget("Coh. BW", fmt(r.coherence_bandwidth_mhz, "MHz", 2))}
+              {r.doppler_spread_hz != null && budget("Doppler spread", fmt(r.doppler_spread_hz, "Hz", 1))}
+              {r.coherence_time_ms != null && budget("Coh. time", fmt(r.coherence_time_ms, "ms", 2))}
             </div>
 
             <CirStemPlot cir={r.cir} />

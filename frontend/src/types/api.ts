@@ -92,6 +92,8 @@ export interface Device {
   kind: "tx" | "rx";
   position: Vec3;
   orientation_deg: Vec3;
+  // [vx,vy,vz] m/s (Z-up world). Set -> solved paths carry per-path Doppler.
+  velocity_m_s?: Vec3 | null;
   power_dbm: number;
   antenna: Antenna;
   color: string;
@@ -489,6 +491,7 @@ export type PathLossModelName =
   | "ci_n3";
 
 export interface CirTap {
+  doppler_hz?: number | null;
   delay_ns: number;
   power_dbm: number;
   phase_rad: number;
@@ -504,6 +507,8 @@ export interface PathLossModelResult {
 }
 
 export interface ChannelAnalysisRequest {
+  num_time_steps?: number;
+  sampling_frequency_hz?: number | null;
   config_id?: string | null;
   config?: SimulationConfig | null;
   tx_id?: string | null;
@@ -512,6 +517,12 @@ export interface ChannelAnalysisRequest {
 }
 
 export interface ChannelAnalysisResult {
+  doppler_spread_hz?: number | null;
+  mean_doppler_hz?: number | null;
+  max_doppler_hz?: number | null;
+  coherence_time_ms?: number | null;
+  cir_time_s?: number[];
+  cir_time_envelope_db?: number[];
   tx_id: string;
   rx_id: string;
   backend: string;
