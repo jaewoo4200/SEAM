@@ -80,6 +80,10 @@ export interface Antenna {
   polarization: "V" | "H" | "VH" | "cross";
   num_rows: number;
   num_cols: number;
+  // Element spacing in wavelengths (0.5 = half-wavelength); optional for
+  // scenes written before the field existed (backend defaults to 0.5).
+  vertical_spacing?: number;
+  horizontal_spacing?: number;
 }
 
 export interface Device {
@@ -563,6 +567,47 @@ export interface BeamformingResult {
   sweep_gain_db: (number | null)[][] | null;
   warnings: string[];
   metadata: Record<string, unknown>;
+}
+
+// -------------------------------------------------------------- datasets
+
+export interface DatasetSampling {
+  mode: "random" | "grid" | "trajectory";
+  region_min?: Vec3 | null;
+  region_max?: Vec3 | null;
+  height_m: number;
+  num_samples: number;
+  grid_spacing_m: number;
+  start_m?: Vec3 | null;
+  end_m?: Vec3 | null;
+  seed: number;
+}
+
+export interface DatasetGenerateRequest {
+  name: string;
+  config_id?: string | null;
+  config?: SimulationConfig | null;
+  tx_id?: string | null;
+  rx_id?: string | null;
+  sampling: DatasetSampling;
+  num_cfr_points: number;
+  include_paths: boolean;
+}
+
+export interface DatasetInfo {
+  dataset_id: string;
+  name: string;
+  num_samples: number;
+  num_cfr_points: number;
+  created_at?: string | null;
+  files: string[];
+  size_bytes: number;
+  warnings: string[];
+  metadata: Record<string, unknown>;
+}
+
+export interface DatasetListResponse {
+  datasets: DatasetInfo[];
 }
 
 // -------------------------------------------------------------------- ai

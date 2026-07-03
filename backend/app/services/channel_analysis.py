@@ -449,6 +449,25 @@ def analyze_channel(
         config.frequency_hz, dist_3d, h_bs, h_ut, rt_path_loss_db
     )
 
+    # Plugin-registered models (docs/extending.md) run with the real device
+    # endpoints; a plugin failure degrades to an invalid row, never a 500.
+    from app.services.plugins import plugin_path_loss_models
+
+    for name, fn in plugin_path_loss_models().items():
+        try:
+            r = fn(config.frequency_hz, tx, rx, config)
+            pl = float(r["path_loss_db"])
+            pl_models.append(PathLossModelResult(
+                model=name, path_loss_db=pl,
+                delta_vs_rt_db=(pl - rt_path_loss_db) if rt_path_loss_db is not None else None,
+                valid=bool(r.get("valid", True)), notes=str(r.get("notes", "")),
+            ))
+        except Exception as exc:  # noqa: BLE001 - plugin isolation contract
+            pl_models.append(PathLossModelResult(
+                model=name, path_loss_db=None, valid=False,
+                notes=f"plugin error: {exc}",
+            ))
+
     return ChannelAnalysisResult(
         tx_id=tx.id,
         rx_id=rx.id,

@@ -255,12 +255,13 @@ def test_api_channel_roundtrip(api_client):
     assert len(body["cfr_mag_db"]) == 128
     assert all(v is not None for v in body["cfr_mag_db"])
 
-    # All nine empirical models present; FSPL delta vs RT computed.
+    # All nine builtin empirical models present (plugins may add more, e.g.
+    # the bundled two_ray_ground example); FSPL delta vs RT computed.
     names = [m["model"] for m in body["pl_models"]]
-    assert set(names) == {
+    assert {
         "fspl", "tr38901_uma_los", "tr38901_uma_nlos", "tr38901_umi_los",
         "tr38901_umi_nlos", "tr38901_inh_los", "tr38901_inh_nlos", "ci_n2", "ci_n3",
-    }
+    } <= set(names)
     fspl = next(m for m in body["pl_models"] if m["model"] == "fspl")
     assert fspl["delta_vs_rt_db"] == pytest.approx(
         fspl["path_loss_db"] - body["rt_path_loss_db"], abs=1e-3

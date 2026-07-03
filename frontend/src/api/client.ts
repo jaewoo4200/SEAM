@@ -18,6 +18,9 @@ import type {
   ChannelAnalysisRequest,
   ChannelAnalysisResult,
   CompileResult,
+  DatasetGenerateRequest,
+  DatasetInfo,
+  DatasetListResponse,
   HealthResponse,
   MaterialSuggestionResponse,
   PathResultSet,
@@ -144,6 +147,14 @@ export const api = {
   // AODT RFData export
   exportRfdata: (pid: string, req: SimulateRequest = {}) =>
     request<RFDataExportSummary>("POST", `/projects/${pid}/export/rfdata`, req),
+
+  // ML ground-truth datasets: sweep a UE, solve per-position, export arrays.
+  generateDataset: (pid: string, req: DatasetGenerateRequest) =>
+    request<DatasetInfo>("POST", `/projects/${pid}/datasets/generate`, req),
+  listDatasets: (pid: string) =>
+    request<DatasetListResponse>("GET", `/projects/${pid}/datasets`),
+  datasetFileUrl: (pid: string, datasetId: string, filename: string) =>
+    `${BASE}/projects/${pid}/datasets/${datasetId}/files/${filename}`,
 
   // static project assets (GLB, textures)
   assetUrl: (pid: string, uri: string) => `${BASE}/projects/${pid}/assets/${uri}`,

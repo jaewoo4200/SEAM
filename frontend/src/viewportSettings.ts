@@ -26,7 +26,18 @@ export interface ViewportSettings {
   showGrid: boolean;
   showAxes: boolean;
   showOverlay: boolean;
+  /** Horizontal slice plane (Sionna RT GUI parity): clips scene meshes above
+   *  sliceZ. Devices/paths/radio map stay visible. Toggle with 'S'. */
+  showSlice: boolean;
+  sliceZ: number;
+  /** Radio-map display: colormap + optional fixed dB range (null = auto). */
+  rmColormap: RadioMapColormap;
+  rmVmin: number | null;
+  rmVmax: number | null;
 }
+
+export type RadioMapColormap = "jet" | "viridis" | "plasma" | "turbo";
+export const RADIO_MAP_COLORMAPS: RadioMapColormap[] = ["jet", "viridis", "plasma", "turbo"];
 
 /** Radius (m) of the sphere the directional light is placed on. */
 export const DIRECTIONAL_RADIUS_M = 60;
@@ -54,6 +65,11 @@ export function defaultViewportSettings(): ViewportSettings {
     showGrid: true,
     showAxes: true,
     showOverlay: true,
+    showSlice: false,
+    sliceZ: 2.0,
+    rmColormap: "jet",
+    rmVmin: null,
+    rmVmax: null,
   };
 }
 
@@ -108,6 +124,17 @@ export function normalizeViewportSettings(
     showGrid: bool(raw.showGrid, d.showGrid),
     showAxes: bool(raw.showAxes, d.showAxes),
     showOverlay: bool(raw.showOverlay, d.showOverlay),
+    showSlice: bool(raw.showSlice, d.showSlice),
+    sliceZ: num(raw.sliceZ, d.sliceZ, -1000, 10000),
+    rmColormap: RADIO_MAP_COLORMAPS.includes(raw.rmColormap as RadioMapColormap)
+      ? (raw.rmColormap as RadioMapColormap)
+      : d.rmColormap,
+    rmVmin: raw.rmVmin === null || raw.rmVmin === undefined || !Number.isFinite(Number(raw.rmVmin))
+      ? d.rmVmin
+      : Number(raw.rmVmin),
+    rmVmax: raw.rmVmax === null || raw.rmVmax === undefined || !Number.isFinite(Number(raw.rmVmax))
+      ? d.rmVmax
+      : Number(raw.rmVmax),
   };
 }
 

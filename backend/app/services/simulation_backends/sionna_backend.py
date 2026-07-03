@@ -182,8 +182,8 @@ def _make_planar_array(antenna: Antenna, warnings: list[str], *, num_rows=None, 
     return PlanarArray(
         num_rows=max(1, rows),
         num_cols=max(1, cols),
-        vertical_spacing=0.5,
-        horizontal_spacing=0.5,
+        vertical_spacing=antenna.vertical_spacing,
+        horizontal_spacing=antenna.horizontal_spacing,
         pattern=pattern,
         polarization=polarization,
     )
@@ -407,6 +407,8 @@ class SionnaBackend(RayTracingBackend):
                     "polarization": d.antenna.polarization,
                     "num_rows": d.antenna.num_rows,
                     "num_cols": d.antenna.num_cols,
+                    "vertical_spacing": d.antenna.vertical_spacing,
+                    "horizontal_spacing": d.antenna.horizontal_spacing,
                 },
             }
 

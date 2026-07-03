@@ -30,6 +30,8 @@ interface DeviceDraft {
   polarization: Antenna["polarization"];
   num_rows: string;
   num_cols: string;
+  v_spacing: string;
+  h_spacing: string;
 }
 
 function draftFromDevice(d: Device): DeviceDraft {
@@ -42,6 +44,8 @@ function draftFromDevice(d: Device): DeviceDraft {
     polarization: d.antenna.polarization,
     num_rows: String(d.antenna.num_rows),
     num_cols: String(d.antenna.num_cols),
+    v_spacing: String(d.antenna.vertical_spacing ?? 0.5),
+    h_spacing: String(d.antenna.horizontal_spacing ?? 0.5),
   };
 }
 
@@ -79,6 +83,8 @@ function DeviceCard({ device }: { device: Device }) {
         polarization: draft.polarization,
         num_rows: int(draft.num_rows, "rows"),
         num_cols: int(draft.num_cols, "cols"),
+        vertical_spacing: num(draft.v_spacing, "v spacing"),
+        horizontal_spacing: num(draft.h_spacing, "h spacing"),
       };
       setErr(null);
       void updateDevice(device.id, {
@@ -155,6 +161,8 @@ function DeviceCard({ device }: { device: Device }) {
           </label>
           {numInput("num_rows", "Array rows", 1)}
           {numInput("num_cols", "Array cols", 1)}
+          {numInput("v_spacing", "V spacing (λ)", 0.05)}
+          {numInput("h_spacing", "H spacing (λ)", 0.05)}
         </div>
         <div className="editor-actions">
           <button className="primary" onClick={apply} disabled={disabled}>

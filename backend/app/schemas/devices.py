@@ -19,6 +19,10 @@ class Antenna(StrictModel):
     polarization: Literal["V", "H", "VH", "cross"] = "V"
     num_rows: int = Field(default=1, ge=1)
     num_cols: int = Field(default=1, ge=1)
+    # Element spacing in wavelengths (sionna PlanarArray convention; 0.5 =
+    # half-wavelength). Exposed for parity with the Sionna RT GUI array panel.
+    vertical_spacing: float = Field(default=0.5, gt=0.0)
+    horizontal_spacing: float = Field(default=0.5, gt=0.0)
 
 
 class Device(StrictModel):

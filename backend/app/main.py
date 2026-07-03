@@ -12,6 +12,7 @@ from app.api import (
     calibrate,
     channel,
     compile as compile_api,
+    datasets,
     engines,
     export,
     health,
@@ -45,9 +46,14 @@ def create_app() -> FastAPI:
     )
     for module in (
         health, projects, scene, materials, ai, compile_api, simulate, export,
-        calibrate, channel, scenario, engines,
+        calibrate, channel, scenario, engines, datasets,
     ):
         app.include_router(module.router, prefix="/api")
+    # Load user plugins (plugins/<name>/plugin.py). Failures are contained in
+    # PluginInfo records, never raised - a bad plugin cannot break startup.
+    from app.services.plugins import load_plugins
+
+    load_plugins(app)
     return app
 
 

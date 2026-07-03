@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAppStore } from "../store/appStore";
+import { api, ApiError } from "../api/client";
 import ChannelPanel from "./ChannelPanel";
 import BeamSweepHeatmap from "./BeamSweepHeatmap";
 import { PATH_COLORS, SELECTED_PATH_COLOR, formatVec } from "./common";
@@ -7,6 +8,9 @@ import { filterPaths, pathColor, pathDepth, powerRange } from "../pathFilter";
 import type { ColorBy } from "../store/appStore";
 import type {
   BeamformingResult,
+  DatasetInfo,
+  DatasetGenerateRequest,
+  DatasetSampling,
   LinkMetrics,
   PathType,
   RayPath,
@@ -661,6 +665,322 @@ function ScenarioSection() {
   );
 }
 
+// --------------------------------------------------------- ML dataset section
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let v = n / 1024;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i += 1;
+  }
+  return `${v.toFixed(v >= 100 || i === 0 ? 0 : 1)} ${units[i]}`;
+}
+
+function formatCreatedAt(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
+}
+
+function MlDatasetSection() {
+  const projectId = useAppStore((s) => s.projectId);
+  // READ-ONLY: passed as the solver config for dataset generation.
+  const pathsConfig = useAppStore((s) => s.pathsConfig);
+
+  const [name, setName] = useState("dataset");
+  const [mode, setMode] = useState<DatasetSampling["mode"]>("random");
+  const [numSamples, setNumSamples] = useState(256);
+  const [cfrPoints, setCfrPoints] = useState(128);
+  const [heightM, setHeightM] = useState(1.5);
+  // region min/max XY for random/grid.
+  const [regionMinX, setRegionMinX] = useState(-50);
+  const [regionMinY, setRegionMinY] = useState(-50);
+  const [regionMaxX, setRegionMaxX] = useState(50);
+  const [regionMaxY, setRegionMaxY] = useState(50);
+  const [gridSpacing, setGridSpacing] = useState(2);
+  // trajectory start/end XYZ.
+  const [start, setStart] = useState<Vec3>([-50, 0, 1.5]);
+  const [end, setEnd] = useState<Vec3>([50, 0, 1.5]);
+  const [seed, setSeed] = useState(0);
+  const [includePaths, setIncludePaths] = useState(false);
+
+  const [datasets, setDatasets] = useState<DatasetInfo[]>([]);
+  const [generating, setGenerating] = useState(false);
+  const [genError, setGenError] = useState<string | null>(null);
+  const [genWarnings, setGenWarnings] = useState<string[]>([]);
+  const [listError, setListError] = useState<string | null>(null);
+
+  // Fetch existing datasets on mount / project change.
+  useEffect(() => {
+    if (!projectId) {
+      setDatasets([]);
+      return;
+    }
+    let cancelled = false;
+    setListError(null);
+    api
+      .listDatasets(projectId)
+      .then((res) => {
+        if (!cancelled) setDatasets(res.datasets);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setListError(err instanceof ApiError ? err.message : String(err));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId]);
+
+  const numField = (
+    label: string,
+    value: number,
+    onChange: (v: number) => void,
+    opts: { min?: number; max?: number; step?: number; unit?: string } = {},
+  ) => (
+    <label className="solver-field">
+      <span className="solver-field-label">{label}</span>
+      <span className="solver-field-input">
+        <input
+          type="number"
+          min={opts.min}
+          max={opts.max}
+          step={opts.step ?? 1}
+          value={value}
+          disabled={generating}
+          onChange={(e) => onChange(Number(e.target.value))}
+        />
+        {opts.unit && <span className="solver-unit">{opts.unit}</span>}
+      </span>
+    </label>
+  );
+
+  const vecField = (label: string, v: Vec3, onChange: (v: Vec3) => void) => (
+    <label className="solver-field">
+      <span className="solver-field-label">{label}</span>
+      <span className="traj-vec">
+        {[0, 1, 2].map((i) => (
+          <input
+            key={i}
+            type="number"
+            step={1}
+            value={v[i]}
+            disabled={generating}
+            onChange={(e) => {
+              const next: Vec3 = [...v];
+              next[i] = Number(e.target.value);
+              onChange(next);
+            }}
+          />
+        ))}
+      </span>
+    </label>
+  );
+
+  const onGenerate = async () => {
+    if (!projectId) return;
+    setGenerating(true);
+    setGenError(null);
+    setGenWarnings([]);
+    const sampling: DatasetSampling = {
+      mode,
+      height_m: heightM,
+      num_samples: numSamples,
+      grid_spacing_m: gridSpacing,
+      seed,
+    };
+    if (mode === "random" || mode === "grid") {
+      sampling.region_min = [regionMinX, regionMinY, 0];
+      sampling.region_max = [regionMaxX, regionMaxY, heightM + 1];
+    } else {
+      sampling.start_m = start;
+      sampling.end_m = end;
+    }
+    const req: DatasetGenerateRequest = {
+      name,
+      config: pathsConfig,
+      sampling,
+      num_cfr_points: cfrPoints,
+      include_paths: includePaths,
+    };
+    try {
+      const info = await api.generateDataset(projectId, req);
+      setDatasets((prev) => [info, ...prev]);
+      setGenWarnings(info.warnings);
+    } catch (err: unknown) {
+      setGenError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const regionMode = mode === "random" || mode === "grid";
+
+  return (
+    <div className="traj-section">
+      <h4>ML dataset</h4>
+      <label className="solver-field">
+        <span className="solver-field-label">Name</span>
+        <span className="solver-field-input">
+          <input
+            type="text"
+            value={name}
+            disabled={generating}
+            onChange={(e) => setName(e.target.value)}
+          />
+        </span>
+      </label>
+      <label className="solver-field">
+        <span className="solver-field-label">Sampling mode</span>
+        <select
+          value={mode}
+          disabled={generating}
+          onChange={(e) => setMode(e.target.value as DatasetSampling["mode"])}
+        >
+          <option value="random">random</option>
+          <option value="grid">grid</option>
+          <option value="trajectory">trajectory</option>
+        </select>
+      </label>
+      {numField("Num samples", numSamples, (v) => setNumSamples(v), { min: 1, max: 20000 })}
+      {numField("CFR points", cfrPoints, (v) => setCfrPoints(v), { min: 2, max: 4096 })}
+      {numField("Height", heightM, (v) => setHeightM(v), { step: 0.1, unit: "m" })}
+
+      {regionMode && (
+        <>
+          <div className="solver-array-grid">
+            <span className="solver-array-label">Region min</span>
+            <span className="traj-vec">
+              <input
+                type="number"
+                step={1}
+                value={regionMinX}
+                disabled={generating}
+                onChange={(e) => setRegionMinX(Number(e.target.value))}
+              />
+              <input
+                type="number"
+                step={1}
+                value={regionMinY}
+                disabled={generating}
+                onChange={(e) => setRegionMinY(Number(e.target.value))}
+              />
+            </span>
+            <span className="solver-array-label">Region max</span>
+            <span className="traj-vec">
+              <input
+                type="number"
+                step={1}
+                value={regionMaxX}
+                disabled={generating}
+                onChange={(e) => setRegionMaxX(Number(e.target.value))}
+              />
+              <input
+                type="number"
+                step={1}
+                value={regionMaxY}
+                disabled={generating}
+                onChange={(e) => setRegionMaxY(Number(e.target.value))}
+              />
+            </span>
+          </div>
+          {mode === "grid" &&
+            numField("Grid spacing", gridSpacing, (v) => setGridSpacing(v), {
+              min: 0.1,
+              step: 0.5,
+              unit: "m",
+            })}
+        </>
+      )}
+
+      {mode === "trajectory" && (
+        <>
+          {vecField("Start", start, setStart)}
+          {vecField("End", end, setEnd)}
+        </>
+      )}
+
+      {numField("Seed", seed, (v) => setSeed(v), { min: 0 })}
+      <label className="solver-check">
+        <input
+          type="checkbox"
+          checked={includePaths}
+          disabled={generating}
+          onChange={(e) => setIncludePaths(e.target.checked)}
+        />
+        Include paths
+      </label>
+
+      <div className="panel-actions">
+        <button
+          className="primary"
+          disabled={!projectId || generating}
+          onClick={() => void onGenerate()}
+        >
+          {generating ? "Generating…" : "Generate dataset"}
+        </button>
+        {generating && <span className="hint">Generating…</span>}
+      </div>
+
+      {genError && <p className="hint">Generate failed: {genError}</p>}
+      {genWarnings.length > 0 && (
+        <div className="ai-note">
+          {genWarnings.map((w, i) => (
+            <div key={i}>{w}</div>
+          ))}
+        </div>
+      )}
+
+      {listError && <p className="hint">Could not load datasets: {listError}</p>}
+      {!listError && datasets.length === 0 && (
+        <p className="hint">No datasets yet.</p>
+      )}
+      {datasets.length > 0 && (
+        <table className="results-table">
+          <thead>
+            <tr>
+              <th>name</th>
+              <th>#</th>
+              <th>created</th>
+              <th>size</th>
+              <th>files</th>
+            </tr>
+          </thead>
+          <tbody>
+            {datasets.map((d) => (
+              <tr key={d.dataset_id}>
+                <td className="mono">{d.name}</td>
+                <td className="mono">{d.num_samples}</td>
+                <td className="mono">{formatCreatedAt(d.created_at)}</td>
+                <td className="mono">{formatBytes(d.size_bytes)}</td>
+                <td>
+                  {["dataset.npz", "metadata.json"]
+                    .filter((f) => d.files.includes(f))
+                    .map((f) => (
+                      <a
+                        key={f}
+                        className="mono"
+                        href={projectId ? api.datasetFileUrl(projectId, d.dataset_id, f) : "#"}
+                        download
+                        style={{ marginRight: 8 }}
+                      >
+                        {f === "dataset.npz" ? "npz" : "json"}
+                      </a>
+                    ))}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
 // ------------------------------------------------------- beamforming card
 
 /** Mode-aware beamforming result card. For codebook_sweep it shows the best
@@ -964,6 +1284,7 @@ export default function ResultExplorer() {
 
         <TrajectorySection />
         <ScenarioSection />
+        <MlDatasetSection />
       </div>
     </>
   );

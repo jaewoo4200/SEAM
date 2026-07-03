@@ -47,12 +47,35 @@ const JET: [number, number, number][] = [
   [128, 0, 0],
 ];
 
-function jet(t: number): [number, number, number] {
-  const x = Math.min(1, Math.max(0, t)) * (JET.length - 1);
+// Additional matplotlib-style colormaps (8 anchors each, linearly
+// interpolated) for radio-map display parity with the Sionna RT GUI's
+// colormap picker. Jet stays the default (AODT convention).
+const VIRIDIS: [number, number, number][] = [
+  [68, 1, 84], [70, 50, 127], [54, 92, 141], [39, 127, 142],
+  [31, 161, 135], [74, 194, 109], [159, 218, 58], [253, 231, 37],
+];
+const PLASMA: [number, number, number][] = [
+  [13, 8, 135], [84, 2, 163], [139, 10, 165], [185, 50, 137],
+  [219, 92, 104], [244, 136, 73], [254, 188, 43], [240, 249, 33],
+];
+const TURBO: [number, number, number][] = [
+  [48, 18, 59], [70, 107, 227], [40, 187, 236], [49, 242, 153],
+  [162, 252, 60], [237, 208, 58], [251, 128, 34], [122, 4, 3],
+];
+const COLORMAPS: Record<RadioMapColormap, [number, number, number][]> = {
+  jet: JET,
+  viridis: VIRIDIS,
+  plasma: PLASMA,
+  turbo: TURBO,
+};
+
+function colormapRgb(name: RadioMapColormap, t: number): [number, number, number] {
+  const stops = COLORMAPS[name] ?? JET;
+  const x = Math.min(1, Math.max(0, t)) * (stops.length - 1);
   const i = Math.floor(x);
   const f = x - i;
-  const a = JET[i];
-  const b = JET[Math.min(i + 1, JET.length - 1)];
+  const a = stops[i];
+  const b = stops[Math.min(i + 1, stops.length - 1)];
   return [
     Math.round(a[0] + (b[0] - a[0]) * f),
     Math.round(a[1] + (b[1] - a[1]) * f),
@@ -60,8 +83,8 @@ function jet(t: number): [number, number, number] {
   ];
 }
 
-export function radioMapCss(t: number): string {
-  const [r, g, b] = jet(t);
+export function radioMapCss(t: number, cmap: RadioMapColormap = "jet"): string {
+  const [r, g, b] = colormapRgb(cmap, t);
   return `rgb(${r}, ${g}, ${b})`;
 }
 
@@ -132,6 +155,8 @@ function GLBScene({ url }: { url: string }) {
   const selection = useAppStore((s) => s.selection);
   const validation = useAppStore((s) => s.validation);
   const selectPrim = useAppStore((s) => s.selectPrim);
+  const showSlice = useAppStore((s) => s.viewport.showSlice);
+  const sliceZ = useAppStore((s) => s.viewport.sliceZ);
 
   // Prims are matched to GLB nodes by mesh_ref.mesh_name; a named node's
   // descendants (multi-primitive meshes) inherit the match.
@@ -192,17 +217,31 @@ function GLBScene({ url }: { url: string }) {
         created.push(overlay);
         mesh.material = overlay;
       }
+      // Horizontal slice plane (RT GUI parity): clips ONLY scene meshes,
+      // keeping everything with z <= sliceZ. Devices/paths/radio map/overlay
+      // are untouched. Applied to whatever material ended up active above.
+      const planes = showSlice
+        ? [new THREE.Plane(new THREE.Vector3(0, 0, -1), sliceZ)]
+        : null;
+      const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+      for (const m of mats) {
+        m.clippingPlanes = planes;
+        m.needsUpdate = true;
+      }
     });
     return () => {
       gltf.scene.traverse((obj) => {
         const mesh = obj as THREE.Mesh;
         if (mesh.isMesh && mesh.userData.__origMat !== undefined) {
           mesh.material = mesh.userData.__origMat as THREE.Material | THREE.Material[];
+          // The cached gltf outlives this mount; never leak clip planes into it.
+          const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+          for (const m of mats) m.clippingPlanes = null;
         }
       });
       for (const m of created) m.dispose();
     };
-  }, [gltf, findPrim, mode, selection, materials, validation]);
+  }, [gltf, findPrim, mode, selection, materials, validation, showSlice, sliceZ]);
 
   return (
     <primitive
@@ -640,12 +679,8 @@ function ScreenshotCapture() {
 
 // -------------------------------------------------------------- radio map
 
-function makeRadioMapTexture(rm: RadioMapResultSet): THREE.CanvasTexture {
-  const { nx, ny } = rm.grid;
-  const canvas = document.createElement("canvas");
-  canvas.width = nx;
-  canvas.height = ny;
-  const ctx = canvas.getContext("2d")!;
+/** Auto (data) dB range of a radio map, for display + legend. */
+export function radioMapRange(rm: RadioMapResultSet): [number, number] {
   let min = Infinity;
   let max = -Infinity;
   for (const row of rm.values) {
@@ -656,6 +691,26 @@ function makeRadioMapTexture(rm: RadioMapResultSet): THREE.CanvasTexture {
       }
     }
   }
+  return Number.isFinite(min) ? [min, max] : [0, 1];
+}
+
+function makeRadioMapTexture(
+  rm: RadioMapResultSet,
+  cmap: RadioMapColormap,
+  vmin: number | null,
+  vmax: number | null,
+): THREE.CanvasTexture {
+  const { nx, ny } = rm.grid;
+  const canvas = document.createElement("canvas");
+  canvas.width = nx;
+  canvas.height = ny;
+  const ctx = canvas.getContext("2d")!;
+  const [autoMin, autoMax] = radioMapRange(rm);
+  // Manual vmin/vmax (Sionna RT GUI parity) override the data range; values
+  // outside clamp to the ends. Kept ordered defensively.
+  let min = vmin ?? autoMin;
+  let max = vmax ?? autoMax;
+  if (min > max) [min, max] = [max, min];
   const span = max > min ? max - min : 1;
   for (let iy = 0; iy < ny; iy++) {
     const row = rm.values[iy] ?? [];
@@ -663,8 +718,7 @@ function makeRadioMapTexture(rm: RadioMapResultSet): THREE.CanvasTexture {
       const v = row[ix];
       if (v === null || v === undefined) continue;
       const t = (v - min) / span;
-      // Jet: the AODT-like radio-map colormap (low blue -> high red).
-      ctx.fillStyle = radioMapCss(t);
+      ctx.fillStyle = radioMapCss(t, cmap);
       // Canvas rows grow downward; world +Y is row iy, so flip vertically.
       ctx.fillRect(ix, ny - 1 - iy, 1, 1);
     }
@@ -678,7 +732,11 @@ function makeRadioMapTexture(rm: RadioMapResultSet): THREE.CanvasTexture {
 }
 
 function RadioMapPlane({ radioMap }: { radioMap: RadioMapResultSet }) {
-  const texture = useMemo(() => makeRadioMapTexture(radioMap), [radioMap]);
+  const viewport = useAppStore((s) => s.viewport);
+  const texture = useMemo(
+    () => makeRadioMapTexture(radioMap, viewport.rmColormap, viewport.rmVmin, viewport.rmVmax),
+    [radioMap, viewport.rmColormap, viewport.rmVmin, viewport.rmVmax],
+  );
   useEffect(() => () => texture.dispose(), [texture]);
 
   const { grid } = radioMap;
@@ -779,6 +837,123 @@ function OverlayBackdrop({ url }: { url: string }) {
   );
 }
 
+// --------------------------------------------------------------- hotkeys
+
+/** Viewer keyboard shortcuts (Sionna RT GUI parity):
+ *  R reset camera · F fit scene · K add TX at cursor · L add RX at cursor
+ *  (placed at the surface hit + 1.5 m along its normal) · S slice plane ·
+ *  M radio-map overlay. Ignored while typing in form fields. */
+function ViewerHotkeys() {
+  const camera = useThree((s) => s.camera);
+  const gl = useThree((s) => s.gl);
+  const three = useThree((s) => s.scene);
+  const controls = useThree((s) => s.controls) as { target?: THREE.Vector3; update?: () => void } | null;
+  const addDevice = useAppStore((s) => s.addDevice);
+  const setViewport = useAppStore((s) => s.setViewport);
+  const setShowRadioMap = useAppStore((s) => s.setShowRadioMap);
+  const pointer = useRef<{ x: number; y: number } | null>(null);
+
+  // Local clipping must be on for the slice plane to work at all.
+  useEffect(() => {
+    gl.localClippingEnabled = true;
+  }, [gl]);
+
+  useEffect(() => {
+    const canvas = gl.domElement;
+    const onMove = (e: PointerEvent) => {
+      const r = canvas.getBoundingClientRect();
+      pointer.current = {
+        x: ((e.clientX - r.left) / r.width) * 2 - 1,
+        y: -((e.clientY - r.top) / r.height) * 2 + 1,
+      };
+    };
+    canvas.addEventListener("pointermove", onMove);
+
+    const placeDevice = (kind: "tx" | "rx") => {
+      if (!pointer.current) return;
+      const ray = new THREE.Raycaster();
+      ray.setFromCamera(new THREE.Vector2(pointer.current.x, pointer.current.y), camera);
+      const hits = ray
+        .intersectObjects(three.children, true)
+        .filter((h) => (h.object as THREE.Mesh).isMesh && h.object.visible);
+      let pos: THREE.Vector3 | null = null;
+      const hit = hits[0];
+      if (hit) {
+        pos = hit.point.clone();
+        if (hit.face) {
+          // +1.5 m along the surface normal, like the RT GUI's placement.
+          const n = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
+          pos.addScaledVector(n, 1.5);
+        } else {
+          pos.z += 1.5;
+        }
+      } else {
+        // No geometry under the cursor: drop onto the z=0 ground plane.
+        const t = new THREE.Vector3();
+        if (ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 0, 1), 0), t)) {
+          pos = t.setZ(1.5);
+        }
+      }
+      if (pos) void addDevice(kind, [pos.x, pos.y, pos.z]);
+    };
+
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable)) {
+        return;
+      }
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const { viewport, showRadioMap } = useAppStore.getState();
+      switch (e.key.toLowerCase()) {
+        case "r":
+          camera.position.set(35, -35, 25);
+          controls?.target?.set(0, 0, 0);
+          controls?.update?.();
+          break;
+        case "f": {
+          const box = new THREE.Box3();
+          three.traverse((obj) => {
+            const mesh = obj as THREE.Mesh;
+            if (mesh.isMesh && mesh.visible) box.expandByObject(mesh);
+          });
+          if (box.isEmpty()) return;
+          const center = box.getCenter(new THREE.Vector3());
+          const radius = box.getSize(new THREE.Vector3()).length() / 2;
+          const persp = camera as THREE.PerspectiveCamera;
+          const dist = (radius / Math.tan(((persp.fov ?? 45) * Math.PI) / 360)) * 1.15;
+          const dir = camera.position.clone().sub(controls?.target ?? center).normalize();
+          camera.position.copy(center.clone().addScaledVector(dir, dist));
+          controls?.target?.copy(center);
+          controls?.update?.();
+          break;
+        }
+        case "k":
+          placeDevice("tx");
+          break;
+        case "l":
+          placeDevice("rx");
+          break;
+        case "s":
+          setViewport({ showSlice: !viewport.showSlice });
+          break;
+        case "m":
+          setShowRadioMap(!showRadioMap);
+          break;
+        default:
+          return;
+      }
+      e.preventDefault();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      canvas.removeEventListener("pointermove", onMove);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [gl, camera, three, controls, addDevice, setViewport, setShowRadioMap]);
+
+  return null;
+}
+
 // ------------------------------------------------------------------ main
 
 export default function Viewer3D() {
@@ -849,6 +1024,7 @@ export default function Viewer3D() {
         )}
         {viewport.showAxes && <axesHelper args={[4]} />}
         <ScreenshotCapture />
+        <ViewerHotkeys />
         {overlayUrl && <OverlayBackdrop url={overlayUrl} />}
         <Suspense
           fallback={
@@ -905,20 +1081,18 @@ export default function Viewer3D() {
   );
 }
 
-/** Jet colorbar for the radio-map overlay, matching the AODT convention. */
+/** Colorbar for the radio-map overlay (colormap + range follow the viewport
+ *  display settings so the legend always matches the rendered texture). */
 function RadioMapLegend({ radioMap }: { radioMap: RadioMapResultSet }) {
-  let min = Infinity;
-  let max = -Infinity;
-  for (const row of radioMap.values) {
-    for (const v of row) {
-      if (v !== null) {
-        if (v < min) min = v;
-        if (v > max) max = v;
-      }
-    }
-  }
+  const viewport = useAppStore((s) => s.viewport);
+  const [autoMin, autoMax] = radioMapRange(radioMap);
+  let min = viewport.rmVmin ?? autoMin;
+  let max = viewport.rmVmax ?? autoMax;
+  if (min > max) [min, max] = [max, min];
   if (!Number.isFinite(min)) return null;
-  const stops = Array.from({ length: 11 }, (_, i) => radioMapCss(i / 10)).join(", ");
+  const stops = Array.from({ length: 11 }, (_, i) =>
+    radioMapCss(i / 10, viewport.rmColormap),
+  ).join(", ");
   const unit = radioMap.metric === "rss_dbm" ? "dBm" : "dB";
   const label = radioMap.metric === "rss_dbm" ? "RSS" : "Path gain";
   return (

@@ -139,6 +139,8 @@ interface AppState {
   /** When ON, the AI suggest-materials request *would* attach the viewport;
    *  currently blocked by the StrictModel contract (see reported gap). */
   sendScreenshot: boolean;
+  // Forced AI provider for suggestions; null = server picks the best available.
+  aiProvider: string | null;
 
   busy: string | null;
   error: string | null;
@@ -191,7 +193,7 @@ interface AppState {
 
   // device editing
   updateDevice: (deviceId: string, patch: Partial<Device>) => Promise<void>;
-  addDevice: (kind: "tx" | "rx") => Promise<void>;
+  addDevice: (kind: "tx" | "rx", position?: Vec3) => Promise<void>;
   deleteDevice: (deviceId: string) => Promise<void>;
   clearDevices: () => Promise<void>;
 
@@ -239,6 +241,7 @@ interface AppState {
   // live sync + AI screenshot groundwork
   setLiveMode: (on: boolean) => void;
   setSendScreenshot: (on: boolean) => void;
+  setAiProvider: (name: string | null) => void;
   /** Viewer3D registers a canvas snapshot fn here; store calls it on demand. */
   registerViewportCapture: (fn: (() => string | null) | null) => void;
   captureViewport: () => string | null;
@@ -582,6 +585,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     liveMode: false,
     lastViewportShot: null,
     sendScreenshot: false,
+    aiProvider: null,
 
     busy: null,
     error: null,
@@ -878,10 +882,12 @@ export const useAppStore = create<AppState>()((set, get) => {
       });
     },
 
+    setAiProvider: (name) => set({ aiProvider: name }),
+
     suggestMaterials: async () => {
       const pid = get().projectId;
       if (!pid) return;
-      const { selection, sendScreenshot } = get();
+      const { selection, sendScreenshot, aiProvider } = get();
       // VLM: when the user opts in, capture the viewport as a downscaled JPEG
       // and attach it to the request. The pinned SuggestMaterialsRequest now
       // carries screenshot_data_url, so the VLM provider can see the scene.
@@ -889,6 +895,8 @@ export const useAppStore = create<AppState>()((set, get) => {
       await run("Requesting RF material suggestions…", async () => {
         const resp = await api.suggestMaterials(pid, {
           prim_ids: selection.length > 0 ? selection : null,
+          // null = server picks the best available provider.
+          provider: aiProvider,
           screenshot_data_url: shot,
         });
         set({ suggestions: resp, decisions: {} });
@@ -1049,7 +1057,7 @@ export const useAppStore = create<AppState>()((set, get) => {
       afterSceneEdit();
     },
 
-    addDevice: async (kind) => {
+    addDevice: async (kind, position) => {
       const scene = get().scene;
       if (!scene) return;
       const id = nextDeviceId(kind);
@@ -1058,7 +1066,9 @@ export const useAppStore = create<AppState>()((set, get) => {
         id,
         name: isTx ? "Transmitter" : "Receiver",
         kind,
-        position: isTx ? [0, 0, 10] : [10, 0, 1.5],
+        // Explicit position (K/L hotkey placement at the surface hit, Sionna
+        // RT GUI convention) wins over the kind defaults.
+        position: position ?? (isTx ? [0, 0, 10] : [10, 0, 1.5]),
         orientation_deg: [0, 0, 0],
         power_dbm: 30,
         antenna: {

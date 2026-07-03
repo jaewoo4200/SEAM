@@ -984,6 +984,17 @@ h4 {
 .provider-row .provider-name {
   color: var(--text);
 }
+.provider-pickable {
+  cursor: pointer;
+}
+.provider-pickable input[type="radio"] {
+  accent-color: var(--accent);
+  margin: 0;
+}
+.provider-off {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
 
 .ai-note {
   background: rgba(255, 183, 77, 0.12);

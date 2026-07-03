@@ -57,8 +57,8 @@ def _planar_array(rt, antenna: dict, warnings: list) -> object:
     return rt.PlanarArray(
         num_rows=int(antenna.get("num_rows") or 1),
         num_cols=int(antenna.get("num_cols") or 1),
-        vertical_spacing=0.5,
-        horizontal_spacing=0.5,
+        vertical_spacing=float(antenna.get("vertical_spacing") or 0.5),
+        horizontal_spacing=float(antenna.get("horizontal_spacing") or 0.5),
         pattern=pattern,
         polarization=pol,
     )

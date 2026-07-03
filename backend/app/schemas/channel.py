@@ -30,7 +30,9 @@ class CirTap(StrictModel):
 
 
 class PathLossModelResult(StrictModel):
-    model: PathLossModelName
+    # Builtin names are PathLossModelName values; plugin-registered models
+    # (docs/extending.md) contribute their own names, so the field is open.
+    model: str
     path_loss_db: Optional[float] = None
     # Difference vs the ray-traced path loss (model - RT), when both exist.
     delta_vs_rt_db: Optional[float] = None

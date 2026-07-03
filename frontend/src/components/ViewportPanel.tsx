@@ -8,7 +8,8 @@
  */
 
 import { useAppStore } from "../store/appStore";
-import type { ViewportSettings } from "../viewportSettings";
+import type { RadioMapColormap, ViewportSettings } from "../viewportSettings";
+import { RADIO_MAP_COLORMAPS } from "../viewportSettings";
 
 /** Labeled slider bound to a numeric viewport field. */
 function Slider({
@@ -175,6 +176,60 @@ export default function ViewportPanel({ onClose }: { onClose: () => void }) {
           disabled={!hasOverlay}
           onChange={(v) => patch({ showOverlay: v })}
         />
+        <Toggle
+          label="Slice plane (S)"
+          checked={viewport.showSlice}
+          onChange={(v) => patch({ showSlice: v })}
+        />
+        {viewport.showSlice && (
+          <Slider
+            label="Slice Z (m)"
+            value={viewport.sliceZ}
+            min={-5}
+            max={100}
+            step={0.5}
+            onChange={(v) => patch({ sliceZ: v })}
+          />
+        )}
+
+        <div className="vp-section-title">Radio map</div>
+        <label className="vp-color">
+          <span>Colormap</span>
+          <select
+            value={viewport.rmColormap}
+            onChange={(e) => patch({ rmColormap: e.target.value as RadioMapColormap })}
+          >
+            {RADIO_MAP_COLORMAPS.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="vp-color">
+          <span>vmin (dB)</span>
+          <input
+            type="number"
+            step={5}
+            placeholder="auto"
+            value={viewport.rmVmin ?? ""}
+            onChange={(e) =>
+              patch({ rmVmin: e.target.value === "" ? null : Number(e.target.value) })
+            }
+          />
+        </label>
+        <label className="vp-color">
+          <span>vmax (dB)</span>
+          <input
+            type="number"
+            step={5}
+            placeholder="auto"
+            value={viewport.rmVmax ?? ""}
+            onChange={(e) =>
+              patch({ rmVmax: e.target.value === "" ? null : Number(e.target.value) })
+            }
+          />
+        </label>
 
         <div className="viewport-panel-actions">
           <button onClick={() => resetViewport()} title="Restore default lighting & display">

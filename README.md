@@ -1,21 +1,122 @@
 # SionnaTwin Studio
 
-A local-first, AI-assisted, RF-aware wireless digital twin authoring and
-visualization workbench built around [Sionna RT](https://github.com/NVlabs/sionna-rt).
+**Sionna RT 기반 로컬 디지털 트윈 워크벤치** — 하나의 텍스처 3D 씬에서 모든
+메시 프림이 **두 개의 재질 바인딩**(렌더링용 visual/PBR + 전자기 시뮬레이션용
+RF)을 동시에 지니고, 캐노니컬 씬을 Sionna 호환 RF 프로젝션으로 컴파일해 레이
+경로·라디오맵 결과를 다시 같은 씬 위에 시각화합니다.
 
-One unified textured 3D scene for the user; internally, every mesh prim
-carries **two material bindings** — a visual/PBR material for rendering and an
-RF material for electromagnetic simulation. The canonical scene compiles into
-a Sionna-compatible RF projection, and ray-path / radio-map results are
-visualized back onto the same scene. Everything runs on consumer hardware:
-no GPU, no Sionna install, and no LLM required (all three are optional
-upgrades, never dependencies).
+GPU도, Sionna 설치도, LLM도 **필수가 아닙니다** — 세 가지 모두 선택적 업그레이드일
+뿐, 기본 **Mock 백엔드는 CPU만으로 항상 동작**합니다.
 
 ```text
 Unified RF-Visual Scene Graph          (scene.sionnatwin.json - source of truth)
   ├─ Visual Projection  →  GLB / textures / Three.js viewer
   └─ RF Projection      →  PLY material groups + Mitsuba XML → Sionna RT
 ```
+
+---
+
+## Quickstart (3 commands)
+
+**Windows (PowerShell):**
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\install.ps1   # 1. 설치 + 데모 생성
+powershell -ExecutionPolicy Bypass -File scripts\start.ps1     # 2. 백엔드+프론트 실행
+# 3. 브라우저에서 http://localhost:5173 열기 (KAIST Demo 자동 로드)
+```
+
+**Linux / macOS:**
+
+```bash
+bash scripts/install.sh   # 1. 설치 + 데모 생성
+bash scripts/start.sh     # 2. 백엔드+프론트 실행
+# 3. 브라우저에서 http://localhost:5173 열기 (KAIST Demo 자동 로드)
+```
+
+수동 설치·엔진 옵션·문제 해결은 **[INSTALL.md](INSTALL.md)**, 첫 15분 실습은
+**[TUTORIAL.md](TUTORIAL.md)** 를 보세요.
+
+---
+
+## RT GUI 대비 차별점
+
+공식 NVlabs `sionna-rt-gui`(Polyscope 데스크톱 앱)는 씬을 로드하고 TX/RX를
+배치·애니메이션하며 경로 + 래스터 라디오맵을 보여주지만, **메시 라디오맵·빔포밍·
+재질 편집은 명시적으로 지원하지 않습니다.** SionnaTwin Studio는 같은 Sionna RT
+엔진 위에 다음을 더합니다.
+
+| 기능 | `sionna-rt-gui` (공식) | SionnaTwin Studio |
+|---|:---:|:---:|
+| 경로 + 래스터 라디오맵 | ✅ | ✅ |
+| 통합 RF-Visual 씬 그래프 (**이중 재질 바인딩**) | ❌ | ✅ |
+| RF 재질 **지정 + 검증 + AI/규칙 제안** | ❌ | ✅ |
+| **Mock 백엔드** (GPU/Sionna 없이 동작) | ❌ | ✅ |
+| **MIMO 빔포밍** 이득 (코드북 스윕 / TX-MRT / SVD) | ❌ | ✅ |
+| **채널 분석** (링크버짓, CIR/CFR, PL 모델 vs RT) | ❌ | ✅ |
+| **궤적 RF 지표** (RSS / path gain / RMS delay) | ❌ | ✅ |
+| **RFData 내보내기** (AODT 뷰어 컨트랙트) | ❌ | ✅ |
+| **ML 데이터셋** 생성 (npz + metadata) | ❌ | ✅ |
+| **Sionna 엔진 버전 교체** (별도 venv) | ❌ | ✅ |
+| 웹 UI (브라우저) | ❌ (데스크톱) | ✅ |
+| 인뷰어 디바이스-궤적 재생 / 이동 기즈모 | ✅ | 🚧 로드맵 |
+
+---
+
+## Feature highlights
+
+- **하나의 씬, 두 개의 재질.** 프림의 `visual`/`rf` 블록은 프림에서만 만나는
+  별개 객체입니다. 텍스처 파일명은 RF 진실이 아니며, AI/규칙은 이를 *증거*로만
+  인용하고, 지정은 provenance를 지닌 채 진화합니다:
+  `unassigned → rule_suggested / ai_suggested → user_confirmed → measurement_calibrated`.
+- **다섯 가지 모드 UI** — Visual / RF Materials / Validation / AI Assist /
+  Results. 오브젝트를 클릭하면 시각/RF 재질·지정 소스·검증 경고·결과 오버레이가
+  모두 같은 오브젝트에 묶여 표시됩니다.
+- **결정론적 Mock 백엔드** — GPU/Sionna 없이 Friis + 이미지법 반사로 예제
+  경로/라디오맵을 계산. 프론트엔드·테스트가 하드웨어 없이 돌아갑니다.
+- **실제 Sionna RT 경로** — `sionna-rt`(검증 2.0.x) 설치 시 컴파일된
+  `generated_scene.xml`이 그대로 로드되어 GPU(Dr.Jit CUDA) 또는 CPU(LLVM)에서
+  경로/라디오맵을 계산하고, 같은 스키마로 정규화됩니다.
+- **AODT 정렬** — 28 GHz 기본 + ITU-R P.2040 재질 세트(+`human_body`), AODT 스타일
+  다크 뷰어(LOS 시안 / 반사 마젠타 / 회절 주황), RFData 내보내기 컨트랙트.
+- **선택적 로컬 AI** — 강제 제공자 → Ollama → 규칙 기반 폴백 체인. 엄격한 JSON
+  스키마 검증, 제안은 절대 자동 적용되지 않고 provenance가 남습니다.
+
+전체 데모 흐름은 [TUTORIAL.md](TUTORIAL.md) 참조.
+
+---
+
+## Docs index
+
+| 문서 | 내용 |
+|---|---|
+| [INSTALL.md](INSTALL.md) | 사전 요구사항, 설치(스크립트/수동), 엔진·LLM 옵션, 문제 해결 |
+| [TUTORIAL.md](TUTORIAL.md) | 15분 첫 세션 실습 (씬 → 재질 → 시뮬 → 데이터셋) |
+| [docs/architecture.md](docs/architecture.md) | 통합 씬 그래프와 이중 프로젝션 아키텍처 |
+| [docs/scene_format.md](docs/scene_format.md) | 씬·프로젝트 폴더 포맷과 스키마 |
+| [docs/rf_materials.md](docs/rf_materials.md) | RF 재질 라이브러리와 모델 |
+| [docs/ai_assistant.md](docs/ai_assistant.md) | AI 제안 제공자, 규칙, provenance |
+| [docs/engines.md](docs/engines.md) | Sionna 엔진 버전 교체(별도 venv, `engines.json`) |
+| [docs/sionna_versions.md](docs/sionna_versions.md) | Sionna 버전별 기능·재질·모델 변천사(검증 문헌) |
+| [docs/accuracy.md](docs/accuracy.md) | RT-측정 오차와 완화책 |
+| [docs/roadmap.md](docs/roadmap.md) | MVP 이후 로드맵과 확장 포인트 |
+| [docs/research_ideas.md](docs/research_ideas.md) | 논문화 가능한 연구 방향 |
+| [HANDOFF.md](HANDOFF.md) | 이 구현이 따르는 운영 명세 |
+
+---
+
+## Architecture (one-liner)
+
+Pydantic v2 스키마의 캐노니컬 씬(`scene.sionnatwin.json`)을 진실의 원천으로 삼아,
+FastAPI 백엔드가 이를 Visual(GLB) / RF(Mitsuba XML + PLY 그룹) 두 프로젝션으로
+컴파일하고, React + react-three-fiber 프론트엔드가 snake_case 와이어 포맷을
+그대로 미러링하며 결과를 같은 Z-up ENU 미터 좌표계 씬 위에 되돌려 그립니다.
+
+**스택:** 백엔드 Python 3.11+ / FastAPI / Pydantic v2 / NumPy / trimesh,
+프론트엔드 React + Vite + TypeScript + react-three-fiber + Zustand, 선택적
+`sionna-rt`(Dr.Jit/Mitsuba 3) 백엔드.
+
+---
 
 ## Repository layout
 
@@ -24,182 +125,27 @@ backend/    FastAPI app: schemas (Pydantic v2), project store, scene validator,
             RF material assignment, RF projection compiler (trimesh),
             simulation backends (Mock + optional Sionna RT), AI providers
 frontend/   React + Vite + TypeScript + react-three-fiber workbench
-examples/   kaist_demo.sionnatwin demo project + generator script
-docs/       architecture, scene format, RF materials, AI assistant, roadmap
+examples/   demo project generators (kaist_demo, lab_room import)
+scripts/    install / start scripts (PowerShell + bash)
+docs/       architecture, scene format, RF materials, AI, engines, accuracy, roadmap
 HANDOFF.md  operating specification this implementation follows
 ```
 
-## Requirements
-
-- Python 3.11+ (backend)
-- Node.js 20+ (frontend dev/build)
-- Optional: [Ollama](https://ollama.com) for local LLM material suggestions
-- Optional: `sionna-rt` for real ray tracing (the Mock backend always works).
-  Sionna RT runs on Dr.Jit's CUDA backend (NVIDIA GPU) or LLVM backend (CPU);
-  at least one must be available or the backend degrades to a warning.
-
-## Setup
-
-```bash
-# Backend
-python -m venv backend/.venv
-backend/.venv/Scripts/pip install -e "backend[dev]"    # Windows
-# backend/.venv/bin/pip install -e "backend[dev]"      # Linux/macOS
-
-# Optional: real ray tracing (pulls mitsuba + drjit; ~200 MB)
-backend/.venv/Scripts/pip install "sionna-rt>=2.0"
-
-# Frontend
-cd frontend && npm install
-```
-
-## Run
-
-```bash
-# Terminal 1 - backend on :8000
-uvicorn --app-dir backend app.main:app --port 8000
-
-# Terminal 2 - frontend on :5173 (proxies /api to the backend)
-cd frontend && npm run dev
-```
-
-Open http://localhost:5173. The **KAIST Demo** project loads automatically.
-
-## Demo flow (the MVP vertical slice)
-
-1. **Visual mode** — orbit the textured campus scene; click objects in the
-   viewer or the scene tree. The inspector shows the visual material and the
-   RF material side by side (`window_01` → visual `blue_glass_pbr`, RF
-   `unassigned`).
-2. **AI Assist mode** — click *Suggest RF materials*. With no Ollama server
-   the rule-based provider answers (`window_01 → itu_glass`, confidence 0.9,
-   evidence listed). Approve/reject/edit, then *Apply decisions* — nothing is
-   ever applied without your explicit action, and every decision is logged to
-   `ai/suggestions.jsonl` with provider/model/prompt provenance.
-3. **RF Materials mode** — color overlay by RF material; unassigned objects
-   glow orange. Batch-assign walls to `itu_concrete`/`itu_brick` from the
-   material panel. Assignments persist into the project folder with status
-   (`user_confirmed`) and sources.
-4. **Validation mode** — run validation: missing RF materials, visual/RF
-   contradictions (glass named prim assigned concrete), missing thickness on
-   transmissive materials, broken mesh refs, and more.
-5. **Compile RF** — groups geometry by RF material (Mode 2), exports
-   world-space PLY submeshes to `rf/meshes/`, and generates
-   `rf/generated_scene.xml` (Mitsuba 3 XML whose `mat-*` bsdf ids resolve to
-   Sionna built-in RadioMaterials) plus `rf/compile_manifest.json` for custom
-   constant materials. Deterministic: recompiling an unchanged scene is
-   byte-identical.
-6. **Results mode** — *Simulate paths* runs the Mock backend (deterministic
-   Friis + image-method bounces; no GPU/Sionna needed). Ray polylines overlay
-   the 3D scene; the table shows type/power/delay; clicking a path shows its
-   vertices and interactions mapped back to canonical prim ids and RF
-   materials, plus a delay/power chart.
+---
 
 ## Testing
 
 ```bash
-cd backend && .venv/Scripts/python -m pytest tests -q   # 77 tests
-cd frontend && npm run build                            # type-checks + builds
+backend/.venv/bin/python -m pytest backend/tests -q   # 백엔드 단위 테스트
+cd frontend && npm run build                          # 타입체크 + 빌드
 ```
 
-Regenerate the demo project (reproducible output):
+(Windows: `backend\.venv\Scripts\python.exe -m pytest backend\tests -q`)
 
-```bash
-backend/.venv/Scripts/python examples/scripts/create_demo_project.py
-```
+---
 
-## Key design decisions
+## License / Credits
 
-- **Dual bindings, one scene.** A prim's `visual` and `rf` blocks are separate
-  objects that only meet at the prim. A texture filename is never RF truth —
-  AI/rules may cite it as *evidence*, and the assignment then carries
-  provenance: `unassigned → rule_suggested / ai_suggested → user_confirmed →
-  measurement_calibrated`.
-- **snake_case JSON end-to-end**; TypeScript types mirror the wire format
-  exactly (`frontend/src/types/api.ts` ↔ `backend/app/schemas/`).
-- **Z-up ENU meters everywhere** — scene JSON, GLB vertex data (world
-  transforms baked), ray vertices. The viewer sets the camera up-axis instead
-  of rotating the model.
-- **Stable ids.** Prim ids are path-like (`/buildings/b01/walls`); device ids
-  are short (`tx_001`); results always reference canonical prim ids.
-- **Backend interface** (`RayTracingBackend`): `mock` is always available;
-  `sionna` lazy-imports and degrades to warnings on any failure; `auto`
-  resolves to Sionna when installed, else the mock. AODT result import or
-  remote solvers slot in behind the same normalized result schemas.
-- **Real Sionna RT path.** With `sionna-rt` installed, the compiled
-  `generated_scene.xml` loads directly into Sionna RT 2.x: ITU materials
-  resolve from the `mat-itu_*` bsdf ids and custom (constant) materials from
-  the `radio-material` bsdf plugin. Path and radio-map results are computed on
-  GPU (Dr.Jit CUDA) or CPU (Dr.Jit LLVM) and normalized into the same schema
-  as the mock, with ray interactions mapped back to canonical RF materials
-  (and to a prim when its material group is a single prim).
-- **AI provider chain**: forced provider → Ollama text (if reachable) →
-  rule-based fallback. Strict JSON schema validation; unparseable output falls
-  back with a warning. `SIONNATWIN_AI_ENABLED=off` gives manual-only mode.
-
-Configuration is environment-driven (`SIONNATWIN_PROJECT_ROOTS`,
-`SIONNATWIN_OLLAMA_URL`, `SIONNATWIN_AI_TEXT_MODEL`, ...) — see
-`backend/app/core/config.py` and `docs/ai_assistant.md`.
-
-## FTC / AODT alignment
-
-Aligned with the `sionna-rt-gui-jaewoo-examples/` reference bundle (a 28 GHz
-FTC/lab-room ISAC digital twin):
-
-- **AODT-style viewer** — dark scene, LOS cyan / reflection magenta /
-  diffraction orange paths, TX red / UE blue markers, jet radio map, scale-
-  aware markers.
-- **28 GHz default** with the full **ITU-R P.2040** material set plus a
-  `human_body` material (literature presets) for sensing targets.
-- **RFData export** (`Export RFData`) writes the AODT viewer contract
-  (`scenario_meta / devices / paths / trajectory.csv / radio_map.csv /
-  calibration_points`) under `export/rfdata/`.
-- **Trajectory metrics** — move an RX along waypoints and get per-point
-  RSS / path gain / RMS delay spread (`POST /simulate/trajectory`).
-- **Scene import** — `examples/scripts/import_bundle_scene.py` turns the
-  bundle's Sionna/Mitsuba XML scenes into loadable projects (ships `lab_room`).
-- **MIMO beamforming** (`Beamforming`) — real TX-MRT + both-ends SVD gain from
-  the Sionna channel (~12 dB / ~24 dB at 4x4), matching the handoff numbers.
-
-Full ISAC target tracking (PADP/DBSCAN/Kalman) and CV material split
-(SAM2/DINOv2) are scoped in `docs/roadmap.md` — the RF/export integration
-points exist; the DSP and ML-model inference are external/future.
-
-**Research directions.** Paper-worthy directions grounded in these features
-(CV→RF fidelity evaluation, provenance-tracked material lifecycle, interactive
-material sensitivity, Monte-Carlo uncertainty overlays, differentiable
-calibration, and more) are collected in `docs/research_ideas.md`, with an
-engineering shortlist under "Novel features backlog" in `docs/roadmap.md`.
-
-### vs. the official NVlabs `sionna-rt-gui`
-
-The official tool (Polyscope desktop app) loads a scene, places/animates TX/RX,
-and shows paths + a raster radio map; it explicitly does **not** support
-mesh radio maps, beamforming, or material editing. SionnaTwin Studio adds, on
-top of the same Sionna RT engine: a unified RF-visual scene graph with **dual
-material bindings**, RF material **assignment + validation + AI/rule
-suggestions**, a **mock backend** (runs with no GPU/Sionna), **MIMO
-beamforming** gain, the **RFData export** contract, **trajectory RF metrics**,
-**measurement calibration**, and a web UI. The main things their GUI has that
-we don't yet: in-viewer **device-trajectory playback** and an interactive
-**move-device gizmo** — both tracked in `docs/roadmap.md`.
-
-### Accuracy
-
-RT-vs-measurement error and the mitigations we implement (measurement
-calibration, diffuse-scattering coefficients, out-of-band guardrail) plus the
-planned differentiable calibration are documented in `docs/accuracy.md`.
-
-## Current limitations (MVP)
-
-- Face-group splitting (Mode 2 sub-mesh granularity) and simplified RF proxy
-  meshes (Mode 3) are not implemented; whole named meshes are the unit.
-- Per-prim RF parameter overrides are not yet representable in the grouped
-  RF export (a compile warning says so).
-- The Sionna backend maps ray interactions to RF materials, but a specific
-  prim only when its material group holds one prim (Mode 2 merges geometry by
-  material). Finer interaction→prim mapping waits on face-group splitting.
-- Results persist as JSON (Parquet/Zarr layouts are schema-ready, per
-  `docs/roadmap.md`); radio-map visualization in the viewer is basic.
-- Measurement calibration, mobility, mesh radio maps, and progressive
-  refinement are roadmap items (`docs/roadmap.md`).
+라이선스는 추후 명시 예정입니다(placeholder). [Sionna RT](https://github.com/NVlabs/sionna-rt)
+(NVlabs) 위에 구축되었으며, AODT 뷰어 정렬은 `sionna-rt-gui-jaewoo-examples/`
+참조 번들(28 GHz FTC/랩룸 ISAC 디지털 트윈)을 따릅니다.

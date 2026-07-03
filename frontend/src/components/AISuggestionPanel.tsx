@@ -107,6 +107,8 @@ export default function AISuggestionPanel() {
   const suggestions = useAppStore((s) => s.suggestions);
   const decisions = useAppStore((s) => s.decisions);
   const suggestMaterials = useAppStore((s) => s.suggestMaterials);
+  const aiProvider = useAppStore((s) => s.aiProvider);
+  const setAiProvider = useAppStore((s) => s.setAiProvider);
   const applyDecisions = useAppStore((s) => s.applyDecisions);
   const projectId = useAppStore((s) => s.projectId);
   const busy = useAppStore((s) => s.busy);
@@ -120,13 +122,33 @@ export default function AISuggestionPanel() {
 
       <h4>Providers</h4>
       {providers.length === 0 && <div className="hint">No provider status available.</div>}
+      <label className="provider-row provider-pickable">
+        <input
+          type="radio"
+          name="ai-provider"
+          checked={aiProvider === null}
+          onChange={() => setAiProvider(null)}
+        />
+        <span className="provider-name">auto (best available)</span>
+      </label>
       {providers.map((p) => (
-        <div key={p.name} className="provider-row">
+        <label
+          key={p.name}
+          className={"provider-row provider-pickable" + (p.available ? "" : " provider-off")}
+          title={p.available ? "Use this provider for suggestions" : p.detail || "unavailable"}
+        >
+          <input
+            type="radio"
+            name="ai-provider"
+            disabled={!p.available}
+            checked={aiProvider === p.name}
+            onChange={() => setAiProvider(p.name)}
+          />
           <span className="dot" style={{ background: p.available ? "#66bb6a" : "#78909c" }} />
           <span className="provider-name">{p.name}</span>
           {p.model && <span className="mono">{p.model}</span>}
           {p.detail && <span title={p.detail}>· {p.detail}</span>}
-        </div>
+        </label>
       ))}
 
       <div className="panel-actions">
