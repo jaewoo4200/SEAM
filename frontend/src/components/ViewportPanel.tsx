@@ -176,6 +176,14 @@ export default function ViewportPanel({ onClose }: { onClose: () => void }) {
           disabled={!hasOverlay}
           onChange={(v) => patch({ showOverlay: v })}
         />
+        <Slider
+          label="Marker size"
+          value={viewport.markerScale}
+          min={0.5}
+          max={5}
+          step={0.1}
+          onChange={(v) => patch({ markerScale: v })}
+        />
         <Toggle
           label="Slice plane (S)"
           checked={viewport.showSlice}

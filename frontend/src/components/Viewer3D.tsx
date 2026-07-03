@@ -335,7 +335,11 @@ export function envScale(env: ResolvedEnvironment): number {
 
 /** Marker radius scaled to scene size AND environment: small indoor rooms
  *  need ~0.08 m markers, outdoor campuses ~0.5 m. */
-function deviceMarkerRadius(scene: Scene, env: ResolvedEnvironment = "outdoor"): number {
+function deviceMarkerRadius(
+  scene: Scene,
+  env: ResolvedEnvironment = "outdoor",
+  markerScale = 1.0,
+): number {
   const pos = scene.devices.map((d) => d.position);
   const base = (() => {
     if (pos.length < 1) return 0.5;
@@ -346,40 +350,66 @@ function deviceMarkerRadius(scene: Scene, env: ResolvedEnvironment = "outdoor"):
     }
     return Math.min(0.6, Math.max(0.08, maxSpan * 0.02));
   })();
-  return Math.max(0.06, base * envScale(env));
+  return Math.max(0.06, base * envScale(env) * markerScale);
 }
 
-/** X/Y/Z translate gizmo attached to the currently selected marker group.
- *  Root-cause fix for the earlier "all input dead" regression: committing a
- *  move refetches the scene and remounts the marker, which could unmount
- *  TransformControls MID-DRAG and leave OrbitControls.enabled=false forever.
- *  This component (a) commits on mouse-up, (b) force-restores orbit controls
- *  on commit AND on unmount, so input can never stay locked. */
-function SelectionGizmo({
-  target,
+/** X/Y/Z translate gizmo WRAPPING the selected marker (deterministic - no
+ *  conditional refs, whose detach ordering could null the target when
+ *  selection moved to an earlier list entry). TransformControls mutates its
+ *  internal group during the drag; mouse-up commits and force-restores orbit
+ *  controls, as does the unmount cleanup, so input can never stay locked. */
+function GizmoWrapped({
+  position,
+  rotation,
   onCommit,
+  children,
 }: {
-  target: THREE.Object3D;
+  position: Vec3;
+  rotation?: [number, number, number];
   onCommit: (pos: Vec3) => void;
+  children: ReactNode;
 }) {
   const controls = useThree((s) => s.controls) as { enabled?: boolean } | null;
+  const setEvents = useThree((s) => s.setEvents);
+  const tcRef = useRef<(THREE.Object3D & {
+    addEventListener: (t: string, fn: (e: { value?: unknown }) => void) => void;
+    removeEventListener: (t: string, fn: (e: { value?: unknown }) => void) => void;
+  }) | null>(null);
+
+  // ROOT CAUSE of "gizmo drag does nothing": r3f's own picking runs on the
+  // same pointerdown as the gizmo grab. If the arrow overlays empty space,
+  // onPointerMissed fires -> clearSelection -> the gizmo UNMOUNTS mid-click.
+  // Standard fix: while the cursor hovers a gizmo axis ('axis-changed' with a
+  // non-null value), suspend r3f events entirely; restore on leave/unmount.
   useEffect(() => {
+    const tc = tcRef.current;
+    if (!tc) return;
+    const onAxis = (e: { value?: unknown }) => setEvents({ enabled: e.value == null });
+    tc.addEventListener("axis-changed", onAxis);
+    // Debug handle for interaction tests (same spirit as __stwScene).
+    (window as unknown as { __stwGizmo?: unknown }).__stwGizmo = tc;
     return () => {
-      // Whatever happens (remount, deselect, crash), orbit comes back.
+      tc.removeEventListener("axis-changed", onAxis);
+      setEvents({ enabled: true });
       if (controls) controls.enabled = true;
     };
-  }, [controls, target]);
+  }, [setEvents, controls]);
+
   return (
     <TransformControls
-      object={target}
+      ref={tcRef as never}
       mode="translate"
-      size={0.8}
-      onMouseUp={() => {
-        const p = target.position;
+      size={0.9}
+      position={position}
+      rotation={rotation ?? [0, 0, 0]}
+      onMouseUp={(e) => {
+        const obj = (e?.target as { object?: THREE.Object3D } | undefined)?.object;
         if (controls) controls.enabled = true;
-        onCommit([p.x, p.y, p.z]);
+        if (obj) onCommit([obj.position.x, obj.position.y, obj.position.z]);
       }}
-    />
+    >
+      {children}
+    </TransformControls>
   );
 }
 
@@ -389,9 +419,9 @@ function Devices() {
   const selectedDeviceId = useAppStore((s) => s.selectedDeviceId);
   const selectDevice = useAppStore((s) => s.selectDevice);
   const updateDevice = useAppStore((s) => s.updateDevice);
-  const [gizmoTarget, setGizmoTarget] = useState<THREE.Group | null>(null);
+  const markerScale = useAppStore((s) => s.viewport.markerScale);
   if (!scene) return null;
-  const radius = deviceMarkerRadius(scene, env);
+  const radius = deviceMarkerRadius(scene, env, markerScale);
 
   return (
     <group>
@@ -415,12 +445,8 @@ function Devices() {
             </Html>
           </>
         );
-        return (
+        const inner = (
           <group
-            key={d.id}
-            position={d.position}
-            // The selected marker registers itself as the gizmo target.
-            ref={selected ? setGizmoTarget : undefined}
             onPointerDown={(e: ThreeEvent<PointerEvent>) => {
               e.stopPropagation();
               selectDevice(d.id);
@@ -429,13 +455,20 @@ function Devices() {
             {marker}
           </group>
         );
+        return selected ? (
+          <GizmoWrapped
+            key={d.id}
+            position={d.position}
+            onCommit={(pos) => void updateDevice(d.id, { position: pos })}
+          >
+            {inner}
+          </GizmoWrapped>
+        ) : (
+          <group key={d.id} position={d.position}>
+            {inner}
+          </group>
+        );
       })}
-      {gizmoTarget && selectedDeviceId && (
-        <SelectionGizmo
-          target={gizmoTarget}
-          onCommit={(pos) => void updateDevice(selectedDeviceId, { position: pos })}
-        />
-      )}
     </group>
   );
 }
@@ -450,7 +483,6 @@ function Actors({ frameStates }: { frameStates?: Map<string, { position: Vec3; o
   const selectedActorId = useAppStore((s) => s.selectedActorId);
   const selectActor = useAppStore((s) => s.selectActor);
   const updateActor = useAppStore((s) => s.updateActor);
-  const [gizmoTarget, setGizmoTarget] = useState<THREE.Group | null>(null);
   if (!scene) return null;
 
   return (
@@ -490,12 +522,8 @@ function Actors({ frameStates }: { frameStates?: Map<string, { position: Vec3; o
             )}
           </>
         );
-        return (
+        const inner = (
           <group
-            key={a.id}
-            position={position}
-            rotation={[0, 0, (yawDeg * Math.PI) / 180]}
-            ref={selected && !frameStates ? setGizmoTarget : undefined}
             onPointerDown={(e: ThreeEvent<PointerEvent>) => {
               e.stopPropagation();
               selectActor(a.id);
@@ -504,13 +532,21 @@ function Actors({ frameStates }: { frameStates?: Map<string, { position: Vec3; o
             {body}
           </group>
         );
+        return selected && !frameStates ? (
+          <GizmoWrapped
+            key={a.id}
+            position={position}
+            rotation={[0, 0, (yawDeg * Math.PI) / 180]}
+            onCommit={(pos) => void updateActor(a.id, { position: pos })}
+          >
+            {inner}
+          </GizmoWrapped>
+        ) : (
+          <group key={a.id} position={position} rotation={[0, 0, (yawDeg * Math.PI) / 180]}>
+            {inner}
+          </group>
+        );
       })}
-      {gizmoTarget && selectedActorId && !frameStates && (
-        <SelectionGizmo
-          target={gizmoTarget}
-          onCommit={(pos) => void updateActor(selectedActorId, { position: pos })}
-        />
-      )}
     </group>
   );
 }
@@ -681,7 +717,11 @@ function trajectoryHasFramePaths(
 function ScenarioDevices({ states }: { states: Map<string, Vec3> }) {
   const scene = useAppStore((s) => s.scene);
   if (!scene) return null;
-  const radius = deviceMarkerRadius(scene);
+  const radius = deviceMarkerRadius(
+    scene,
+    useAppStore.getState().resolvedEnvironment,
+    useAppStore.getState().viewport.markerScale,
+  );
   return (
     <group>
       {scene.devices.map((d) => {
@@ -967,6 +1007,7 @@ function ViewerHotkeys() {
     // Dev/debug handle: lets tooling (and bug reports) inspect the live
     // three.js graph without a React devtools round-trip.
     (window as unknown as { __stwScene?: THREE.Scene }).__stwScene = three;
+    (window as unknown as { __stwCamera?: THREE.Camera }).__stwCamera = camera;
   }, [gl, three]);
 
   useEffect(() => {

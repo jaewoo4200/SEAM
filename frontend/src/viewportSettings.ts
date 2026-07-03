@@ -30,6 +30,8 @@ export interface ViewportSettings {
    *  sliceZ. Devices/paths/radio map stay visible. Toggle with 'S'. */
   showSlice: boolean;
   sliceZ: number;
+  /** Device/actor marker size multiplier (1 = legacy size). */
+  markerScale: number;
   /** Radio-map display: colormap + optional fixed dB range (null = auto). */
   rmColormap: RadioMapColormap;
   rmVmin: number | null;
@@ -67,6 +69,7 @@ export function defaultViewportSettings(): ViewportSettings {
     showOverlay: true,
     showSlice: false,
     sliceZ: 2.0,
+    markerScale: 2.0,
     rmColormap: "jet",
     rmVmin: null,
     rmVmax: null,
@@ -125,6 +128,7 @@ export function normalizeViewportSettings(
     showAxes: bool(raw.showAxes, d.showAxes),
     showOverlay: bool(raw.showOverlay, d.showOverlay),
     showSlice: bool(raw.showSlice, d.showSlice),
+    markerScale: num(raw.markerScale, d.markerScale, 0.3, 6),
     sliceZ: num(raw.sliceZ, d.sliceZ, -1000, 10000),
     rmColormap: RADIO_MAP_COLORMAPS.includes(raw.rmColormap as RadioMapColormap)
       ? (raw.rmColormap as RadioMapColormap)
