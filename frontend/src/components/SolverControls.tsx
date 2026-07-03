@@ -229,6 +229,8 @@ function GlobalSection() {
   const bfSweepStopDeg = useAppStore((s) => s.bfSweepStopDeg);
   const bfSweepStepDeg = useAppStore((s) => s.bfSweepStepDeg);
   const setBeamforming = useAppStore((s) => s.setBeamforming);
+  const autoBeamforming = useAppStore((s) => s.autoBeamforming);
+  const setAuto = useAppStore((s) => s.setAuto);
   const liveMode = useAppStore((s) => s.liveMode);
   const setLiveMode = useAppStore((s) => s.setLiveMode);
   const sendScreenshot = useAppStore((s) => s.sendScreenshot);
@@ -390,6 +392,15 @@ function GlobalSection() {
         >
           Beamforming
         </button>
+        <label className="solver-auto">
+          <input
+            type="checkbox"
+            checked={autoBeamforming}
+            disabled={disabled}
+            onChange={(e) => setAuto("beamforming", e.target.checked)}
+          />
+          Auto update
+        </label>
       </div>
 
       <div className="solver-subhead">Live &amp; AI</div>

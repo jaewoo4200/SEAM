@@ -794,6 +794,7 @@ export default function Viewer3D() {
   const showRadioMapToggle = useAppStore((s) => s.showRadioMap);
   const clearSelection = useAppStore((s) => s.clearSelection);
   const viewport = useAppStore((s) => s.viewport);
+  const setViewport = useAppStore((s) => s.setViewport);
   const [assetFailed, setAssetFailed] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
 
@@ -888,6 +889,17 @@ export default function Viewer3D() {
       >
         ⚙
       </button>
+      {overlayUri && (
+        // Quick toggle for the textured photogrammetry backdrop; the same
+        // switch lives in the viewport panel, this is the one-click version.
+        <button
+          className={"viewport-gear viewport-tex" + (viewport.showOverlay ? " active" : "")}
+          title={viewport.showOverlay ? "Hide textured overlay" : "Show textured overlay"}
+          onClick={() => setViewport({ showOverlay: !viewport.showOverlay })}
+        >
+          🖼
+        </button>
+      )}
       {panelOpen && <ViewportPanel onClose={() => setPanelOpen(false)} />}
     </div>
   );

@@ -46,8 +46,8 @@ import type { ConfigPresetId } from "../configPresets";
 
 export type Mode = "visual" | "rf" | "validation" | "ai" | "results";
 
-/** Compute-target for the two solver panels + auto-update debounce. */
-type AutoTarget = "paths" | "radioMap";
+/** Compute-targets that support debounced auto-update on scene changes. */
+type AutoTarget = "paths" | "radioMap" | "beamforming" | "channel";
 
 /** How the 3D viewer colors ray path polylines. */
 export type ColorBy = "type" | "power" | "depth";
@@ -86,6 +86,10 @@ interface AppState {
   radioMapConfig: SimulationConfig;
   autoPaths: boolean;
   autoRadioMap: boolean;
+  autoBeamforming: boolean;
+  // Auto-rerun of the last channel analysis (needs one manual run first to
+  // establish the TX/RX pair).
+  autoChannel: boolean;
   // Beamforming array sizes (SolverControls GLOBAL / beamforming card).
   bfTxRows: number;
   bfTxCols: number;
@@ -297,45 +301,75 @@ export const useAppStore = create<AppState>()((set, get) => {
   }
 
   // --- auto-update: debounced, non-overlapping recompute per target ---
-  let pathsTimer: ReturnType<typeof setTimeout> | null = null;
-  let radioTimer: ReturnType<typeof setTimeout> | null = null;
+  const autoTimers: Partial<Record<AutoTarget, ReturnType<typeof setTimeout>>> = {};
+  // The last channel analysis the user ran; auto-update re-runs this pair.
+  let lastChannelArgs: { txId: string; rxId: string; numCfrPoints?: number } | null = null;
 
-  function scheduleAuto(target: AutoTarget): void {
-    if (target === "paths") {
-      if (!get().autoPaths) return;
-      if (pathsTimer) clearTimeout(pathsTimer);
-      pathsTimer = setTimeout(() => {
-        pathsTimer = null;
-        // Never overlap: if an action is mid-flight, re-arm the timer so the
-        // recompute lands once the app is idle rather than being dropped.
-        if (get().busy !== null) {
-          scheduleAuto("paths");
-          return;
-        }
-        void get().simulatePaths();
-      }, AUTO_DEBOUNCE_MS);
-    } else {
-      if (!get().autoRadioMap) return;
-      if (radioTimer) clearTimeout(radioTimer);
-      radioTimer = setTimeout(() => {
-        radioTimer = null;
-        if (get().busy !== null) {
-          scheduleAuto("radioMap");
-          return;
-        }
-        void get().simulateRadioMap();
-      }, AUTO_DEBOUNCE_MS);
+  function autoEnabled(target: AutoTarget): boolean {
+    switch (target) {
+      case "paths":
+        return get().autoPaths;
+      case "radioMap":
+        return get().autoRadioMap;
+      case "beamforming":
+        return get().autoBeamforming;
+      case "channel":
+        return get().autoChannel && lastChannelArgs !== null;
     }
   }
 
-  /** After a device/material edit: invalidate beamforming, keep the auto-inferred
-   *  environment fresh (device spread may have changed), and fire any auto
-   *  recomputes that are enabled. */
+  function autoRun(target: AutoTarget): void {
+    switch (target) {
+      case "paths":
+        void get().simulatePaths();
+        return;
+      case "radioMap":
+        void get().simulateRadioMap();
+        return;
+      case "beamforming":
+        void get().runBeamforming();
+        return;
+      case "channel": {
+        const a = lastChannelArgs;
+        if (a) void get().analyzeChannel(a.txId, a.rxId, a.numCfrPoints);
+        return;
+      }
+    }
+  }
+
+  function scheduleAuto(target: AutoTarget): void {
+    if (!autoEnabled(target)) return;
+    const pending = autoTimers[target];
+    if (pending) clearTimeout(pending);
+    autoTimers[target] = setTimeout(() => {
+      delete autoTimers[target];
+      // Never overlap: if an action is mid-flight, re-arm the timer so the
+      // recompute lands once the app is idle rather than being dropped. The
+      // shared busy gate also serializes the targets against each other.
+      if (get().busy !== null) {
+        scheduleAuto(target);
+        return;
+      }
+      if (!autoEnabled(target)) return;
+      autoRun(target);
+    }, AUTO_DEBOUNCE_MS);
+  }
+
+  function setLastChannelArgs(args: typeof lastChannelArgs): void {
+    lastChannelArgs = args;
+  }
+
+  /** After any scene change (device/actor/material edit, or a live-sync move):
+   *  invalidate beamforming (stale for the new geometry), keep the
+   *  auto-inferred environment fresh (device spread may have changed), and
+   *  fire every auto recompute that is enabled. */
   function afterSceneEdit(): void {
     invalidateBeamforming();
     refreshResolvedEnv();
     scheduleAuto("paths");
     scheduleAuto("radioMap");
+    scheduleAuto("beamforming");
+    scheduleAuto("channel");
   }
 
   /** PUT a mutated scene, refresh local copy, then run edit side-effects. */
@@ -443,6 +477,20 @@ export const useAppStore = create<AppState>()((set, get) => {
           const actPos = new Map(
             fresh.actors.map((a) => [a.id, { position: a.position, orientation_deg: a.orientation_deg }]),
           );
+          const vecEq = (a: number[] | null | undefined, b: number[] | null | undefined) => {
+            const x = a ?? [0, 0, 0];
+            const y = b ?? [0, 0, 0];
+            return x.length === y.length && x.every((v, i) => Math.abs(v - y[i]) < 1e-9);
+          };
+          const moved =
+            cur.devices.some((d) => devPos.has(d.id) && !vecEq(devPos.get(d.id), d.position)) ||
+            cur.actors.some((a) => {
+              const p = actPos.get(a.id);
+              return (
+                p !== undefined &&
+                (!vecEq(p.position, a.position) || !vecEq(p.orientation_deg, a.orientation_deg))
+              );
+            });
           const devices = cur.devices.map((d) =>
             devPos.has(d.id) ? { ...d, position: devPos.get(d.id)! } : d,
           );
@@ -451,6 +499,11 @@ export const useAppStore = create<AppState>()((set, get) => {
             return p ? { ...a, position: p.position, orientation_deg: p.orientation_deg } : a;
           });
           set({ scene: { ...cur, devices, actors } });
+          // A real position/orientation change from the outside world is a
+          // scene edit like any other: stale results invalidate and every
+          // enabled auto target recomputes (closed-loop live mode). The
+          // debounce coalesces consecutive poll deltas while something moves.
+          if (moved) afterSceneEdit();
         })
         .catch(() => {
           // transient poll failure: keep the last good scene, try again next tick
@@ -489,6 +542,8 @@ export const useAppStore = create<AppState>()((set, get) => {
     radioMapConfig: defaultSimConfig(),
     autoPaths: false,
     autoRadioMap: false,
+    autoBeamforming: false,
+    autoChannel: false,
     bfTxRows: 4,
     bfTxCols: 4,
     bfRxRows: 4,
@@ -576,6 +631,8 @@ export const useAppStore = create<AppState>()((set, get) => {
           // Auto-update is opt-in; reset per project.
           autoPaths: false,
           autoRadioMap: false,
+          autoBeamforming: false,
+          autoChannel: false,
           // Trajectory playback state resets per project.
           trajectory: null,
           trajFrame: 0,
@@ -592,8 +649,10 @@ export const useAppStore = create<AppState>()((set, get) => {
           // Viewport lighting/helpers are per-project (localStorage-backed).
           viewport: loadViewportSettings(projectId),
         });
-        // Switching projects must stop a running live poll from the old one.
+        // Switching projects must stop a running live poll from the old one,
+        // and the remembered channel-analysis pair belongs to the old scene.
         stopLivePoll();
+        setLastChannelArgs(null);
         // Provider statuses: prefer the dedicated endpoint, fall back to health.
         try {
           set({ aiStatuses: await api.aiStatus(projectId) });
@@ -890,13 +949,13 @@ export const useAppStore = create<AppState>()((set, get) => {
     setRadioMapConfig: (patch) => set({ radioMapConfig: { ...get().radioMapConfig, ...patch } }),
 
     setAuto: (target, on) => {
-      if (target === "paths") {
-        set({ autoPaths: on });
-        if (on) scheduleAuto("paths");
-      } else {
-        set({ autoRadioMap: on });
-        if (on) scheduleAuto("radioMap");
-      }
+      if (target === "paths") set({ autoPaths: on });
+      else if (target === "radioMap") set({ autoRadioMap: on });
+      else if (target === "beamforming") set({ autoBeamforming: on });
+      else set({ autoChannel: on });
+      // Arming a target recomputes immediately so the result matches the
+      // current scene (channel silently waits for its first manual run).
+      if (on) scheduleAuto(target);
     },
 
     saveProjectDefault: async () => {
@@ -1161,6 +1220,9 @@ export const useAppStore = create<AppState>()((set, get) => {
     analyzeChannel: async (txId, rxId, numCfrPoints) => {
       const pid = get().projectId;
       if (!pid) return;
+      // Remember the pair so auto-update can re-run the same analysis after
+      // scene changes (device moves, live sync, material edits).
+      setLastChannelArgs({ txId, rxId, numCfrPoints });
       await run("Analyzing channel…", async () => {
         const result = await api.analyzeChannel(pid, {
           config: get().pathsConfig,
@@ -1178,7 +1240,12 @@ export const useAppStore = create<AppState>()((set, get) => {
       });
     },
 
-    clearChannel: () => set({ channelResult: null }),
+    clearChannel: () => {
+      // An explicit clear also forgets the pair so auto-update stops
+      // resurrecting an analysis the user dismissed.
+      setLastChannelArgs(null);
+      set({ channelResult: null });
+    },
 
     // -------------------------------------------- live sync + screenshot
 

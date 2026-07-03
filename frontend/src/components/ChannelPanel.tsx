@@ -189,6 +189,8 @@ export default function ChannelPanel() {
   const channelResult = useAppStore((s) => s.channelResult);
   const analyzeChannel = useAppStore((s) => s.analyzeChannel);
   const clearChannel = useAppStore((s) => s.clearChannel);
+  const autoChannel = useAppStore((s) => s.autoChannel);
+  const setAuto = useAppStore((s) => s.setAuto);
 
   const [open, setOpen] = useState(false);
   const txs = useMemo(() => scene?.devices.filter((d) => d.kind === "tx") ?? [], [scene]);
@@ -276,6 +278,18 @@ export default function ChannelPanel() {
               Clear
             </button>
           )}
+          <label
+            className="solver-auto"
+            title="Re-run the last analysis whenever the scene changes (needs one manual run first)"
+          >
+            <input
+              type="checkbox"
+              checked={autoChannel}
+              disabled={disabled}
+              onChange={(e) => setAuto("channel", e.target.checked)}
+            />
+            Auto update
+          </label>
         </div>
 
         {r && (

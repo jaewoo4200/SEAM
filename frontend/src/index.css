@@ -1318,6 +1318,12 @@ h4 {
   color: var(--accent);
 }
 
+/* Textured-overlay quick toggle sits right of the gear. */
+.viewport-tex {
+  left: 46px;
+  font-size: 14px;
+}
+
 /* Floating lighting/display panel anchored below the gear. */
 .viewport-panel {
   position: absolute;
