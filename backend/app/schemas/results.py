@@ -72,6 +72,15 @@ class BeamformingResult(StrictModel):
     single_element_dbm: Optional[float] = None
     tx_mrt_gain_db: Optional[float] = None
     svd_gain_db: Optional[float] = None
+    # Codebook beam-sweep results (mode="codebook_sweep"): azimuth DFT beams
+    # on both ends; sweep_gain_db is [rx_beam][tx_beam] gain over a single
+    # element in dB; best_* give the selected beam pair.
+    mode: str = "svd"
+    codebook_gain_db: Optional[float] = None
+    best_tx_angle_deg: Optional[float] = None
+    best_rx_angle_deg: Optional[float] = None
+    sweep_angles_deg: list[float] = Field(default_factory=list)
+    sweep_gain_db: Optional[list[list[Optional[float]]]] = None
     warnings: list[str] = Field(default_factory=list)
     metadata: dict = Field(default_factory=dict)
 
@@ -97,6 +106,9 @@ class TrajectorySample(StrictModel):
     rms_delay_spread_ns: Optional[float] = None
     path_count: int = 0
     strongest_delay_ns: Optional[float] = None
+    # Full ray paths at this waypoint (heavy; filled when the request sets
+    # include_paths so playback can redraw rays live as the UE moves).
+    paths: Optional[list["RayPath"]] = None
 
 
 class TrajectoryResultSet(StrictModel):

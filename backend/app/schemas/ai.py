@@ -44,6 +44,9 @@ class SuggestMaterialsRequest(StrictModel):
     prim_ids: Optional[list[str]] = None
     # Force a specific provider ("rule_based", "ollama_text"); None = best available.
     provider: Optional[str] = None
+    # Optional viewport capture (data:image/jpeg;base64,...) passed to
+    # vision-capable providers as visual evidence. Never RF truth.
+    screenshot_data_url: Optional[str] = None
 
 
 class SuggestionDecision(StrictModel):

@@ -29,4 +29,7 @@ examples/**/results/
 examples/**/mapping/face_group_map.json
 examples/**/ai/suggestions.jsonl
 examples/**/export/
+# Textured overlay is a copy of the bundle GLB; regenerate via
+# examples/scripts/import_bundle_scene.py --visual-overlay
+examples/**/visual/overlay.glb
 projects/

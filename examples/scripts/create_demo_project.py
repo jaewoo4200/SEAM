@@ -317,7 +317,8 @@ def build_scene() -> Scene:
             name="Pedestrian",
             kind="human",  # human_body box, 0.5 x 0.35 x 1.7 m
             position=[-14.0, 4.0, 0.0],
-            orientation_deg=[0.0, 0.0, 90.0],
+            # orientation_deg is [yaw, pitch, roll]; yaw 90 = facing +y.
+            orientation_deg=[90.0, 0.0, 0.0],
             trajectory=ActorTrajectory(
                 waypoints=[
                     [-14.0, 4.0, 0.0],

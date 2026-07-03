@@ -151,8 +151,16 @@ def test_compile_emits_actor_shapes(project: Path, library: RFMaterialLibrary) -
         s for s in root.findall("shape") if s.attrib["id"] == "shape-actor-car_001"
     )
     assert actor_shape.find("string").attrib["value"] == "meshes/actor_car_001.ply"
-    # The car (metal) references the shared ITU metal bsdf via the same machinery.
-    assert actor_shape.find("ref").attrib["id"] == "mat-itu_metal"
+    # The actor gets its OWN unique bsdf (never shared with static geometry -
+    # Sionna merges shapes sharing a bsdf, which would make the actor
+    # immovable). ITU-backed materials use the itu-radio-material plugin so
+    # the frequency-dependent ITU tables still apply.
+    assert actor_shape.find("ref").attrib["id"] == "mat-actor-car_001"
+    actor_bsdf = next(
+        b for b in root.findall("bsdf") if b.attrib["id"] == "mat-actor-car_001"
+    )
+    assert actor_bsdf.attrib["type"] == "itu-radio-material"
+    assert actor_bsdf.find("string[@name='type']").attrib["value"] == "metal"
 
 
 def test_manifest_lists_actors(project: Path, library: RFMaterialLibrary) -> None:
@@ -184,15 +192,23 @@ def test_actor_position_at_waypoints() -> None:
     assert actor_position_at(actor, 0.0) == [-30.0, 0.0, 0.0]
     assert actor_position_at(actor, 0.5) == [-10.0, 0.0, 0.0]
     assert actor_position_at(actor, 1.0) == [10.0, 0.0, 0.0]
-    # Clamp past the end (no loop).
+    # LINEAR INTERPOLATION between waypoints (smooth motion).
+    assert actor_position_at(actor, 0.25) == pytest.approx([-20.0, 0.0, 0.0])
+    # Clamp past the end (mode "once").
     assert actor_position_at(actor, 5.0) == [30.0, 0.0, 0.0]
 
 
-def test_actor_position_at_loops() -> None:
-    actor = _car_actor()
-    actor.trajectory.loop = True
-    # 4 waypoints, dt 0.5: t=2.0 -> index 4 -> wraps to 0.
-    assert actor_position_at(actor, 2.0) == [-30.0, 0.0, 0.0]
+def test_actor_position_loop_and_pingpong() -> None:
+    actor = _car_actor()  # 4 waypoints span=3, dt 0.5
+    actor.trajectory.loop = True  # legacy flag -> mode "loop"
+    # s = t/dt wraps over the span (3): t=2.0 -> s=4 -> s%3=1 -> waypoint 1.
+    assert actor_position_at(actor, 2.0) == pytest.approx([-10.0, 0.0, 0.0])
+
+    actor.trajectory.mode = "pingpong"
+    # s=4 on a 0..3 triangle (period 6) -> reflected to 2 -> waypoint 2.
+    assert actor_position_at(actor, 2.0) == pytest.approx([10.0, 0.0, 0.0])
+    # s=5 -> reflected to 1.
+    assert actor_position_at(actor, 2.5) == pytest.approx([-10.0, 0.0, 0.0])
 
 
 def test_scenario_mock_frames_and_movement(project, library) -> None:

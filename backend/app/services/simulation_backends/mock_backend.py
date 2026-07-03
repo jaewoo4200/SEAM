@@ -459,4 +459,44 @@ class MockBackend(RayTracingBackend):
         result.tx_mrt_gain_db = 10.0 * math.log10(n_tx)
         result.svd_gain_db = 10.0 * math.log10(n_tx) + 10.0 * math.log10(n_rx)
         result.num_paths = 1  # analytic LoS only
+        result.mode = request.mode
+
+        if request.mode == "codebook_sweep":
+            # Analytic sweep: a sinc-like lobe centered on the geometric LoS
+            # azimuth (deterministic; the sionna backend does the real thing).
+            tx_d, rx_d = txs[0], rxs[0]
+            az = math.degrees(
+                math.atan2(rx_d.position[1] - tx_d.position[1],
+                           rx_d.position[0] - tx_d.position[0])
+            )
+            az = max(request.sweep_start_deg, min(request.sweep_stop_deg, az))
+            angles: list[float] = []
+            a = request.sweep_start_deg
+            while a <= request.sweep_stop_deg + 1e-9:
+                angles.append(round(a, 6))
+                a += request.sweep_step_deg
+            full = 10.0 * math.log10(n_tx) + 10.0 * math.log10(n_rx)
+
+            def lobe(angle: float, n_h: int) -> float:
+                # ~3 dB per beamwidth step away from boresight, scaled by
+                # horizontal aperture; floor at -25 dB sidelobe level.
+                off = abs(angle - az)
+                width = 102.0 / max(n_h, 1)  # deg, half-power beamwidth approx
+                return max(-25.0, -3.0 * (off / max(width / 2.0, 1e-6)) ** 2)
+
+            sweep = [
+                [round(full + lobe(ta, request.tx_cols) + lobe(ra, request.rx_cols), 3)
+                 for ta in angles]
+                for ra in angles
+            ]
+            result.sweep_angles_deg = angles
+            result.sweep_gain_db = sweep
+            best_ra = min(angles, key=lambda x: abs(x - az))
+            best_ta = best_ra
+            result.best_rx_angle_deg = best_ra
+            result.best_tx_angle_deg = best_ta
+            result.codebook_gain_db = full + lobe(best_ta, request.tx_cols) + lobe(
+                best_ra, request.rx_cols
+            )
+            result.metadata["beam_pairs_scanned"] = len(angles) ** 2
         return result

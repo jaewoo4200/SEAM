@@ -41,6 +41,9 @@ class CoordinateSystem(StrictModel):
 class SceneAssets(StrictModel):
     # URI of the visual projection source, relative to the project folder.
     visual_scene_uri: Optional[str] = "visual/scene.glb"
+    # Optional textured backdrop GLB rendered alongside (non-pickable): lets a
+    # photogrammetry/textured map coexist with the pickable RF-derived meshes.
+    visual_overlay_uri: Optional[str] = None
     # Optional future 3D Tiles tileset for city-scale scenes.
     tileset_uri: Optional[str] = None
 
@@ -144,7 +147,16 @@ class ActorShape(StrictModel):
 class ActorTrajectory(StrictModel):
     waypoints: list[Vec3] = Field(default_factory=list)
     dt_s: float = Field(default=0.1, gt=0.0)
+    # Deprecated boolean kept for older scenes; superseded by mode.
     loop: bool = False
+    # once: clamp at the last waypoint; loop: wrap to the start; pingpong:
+    # reverse direction at each end. None derives from the legacy loop flag.
+    mode: Optional[Literal["once", "loop", "pingpong"]] = None
+
+    def resolved_mode(self) -> str:
+        if self.mode is not None:
+            return self.mode
+        return "loop" if self.loop else "once"
 
 
 class Actor(StrictModel):
@@ -160,6 +172,7 @@ class Actor(StrictModel):
     rf_material_id: Optional[str] = None
     # Base position (z = ground contact plane of the shape).
     position: Vec3
+    # [yaw, pitch, roll] degrees - same convention as Device.orientation_deg.
     orientation_deg: Vec3 = Field(default_factory=lambda: [0.0, 0.0, 0.0])
     trajectory: Optional[ActorTrajectory] = None
     # Devices that move with this actor (offsets preserved from scene pose).

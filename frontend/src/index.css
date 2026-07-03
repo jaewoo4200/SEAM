@@ -1293,6 +1293,167 @@ h4 {
   color: var(--muted);
 }
 
+/* --------------------------------------------- viewport lighting panel */
+
+/* Gear button overlaid top-left of the 3D canvas. */
+.viewport-gear {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  line-height: 1;
+  background: rgba(11, 15, 20, 0.78);
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  z-index: 6;
+}
+.viewport-gear.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Floating lighting/display panel anchored below the gear. */
+.viewport-panel {
+  position: absolute;
+  top: 48px;
+  left: 10px;
+  width: 236px;
+  max-height: calc(100% - 60px);
+  overflow-y: auto;
+  background: rgba(17, 22, 29, 0.96);
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  z-index: 7;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+.viewport-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  color: var(--text);
+}
+.vp-close {
+  padding: 0 6px;
+  background: transparent;
+  border: none;
+  font-size: 15px;
+  line-height: 1;
+}
+.viewport-panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+}
+.vp-section-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.vp-slider {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.vp-slider-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--muted);
+}
+.vp-slider-value {
+  color: var(--text);
+}
+.vp-slider input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+.vp-color {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--muted);
+}
+.vp-color input[type="color"] {
+  width: 40px;
+  height: 22px;
+  padding: 0;
+  border-radius: 4px;
+  background: var(--panel-3);
+}
+.vp-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.vp-toggle.disabled {
+  color: var(--muted);
+  cursor: default;
+}
+.viewport-panel-actions {
+  margin-top: 4px;
+}
+.viewport-panel-actions button {
+  width: 100%;
+}
+
+/* ------------------------------------------------- beamforming sweep UI */
+
+/* Sweep param triplet under the beamforming mode select. */
+.solver-sweep-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Codebook-sweep heatmap. */
+.beam-heatmap-scroll {
+  overflow-x: auto;
+}
+.beam-crosshair rect {
+  pointer-events: none;
+}
+.beam-heatmap-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.beam-heatmap-bar {
+  flex: 1;
+  height: 10px;
+  border-radius: 3px;
+  border: 1px solid var(--border-light);
+}
+
+/* Repeat/loop toggle button in the playback transports. */
+.traj-loop {
+  flex: none;
+  min-width: 30px;
+  padding: 4px 6px;
+}
+.traj-loop.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+
 /* --------------------------------------------------------- scrollbars */
 
 ::-webkit-scrollbar {

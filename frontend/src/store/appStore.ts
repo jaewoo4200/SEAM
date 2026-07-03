@@ -12,6 +12,7 @@ import type {
   ActorKind,
   AIProviderStatus,
   AssignRequest,
+  BeamformingMode,
   BeamformingResult,
   ChannelAnalysisResult,
   CompileResult,
@@ -34,6 +35,14 @@ import type {
   Vec3,
 } from "../types/api";
 import { ACTOR_DEFAULTS } from "../actorDefaults";
+import {
+  defaultViewportSettings,
+  loadViewportSettings,
+  saveViewportSettings,
+} from "../viewportSettings";
+import type { ViewportSettings } from "../viewportSettings";
+import { CONFIG_PRESETS } from "../configPresets";
+import type { ConfigPresetId } from "../configPresets";
 
 export type Mode = "visual" | "rf" | "validation" | "ai" | "results";
 
@@ -82,6 +91,14 @@ interface AppState {
   bfTxCols: number;
   bfRxRows: number;
   bfRxCols: number;
+  // Beamforming mode + codebook sweep params (contract: codebook_sweep default).
+  bfMode: BeamformingMode;
+  bfSweepStartDeg: number;
+  bfSweepStopDeg: number;
+  bfSweepStepDeg: number;
+
+  // --- viewport lighting/helpers (per-project, localStorage-persisted) ---
+  viewport: ViewportSettings;
 
   // --- viewer ray distinction + filtering (store-driven, shared by table) ---
   pathTypeFilter: PathType | "all";
@@ -95,12 +112,14 @@ interface AppState {
   trajFrame: number;
   trajPlaying: boolean;
   trajSpeed: number;
+  trajLoop: boolean;
 
   // --- scenario playback (V2X) ---
   scenario: ScenarioResultSet | null;
   scenarioFrame: number;
   scenarioPlaying: boolean;
   scenarioSpeed: number;
+  scenarioLoop: boolean;
 
   // --- channel analysis ---
   channelResult: ChannelAnalysisResult | null;
@@ -152,6 +171,16 @@ interface AppState {
   setBeamArray: (patch: Partial<
     Pick<AppState, "bfTxRows" | "bfTxCols" | "bfRxRows" | "bfRxCols">
   >) => void;
+  setBeamforming: (patch: Partial<
+    Pick<AppState, "bfMode" | "bfSweepStartDeg" | "bfSweepStopDeg" | "bfSweepStepDeg">
+  >) => void;
+
+  // config presets (SolverControls Preset dropdown)
+  applyConfigPreset: (id: ConfigPresetId) => void;
+
+  // viewport lighting/helpers
+  setViewport: (patch: Partial<ViewportSettings>) => void;
+  resetViewport: () => void;
 
   // device editing
   updateDevice: (deviceId: string, patch: Partial<Device>) => Promise<void>;
@@ -183,6 +212,7 @@ interface AppState {
   setTrajFrame: (frame: number) => void;
   setTrajPlaying: (playing: boolean) => void;
   setTrajSpeed: (speed: number) => void;
+  setTrajLoop: (loop: boolean) => void;
 
   // scenario playback
   simulateScenario: (params: {
@@ -193,9 +223,10 @@ interface AppState {
   setScenarioFrame: (frame: number) => void;
   setScenarioPlaying: (playing: boolean) => void;
   setScenarioSpeed: (speed: number) => void;
+  setScenarioLoop: (loop: boolean) => void;
 
   // channel analysis
-  analyzeChannel: (txId: string, rxId: string) => Promise<void>;
+  analyzeChannel: (txId: string, rxId: string, numCfrPoints?: number) => Promise<void>;
   clearChannel: () => void;
 
   // live sync + AI screenshot groundwork
@@ -462,6 +493,12 @@ export const useAppStore = create<AppState>()((set, get) => {
     bfTxCols: 4,
     bfRxRows: 4,
     bfRxCols: 4,
+    bfMode: "codebook_sweep",
+    bfSweepStartDeg: -60,
+    bfSweepStopDeg: 60,
+    bfSweepStepDeg: 10,
+
+    viewport: defaultViewportSettings(),
 
     pathTypeFilter: "all",
     strongestN: 50,
@@ -473,11 +510,13 @@ export const useAppStore = create<AppState>()((set, get) => {
     trajFrame: 0,
     trajPlaying: false,
     trajSpeed: 1,
+    trajLoop: false,
 
     scenario: null,
     scenarioFrame: 0,
     scenarioPlaying: false,
     scenarioSpeed: 1,
+    scenarioLoop: false,
 
     channelResult: null,
 
@@ -541,13 +580,17 @@ export const useAppStore = create<AppState>()((set, get) => {
           trajectory: null,
           trajFrame: 0,
           trajPlaying: false,
+          trajLoop: false,
           // Scenario/channel state resets per project.
           scenario: null,
           scenarioFrame: 0,
           scenarioPlaying: false,
+          scenarioLoop: false,
           channelResult: null,
           // Live sync is opt-in and reset per project (stops any prior poll).
           liveMode: false,
+          // Viewport lighting/helpers are per-project (localStorage-backed).
+          viewport: loadViewportSettings(projectId),
         });
         // Switching projects must stop a running live poll from the old one.
         stopLivePoll();
@@ -697,7 +740,17 @@ export const useAppStore = create<AppState>()((set, get) => {
     runBeamforming: async () => {
       const pid = get().projectId;
       if (!pid) return;
-      const { bfTxRows, bfTxCols, bfRxRows, bfRxCols, pathsConfig } = get();
+      const {
+        bfTxRows,
+        bfTxCols,
+        bfRxRows,
+        bfRxCols,
+        bfMode,
+        bfSweepStartDeg,
+        bfSweepStopDeg,
+        bfSweepStepDeg,
+        pathsConfig,
+      } = get();
       await run("Computing beamforming…", async () => {
         const r = await api.simulateBeamforming(pid, {
           config: pathsConfig,
@@ -705,13 +758,27 @@ export const useAppStore = create<AppState>()((set, get) => {
           tx_cols: bfTxCols,
           rx_rows: bfRxRows,
           rx_cols: bfRxCols,
+          mode: bfMode,
+          // Sweep params only meaningful for codebook_sweep, but harmless to
+          // send for the analytic modes (the backend ignores them there).
+          sweep_start_deg: bfSweepStartDeg,
+          sweep_stop_deg: bfSweepStopDeg,
+          sweep_step_deg: bfSweepStepDeg,
         });
         const fmt = (v: number | null) => (v === null ? "n/a" : `${v.toFixed(1)} dB`);
         const parts = [
           `Beamforming ${r.tx_array[0]}x${r.tx_array[1]}→${r.rx_array[0]}x${r.rx_array[1]} (${r.backend})`,
-          `TX-MRT ${fmt(r.tx_mrt_gain_db)}`,
-          `SVD ${fmt(r.svd_gain_db)}`,
         ];
+        if (r.mode === "codebook_sweep") {
+          parts.push(`codebook ${fmt(r.codebook_gain_db)}`);
+          if (r.best_tx_angle_deg !== null && r.best_rx_angle_deg !== null) {
+            parts.push(`best TX ${r.best_tx_angle_deg.toFixed(0)}° / RX ${r.best_rx_angle_deg.toFixed(0)}°`);
+          }
+        } else if (r.mode === "svd") {
+          parts.push(`SVD ${fmt(r.svd_gain_db)}`);
+        } else {
+          parts.push(`TX-MRT ${fmt(r.tx_mrt_gain_db)}`);
+        }
         if (r.warnings.length) parts.push(r.warnings[0]);
         set({ beamforming: r, showBeamforming: true, mode: "results", notice: parts.join(" · ") });
       });
@@ -746,14 +813,14 @@ export const useAppStore = create<AppState>()((set, get) => {
       const pid = get().projectId;
       if (!pid) return;
       const { selection, sendScreenshot } = get();
-      // VLM groundwork: when the user opts in, capture the viewport now so
-      // lastViewportShot is populated. We deliberately do NOT put it on the
-      // request body: SuggestMaterialsRequest is a StrictModel(extra=forbid),
-      // so an unknown `screenshot_data_url` field would 422. See reported gap.
-      if (sendScreenshot) get().captureViewport();
+      // VLM: when the user opts in, capture the viewport as a downscaled JPEG
+      // and attach it to the request. The pinned SuggestMaterialsRequest now
+      // carries screenshot_data_url, so the VLM provider can see the scene.
+      const shot = sendScreenshot ? get().captureViewport() : null;
       await run("Requesting RF material suggestions…", async () => {
         const resp = await api.suggestMaterials(pid, {
           prim_ids: selection.length > 0 ? selection : null,
+          screenshot_data_url: shot,
         });
         set({ suggestions: resp, decisions: {} });
       });
@@ -856,6 +923,49 @@ export const useAppStore = create<AppState>()((set, get) => {
     },
 
     setBeamArray: (patch) => set(patch),
+    setBeamforming: (patch) => set(patch),
+
+    // ---------------------------------------------------- config presets
+
+    applyConfigPreset: (id) => {
+      // "Custom" is a display-only sentinel: keep whatever the user has set.
+      if (id === "custom") return;
+      const preset = CONFIG_PRESETS[id];
+      const { pathsConfig, radioMapConfig } = get();
+      // Apply the same solver fields to both configs. The radio-map grid patch
+      // lands on both too: the paths solver ignores radio_map, but detectPreset
+      // reads pathsConfig.radio_map, so both must carry the preset's grid for
+      // the select to reflect the preset as active after applying it.
+      // Backend/tx/rx selections are untouched.
+      set({
+        pathsConfig: {
+          ...pathsConfig,
+          ...preset.config,
+          radio_map: { ...pathsConfig.radio_map, ...preset.radioMap },
+        },
+        radioMapConfig: {
+          ...radioMapConfig,
+          ...preset.config,
+          radio_map: { ...radioMapConfig.radio_map, ...preset.radioMap },
+        },
+      });
+    },
+
+    // ---------------------------------------------------- viewport
+
+    setViewport: (patch) => {
+      const next = { ...get().viewport, ...patch };
+      set({ viewport: next });
+      const pid = get().projectId;
+      if (pid) saveViewportSettings(pid, next);
+    },
+
+    resetViewport: () => {
+      const next = defaultViewportSettings();
+      set({ viewport: next });
+      const pid = get().projectId;
+      if (pid) saveViewportSettings(pid, next);
+    },
 
     // ---------------------------------------------------- device editing
 
@@ -990,6 +1100,9 @@ export const useAppStore = create<AppState>()((set, get) => {
           end_m,
           num_points,
           dt_s,
+          // Request per-waypoint ray paths so the viewer can render live rays
+          // during playback/scrub (feature: trajectory live rays).
+          include_paths: true,
         });
         set({
           trajectory: result,
@@ -1009,6 +1122,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     },
     setTrajPlaying: (playing) => set({ trajPlaying: playing }),
     setTrajSpeed: (speed) => set({ trajSpeed: speed }),
+    setTrajLoop: (loop) => set({ trajLoop: loop }),
 
     // ---------------------------------------------------- scenario playback
 
@@ -1040,10 +1154,11 @@ export const useAppStore = create<AppState>()((set, get) => {
     },
     setScenarioPlaying: (playing) => set({ scenarioPlaying: playing }),
     setScenarioSpeed: (speed) => set({ scenarioSpeed: speed }),
+    setScenarioLoop: (loop) => set({ scenarioLoop: loop }),
 
     // ---------------------------------------------------- channel analysis
 
-    analyzeChannel: async (txId, rxId) => {
+    analyzeChannel: async (txId, rxId, numCfrPoints) => {
       const pid = get().projectId;
       if (!pid) return;
       await run("Analyzing channel…", async () => {
@@ -1051,6 +1166,8 @@ export const useAppStore = create<AppState>()((set, get) => {
           config: get().pathsConfig,
           tx_id: txId,
           rx_id: rxId,
+          // Only send num_cfr_points when provided so the backend default holds.
+          ...(numCfrPoints !== undefined ? { num_cfr_points: numCfrPoints } : {}),
         });
         set({
           channelResult: result,

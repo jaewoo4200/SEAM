@@ -52,6 +52,12 @@ def main() -> None:
     ap.add_argument(
         "--environment", choices=["auto", "indoor", "outdoor"], default="indoor"
     )
+    ap.add_argument(
+        "--visual-overlay",
+        default=None,
+        help="Optional textured GLB copied into visual/overlay.glb and set as "
+        "the non-pickable backdrop (assets.visual_overlay_uri)",
+    )
     args = ap.parse_args()
 
     xml_path = Path(args.xml).resolve()
@@ -91,6 +97,14 @@ def main() -> None:
         (project_dir / sub).mkdir(parents=True, exist_ok=True)
 
     (project_dir / "visual" / "scene.glb").write_bytes(tm_scene.export(file_type="glb"))
+    if args.visual_overlay:
+        overlay_src = Path(args.visual_overlay).resolve()
+        if overlay_src.is_file():
+            shutil.copy2(overlay_src, project_dir / "visual" / "overlay.glb")
+            scene.assets.visual_overlay_uri = "visual/overlay.glb"
+            print(f"textured overlay: {overlay_src.name}")
+        else:
+            print(f"warning: overlay not found: {overlay_src}")
     (project_dir / "scene.sionnatwin.json").write_text(
         scene.model_dump_json(indent=2), encoding="utf-8"
     )

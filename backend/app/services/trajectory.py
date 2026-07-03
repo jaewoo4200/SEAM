@@ -86,6 +86,13 @@ def run_trajectory(
         delays = [p.delay_ns for p in result.paths]
         rss, gain, rms, strongest = _aggregate(powers, delays, tx_power)
         sinr = (rss - noise_floor) if rss is not None else None
+        frame_paths = None
+        if request.include_paths:
+            # Strongest-first, capped so playback payloads stay bounded even
+            # on long trajectories (the viewer filters further client-side).
+            frame_paths = sorted(
+                result.paths, key=lambda p: p.power_dbm, reverse=True
+            )[:100]
         samples.append(
             TrajectorySample(
                 time_s=i * request.dt_s,
@@ -97,6 +104,7 @@ def run_trajectory(
                 rms_delay_spread_ns=rms,
                 path_count=len(result.paths),
                 strongest_delay_ns=strongest,
+                paths=frame_paths,
             )
         )
 

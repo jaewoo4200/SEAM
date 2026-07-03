@@ -260,7 +260,8 @@ def _actor_box_mesh(actor: Actor) -> trimesh.Trimesh:
     the mesh centroid is lifted by height/2), rotated by the actor's yaw."""
     length, width, height = (float(v) for v in actor.shape.size_m)
     mesh = trimesh.creation.box(extents=[length, width, height])
-    yaw_rad = math.radians(float(actor.orientation_deg[2]))
+    # orientation_deg convention is [yaw, pitch, roll] (matches Device).
+    yaw_rad = math.radians(float(actor.orientation_deg[0]))
     if yaw_rad:
         rot = trimesh.transformations.rotation_matrix(yaw_rad, [0.0, 0.0, 1.0])
         mesh.apply_transform(rot)
@@ -398,6 +399,48 @@ def _emit_bsdf(root: ET.Element, bsdf_id: str, material: Optional[RFMaterial]) -
             ET.SubElement(bsdf, "float", {"name": name, "value": f"{value:g}"})
 
 
+def _emit_actor_bsdf(
+    root: ET.Element, actor: "ActorExport", material: Optional[RFMaterial]
+) -> str:
+    """A UNIQUE bsdf per actor ("mat-actor-<id>").
+
+    Sionna merges every shape sharing one bsdf into a single immovable
+    "merged-shapes" object, so an actor must never share a bsdf with static
+    geometry. ITU-backed materials use the "itu-radio-material" plugin (keeps
+    the frequency-dependent ITU tables; the outdoor FTC scenes use the same
+    plugin); constant materials embed their parameters via "radio-material".
+    """
+    bsdf_id = f"mat-actor-{actor.actor_id}"
+    if (
+        material is not None
+        and material.model == "itu_frequency_dependent"
+        and material.itu_name
+    ):
+        bsdf = ET.SubElement(root, "bsdf", {"type": "itu-radio-material", "id": bsdf_id})
+        itu_class = material.itu_name.removeprefix("itu_")
+        ET.SubElement(bsdf, "string", {"name": "type", "value": itu_class})
+        if material.thickness_m:
+            ET.SubElement(
+                bsdf, "float", {"name": "thickness", "value": f"{material.thickness_m:g}"}
+            )
+        ET.SubElement(
+            bsdf, "rgb", {"name": "color", "value": _hex_to_rgb01(material.preview_color)}
+        )
+        return bsdf_id
+    bsdf = ET.SubElement(root, "bsdf", {"type": "radio-material", "id": bsdf_id})
+    props: list[tuple[str, Optional[float]]] = [
+        ("relative_permittivity", material.relative_permittivity if material else None),
+        ("conductivity", material.conductivity_s_per_m if material else None),
+        ("scattering_coefficient", material.scattering_coefficient if material else None),
+        ("xpd_coefficient", material.xpd_coefficient if material else None),
+        ("thickness", material.thickness_m if material else None),
+    ]
+    for name, value in props:
+        if value is not None:
+            ET.SubElement(bsdf, "float", {"name": name, "value": f"{value:g}"})
+    return bsdf_id
+
+
 def _mitsuba_xml(
     material_groups: list[MaterialGroup],
     actor_exports: list["ActorExport"],
@@ -405,10 +448,9 @@ def _mitsuba_xml(
 ) -> bytes:
     """Mitsuba 3 scene XML for Sionna RT.
 
-    bsdfs are deduplicated by id: two library materials mapping to the same
-    ITU built-in share one bsdf. Actor shapes reference the same material
-    bsdfs as static geometry (same _bsdf_id machinery) but are emitted as
-    separate shapes so the backend can move them per frame.
+    Static-group bsdfs are deduplicated by id (two library materials mapping
+    to the same ITU built-in share one bsdf). Each ACTOR gets its own unique
+    bsdf so it can never be merged with static geometry and stays movable.
     """
     root = ET.Element("scene", {"version": "2.1.0"})
     emitted: set[str] = set()
@@ -423,8 +465,11 @@ def _mitsuba_xml(
 
     for group in material_groups:
         emit_bsdf_for(group.rf_material_id)
+    actor_bsdf_ids: dict[str, str] = {}
     for actor in actor_exports:
-        emit_bsdf_for(actor.rf_material_id)
+        actor_bsdf_ids[actor.actor_id] = _emit_actor_bsdf(
+            root, actor, library.get(actor.rf_material_id)
+        )
 
     for group in material_groups:
         material = library.get(group.rf_material_id)
@@ -442,7 +487,6 @@ def _mitsuba_xml(
         ET.SubElement(shape, "boolean", {"name": "face_normals", "value": "true"})
 
     for actor in actor_exports:
-        material = library.get(actor.rf_material_id)
         shape = ET.SubElement(
             root, "shape", {"type": "ply", "id": f"shape-actor-{actor.actor_id}"}
         )
@@ -453,7 +497,7 @@ def _mitsuba_xml(
             filename = filename[len("rf/"):]
         ET.SubElement(shape, "string", {"name": "filename", "value": filename})
         ET.SubElement(
-            shape, "ref", {"id": _bsdf_id(material, actor.rf_material_id), "name": "bsdf"}
+            shape, "ref", {"id": actor_bsdf_ids[actor.actor_id], "name": "bsdf"}
         )
         ET.SubElement(shape, "boolean", {"name": "face_normals", "value": "true"})
     ET.indent(root, space="    ")

@@ -35,6 +35,7 @@ export interface CoordinateSystem {
 
 export interface SceneAssets {
   visual_scene_uri: string | null;
+  visual_overlay_uri: string | null;
   tileset_uri: string | null;
 }
 
@@ -141,6 +142,7 @@ export interface ActorTrajectory {
   waypoints: Vec3[];
   dt_s: number;
   loop: boolean;
+  mode: "once" | "loop" | "pingpong" | null;
 }
 
 export interface Actor {
@@ -342,6 +344,7 @@ export interface TrajectorySample {
   rms_delay_spread_ns: number | null;
   path_count: number;
   strongest_delay_ns: number | null;
+  paths: RayPath[] | null;
 }
 
 export interface TrajectoryResultSet {
@@ -365,6 +368,7 @@ export interface TrajectorySimulateRequest {
   end_m?: number[] | null;
   num_points?: number;
   dt_s?: number;
+  include_paths?: boolean;
 }
 
 export interface RFDataExportSummary {
@@ -501,6 +505,8 @@ export interface ChannelAnalysisResult {
   metadata: Record<string, unknown>;
 }
 
+export type BeamformingMode = "codebook_sweep" | "tx_mrt" | "svd";
+
 export interface BeamformingRequest {
   config_id?: string | null;
   config?: SimulationConfig | null;
@@ -510,6 +516,10 @@ export interface BeamformingRequest {
   tx_cols?: number;
   rx_rows?: number;
   rx_cols?: number;
+  mode?: BeamformingMode;
+  sweep_start_deg?: number;
+  sweep_stop_deg?: number;
+  sweep_step_deg?: number;
 }
 
 export interface BeamformingResult {
@@ -524,6 +534,12 @@ export interface BeamformingResult {
   single_element_dbm: number | null;
   tx_mrt_gain_db: number | null;
   svd_gain_db: number | null;
+  mode: string;
+  codebook_gain_db: number | null;
+  best_tx_angle_deg: number | null;
+  best_rx_angle_deg: number | null;
+  sweep_angles_deg: number[];
+  sweep_gain_db: (number | null)[][] | null;
   warnings: string[];
   metadata: Record<string, unknown>;
 }
@@ -555,6 +571,7 @@ export interface MaterialSuggestionResponse {
 export interface SuggestMaterialsRequest {
   prim_ids?: string[] | null;
   provider?: string | null;
+  screenshot_data_url?: string | null;
 }
 
 export interface SuggestionDecision {

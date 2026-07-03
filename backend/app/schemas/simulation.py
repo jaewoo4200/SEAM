@@ -58,7 +58,18 @@ class SimulateRequest(StrictModel):
 
 
 class BeamformingRequest(StrictModel):
-    """Body for POST /simulate/beamforming: MRT/SVD gain over a MIMO link."""
+    """Body for POST /simulate/beamforming.
+
+    Modes (explicitly defined):
+    - codebook_sweep: hardware-style beam training - a DFT codebook of azimuth
+      beams is scanned on BOTH ends (default -60..60 deg, 5 deg step =>
+      25x25 = 625 beam pairs, the ICC'26 paper setup) and the strongest pair
+      is selected. This is what real mmWave systems do.
+    - tx_mrt: transmit maximum-ratio combining toward the first RX antenna
+      (full CSI at TX only).
+    - svd: both-ends SVD precoding (full-CSI upper bound, not implementable
+      by beam-sweep hardware).
+    """
 
     config_id: Optional[str] = None
     config: Optional[SimulationConfig] = None
@@ -68,6 +79,10 @@ class BeamformingRequest(StrictModel):
     tx_cols: int = Field(default=4, ge=1, le=16)
     rx_rows: int = Field(default=4, ge=1, le=16)
     rx_cols: int = Field(default=4, ge=1, le=16)
+    mode: Literal["codebook_sweep", "tx_mrt", "svd"] = "codebook_sweep"
+    sweep_start_deg: float = -60.0
+    sweep_stop_deg: float = 60.0
+    sweep_step_deg: float = Field(default=5.0, gt=0.0)
 
 
 class TrajectorySimulateRequest(StrictModel):
@@ -84,3 +99,5 @@ class TrajectorySimulateRequest(StrictModel):
     end_m: Optional[list[float]] = None
     num_points: int = Field(default=8, ge=2, le=200)
     dt_s: float = Field(default=0.1, gt=0.0)
+    # Include the full ray paths per waypoint so playback redraws rays live.
+    include_paths: bool = False

@@ -10,6 +10,7 @@
   },
   "assets": {
     "visual_scene_uri": "visual/scene.glb",
+    "visual_overlay_uri": null,
     "tileset_uri": null
   },
   "prims": [

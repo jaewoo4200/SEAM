@@ -9,6 +9,8 @@ import type { Mode } from "../store/appStore";
 import { SELECTED_PATH_COLOR } from "./common";
 import { filterPaths, pathColor, powerRange, powerWidth } from "../pathFilter";
 import { api } from "../api/client";
+import { directionalPosition } from "../viewportSettings";
+import ViewportPanel from "./ViewportPanel";
 import type {
   Prim,
   RadioMapResultSet,
@@ -30,8 +32,8 @@ const UNMATCHED_COLOR = "#4b5563";
 // AODT-style dark viewer (matches the FTC/lab-room GUI conventions in the
 // reference bundle, not Sionna's white built-in preview). Path colors come
 // from the shared palette in common.tsx (single source of truth with the
-// results table).
-const SCENE_BACKGROUND = "#0d1420";
+// results table). The viewer background is now a viewport setting; its default
+// (#0d1420) is defined in viewportSettings.ts.
 const PICKER_COLOR = SELECTED_PATH_COLOR; // bright highlight for selection
 
 // Jet colormap (blue -> cyan -> green -> yellow -> red), the AODT-like radio
@@ -423,8 +425,11 @@ function ActorTrajectoryLine({
 
 // -------------------------------------------------------------- ray paths
 
-function RayPaths() {
-  const pathResults = useAppStore((s) => s.pathResults);
+/** Shared ray-polyline overlay: applies the store filters/color-by to a set of
+ *  paths and draws them (with interaction dots when requested). Single source
+ *  of truth for the static results overlay, the trajectory-frame overlay and
+ *  the scenario-frame overlay. */
+function PathLines({ paths, showInteractions = true }: { paths: RayPath[]; showInteractions?: boolean }) {
   const selectedPathId = useAppStore((s) => s.selectedPathId);
   const selectPath = useAppStore((s) => s.selectPath);
   const pathTypeFilter = useAppStore((s) => s.pathTypeFilter);
@@ -435,13 +440,11 @@ function RayPaths() {
 
   // Same filter pipeline as the results table (single source of truth).
   const visible = useMemo(
-    () => filterPaths(pathResults?.paths ?? [], { pathTypeFilter, strongestN, minPowerDbm }),
-    [pathResults, pathTypeFilter, strongestN, minPowerDbm],
+    () => filterPaths(paths, { pathTypeFilter, strongestN, minPowerDbm }),
+    [paths, pathTypeFilter, strongestN, minPowerDbm],
   );
   // Color/width ranges are computed over the visible set.
   const range = useMemo(() => powerRange(visible), [visible]);
-
-  if (!pathResults) return null;
 
   return (
     <group>
@@ -460,12 +463,13 @@ function RayPaths() {
                 selectPath(p.path_id);
               }}
             />
-            {p.interactions.map((it, i) => (
-              <mesh key={`${p.path_id}_i${i}`} position={it.point}>
-                <sphereGeometry args={[0.18, 12, 8]} />
-                <meshBasicMaterial color={color} />
-              </mesh>
-            ))}
+            {showInteractions &&
+              p.interactions.map((it, i) => (
+                <mesh key={`${p.path_id}_i${i}`} position={it.point}>
+                  <sphereGeometry args={[0.18, 12, 8]} />
+                  <meshBasicMaterial color={color} />
+                </mesh>
+              ))}
           </group>
         );
       })}
@@ -473,11 +477,20 @@ function RayPaths() {
   );
 }
 
+function RayPaths() {
+  const pathResults = useAppStore((s) => s.pathResults);
+  if (!pathResults) return null;
+  return <PathLines paths={pathResults.paths} />;
+}
+
 // ------------------------------------------------------------ trajectory
 
-/** UE marker (pulsing blue sphere) at the current sample + yellow visited trail. */
+/** UE marker (pulsing blue sphere) at the current sample + yellow visited trail.
+ *  When the current sample carries per-waypoint ray paths (include_paths), those
+ *  live rays are drawn (respecting the store filters) via the shared PathLines. */
 function TrajectoryOverlay({ trajectory }: { trajectory: TrajectoryResultSet }) {
   const trajFrame = useAppStore((s) => s.trajFrame);
+  const showPaths = useAppStore((s) => s.showPaths);
   const markerRef = useRef<THREE.Mesh>(null);
 
   const samples = trajectory.samples;
@@ -498,11 +511,19 @@ function TrajectoryOverlay({ trajectory }: { trajectory: TrajectoryResultSet }) 
 
   if (!current) return null;
 
+  // Live per-frame rays (only present when the trajectory was simulated with
+  // include_paths). When absent we fall back to the static pathResults overlay
+  // rendered separately by the parent.
+  const framePaths = current.paths ?? null;
+
   return (
     <group>
       {trail.length > 1 && (
         // Yellow trail (AODT legend convention).
         <Line points={trail} color="#ffee58" lineWidth={2} />
+      )}
+      {showPaths && framePaths && framePaths.length > 0 && (
+        <PathLines paths={framePaths} showInteractions={false} />
       )}
       <group position={current.position}>
         <mesh ref={markerRef}>
@@ -515,6 +536,18 @@ function TrajectoryOverlay({ trajectory }: { trajectory: TrajectoryResultSet }) 
       </group>
     </group>
   );
+}
+
+/** True when the trajectory's current sample carries live per-frame ray paths
+ *  (so the static pathResults overlay should yield to them). */
+function trajectoryHasFramePaths(
+  trajectory: TrajectoryResultSet | null,
+  trajFrame: number,
+): boolean {
+  if (!trajectory || trajectory.samples.length === 0) return false;
+  const frame = Math.max(0, Math.min(trajectory.samples.length - 1, trajFrame));
+  const paths = trajectory.samples[frame]?.paths;
+  return Array.isArray(paths) && paths.length > 0;
 }
 
 // ------------------------------------------------------------- scenario
@@ -546,46 +579,6 @@ function ScenarioDevices({ states }: { states: Map<string, Vec3> }) {
   );
 }
 
-/** Frame ray overlay: draws the current scenario frame's paths respecting the
- *  existing store path filters (single source of truth with the results view). */
-function ScenarioPaths({ paths }: { paths: RayPath[] }) {
-  const selectedPathId = useAppStore((s) => s.selectedPathId);
-  const selectPath = useAppStore((s) => s.selectPath);
-  const pathTypeFilter = useAppStore((s) => s.pathTypeFilter);
-  const strongestN = useAppStore((s) => s.strongestN);
-  const minPowerDbm = useAppStore((s) => s.minPowerDbm);
-  const colorBy = useAppStore((s) => s.colorBy);
-  const lineWidthByPower = useAppStore((s) => s.lineWidthByPower);
-
-  const visible = useMemo(
-    () => filterPaths(paths, { pathTypeFilter, strongestN, minPowerDbm }),
-    [paths, pathTypeFilter, strongestN, minPowerDbm],
-  );
-  const range = useMemo(() => powerRange(visible), [visible]);
-
-  return (
-    <group>
-      {visible.map((p) => {
-        const selected = p.path_id === selectedPathId;
-        const color = selected ? SELECTED_PATH_COLOR : pathColor(p, colorBy, range);
-        const baseWidth = lineWidthByPower ? powerWidth(p, range) : 2;
-        return (
-          <Line
-            key={p.path_id}
-            points={p.vertices}
-            color={color}
-            lineWidth={selected ? Math.max(4, baseWidth) : baseWidth}
-            onClick={(e) => {
-              e.stopPropagation();
-              selectPath(p.path_id);
-            }}
-          />
-        );
-      })}
-    </group>
-  );
-}
-
 /** Whole scenario overlay for the current frame: actors + devices + paths. */
 function ScenarioOverlay({ showPaths }: { showPaths: boolean }) {
   const scenario = useAppStore((s) => s.scenario);
@@ -602,22 +595,40 @@ function ScenarioOverlay({ showPaths }: { showPaths: boolean }) {
     <group>
       <Actors frameStates={actorStates} />
       <ScenarioDevices states={deviceStates} />
-      {showPaths && frame.paths && <ScenarioPaths paths={frame.paths} />}
+      {showPaths && frame.paths && <PathLines paths={frame.paths} showInteractions={false} />}
     </group>
   );
 }
 
 // ------------------------------------------------------------ screenshot
 
-/** Registers a viewport-capture fn with the store (VLM groundwork). Reads the
- *  WebGL canvas as a JPEG data URL on demand; requires preserveDrawingBuffer. */
+/** Max width (px) of the captured viewport JPEG sent to the VLM. */
+const SCREENSHOT_MAX_WIDTH = 800;
+
+/** Registers a viewport-capture fn with the store (VLM). Reads the WebGL canvas
+ *  as a JPEG data URL on demand, downscaled to at most SCREENSHOT_MAX_WIDTH so
+ *  the payload stays small; requires preserveDrawingBuffer. */
 function ScreenshotCapture() {
   const gl = useThree((s) => s.gl);
   const registerViewportCapture = useAppStore((s) => s.registerViewportCapture);
   useEffect(() => {
     registerViewportCapture(() => {
       try {
-        return gl.domElement.toDataURL("image/jpeg", 0.6);
+        const src = gl.domElement;
+        const w = src.width;
+        const h = src.height;
+        if (w === 0 || h === 0) return null;
+        // Full-res if already narrow enough; otherwise downscale via an
+        // offscreen canvas preserving aspect ratio.
+        if (w <= SCREENSHOT_MAX_WIDTH) return src.toDataURL("image/jpeg", 0.6);
+        const scale = SCREENSHOT_MAX_WIDTH / w;
+        const off = document.createElement("canvas");
+        off.width = SCREENSHOT_MAX_WIDTH;
+        off.height = Math.max(1, Math.round(h * scale));
+        const ctx = off.getContext("2d");
+        if (!ctx) return src.toDataURL("image/jpeg", 0.6);
+        ctx.drawImage(src, 0, 0, off.width, off.height);
+        return off.toDataURL("image/jpeg", 0.6);
       } catch {
         return null;
       }
@@ -689,6 +700,42 @@ function RadioMapPlane({ radioMap }: { radioMap: RadioMapResultSet }) {
   );
 }
 
+// -------------------------------------------------------- textured overlay
+
+/** Non-pickable textured backdrop loaded from scene.assets.visual_overlay_uri.
+ *  Its meshes have raycast disabled so clicks fall through to the pickable
+ *  scene (and onPointerMissed still fires when nothing else is hit). Kept in its
+ *  own Suspense/error boundary by the caller so a missing overlay is silent. */
+function OverlayScene({ url }: { url: string }) {
+  const gltf = useGLTF(url);
+  // Clone so multiple viewers / remounts don't fight over one cached graph, and
+  // so we can freely disable raycasting on this instance's meshes.
+  const object = useMemo(() => gltf.scene.clone(true), [gltf]);
+  useEffect(() => {
+    object.traverse((obj) => {
+      // Disabling raycast makes the whole backdrop non-interactive: pointer
+      // events pass straight through to the pickable scene beneath it.
+      (obj as THREE.Object3D).raycast = () => null;
+    });
+  }, [object]);
+  return <primitive object={object} />;
+}
+
+/** Overlay wrapped in its own Suspense + error boundary so a missing/broken
+ *  overlay GLB never breaks the main viewer. */
+function OverlayBackdrop({ url }: { url: string }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [url]);
+  if (failed) return null;
+  return (
+    <Suspense fallback={null}>
+      <AssetBoundary key={url} url={url} fallback={null} onFailed={() => setFailed(true)}>
+        <OverlayScene url={url} />
+      </AssetBoundary>
+    </Suspense>
+  );
+}
+
 // ------------------------------------------------------------------ main
 
 export default function Viewer3D() {
@@ -698,14 +745,22 @@ export default function Viewer3D() {
   const pathResults = useAppStore((s) => s.pathResults);
   const radioMap = useAppStore((s) => s.radioMap);
   const trajectory = useAppStore((s) => s.trajectory);
+  const trajFrame = useAppStore((s) => s.trajFrame);
   const scenario = useAppStore((s) => s.scenario);
   const showPaths = useAppStore((s) => s.showPaths);
   const showRadioMapToggle = useAppStore((s) => s.showRadioMap);
   const clearSelection = useAppStore((s) => s.clearSelection);
+  const viewport = useAppStore((s) => s.viewport);
   const [assetFailed, setAssetFailed] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(false);
 
   const uri = scene?.assets.visual_scene_uri ?? null;
   const url = projectId && uri ? api.assetUrl(projectId, uri) : null;
+  const overlayUri = scene?.assets.visual_overlay_uri ?? null;
+  const overlayUrl =
+    projectId && overlayUri && viewport.showOverlay
+      ? api.assetUrl(projectId, overlayUri)
+      : null;
 
   useEffect(() => {
     setAssetFailed(false);
@@ -715,26 +770,42 @@ export default function Viewer3D() {
   // Scenario playback owns the actors/devices when a scenario is loaded in
   // Results mode; otherwise actors render at their static scene poses.
   const scenarioActive = scenario !== null && scenario.frames.length > 0 && mode === "results";
+  // When the current trajectory sample carries live per-frame rays, they take
+  // over from the static pathResults overlay (feature: trajectory live rays).
+  const trajActive = trajectory !== null && mode === "results" && !scenarioActive;
+  const trajFramePaths = trajActive && trajectoryHasFramePaths(trajectory, trajFrame);
+  const dirPos = directionalPosition(
+    viewport.directionalAzimuthDeg,
+    viewport.directionalElevationDeg,
+  );
+
   return (
     <div className="viewer3d">
       <Canvas
         dpr={[1, 2]}
         // preserveDrawingBuffer lets captureViewport() read the canvas as a
-        // JPEG data URL (AI/VLM groundwork) after the frame has been presented.
+        // JPEG data URL (AI/VLM) after the frame has been presented.
         gl={{ preserveDrawingBuffer: true }}
         onPointerMissed={() => clearSelection()}
       >
-        {/* AODT-style dark viewer. */}
-        <color attach="background" args={[SCENE_BACKGROUND]} />
+        {/* AODT-style dark viewer; lighting/background driven by viewport settings. */}
+        <color attach="background" args={[viewport.backgroundColor]} />
         <PerspectiveCamera makeDefault up={[0, 0, 1]} position={[35, -35, 25]} fov={45} near={0.1} far={5000} />
         <OrbitControls makeDefault target={[0, 0, 0]} />
-        <ambientLight intensity={0.75} />
-        <hemisphereLight args={["#dfe9f3", "#20262e", 0.5]} />
-        <directionalLight position={[30, -20, 50]} intensity={1.1} />
+        <ambientLight intensity={viewport.ambientIntensity} />
+        <hemisphereLight args={["#dfe9f3", "#20262e", viewport.hemisphereIntensity]} />
+        <directionalLight
+          position={dirPos}
+          intensity={viewport.directionalIntensity}
+          color={viewport.directionalColor}
+        />
         {/* gridHelper lies in XZ by default; rotate +90° about X into the XY ground plane. */}
-        <gridHelper args={[200, 50, "#2c3947", "#1b2531"]} rotation={[Math.PI / 2, 0, 0]} />
-        <axesHelper args={[4]} />
+        {viewport.showGrid && (
+          <gridHelper args={[200, 50, "#2c3947", "#1b2531"]} rotation={[Math.PI / 2, 0, 0]} />
+        )}
+        {viewport.showAxes && <axesHelper args={[4]} />}
         <ScreenshotCapture />
+        {overlayUrl && <OverlayBackdrop url={overlayUrl} />}
         <Suspense
           fallback={
             <Html center>
@@ -758,16 +829,23 @@ export default function Viewer3D() {
             {scene && <Actors />}
           </>
         )}
-        {pathResults && showPaths && !scenarioActive && <RayPaths />}
+        {/* Static rays yield to live trajectory-frame rays when those are shown. */}
+        {pathResults && showPaths && !scenarioActive && !trajFramePaths && <RayPaths />}
         {showRadioMap && <RadioMapPlane radioMap={radioMap} />}
-        {trajectory && mode === "results" && !scenarioActive && (
-          <TrajectoryOverlay trajectory={trajectory} />
-        )}
+        {trajActive && <TrajectoryOverlay trajectory={trajectory} />}
       </Canvas>
       {showRadioMap && <RadioMapLegend radioMap={radioMap} />}
       {scene && (!url || assetFailed) && (
         <div className="viewer-banner">Visual asset missing — showing placeholder geometry</div>
       )}
+      <button
+        className={"viewport-gear" + (panelOpen ? " active" : "")}
+        title="Viewport lighting & display"
+        onClick={() => setPanelOpen((o) => !o)}
+      >
+        ⚙
+      </button>
+      {panelOpen && <ViewportPanel onClose={() => setPanelOpen(false)} />}
     </div>
   );
 }

@@ -35,6 +35,55 @@ from .base import UNSAVED_RESULT_ID, RayTracingBackend
 # paths.objects sentinel for "no interaction at this depth" (uint32 max).
 _NO_OBJECT = 0xFFFFFFFF
 
+
+def _steering_from_positions(y_norm, angle_deg: float, np):
+    """Azimuth steering vector built from the array's ACTUAL element
+    positions (y = horizontal offset in wavelengths, from
+    PlanarArray.normalized_positions) - immune to element-ordering
+    assumptions. Vertical stays broadside: this is the azimuth-only DFT
+    codebook real mmWave beam training sweeps (ICC'26 paper setup).
+    Phase sign verified against a 1x4 ULA probe: element phase grows as
+    +2*pi*y*sin(azimuth)."""
+    import math
+
+    phase = 2.0 * math.pi * np.asarray(y_norm) * math.sin(math.radians(angle_deg))
+    w = np.exp(1j * phase)
+    return w / np.linalg.norm(w)
+
+
+def _codebook_sweep(base, H, h00: float, request, np, tx_y_norm, rx_y_norm) -> None:
+    """Hardware-style beam training: scan an azimuth DFT codebook on both
+    ends, record the full [rx_beam][tx_beam] gain map, select the best pair."""
+    import math
+
+    angles = []
+    a = request.sweep_start_deg
+    while a <= request.sweep_stop_deg + 1e-9:
+        angles.append(round(a, 6))
+        a += request.sweep_step_deg
+    tx_beams = [_steering_from_positions(tx_y_norm, ang, np) for ang in angles]
+    rx_beams = [_steering_from_positions(rx_y_norm, ang, np) for ang in angles]
+
+    sweep: list[list[float]] = []
+    best = (-1.0, 0, 0)
+    for i, w_r in enumerate(rx_beams):
+        row: list[float] = []
+        for j, w_t in enumerate(tx_beams):
+            power = abs(np.vdot(w_r, H @ w_t)) ** 2
+            gain_db = 10.0 * math.log10(max(power / h00, 1e-30))
+            row.append(round(gain_db, 3))
+            if power > best[0]:
+                best = (power, i, j)
+        sweep.append(row)
+
+    base.sweep_angles_deg = angles
+    base.sweep_gain_db = sweep
+    if best[0] > 0:
+        base.codebook_gain_db = 10.0 * math.log10(best[0] / h00)
+        base.best_rx_angle_deg = angles[best[1]]
+        base.best_tx_angle_deg = angles[best[2]]
+    base.metadata["beam_pairs_scanned"] = len(angles) ** 2
+
 # Sionna RT interaction-type codes -> our schema interaction type. Code 0 is
 # "none"; the rest are mapped defensively (unknown codes fall back to
 # reflection) so a version bump cannot crash conversion.
@@ -231,10 +280,11 @@ def apply_actor_states(rt_scene, states, base_actors: dict) -> list[str]:
         new_centroid = [baked_centroid[i] + (p1[i] - p0[i]) for i in range(3)]
         obj.position = mi.Point3f(new_centroid[0], new_centroid[1], new_centroid[2])
         # Yaw only. Sionna orientation is [alpha(Z-yaw), beta(Y), gamma(X)] rad;
-        # index 0 is the yaw. Preserve beta/gamma, set the new absolute yaw.
+        # index 0 is the yaw. Our orientation_deg is [yaw, pitch, roll], so
+        # index 0 on both sides. Preserve beta/gamma, set the delta yaw.
         try:
             yaw = baked_orient[0] + math.radians(
-                float(state.orientation_deg[2]) - float(base.orientation_deg[2])
+                float(state.orientation_deg[0]) - float(base.orientation_deg[0])
             )
             obj.orientation = mi.Point3f(yaw, baked_orient[1], baked_orient[2])
         except Exception as exc:  # noqa: BLE001 - orientation is best-effort
@@ -487,8 +537,21 @@ class SionnaBackend(RayTracingBackend):
             rx.antenna, base.warnings, num_rows=request.rx_rows, num_cols=request.rx_cols
         )
         self._apply_custom_materials(project_dir, rt_scene, base.warnings)
-        rt_scene.add(Transmitter(name=tx.id, position=list(tx.position), power_dbm=tx.power_dbm))
-        rt_scene.add(Receiver(name=rx.id, position=list(rx.position)))
+        # Panels face each other (look_at), like the lab presets' explicit
+        # boresights: without this, a steep link loses its vertical array gain
+        # to broadside mismatch and the azimuth-only codebook can't recover it
+        # (verified: -23 deg elevation costs ~5.7 dB per end at 4 rows).
+        rt_scene.add(
+            Transmitter(
+                name=tx.id,
+                position=list(tx.position),
+                power_dbm=tx.power_dbm,
+                look_at=list(rx.position),
+            )
+        )
+        rt_scene.add(
+            Receiver(name=rx.id, position=list(rx.position), look_at=list(tx.position))
+        )
 
         # synthetic_array=True keeps the per-antenna channel tensor dense so the
         # MRT/SVD math below has a full [rx_ant, tx_ant] matrix per path.
@@ -520,6 +583,26 @@ class SionnaBackend(RayTracingBackend):
         # Both-ends SVD: largest singular value squared.
         sigma_max = float(np.linalg.svd(H, compute_uv=False)[0])
         base.svd_gain_db = 10.0 * math.log10(max(sigma_max ** 2 / h00, 1e-30))
+
+        base.mode = request.mode
+        if request.mode == "codebook_sweep":
+            # Horizontal element offsets (in wavelengths) straight from the
+            # arrays: makes the codebook independent of element ordering.
+            # Dual-polarized arrays expose num_pol x elements ports in H,
+            # ordered polarization-major (all elements pol A, then pol B -
+            # verified via a 1x4 cross-pol phase probe), so tile the element
+            # offsets per polarization to get per-port offsets.
+            tx_y = np.asarray(rt_scene.tx_array.normalized_positions)[1]
+            rx_y = np.asarray(rt_scene.rx_array.normalized_positions)[1]
+            if H.shape[1] % len(tx_y) == 0 and H.shape[0] % len(rx_y) == 0:
+                tx_y = np.tile(tx_y, H.shape[1] // len(tx_y))
+                rx_y = np.tile(rx_y, H.shape[0] // len(rx_y))
+                _codebook_sweep(base, H, h00, request, np, tx_y, rx_y)
+            else:
+                base.warnings.append(
+                    f"channel ports {H.shape} not a polarization multiple of "
+                    f"element counts ({len(rx_y)}x{len(tx_y)}); codebook sweep skipped"
+                )
         return base
 
     @staticmethod

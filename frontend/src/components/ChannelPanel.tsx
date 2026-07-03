@@ -196,6 +196,9 @@ export default function ChannelPanel() {
 
   const [txId, setTxId] = useState<string>("");
   const [rxId, setRxId] = useState<string>("");
+  // CFR resolution (number of frequency samples across the band). Defaults to
+  // the backend default (128) until the user overrides it.
+  const [numCfrPoints, setNumCfrPoints] = useState(128);
 
   // Default the selects to the first available tx/rx when the scene changes.
   useEffect(() => {
@@ -244,11 +247,27 @@ export default function ChannelPanel() {
             ))}
           </select>
         </label>
+        <label className="solver-field">
+          <span className="solver-field-label">CFR points</span>
+          <span className="solver-field-input">
+            <input
+              type="number"
+              min={2}
+              max={4096}
+              step={1}
+              value={numCfrPoints}
+              disabled={disabled}
+              onChange={(e) =>
+                setNumCfrPoints(Math.max(2, Math.min(4096, Math.round(Number(e.target.value)))))
+              }
+            />
+          </span>
+        </label>
         <div className="panel-actions">
           <button
             className="primary"
             disabled={!projectId || disabled || !txId || !rxId}
-            onClick={() => void analyzeChannel(txId, rxId)}
+            onClick={() => void analyzeChannel(txId, rxId, numCfrPoints)}
           >
             Analyze
           </button>

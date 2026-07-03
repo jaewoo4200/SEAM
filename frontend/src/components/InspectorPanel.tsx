@@ -378,10 +378,23 @@ function ActorTrajectoryEditor({ actor }: { actor: Actor }) {
   const busy = useAppStore((s) => s.busy);
   const disabled = busy !== null;
 
-  const traj: ActorTrajectory = actor.trajectory ?? { waypoints: [], dt_s: 0.1, loop: false };
+  const traj: ActorTrajectory = actor.trajectory ?? {
+    waypoints: [],
+    dt_s: 0.1,
+    loop: false,
+    mode: "once",
+  };
   const enabled = actor.trajectory !== null;
+  // Effective playback mode: prefer the new `mode`, fall back to the legacy
+  // `loop` bool for older scenes that predate the mode field.
+  const mode: NonNullable<ActorTrajectory["mode"]> = traj.mode ?? (traj.loop ? "loop" : "once");
 
   const commit = (next: ActorTrajectory | null) => void updateActor(actor.id, { trajectory: next });
+
+  // Set the playback mode, keeping the legacy `loop` bool in sync so backends
+  // that only read `loop` still behave (loop stays true for loop/pingpong).
+  const setMode = (m: NonNullable<ActorTrajectory["mode"]>) =>
+    commit({ ...traj, mode: m, loop: m !== "once" });
 
   const setWaypoint = (i: number, axis: number, value: number) => {
     const waypoints = traj.waypoints.map((wp, j) => {
@@ -408,7 +421,11 @@ function ActorTrajectoryEditor({ actor }: { actor: Actor }) {
           checked={enabled}
           disabled={disabled}
           onChange={(e) =>
-            commit(e.target.checked ? { waypoints: [[...actor.position]], dt_s: 0.1, loop: false } : null)
+            commit(
+              e.target.checked
+                ? { waypoints: [[...actor.position]], dt_s: 0.1, loop: false, mode: "once" }
+                : null,
+            )
           }
         />
         Define waypoints
@@ -464,14 +481,17 @@ function ActorTrajectoryEditor({ actor }: { actor: Actor }) {
               <span className="solver-unit">s</span>
             </span>
           </label>
-          <label className="solver-check" style={{ marginTop: 4 }}>
-            <input
-              type="checkbox"
-              checked={traj.loop}
+          <label className="solver-field" style={{ marginTop: 6 }}>
+            <span className="solver-field-label">Mode</span>
+            <select
+              value={mode}
               disabled={disabled}
-              onChange={(e) => commit({ ...traj, loop: e.target.checked })}
-            />
-            Loop
+              onChange={(e) => setMode(e.target.value as NonNullable<ActorTrajectory["mode"]>)}
+            >
+              <option value="once">once</option>
+              <option value="loop">loop</option>
+              <option value="pingpong">pingpong</option>
+            </select>
           </label>
         </>
       )}

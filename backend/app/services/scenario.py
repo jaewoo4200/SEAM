@@ -38,34 +38,74 @@ from app.services.simulation_backends.base import RayTracingBackend
 from app.services.simulation_backends.sionna_backend import noise_floor_dbm
 
 
-def actor_position_at(actor: Actor, time_s: float) -> list[float]:
-    """Actor base position at ``time_s`` (MVP: nearest waypoint, no interp).
+def _trajectory_param(traj, time_s: float) -> float:
+    """Continuous waypoint parameter s in [0, n-1] at ``time_s``.
 
-    Pinned rule: waypoint index = floor(t / trajectory.dt_s); clamp to the last
-    waypoint, or wrap when ``loop`` is set. Actors without a trajectory (or with
-    an empty one) stay at their authored position.
+    s advances by 1 per trajectory dt. Modes:
+    - once:     clamp at the ends;
+    - loop:     wrap (…, n-2, n-1, 0, 1, …) - traversal jumps back to start;
+    - pingpong: reflect at both ends (0..n-1..0..).
     """
+    n = len(traj.waypoints)
+    if n <= 1:
+        return 0.0
+    s = time_s / traj.dt_s
+    mode = traj.resolved_mode()
+    span = float(n - 1)
+    if mode == "once":
+        return max(0.0, min(s, span))
+    if mode == "loop":
+        return s % span
+    # pingpong: triangle wave with period 2*span.
+    period = 2.0 * span
+    phase = s % period
+    return phase if phase <= span else period - phase
+
+
+def actor_position_at(actor: Actor, time_s: float) -> list[float]:
+    """Actor base position at ``time_s``: LINEAR INTERPOLATION between the
+    trajectory waypoints (smooth motion), honoring once/loop/pingpong modes.
+    Actors without a trajectory stay at their authored position."""
     traj = actor.trajectory
     if traj is None or not traj.waypoints:
         return [float(c) for c in actor.position]
-    idx = int(math.floor(time_s / traj.dt_s))
-    n = len(traj.waypoints)
-    if traj.loop:
-        idx %= n
-    else:
-        idx = max(0, min(idx, n - 1))
-    return [float(c) for c in traj.waypoints[idx]]
+    if len(traj.waypoints) == 1:
+        return [float(c) for c in traj.waypoints[0]]
+    s = _trajectory_param(traj, time_s)
+    i = int(math.floor(s))
+    i = max(0, min(i, len(traj.waypoints) - 2))
+    frac = s - i
+    a, b = traj.waypoints[i], traj.waypoints[i + 1]
+    return [float(a[k]) + (float(b[k]) - float(a[k])) * frac for k in range(3)]
+
+
+def actor_heading_at(actor: Actor, time_s: float, eps_s: float = 1e-3) -> float:
+    """Yaw (deg) facing the direction of travel; authored yaw when static."""
+    p0 = actor_position_at(actor, time_s)
+    p1 = actor_position_at(actor, time_s + eps_s)
+    dx, dy = p1[0] - p0[0], p1[1] - p0[1]
+    if abs(dx) < 1e-9 and abs(dy) < 1e-9:
+        return float(actor.orientation_deg[0])  # [yaw, pitch, roll]
+    return math.degrees(math.atan2(dy, dx))
 
 
 def _actor_states_at(scene: Scene, time_s: float) -> list[ActorState]:
-    """ActorState for every actor at ``time_s`` (moving and static alike)."""
+    """ActorState for every actor at ``time_s`` (moving and static alike).
+
+    Moving actors face their direction of travel (yaw from the trajectory
+    tangent), like vehicles/pedestrians do."""
     states: list[ActorState] = []
     for actor in scene.actors:
+        # orientation_deg convention is [yaw, pitch, roll]; only yaw follows
+        # the travel direction, pitch/roll keep the authored values.
+        yaw = actor_heading_at(actor, time_s)
+        pitch = float(actor.orientation_deg[1])
+        roll = float(actor.orientation_deg[2])
         states.append(
             ActorState(
                 id=actor.id,
                 position=actor_position_at(actor, time_s),
-                orientation_deg=[float(a) for a in actor.orientation_deg],
+                orientation_deg=[yaw, pitch, roll],
             )
         )
     return states

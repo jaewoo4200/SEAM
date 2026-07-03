@@ -547,3 +547,174 @@ def test_api_status_and_unknown_project_404(client, monkeypatch):
         json={"provider": "rule_based"},
     )
     assert missing.status_code == 404
+
+
+# --------------------------------------------------- multimodal / vision (offline)
+
+_TINY_PNG_DATA_URL = (
+    "data:image/png;base64,"
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+)
+
+
+class _CapturingPost:
+    """Records the kwargs of the last httpx.post and returns a canned payload."""
+
+    def __init__(self, payload: dict):
+        self._payload = payload
+        self.calls: list[dict] = []
+
+    def __call__(self, *args, **kwargs):
+        self.calls.append(kwargs)
+        return _FakeResponse(self._payload)
+
+
+def test_local_openai_builds_multimodal_content_when_screenshot_present(
+    scene, library, monkeypatch
+):
+    capture = _CapturingPost(_openai_payload(json.dumps(_valid_payload())))
+    monkeypatch.setattr(httpx, "post", capture)
+    response = LocalOpenAIProvider().suggest(
+        scene, library, [WINDOW_ID], screenshot=_TINY_PNG_DATA_URL
+    )
+    assert response.provider == "local_openai"
+    assert response.suggestions[0].recommended_rf_material_id == "itu_glass"
+
+    # One POST built OpenAI multimodal content on the user message.
+    assert len(capture.calls) == 1
+    messages = capture.calls[0]["json"]["messages"]
+    user_msg = messages[-1]
+    assert user_msg["role"] == "user"
+    content = user_msg["content"]
+    assert isinstance(content, list)
+    kinds = [part["type"] for part in content]
+    assert kinds == ["text", "image_url"]
+    assert content[1]["image_url"]["url"] == _TINY_PNG_DATA_URL
+    # The image-is-evidence note is threaded into the text prompt.
+    assert "EVIDENCE only" in content[0]["text"]
+    assert "current 3D viewport" in content[0]["text"]
+
+
+def test_local_openai_plain_string_content_without_screenshot(
+    scene, library, monkeypatch
+):
+    capture = _CapturingPost(_openai_payload(json.dumps(_valid_payload())))
+    monkeypatch.setattr(httpx, "post", capture)
+    LocalOpenAIProvider().suggest(scene, library, [WINDOW_ID])
+    messages = capture.calls[0]["json"]["messages"]
+    # No screenshot -> plain string content, exactly like before.
+    assert isinstance(messages[-1]["content"], str)
+    assert "current 3D viewport" not in messages[-1]["content"]
+
+
+def test_local_openai_degrades_to_text_when_image_rejected(scene, library, monkeypatch):
+    good = _openai_payload(json.dumps(_valid_payload()))
+    calls: list[dict] = []
+
+    def _post(*args, **kwargs):
+        calls.append(kwargs)
+        # First (multimodal) call rejected as HTTP 400; text-only retry succeeds.
+        content = kwargs["json"]["messages"][-1]["content"]
+        if isinstance(content, list):
+            request = httpx.Request("POST", "http://x/chat/completions")
+            resp = httpx.Response(400, request=request, text="model does not support images")
+            raise httpx.HTTPStatusError("400", request=request, response=resp)
+        return _FakeResponse(good)
+
+    monkeypatch.setattr(httpx, "post", _post)
+    response = LocalOpenAIProvider().suggest(
+        scene, library, [WINDOW_ID], screenshot=_TINY_PNG_DATA_URL
+    )
+    # Degraded, not fallen back to rules: still local_openai with a real answer.
+    assert response.provider == "local_openai"
+    assert response.suggestions[0].recommended_rf_material_id == "itu_glass"
+    assert any("vision input rejected by" in w for w in response.warnings)
+    assert any("used text only" in w for w in response.warnings)
+    # Two calls: the rejected multimodal attempt, then the text-only retry.
+    assert len(calls) == 2
+    assert isinstance(calls[0]["json"]["messages"][-1]["content"], list)
+    assert isinstance(calls[1]["json"]["messages"][-1]["content"], str)
+
+
+def test_local_openai_non_vision_error_still_falls_back_to_rules(
+    scene, library, monkeypatch
+):
+    # A connect error (not an image rejection) must NOT trigger the text retry;
+    # it falls all the way back to the rule-based provider.
+    def _raise(*args, **kwargs):
+        raise httpx.ConnectError("connection refused")
+
+    monkeypatch.setattr(httpx, "post", _raise)
+    response = LocalOpenAIProvider().suggest(
+        scene, library, [WINDOW_ID], screenshot=_TINY_PNG_DATA_URL
+    )
+    assert response.provider == "rule_based"
+    assert response.warnings[0].startswith("local_openai failed:")
+
+
+def test_ollama_provider_sends_images_and_vision_model(scene, library, monkeypatch):
+    capture = _CapturingPost({"message": {"content": json.dumps(_valid_payload())}})
+    monkeypatch.setattr(httpx, "post", capture)
+    settings = get_settings().ai
+    response = OllamaTextProvider().suggest(
+        scene, library, [WINDOW_ID], screenshot=_TINY_PNG_DATA_URL
+    )
+    assert response.provider == "ollama_text"
+    assert response.suggestions[0].recommended_rf_material_id == "itu_glass"
+    body = capture.calls[0]["json"]
+    # Vision model selected, base64 image attached WITHOUT the data: prefix.
+    assert body["model"] == settings.vision_model
+    user_msg = body["messages"][-1]
+    assert "images" in user_msg
+    assert len(user_msg["images"]) == 1
+    assert not user_msg["images"][0].startswith("data:")
+    assert "base64," not in user_msg["images"][0]
+    assert "current 3D viewport" in user_msg["content"]
+
+
+def test_ollama_provider_text_model_without_screenshot(scene, library, monkeypatch):
+    capture = _CapturingPost({"message": {"content": json.dumps(_valid_payload())}})
+    monkeypatch.setattr(httpx, "post", capture)
+    settings = get_settings().ai
+    OllamaTextProvider().suggest(scene, library, [WINDOW_ID])
+    body = capture.calls[0]["json"]
+    assert body["model"] == settings.text_model
+    assert "images" not in body["messages"][-1]
+
+
+def test_rule_based_ignores_screenshot(scene, library):
+    # Backward-compatible signature: RuleBased accepts but ignores the image.
+    response = RuleBasedProvider().suggest(
+        scene, library, [WINDOW_ID], screenshot=_TINY_PNG_DATA_URL
+    )
+    assert response.provider == "rule_based"
+    assert response.suggestions[0].recommended_rf_material_id == "itu_glass"
+
+
+def test_api_suggest_records_screenshot_attached_flag(client):
+    http, _store, project_dir = client
+    response = http.post(
+        "/api/projects/ai_test/ai/suggest-materials",
+        json={
+            "prim_ids": [WINDOW_ID],
+            "provider": "rule_based",
+            "screenshot_data_url": _TINY_PNG_DATA_URL,
+        },
+    )
+    assert response.status_code == 200
+    records = _read_log(project_dir)
+    suggested = [r for r in records if r["event"] == "suggested"]
+    assert len(suggested) == 1
+    # Provenance flag present and true; the image itself is never stored.
+    assert suggested[0]["screenshot_attached"] is True
+    assert _TINY_PNG_DATA_URL not in json.dumps(suggested[0])
+
+
+def test_api_suggest_screenshot_attached_false_without_image(client):
+    http, _store, project_dir = client
+    http.post(
+        "/api/projects/ai_test/ai/suggest-materials",
+        json={"prim_ids": [WINDOW_ID], "provider": "rule_based"},
+    )
+    suggested = [r for r in _read_log(project_dir) if r["event"] == "suggested"]
+    assert suggested[0]["screenshot_attached"] is False

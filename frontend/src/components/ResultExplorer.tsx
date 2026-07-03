@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAppStore } from "../store/appStore";
 import ChannelPanel from "./ChannelPanel";
+import BeamSweepHeatmap from "./BeamSweepHeatmap";
 import { PATH_COLORS, SELECTED_PATH_COLOR, formatVec } from "./common";
 import { filterPaths, pathColor, pathDepth, powerRange } from "../pathFilter";
 import type { ColorBy } from "../store/appStore";
 import type {
+  BeamformingResult,
   LinkMetrics,
   PathType,
   RayPath,
@@ -229,9 +231,11 @@ function TrajectorySection() {
   const trajFrame = useAppStore((s) => s.trajFrame);
   const trajPlaying = useAppStore((s) => s.trajPlaying);
   const trajSpeed = useAppStore((s) => s.trajSpeed);
+  const trajLoop = useAppStore((s) => s.trajLoop);
   const setTrajFrame = useAppStore((s) => s.setTrajFrame);
   const setTrajPlaying = useAppStore((s) => s.setTrajPlaying);
   const setTrajSpeed = useAppStore((s) => s.setTrajSpeed);
+  const setTrajLoop = useAppStore((s) => s.setTrajLoop);
   const simulateTrajectory = useAppStore((s) => s.simulateTrajectory);
   const busy = useAppStore((s) => s.busy);
   const projectId = useAppStore((s) => s.projectId);
@@ -255,7 +259,12 @@ function TrajectorySection() {
       const st = useAppStore.getState();
       const last = (st.trajectory?.samples.length ?? 1) - 1;
       if (st.trajFrame >= last) {
-        st.setTrajPlaying(false);
+        // Loop: wrap back to the start and keep playing; otherwise stop.
+        if (st.trajLoop) {
+          st.setTrajFrame(0);
+        } else {
+          st.setTrajPlaying(false);
+        }
         return;
       }
       st.setTrajFrame(st.trajFrame + 1);
@@ -349,9 +358,11 @@ function TrajectorySection() {
           trajFrame={trajFrame}
           trajPlaying={trajPlaying}
           trajSpeed={trajSpeed}
+          trajLoop={trajLoop}
           setTrajFrame={setTrajFrame}
           setTrajPlaying={setTrajPlaying}
           setTrajSpeed={setTrajSpeed}
+          setTrajLoop={setTrajLoop}
           sample={sample}
           kpi={kpi}
           fmt={fmt}
@@ -366,9 +377,11 @@ function PlaybackTrajectory({
   trajFrame,
   trajPlaying,
   trajSpeed,
+  trajLoop,
   setTrajFrame,
   setTrajPlaying,
   setTrajSpeed,
+  setTrajLoop,
   sample,
   kpi,
   fmt,
@@ -377,9 +390,11 @@ function PlaybackTrajectory({
   trajFrame: number;
   trajPlaying: boolean;
   trajSpeed: number;
+  trajLoop: boolean;
   setTrajFrame: (f: number) => void;
   setTrajPlaying: (p: boolean) => void;
   setTrajSpeed: (s: number) => void;
+  setTrajLoop: (l: boolean) => void;
   sample: TrajectoryResultSet["samples"][number] | null;
   kpi: (label: string, value: string) => JSX.Element;
   fmt: (v: number | null, unit: string, digits?: number) => string;
@@ -387,12 +402,14 @@ function PlaybackTrajectory({
   const last = trajectory.samples.length - 1;
   const frame = Math.min(trajFrame, last);
   const atEnd = frame >= last;
+  const hasFramePaths = (sample?.paths?.length ?? 0) > 0;
 
   return (
     <div className="traj-playback">
       <div className="results-meta">
         <span className="mono">{trajectory.ue_id}</span> · {trajectory.samples.length} sample(s) ·
         backend <span className="mono">{trajectory.backend}</span>
+        {hasFramePaths && <> · live rays</>}
       </div>
       <div className="traj-transport">
         <button
@@ -415,6 +432,13 @@ function PlaybackTrajectory({
         <span className="mono traj-frame-num">
           {frame + 1}/{last + 1}
         </span>
+        <button
+          className={"traj-loop" + (trajLoop ? " active" : "")}
+          onClick={() => setTrajLoop(!trajLoop)}
+          title={trajLoop ? "Repeat on" : "Repeat off"}
+        >
+          ⟳
+        </button>
         <select
           value={trajSpeed}
           onChange={(e) => setTrajSpeed(Number(e.target.value))}
@@ -477,9 +501,11 @@ function ScenarioPlayback({ scenario }: { scenario: ScenarioResultSet }) {
   const scenarioFrame = useAppStore((s) => s.scenarioFrame);
   const scenarioPlaying = useAppStore((s) => s.scenarioPlaying);
   const scenarioSpeed = useAppStore((s) => s.scenarioSpeed);
+  const scenarioLoop = useAppStore((s) => s.scenarioLoop);
   const setScenarioFrame = useAppStore((s) => s.setScenarioFrame);
   const setScenarioPlaying = useAppStore((s) => s.setScenarioPlaying);
   const setScenarioSpeed = useAppStore((s) => s.setScenarioSpeed);
+  const setScenarioLoop = useAppStore((s) => s.setScenarioLoop);
 
   const last = scenario.frames.length - 1;
   const frameIdx = Math.min(scenarioFrame, last);
@@ -499,7 +525,11 @@ function ScenarioPlayback({ scenario }: { scenario: ScenarioResultSet }) {
       const st = useAppStore.getState();
       const lastFrame = (st.scenario?.frames.length ?? 1) - 1;
       if (st.scenarioFrame >= lastFrame) {
-        st.setScenarioPlaying(false);
+        if (st.scenarioLoop) {
+          st.setScenarioFrame(0);
+        } else {
+          st.setScenarioPlaying(false);
+        }
         return;
       }
       st.setScenarioFrame(st.scenarioFrame + 1);
@@ -533,6 +563,13 @@ function ScenarioPlayback({ scenario }: { scenario: ScenarioResultSet }) {
         <span className="mono traj-frame-num">
           {frameIdx + 1}/{last + 1}
         </span>
+        <button
+          className={"traj-loop" + (scenarioLoop ? " active" : "")}
+          onClick={() => setScenarioLoop(!scenarioLoop)}
+          title={scenarioLoop ? "Repeat on" : "Repeat off"}
+        >
+          ⟳
+        </button>
         <select
           value={scenarioSpeed}
           onChange={(e) => setScenarioSpeed(Number(e.target.value))}
@@ -620,6 +657,64 @@ function ScenarioSection() {
       </div>
 
       {scenario && scenario.frames.length > 0 && <ScenarioPlayback scenario={scenario} />}
+    </div>
+  );
+}
+
+// ------------------------------------------------------- beamforming card
+
+/** Mode-aware beamforming result card. For codebook_sweep it shows the best
+ *  TX/RX beam angles + codebook gain and a jet heatmap of the sweep grid; for
+ *  the analytic modes it shows the single-element reference and the mode gain. */
+function BeamformingCard({ beamforming: b }: { beamforming: BeamformingResult }) {
+  const dB = (v: number | null, signed = true) =>
+    v === null ? "n/a" : `${signed && v >= 0 ? "+" : ""}${v.toFixed(1)} dB`;
+  const isSweep = b.mode === "codebook_sweep";
+
+  return (
+    <div className="beamforming-card">
+      <h4>
+        Beamforming {b.tx_array[0]}×{b.tx_array[1]} → {b.rx_array[0]}×{b.rx_array[1]}
+        <span className="mono"> · {b.mode} · {b.backend}</span>
+      </h4>
+      <div className="results-meta">
+        single element{" "}
+        <span className="mono">
+          {b.single_element_dbm === null ? "n/a" : `${b.single_element_dbm.toFixed(1)} dBm`}
+        </span>{" "}
+        {isSweep ? (
+          <>
+            · codebook <span className="mono">{dB(b.codebook_gain_db)}</span>
+            {b.best_tx_angle_deg !== null && b.best_rx_angle_deg !== null && (
+              <>
+                {" "}
+                · best TX{" "}
+                <span className="mono">{b.best_tx_angle_deg.toFixed(0)}°</span> / RX{" "}
+                <span className="mono">{b.best_rx_angle_deg.toFixed(0)}°</span>
+              </>
+            )}
+          </>
+        ) : b.mode === "svd" ? (
+          <>
+            · SVD <span className="mono">{dB(b.svd_gain_db)}</span>
+          </>
+        ) : (
+          <>
+            · TX-MRT <span className="mono">{dB(b.tx_mrt_gain_db)}</span>
+          </>
+        )}{" "}
+        · {b.num_paths} path(s)
+      </div>
+      {isSweep && b.sweep_gain_db && b.sweep_gain_db.length > 0 && (
+        <BeamSweepHeatmap result={b} />
+      )}
+      {b.warnings.length > 0 && (
+        <div className="ai-note">
+          {b.warnings.map((w, i) => (
+            <div key={i}>{w}</div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -765,43 +860,7 @@ export default function ResultExplorer() {
         </label>
       </div>
 
-      {beamforming && showBeamforming && (
-        <div className="beamforming-card">
-          <h4>
-            Beamforming {beamforming.tx_array[0]}×{beamforming.tx_array[1]} →{" "}
-            {beamforming.rx_array[0]}×{beamforming.rx_array[1]}
-            <span className="mono"> · {beamforming.backend}</span>
-          </h4>
-          <div className="results-meta">
-            single element{" "}
-            <span className="mono">
-              {beamforming.single_element_dbm === null
-                ? "n/a"
-                : `${beamforming.single_element_dbm.toFixed(1)} dBm`}
-            </span>{" "}
-            · TX-MRT{" "}
-            <span className="mono">
-              {beamforming.tx_mrt_gain_db === null
-                ? "n/a"
-                : `+${beamforming.tx_mrt_gain_db.toFixed(1)} dB`}
-            </span>{" "}
-            · SVD{" "}
-            <span className="mono">
-              {beamforming.svd_gain_db === null
-                ? "n/a"
-                : `+${beamforming.svd_gain_db.toFixed(1)} dB`}
-            </span>{" "}
-            · {beamforming.num_paths} path(s)
-          </div>
-          {beamforming.warnings.length > 0 && (
-            <div className="ai-note">
-              {beamforming.warnings.map((w, i) => (
-                <div key={i}>{w}</div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+      {beamforming && showBeamforming && <BeamformingCard beamforming={beamforming} />}
 
       {!pathResults ? (
         <div className="empty-state">

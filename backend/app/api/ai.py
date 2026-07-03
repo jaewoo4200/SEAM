@@ -66,6 +66,9 @@ def suggest_materials(
             "model": response.model,
             "prompt_version": response.prompt_version,
             "input_prim_ids": ai_provider.resolve_target_prim_ids(scene, request),
+            # Provenance only: whether a viewport image was attached. The image
+            # itself is EVIDENCE, transient, and never persisted here.
+            "screenshot_attached": bool(request.screenshot_data_url),
             "suggestions": [s.model_dump(mode="json") for s in response.suggestions],
         },
     )

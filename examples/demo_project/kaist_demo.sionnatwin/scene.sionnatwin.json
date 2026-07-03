@@ -10,6 +10,7 @@
   },
   "assets": {
     "visual_scene_uri": "visual/scene.glb",
+    "visual_overlay_uri": null,
     "tileset_uri": null
   },
   "prims": [
@@ -742,7 +743,8 @@
           ]
         ],
         "dt_s": 0.5,
-        "loop": true
+        "loop": true,
+        "mode": null
       },
       "attached_device_ids": [],
       "color": "#ffd166"
@@ -767,9 +769,9 @@
         0.0
       ],
       "orientation_deg": [
+        90.0,
         0.0,
-        0.0,
-        90.0
+        0.0
       ],
       "trajectory": {
         "waypoints": [
@@ -790,7 +792,8 @@
           ]
         ],
         "dt_s": 0.5,
-        "loop": false
+        "loop": false,
+        "mode": null
       },
       "attached_device_ids": [],
       "color": "#06d6a0"

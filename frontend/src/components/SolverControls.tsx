@@ -1,7 +1,8 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
 import { useAppStore } from "../store/appStore";
-import type { SimulationConfig } from "../types/api";
+import type { BeamformingMode, SimulationConfig } from "../types/api";
+import { PRESETS, detectPreset } from "../configPresets";
 
 // ------------------------------------------------------------ primitives
 
@@ -223,6 +224,11 @@ function GlobalSection() {
   const bfRxRows = useAppStore((s) => s.bfRxRows);
   const bfRxCols = useAppStore((s) => s.bfRxCols);
   const setBeamArray = useAppStore((s) => s.setBeamArray);
+  const bfMode = useAppStore((s) => s.bfMode);
+  const bfSweepStartDeg = useAppStore((s) => s.bfSweepStartDeg);
+  const bfSweepStopDeg = useAppStore((s) => s.bfSweepStopDeg);
+  const bfSweepStepDeg = useAppStore((s) => s.bfSweepStepDeg);
+  const setBeamforming = useAppStore((s) => s.setBeamforming);
   const liveMode = useAppStore((s) => s.liveMode);
   const setLiveMode = useAppStore((s) => s.setLiveMode);
   const sendScreenshot = useAppStore((s) => s.sendScreenshot);
@@ -249,8 +255,29 @@ function GlobalSection() {
     </select>
   );
 
+  const applyConfigPreset = useAppStore((s) => s.applyConfigPreset);
+  // Which named preset the live paths config currently matches ("custom" if
+  // none). The select reflects it and re-derives on every config edit.
+  const activePreset = detectPreset(pathsConfig);
+
   return (
     <Section title="Global">
+      <label className="solver-field">
+        <span className="solver-field-label">Preset</span>
+        <select
+          value={activePreset}
+          disabled={disabled}
+          onChange={(e) => applyConfigPreset(e.target.value as typeof activePreset)}
+          title="Apply a canonical solver configuration to both Paths and Radio map"
+        >
+          {PRESETS.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.label}
+            </option>
+          ))}
+          <option value="custom">Custom</option>
+        </select>
+      </label>
       <label className="solver-field">
         <span className="solver-field-label">Backend</span>
         <select
@@ -314,11 +341,52 @@ function GlobalSection() {
           {arraySelect(bfRxCols, (v) => setBeamArray({ bfRxCols: v }))}
         </span>
       </div>
+      <label className="solver-field">
+        <span className="solver-field-label">Mode</span>
+        <select
+          value={bfMode}
+          disabled={disabled}
+          onChange={(e) => setBeamforming({ bfMode: e.target.value as BeamformingMode })}
+        >
+          <option value="codebook_sweep">codebook sweep</option>
+          <option value="tx_mrt">TX-MRT</option>
+          <option value="svd">SVD</option>
+        </select>
+      </label>
+      {bfMode === "codebook_sweep" && (
+        <div className="solver-sweep-grid">
+          <NumField
+            label="Sweep start"
+            unit="°"
+            step={5}
+            value={bfSweepStartDeg}
+            disabled={disabled}
+            onChange={(v) => setBeamforming({ bfSweepStartDeg: v })}
+          />
+          <NumField
+            label="Sweep stop"
+            unit="°"
+            step={5}
+            value={bfSweepStopDeg}
+            disabled={disabled}
+            onChange={(v) => setBeamforming({ bfSweepStopDeg: v })}
+          />
+          <NumField
+            label="Sweep step"
+            unit="°"
+            step={1}
+            min={0.5}
+            value={bfSweepStepDeg}
+            disabled={disabled}
+            onChange={(v) => setBeamforming({ bfSweepStepDeg: Math.max(0.5, v) })}
+          />
+        </div>
+      )}
       <div className="panel-actions">
         <button
           disabled={!projectId || disabled}
           onClick={() => void runBeamforming()}
-          title="MIMO beamforming gain (TX-MRT and both-ends SVD) over the first TX→RX link"
+          title="MIMO beamforming gain (codebook sweep, TX-MRT, or both-ends SVD) over the first TX→RX link"
         >
           Beamforming
         </button>

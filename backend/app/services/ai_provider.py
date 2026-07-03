@@ -55,6 +55,46 @@ class AIParseError(ValueError):
     """Raised when an AI response payload is completely unusable."""
 
 
+def _strip_data_url_prefix(data_url: str | None) -> str | None:
+    """Return the bare base64 body of a ``data:...;base64,<b64>`` URL.
+
+    Ollama's ``images`` field wants raw base64 without the ``data:`` prefix.
+    Non-data-URL strings (already-bare base64) pass through unchanged.
+    """
+    if not data_url:
+        return None
+    marker = "base64,"
+    idx = data_url.find(marker)
+    if data_url.startswith("data:") and idx != -1:
+        return data_url[idx + len(marker):]
+    return data_url
+
+
+def _is_vision_rejection(exc: Exception) -> bool:
+    """True when ``exc`` looks like the server refusing image input.
+
+    Treats an HTTP 4xx (typically 400) from the chat-completions call, or an
+    error message mentioning images/vision/multimodal, as a signal to retry
+    text-only. Kept lenient so a text-only local model that simply errors on
+    the multimodal payload still degrades gracefully instead of dropping all
+    the way to the rule-based provider.
+    """
+    try:
+        import httpx  # lazy: optional runtime dependency path
+
+        if isinstance(exc, httpx.HTTPStatusError):
+            status = exc.response.status_code
+            if 400 <= status < 500:
+                return True
+    except Exception:  # pragma: no cover - httpx import guard
+        pass
+    text = (str(exc) or exc.__class__.__name__).lower()
+    return any(
+        token in text
+        for token in ("image", "vision", "multimodal", "not support", "unsupported")
+    )
+
+
 def build_evidence(prim: Prim, library: RFMaterialLibrary) -> dict:
     """Collect the ONLY visual information any provider is allowed to see.
 
@@ -109,12 +149,19 @@ class MaterialSuggestionProvider(abc.ABC):
 
     @abc.abstractmethod
     def suggest(
-        self, scene: Scene, library: RFMaterialLibrary, prim_ids: list[str]
+        self,
+        scene: Scene,
+        library: RFMaterialLibrary,
+        prim_ids: list[str],
+        screenshot: str | None = None,
     ) -> MaterialSuggestionResponse: ...
 
 
 class RuleBasedProvider(MaterialSuggestionProvider):
-    """Keyword rules over visual evidence. Always available, never networked."""
+    """Keyword rules over visual evidence. Always available, never networked.
+
+    Ignores ``screenshot``: rules operate on textual evidence only.
+    """
 
     name = "rule_based"
 
@@ -122,7 +169,11 @@ class RuleBasedProvider(MaterialSuggestionProvider):
         return True
 
     def suggest(
-        self, scene: Scene, library: RFMaterialLibrary, prim_ids: list[str]
+        self,
+        scene: Scene,
+        library: RFMaterialLibrary,
+        prim_ids: list[str],
+        screenshot: str | None = None,
     ) -> MaterialSuggestionResponse:
         suggestions: list[MaterialSuggestion] = []
         warnings: list[str] = []
@@ -273,7 +324,11 @@ class OllamaTextProvider(MaterialSuggestionProvider):
         return ok
 
     def suggest(
-        self, scene: Scene, library: RFMaterialLibrary, prim_ids: list[str]
+        self,
+        scene: Scene,
+        library: RFMaterialLibrary,
+        prim_ids: list[str],
+        screenshot: str | None = None,
     ) -> MaterialSuggestionResponse:
         settings = get_settings().ai
         warnings: list[str] = []
@@ -292,14 +347,25 @@ class OllamaTextProvider(MaterialSuggestionProvider):
                 prompt_version=PROMPT_VERSION,
                 warnings=warnings,
             )
+        # A screenshot upgrades this call to the vision model; the ollama chat
+        # API takes images as base64 (no data: prefix) on the user message.
+        has_image = bool(screenshot)
+        image_b64 = _strip_data_url_prefix(screenshot) if has_image else None
+        model = settings.vision_model if has_image else settings.text_model
         try:
             import httpx  # lazy: never required at import time
 
+            messages = self._build_messages(
+                evidence_list, library, with_image=has_image
+            )
+            if has_image and image_b64:
+                # Ollama attaches images to the user message via an 'images' list.
+                messages[-1] = {**messages[-1], "images": [image_b64]}
             response = httpx.post(
                 f"{settings.base_url}/api/chat",
                 json={
-                    "model": settings.text_model,
-                    "messages": self._build_messages(evidence_list, library),
+                    "model": model,
+                    "messages": messages,
                     "stream": False,
                     "format": "json",
                     "options": {"temperature": 0},
@@ -315,7 +381,7 @@ class OllamaTextProvider(MaterialSuggestionProvider):
             return MaterialSuggestionResponse(
                 suggestions=suggestions,
                 provider=self.name,
-                model=settings.text_model,
+                model=model,
                 prompt_version=PROMPT_VERSION,
                 warnings=warnings + parse_warnings,
             )
@@ -329,7 +395,11 @@ class OllamaTextProvider(MaterialSuggestionProvider):
             return fallback
 
     @staticmethod
-    def _build_messages(evidence_list: list[dict], library: RFMaterialLibrary) -> list[dict]:
+    def _build_messages(
+        evidence_list: list[dict],
+        library: RFMaterialLibrary,
+        with_image: bool = False,
+    ) -> list[dict]:
         library_lines = "\n".join(
             f"- {mat.id} (category: {mat.category}){': ' + mat.notes if mat.notes else ''}"
             for mat in library.materials
@@ -357,7 +427,15 @@ class OllamaTextProvider(MaterialSuggestionProvider):
             "(names, tags, texture filenames) is a hint, never ground truth. "
             "Respond ONLY with JSON."
         )
+        image_note = (
+            "An image of the current 3D viewport is attached. It is EVIDENCE "
+            "only (visual appearance), never RF ground truth; weigh it exactly "
+            "like the textual hints below.\n\n"
+            if with_image
+            else ""
+        )
         user = (
+            f"{image_note}"
             "Allowed rf material ids (use ONLY these for "
             "recommended_rf_material_id and alternatives):\n"
             f"{library_lines}\n\n"
@@ -403,7 +481,11 @@ class LocalOpenAIProvider(MaterialSuggestionProvider):
         return ok
 
     def suggest(
-        self, scene: Scene, library: RFMaterialLibrary, prim_ids: list[str]
+        self,
+        scene: Scene,
+        library: RFMaterialLibrary,
+        prim_ids: list[str],
+        screenshot: str | None = None,
     ) -> MaterialSuggestionResponse:
         settings = get_settings().ai
         warnings: list[str] = []
@@ -425,22 +507,23 @@ class LocalOpenAIProvider(MaterialSuggestionProvider):
         try:
             import httpx  # lazy: never required at import time
 
-            messages = OllamaTextProvider._build_messages(evidence_list, library)
-            response = httpx.post(
-                f"{settings.openai_url}/chat/completions",
-                json={
-                    "model": settings.openai_model,
-                    "messages": messages,
-                    "temperature": 0,
-                    # Reasoning models spend tokens on chain-of-thought before
-                    # the answer; keep the budget generous so JSON is not cut.
-                    "max_tokens": 2000,
-                    "stream": False,
-                },
-                timeout=settings.timeout_s,
-            )
-            response.raise_for_status()
-            raw_text = self._extract_content(response.json())
+            has_image = bool(screenshot)
+            try:
+                raw_text = self._call(
+                    evidence_list, library, settings, screenshot if has_image else None
+                )
+            except Exception as img_exc:
+                # Graceful degradation: some servers reject image input for a
+                # text-only model (typically HTTP 400). Retry WITHOUT the image
+                # and record the downgrade rather than failing to rules.
+                if has_image and _is_vision_rejection(img_exc):
+                    warnings.append(
+                        f"vision input rejected by {settings.openai_model}; "
+                        "used text only"
+                    )
+                    raw_text = self._call(evidence_list, library, settings, None)
+                else:
+                    raise
             suggestions, parse_warnings = parse_ai_response(raw_text, scene, library)
             return MaterialSuggestionResponse(
                 suggestions=suggestions,
@@ -457,6 +540,44 @@ class LocalOpenAIProvider(MaterialSuggestionProvider):
                 *fallback.warnings,
             ]
             return fallback
+
+    @staticmethod
+    def _call(
+        evidence_list: list[dict],
+        library: RFMaterialLibrary,
+        settings,
+        screenshot: str | None,
+    ) -> str:
+        """One chat-completions round-trip; returns the raw answer text.
+
+        Raises on transport/HTTP errors so the caller can distinguish a
+        vision-rejection (retry without image) from other failures (fall back
+        to rules)."""
+        import httpx  # lazy: never required at import time
+
+        messages = OllamaTextProvider._build_messages(
+            evidence_list, library, with_image=bool(screenshot)
+        )
+        if screenshot:
+            # OpenAI multimodal content: the text prompt plus an image_url part.
+            text_part = {"type": "text", "text": messages[-1]["content"]}
+            image_part = {"type": "image_url", "image_url": {"url": screenshot}}
+            messages[-1] = {**messages[-1], "content": [text_part, image_part]}
+        response = httpx.post(
+            f"{settings.openai_url}/chat/completions",
+            json={
+                "model": settings.openai_model,
+                "messages": messages,
+                "temperature": 0,
+                # Reasoning models spend tokens on chain-of-thought before
+                # the answer; keep the budget generous so JSON is not cut.
+                "max_tokens": 2000,
+                "stream": False,
+            },
+            timeout=settings.timeout_s,
+        )
+        response.raise_for_status()
+        return LocalOpenAIProvider._extract_content(response.json())
 
     @staticmethod
     def _extract_content(payload: object) -> str:
@@ -491,7 +612,11 @@ class DisabledProvider(MaterialSuggestionProvider):
         return get_settings().ai.enabled == "off"
 
     def suggest(
-        self, scene: Scene, library: RFMaterialLibrary, prim_ids: list[str]
+        self,
+        scene: Scene,
+        library: RFMaterialLibrary,
+        prim_ids: list[str],
+        screenshot: str | None = None,
     ) -> MaterialSuggestionResponse:
         return MaterialSuggestionResponse(
             suggestions=[],
@@ -765,7 +890,9 @@ def suggest_materials(
             prompt_version=PROMPT_VERSION,
             warnings=["no target prims: every mesh prim already has an RF material"],
         )
-    response = provider.suggest(scene, library, targets)
+    response = provider.suggest(
+        scene, library, targets, screenshot=request.screenshot_data_url
+    )
     if response.prompt_version is None:
         response.prompt_version = PROMPT_VERSION
     return response
