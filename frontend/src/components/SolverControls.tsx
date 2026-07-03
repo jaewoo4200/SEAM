@@ -231,6 +231,7 @@ function GlobalSection() {
   const setBeamforming = useAppStore((s) => s.setBeamforming);
   const autoBeamforming = useAppStore((s) => s.autoBeamforming);
   const setAuto = useAppStore((s) => s.setAuto);
+  const engines = useAppStore((s) => s.engines);
   const liveMode = useAppStore((s) => s.liveMode);
   const setLiveMode = useAppStore((s) => s.setLiveMode);
   const sendScreenshot = useAppStore((s) => s.sendScreenshot);
@@ -292,6 +293,26 @@ function GlobalSection() {
           <option value="sionna">sionna</option>
         </select>
       </label>
+      {engines.length > 1 && (
+        <label className="solver-field">
+          <span className="solver-field-label">Engine</span>
+          <select
+            value={pathsConfig.engine ?? "builtin"}
+            disabled={disabled}
+            onChange={(e) =>
+              patchBoth({ engine: e.target.value === "builtin" ? null : e.target.value })
+            }
+            title="Sionna version the paths solve runs on (alternate versions run in their own venv; see docs/sionna_versions.md)"
+          >
+            {engines.map((eng) => (
+              <option key={eng.id} value={eng.id} disabled={!eng.available}>
+                {eng.label}
+                {eng.available ? "" : " (미설치)"}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <NumField
         label="Frequency"
         unit="GHz"

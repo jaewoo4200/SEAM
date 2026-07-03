@@ -103,6 +103,9 @@ export interface SimulationConfig {
   id: string;
   name: string;
   backend: "auto" | "mock" | "sionna";
+  // Compute-engine id from GET /api/engines; null/"builtin" = in-process
+  // sionna-rt. Alternate engines currently apply to paths solves.
+  engine?: string | null;
   frequency_hz: number;
   max_depth: number;
   tx_ids: string[] | null;
@@ -128,6 +131,22 @@ export interface ResultSetRef {
   simulation_config_id: string;
   uri: string;
   created_at: string | null;
+}
+
+// Compute engine registry entry (GET /api/engines).
+export interface EngineInfo {
+  id: string;
+  label: string;
+  kind: "builtin" | "subprocess";
+  adapter: "builtin" | "sionna_rt";
+  python: string | null;
+  available: boolean;
+  version: string | null;
+  detail: string;
+}
+
+export interface EngineListResponse {
+  engines: EngineInfo[];
 }
 
 export type ActorKind = "car" | "human" | "custom";

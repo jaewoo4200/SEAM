@@ -3,6 +3,8 @@ __pycache__/
 *.py[cod]
 *.egg-info/
 .venv/
+# Alternate compute-engine venvs (backend/.venv-sionna-rt-122 etc.)
+.venv-*/
 .pytest_cache/
 .mypy_cache/
 dist/

@@ -17,6 +17,7 @@ import type {
   ChannelAnalysisResult,
   CompileResult,
   Device,
+  EngineInfo,
   Environment,
   HealthResponse,
   MaterialSuggestionResponse,
@@ -64,6 +65,8 @@ interface AppState {
   materials: RFMaterialLibrary | null;
   health: HealthResponse | null;
   aiStatuses: AIProviderStatus[];
+  // Installed compute engines (builtin + alternate sionna-rt venvs).
+  engines: EngineInfo[];
   mode: Mode;
   selection: string[];
   selectedDeviceId: string | null;
@@ -522,6 +525,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     materials: null,
     health: null,
     aiStatuses: [],
+    engines: [],
     mode: "visual",
     selection: [],
     selectedDeviceId: null,
@@ -590,6 +594,12 @@ export const useAppStore = create<AppState>()((set, get) => {
         set({ health, projects: list });
         return list;
       });
+      // Engine registry loads out-of-band: probing alternate venvs can take
+      // tens of seconds (cold sionna.rt import) and must not block boot.
+      void api
+        .getEngines()
+        .then((r) => set({ engines: r.engines }))
+        .catch(() => set({ engines: [] }));
       if (projects && projects.length > 0) {
         await get().openProject(projects[0].project_id);
       }

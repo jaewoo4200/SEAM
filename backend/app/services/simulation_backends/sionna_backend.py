@@ -321,6 +321,12 @@ class SionnaBackend(RayTracingBackend):
         actor_states: Optional[list] = None,
     ) -> PathResultSet:
         try:
+            # Alternate engine venvs (config.engine) run through the subprocess
+            # worker; the builtin engine solves in-process.
+            if config.engine and config.engine != "builtin":
+                return self._simulate_paths_engine(
+                    project_dir, scene, library, config, actor_states
+                )
             return self._simulate_paths_impl(
                 project_dir, scene, library, config, actor_states
             )
@@ -335,8 +341,111 @@ class SionnaBackend(RayTracingBackend):
                 paths=[],
                 warnings=self._frequency_warnings(scene, library, config)
                 + [f"sionna backend failed: {exc}; see logs"],
-                metadata={"frequency_hz": config.frequency_hz, "engine": "sionna"},
+                metadata={
+                    "frequency_hz": config.frequency_hz,
+                    "engine": config.engine or "builtin",
+                },
             )
+
+    def _simulate_paths_engine(
+        self,
+        project_dir: Path,
+        scene: Scene,
+        library: RFMaterialLibrary,
+        config: SimulationConfig,
+        actor_states: Optional[list] = None,
+    ) -> PathResultSet:
+        """Solve paths in an alternate sionna-rt venv (subprocess worker)."""
+        from .. import engines as engine_registry
+
+        warnings: list[str] = self._frequency_warnings(scene, library, config)
+        engine = engine_registry.get_engine(config.engine)  # type: ignore[arg-type]
+        if engine is None or not engine.available:
+            detail = engine.detail if engine else "unknown engine id"
+            raise RuntimeError(f"engine '{config.engine}' unavailable: {detail}")
+
+        xml_path = project_dir / "rf" / "generated_scene.xml"
+        if not xml_path.is_file():
+            compile_result = self.compile(project_dir, scene, library)
+            if not compile_result.ok or not xml_path.is_file():
+                raise RuntimeError("rf projection missing and compile failed")
+            warnings.append("rf projection was missing; compiled on demand")
+
+        if actor_states:
+            # Actor states mutate the in-process cached scene; the subprocess
+            # worker loads the XML fresh, where actors sit at authored poses.
+            warnings.append(
+                f"engine '{engine.id}': per-frame actor states are not applied "
+                "(actors solve at authored poses); use the builtin engine for "
+                "scenario playback"
+            )
+
+        txs = [d for d in scene.devices
+               if d.kind == "tx" and (config.tx_ids is None or d.id in config.tx_ids)]
+        rxs = [d for d in scene.devices
+               if d.kind == "rx" and (config.rx_ids is None or d.id in config.rx_ids)]
+        if not txs or not rxs:
+            return PathResultSet(
+                result_id=UNSAVED_RESULT_ID, backend=self.name,
+                simulation_config_id=config.id, paths=[],
+                warnings=warnings + ["scene has no matching tx/rx devices"],
+                metadata={"frequency_hz": config.frequency_hz, "engine": engine.id},
+            )
+
+        material_to_prims: dict[str, list[str]] = {}
+        for prim in scene.prims:
+            if prim.rf.material_id:
+                material_to_prims.setdefault(prim.rf.material_id, []).append(prim.id)
+
+        def dev_json(d):
+            return {
+                "id": d.id, "position": list(d.position),
+                "orientation_deg": list(d.orientation_deg),
+                "power_dbm": d.power_dbm,
+                "antenna": {
+                    "pattern": d.antenna.pattern,
+                    "polarization": d.antenna.polarization,
+                    "num_rows": d.antenna.num_rows,
+                    "num_cols": d.antenna.num_cols,
+                },
+            }
+
+        manifest_path = project_dir / "rf" / "compile_manifest.json"
+        job = {
+            "kind": "paths",
+            "xml_path": str(xml_path),
+            "manifest_path": str(manifest_path) if manifest_path.is_file() else None,
+            "frequency_hz": config.frequency_hz,
+            "max_depth": config.max_depth,
+            "seed": config.seed,
+            "num_samples": config.num_samples,
+            "synthetic_array": config.synthetic_array,
+            "flags": {
+                "los": config.los, "reflection": config.reflection,
+                "scattering": config.scattering, "refraction": config.refraction,
+                "diffraction": config.diffraction,
+                "edge_diffraction": config.edge_diffraction,
+            },
+            "txs": [dev_json(d) for d in txs],
+            "rxs": [dev_json(d) for d in rxs],
+            "material_to_prims": material_to_prims,
+        }
+        result = engine_registry.run_paths_job(engine, job)
+        warnings.extend(result.get("warnings", []))
+        paths = [RayPath(**p) for p in result.get("paths", [])]
+        return PathResultSet(
+            result_id=UNSAVED_RESULT_ID,
+            backend=self.name,
+            simulation_config_id=config.id,
+            paths=paths,
+            warnings=warnings,
+            metadata={
+                "frequency_hz": config.frequency_hz,
+                "num_tx": len(txs), "num_rx": len(rxs),
+                "engine": engine.id,
+                "engine_version": result.get("engine_version"),
+            },
+        )
 
     def _simulate_paths_impl(
         self,

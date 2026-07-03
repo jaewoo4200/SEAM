@@ -1,0 +1,11 @@
+{
+  "$comment": "Alternate Sionna compute engines (see docs/sionna_versions.md and backend/engine_workers/). Relative python paths resolve against the repo root. The builtin engine (backend/.venv, in-process sionna-rt) is implicit and always listed first by GET /api/engines.",
+  "engines": [
+    {
+      "id": "sionna-rt-1.2.2",
+      "label": "Sionna RT 1.2.2 (v1.x line)",
+      "python": "backend/.venv-sionna-rt-122/Scripts/python.exe",
+      "adapter": "sionna_rt"
+    }
+  ]
+}

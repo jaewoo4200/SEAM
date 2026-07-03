@@ -23,6 +23,11 @@ class SimulationConfig(StrictModel):
     name: str = "Default"
     # "auto" resolves to the sionna backend when installed, else mock.
     backend: Literal["auto", "mock", "sionna"] = "auto"
+    # Compute-engine id (see GET /api/engines and docs/sionna_versions.md).
+    # None/"builtin" = in-process sionna-rt; other ids run the paths solve in
+    # that engine's own venv via a subprocess worker. Currently applies to
+    # paths solves; other analyses always use the builtin engine.
+    engine: Optional[str] = None
     # Default 28 GHz to match the FTC/lab-room mmWave ISAC digital twin.
     frequency_hz: float = Field(default=28e9, gt=0.0)
     max_depth: int = Field(default=3, ge=0, le=12)

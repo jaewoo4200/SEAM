@@ -12,6 +12,7 @@ from app.api import (
     calibrate,
     channel,
     compile as compile_api,
+    engines,
     export,
     health,
     materials,
@@ -44,7 +45,7 @@ def create_app() -> FastAPI:
     )
     for module in (
         health, projects, scene, materials, ai, compile_api, simulate, export,
-        calibrate, channel, scenario,
+        calibrate, channel, scenario, engines,
     ):
         app.include_router(module.router, prefix="/api")
     return app

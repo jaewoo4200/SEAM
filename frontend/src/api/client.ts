@@ -11,6 +11,7 @@ import type {
   ApplySuggestionsRequest,
   AssignRequest,
   AssignResponse,
+  EngineListResponse,
   BatchAssignRequest,
   BeamformingRequest,
   BeamformingResult,
@@ -79,6 +80,10 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 export const api = {
   // health
   health: () => request<HealthResponse>("GET", "/health"),
+
+  // compute engines
+  getEngines: (refresh = false) =>
+    request<EngineListResponse>("GET", `/engines${refresh ? "?refresh=true" : ""}`),
 
   // projects
   listProjects: () => request<ProjectInfo[]>("GET", "/projects"),
