@@ -708,6 +708,7 @@ function RadioMapPlane({ radioMap }: { radioMap: RadioMapResultSet }) {
  *  own Suspense/error boundary by the caller so a missing overlay is silent. */
 function OverlayScene({ url }: { url: string }) {
   const gltf = useGLTF(url);
+  const group = useRef<THREE.Group>(null);
   // Clone so multiple viewers / remounts don't fight over one cached graph, and
   // so we can freely disable raycasting on this instance's meshes.
   const object = useMemo(() => gltf.scene.clone(true), [gltf]);
@@ -717,8 +718,30 @@ function OverlayScene({ url }: { url: string }) {
       // events pass straight through to the pickable scene beneath it.
       (obj as THREE.Object3D).raycast = () => null;
     });
+    // World-space bounds after the Y-up -> Z-up rotation below; must match the
+    // RF scene.glb footprint. Kept as a debug line so misaligned overlays are
+    // diagnosable from the console without pixel inspection.
+    if (group.current) {
+      group.current.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(group.current);
+      console.debug(
+        "[overlay] world bounds",
+        box.min.toArray().map((v) => Number(v.toFixed(1))),
+        box.max.toArray().map((v) => Number(v.toFixed(1))),
+      );
+    }
   }, [object]);
-  return <primitive object={object} />;
+  // Overlay GLBs follow the glTF spec (+Y up); the app world is Z-up ENU
+  // (camera up=[0,0,1]; scene.glb is baked to Z-up at import, external
+  // overlays are copied verbatim). Rotating +90 deg about X maps
+  // (x, y, z)_gltf -> (x, -z, y)_world, aligning the backdrop with the RF
+  // scene. Composed via a parent group so a root transform inside the GLB
+  // is preserved rather than overwritten.
+  return (
+    <group ref={group} rotation={[Math.PI / 2, 0, 0]}>
+      <primitive object={object} />
+    </group>
+  );
 }
 
 /** Overlay wrapped in its own Suspense + error boundary so a missing/broken
