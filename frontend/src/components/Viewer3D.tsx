@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import type { ThreeEvent } from "@react-three/fiber";
-import { Html, Line, OrbitControls, PerspectiveCamera, useGLTF } from "@react-three/drei";
+import { Html, Line, OrbitControls, PerspectiveCamera, TransformControls, useGLTF } from "@react-three/drei";
 import { useAppStore } from "../store/appStore";
 import type { ResolvedEnvironment } from "../envPresets";
 import type { Mode } from "../store/appStore";
@@ -349,76 +349,37 @@ function deviceMarkerRadius(scene: Scene, env: ResolvedEnvironment = "outdoor"):
   return Math.max(0.06, base * envScale(env));
 }
 
-/** Owned drag-to-move wrapper (replaces TransformControls, which conflicted
- *  with OrbitControls input). Click selects; dragging a SELECTED marker moves
- *  it on the horizontal plane through its base (hold Shift for vertical Z
- *  movement). Orbit is paused only while actually dragging; release commits
- *  through onCommit so auto-update solvers rerun. */
-function DraggableGroup({
-  position,
-  rotation,
-  selected,
-  onSelect,
+/** X/Y/Z translate gizmo attached to the currently selected marker group.
+ *  Root-cause fix for the earlier "all input dead" regression: committing a
+ *  move refetches the scene and remounts the marker, which could unmount
+ *  TransformControls MID-DRAG and leave OrbitControls.enabled=false forever.
+ *  This component (a) commits on mouse-up, (b) force-restores orbit controls
+ *  on commit AND on unmount, so input can never stay locked. */
+function SelectionGizmo({
+  target,
   onCommit,
-  children,
 }: {
-  position: Vec3;
-  rotation?: [number, number, number];
-  selected: boolean;
-  onSelect: () => void;
+  target: THREE.Object3D;
   onCommit: (pos: Vec3) => void;
-  children: ReactNode;
 }) {
   const controls = useThree((s) => s.controls) as { enabled?: boolean } | null;
-  const [live, setLive] = useState<Vec3 | null>(null);
-  const drag = useRef<{ plane: THREE.Plane; vertical: boolean } | null>(null);
-  // A different device/deselect while dragging must not leave stale state.
-  useEffect(() => setLive(null), [position, selected]);
-
-  const shown = live ?? position;
+  useEffect(() => {
+    return () => {
+      // Whatever happens (remount, deselect, crash), orbit comes back.
+      if (controls) controls.enabled = true;
+    };
+  }, [controls, target]);
   return (
-    <group
-      position={shown}
-      rotation={rotation ?? [0, 0, 0]}
-      onPointerDown={(e: ThreeEvent<PointerEvent>) => {
-        e.stopPropagation();
-        if (!selected) {
-          onSelect();
-          return;
-        }
-        const vertical = e.nativeEvent.shiftKey;
-        const base = new THREE.Vector3(...shown);
-        const plane = vertical
-          ? new THREE.Plane().setFromNormalAndCoplanarPoint(
-              // Camera-facing vertical plane: drag maps to Z (and lateral).
-              new THREE.Vector3().subVectors(e.ray.origin, base).setZ(0).normalize(),
-              base,
-            )
-          : new THREE.Plane(new THREE.Vector3(0, 0, 1), -base.z);
-        drag.current = { plane, vertical };
-        controls && (controls.enabled = false);
-        (e.target as Element).setPointerCapture(e.pointerId);
+    <TransformControls
+      object={target}
+      mode="translate"
+      size={0.8}
+      onMouseUp={() => {
+        const p = target.position;
+        if (controls) controls.enabled = true;
+        onCommit([p.x, p.y, p.z]);
       }}
-      onPointerMove={(e: ThreeEvent<PointerEvent>) => {
-        const d = drag.current;
-        if (!d) return;
-        e.stopPropagation();
-        const hit = new THREE.Vector3();
-        if (e.ray.intersectPlane(d.plane, hit)) {
-          setLive(d.vertical ? [position[0], position[1], hit.z] : [hit.x, hit.y, position[2]]);
-        }
-      }}
-      onPointerUp={(e: ThreeEvent<PointerEvent>) => {
-        if (!drag.current) return;
-        e.stopPropagation();
-        drag.current = null;
-        controls && (controls.enabled = true);
-        (e.target as Element).releasePointerCapture(e.pointerId);
-        if (live) onCommit(live);
-      }}
-    >
-      {children}
-    </group>
+    />
   );
 }
 
@@ -428,6 +389,7 @@ function Devices() {
   const selectedDeviceId = useAppStore((s) => s.selectedDeviceId);
   const selectDevice = useAppStore((s) => s.selectDevice);
   const updateDevice = useAppStore((s) => s.updateDevice);
+  const [gizmoTarget, setGizmoTarget] = useState<THREE.Group | null>(null);
   if (!scene) return null;
   const radius = deviceMarkerRadius(scene, env);
 
@@ -454,17 +416,26 @@ function Devices() {
           </>
         );
         return (
-          <DraggableGroup
+          <group
             key={d.id}
             position={d.position}
-            selected={selected}
-            onSelect={() => selectDevice(d.id)}
-            onCommit={(pos) => void updateDevice(d.id, { position: pos })}
+            // The selected marker registers itself as the gizmo target.
+            ref={selected ? setGizmoTarget : undefined}
+            onPointerDown={(e: ThreeEvent<PointerEvent>) => {
+              e.stopPropagation();
+              selectDevice(d.id);
+            }}
           >
             {marker}
-          </DraggableGroup>
+          </group>
         );
       })}
+      {gizmoTarget && selectedDeviceId && (
+        <SelectionGizmo
+          target={gizmoTarget}
+          onCommit={(pos) => void updateDevice(selectedDeviceId, { position: pos })}
+        />
+      )}
     </group>
   );
 }
@@ -479,6 +450,7 @@ function Actors({ frameStates }: { frameStates?: Map<string, { position: Vec3; o
   const selectedActorId = useAppStore((s) => s.selectedActorId);
   const selectActor = useAppStore((s) => s.selectActor);
   const updateActor = useAppStore((s) => s.updateActor);
+  const [gizmoTarget, setGizmoTarget] = useState<THREE.Group | null>(null);
   if (!scene) return null;
 
   return (
@@ -518,23 +490,27 @@ function Actors({ frameStates }: { frameStates?: Map<string, { position: Vec3; o
             )}
           </>
         );
-        return frameStates ? (
-          <group key={a.id} position={position} rotation={[0, 0, (yawDeg * Math.PI) / 180]}>
-            {body}
-          </group>
-        ) : (
-          <DraggableGroup
+        return (
+          <group
             key={a.id}
             position={position}
             rotation={[0, 0, (yawDeg * Math.PI) / 180]}
-            selected={selected}
-            onSelect={() => selectActor(a.id)}
-            onCommit={(pos) => void updateActor(a.id, { position: pos })}
+            ref={selected && !frameStates ? setGizmoTarget : undefined}
+            onPointerDown={(e: ThreeEvent<PointerEvent>) => {
+              e.stopPropagation();
+              selectActor(a.id);
+            }}
           >
             {body}
-          </DraggableGroup>
+          </group>
         );
       })}
+      {gizmoTarget && selectedActorId && !frameStates && (
+        <SelectionGizmo
+          target={gizmoTarget}
+          onCommit={(pos) => void updateActor(selectedActorId, { position: pos })}
+        />
+      )}
     </group>
   );
 }
