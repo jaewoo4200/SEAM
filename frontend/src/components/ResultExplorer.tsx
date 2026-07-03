@@ -1061,6 +1061,9 @@ export default function ResultExplorer() {
   const strongestN = useAppStore((s) => s.strongestN);
   const minPowerDbm = useAppStore((s) => s.minPowerDbm);
   const colorBy = useAppStore((s) => s.colorBy);
+  const hiddenLinkDevices = useAppStore((s) => s.hiddenLinkDevices);
+  const toggleLinkDevice = useAppStore((s) => s.toggleLinkDevice);
+  const setHiddenLinkDevices = useAppStore((s) => s.setHiddenLinkDevices);
 
   const [sortKey, setSortKey] = useState<SortKey>("power_dbm");
   const [sortDir, setSortDir] = useState<1 | -1>(-1);
@@ -1071,6 +1074,17 @@ export default function ResultExplorer() {
     return [...types];
   }, [pathResults]);
 
+  // Device ids participating in any path, for the AODT-style filter chips.
+  const linkDevices = useMemo(() => {
+    const txs = new Set<string>();
+    const rxs = new Set<string>();
+    for (const p of pathResults?.paths ?? []) {
+      txs.add(p.tx_id);
+      rxs.add(p.rx_id);
+    }
+    return { txs: [...txs].sort(), rxs: [...rxs].sort() };
+  }, [pathResults]);
+
   // The set the viewer draws (type filter + min power + strongest N).
   const visible = useMemo(
     () =>
@@ -1078,8 +1092,9 @@ export default function ResultExplorer() {
         pathTypeFilter: filter,
         strongestN,
         minPowerDbm,
+        hiddenLinkDevices,
       }),
-    [pathResults, filter, strongestN, minPowerDbm],
+    [pathResults, filter, strongestN, minPowerDbm, hiddenLinkDevices],
   );
   const range = useMemo(() => powerRange(visible), [visible]);
 
@@ -1149,6 +1164,29 @@ export default function ResultExplorer() {
         </button>
       </div>
 
+      {(linkDevices.txs.length > 1 || linkDevices.rxs.length > 1) && (
+        // AODT-style per-link filter chips: toggle a TX/RX to hide its links.
+        <div className="link-chips">
+          <span className="overlay-toggles-label">Links:</span>
+          {[...linkDevices.txs, ...linkDevices.rxs].map((id) => {
+            const isTx = linkDevices.txs.includes(id);
+            const off = hiddenLinkDevices.includes(id);
+            return (
+              <button
+                key={id}
+                className={"link-chip" + (off ? " off" : "") + (isTx ? " tx" : " rx")}
+                title={(off ? "Show" : "Hide") + " links of " + id}
+                onClick={() => toggleLinkDevice(id)}
+              >
+                {id}
+              </button>
+            );
+          })}
+          <button className="link-chip" onClick={() => setHiddenLinkDevices([])}>
+            All
+          </button>
+        </div>
+      )}
       <div className="overlay-toggles">
         <span className="overlay-toggles-label">Show:</span>
         <label className={pathResults ? "" : "disabled"}>

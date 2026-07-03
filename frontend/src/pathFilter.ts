@@ -11,6 +11,8 @@ export interface PathFilterParams {
   pathTypeFilter: PathType | "all";
   strongestN: number;
   minPowerDbm: number | null;
+  // Device ids whose links are hidden (AODT-style per-TX/RX filter chips).
+  hiddenLinkDevices?: string[];
 }
 
 /**
@@ -22,6 +24,10 @@ export interface PathFilterParams {
  */
 export function filterPaths(paths: RayPath[], p: PathFilterParams): RayPath[] {
   let out = paths;
+  if (p.hiddenLinkDevices && p.hiddenLinkDevices.length > 0) {
+    const hidden = new Set(p.hiddenLinkDevices);
+    out = out.filter((path) => !hidden.has(path.tx_id) && !hidden.has(path.rx_id));
+  }
   if (p.pathTypeFilter !== "all") {
     out = out.filter((path) => path.path_type === p.pathTypeFilter);
   }

@@ -972,6 +972,23 @@ h4 {
   margin-bottom: 4px;
 }
 
+/* Per-link filter chips (Results). */
+.link-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin: 6px 0;
+}
+.link-chip {
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+}
+.link-chip.tx { border-color: #ff5252; color: #ff8a80; }
+.link-chip.rx { border-color: #2e9bff; color: #82c4ff; }
+.link-chip.off { opacity: 0.35; text-decoration: line-through; }
+
 /* ----------------------------------------------------------------- ai */
 
 .provider-row {
@@ -1332,6 +1349,12 @@ h4 {
 /* Textured-overlay quick toggle sits right of the gear. */
 .viewport-tex {
   left: 46px;
+  font-size: 14px;
+}
+
+/* Mitsuba render button sits right of the texture toggle. */
+.viewport-render {
+  left: 82px;
   font-size: 14px;
 }
 

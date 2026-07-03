@@ -184,6 +184,27 @@ export const api = {
   datasetFileUrl: (pid: string, datasetId: string, filename: string) =>
     `${BASE}/projects/${pid}/datasets/${datasetId}/files/${filename}`,
 
+  // Mitsuba path-traced render of the RF scene; resolves to an object URL.
+  renderScene: async (
+    pid: string,
+    req: { camera_position: number[]; look_at: number[]; fov_deg?: number; width?: number; height?: number; spp?: number },
+  ): Promise<string> => {
+    const res = await fetch(`${BASE}/projects/${pid}/render`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req),
+    });
+    if (!res.ok) {
+      let detail = `${res.status} ${res.statusText}`;
+      try {
+        const data = (await res.json()) as { detail?: unknown };
+        if (typeof data.detail === "string") detail = data.detail;
+      } catch { /* non-JSON */ }
+      throw new ApiError(res.status, detail);
+    }
+    return URL.createObjectURL(await res.blob());
+  },
+
   // static project assets (GLB, textures)
   assetUrl: (pid: string, uri: string) => `${BASE}/projects/${pid}/assets/${uri}`,
 };

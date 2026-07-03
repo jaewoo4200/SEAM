@@ -109,6 +109,8 @@ interface AppState {
 
   // --- viewer ray distinction + filtering (store-driven, shared by table) ---
   pathTypeFilter: PathType | "all";
+  // Device ids whose links are hidden in ray overlays/tables (filter chips).
+  hiddenLinkDevices: string[];
   strongestN: number;
   minPowerDbm: number | null;
   colorBy: ColorBy;
@@ -205,6 +207,8 @@ interface AppState {
 
   // viewer filters
   setPathTypeFilter: (f: PathType | "all") => void;
+  toggleLinkDevice: (id: string) => void;
+  setHiddenLinkDevices: (ids: string[]) => void;
   setStrongestN: (n: number) => void;
   setMinPowerDbm: (p: number | null) => void;
   setColorBy: (c: ColorBy) => void;
@@ -563,6 +567,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     viewport: defaultViewportSettings(),
 
     pathTypeFilter: "all",
+    hiddenLinkDevices: [],
     strongestN: 50,
     minPowerDbm: null,
     colorBy: "type",
@@ -637,6 +642,7 @@ export const useAppStore = create<AppState>()((set, get) => {
           beamforming: null,
           selectedPathId: null,
           // Overlay visibility starts fresh per project.
+          hiddenLinkDevices: [],
           showPaths: true,
           showRadioMap: true,
           showBeamforming: true,
@@ -1161,6 +1167,15 @@ export const useAppStore = create<AppState>()((set, get) => {
     // ---------------------------------------------------- viewer filters
 
     setPathTypeFilter: (f) => set({ pathTypeFilter: f }),
+    toggleLinkDevice: (id) => {
+      const cur = get().hiddenLinkDevices;
+      set({
+        hiddenLinkDevices: cur.includes(id)
+          ? cur.filter((x) => x !== id)
+          : [...cur, id],
+      });
+    },
+    setHiddenLinkDevices: (ids) => set({ hiddenLinkDevices: ids }),
     setStrongestN: (n) => set({ strongestN: n }),
     setMinPowerDbm: (p) => set({ minPowerDbm: p }),
     setColorBy: (c) => set({ colorBy: c }),

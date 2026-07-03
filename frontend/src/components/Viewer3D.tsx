@@ -554,6 +554,7 @@ function PathLines({ paths, showInteractions = true }: { paths: RayPath[]; showI
   const pathTypeFilter = useAppStore((s) => s.pathTypeFilter);
   const strongestN = useAppStore((s) => s.strongestN);
   const minPowerDbm = useAppStore((s) => s.minPowerDbm);
+  const hiddenLinkDevices = useAppStore((s) => s.hiddenLinkDevices);
   const colorBy = useAppStore((s) => s.colorBy);
   const lineWidthByPower = useAppStore((s) => s.lineWidthByPower);
   const env = useAppStore((s) => s.resolvedEnvironment);
@@ -563,8 +564,8 @@ function PathLines({ paths, showInteractions = true }: { paths: RayPath[]; showI
 
   // Same filter pipeline as the results table (single source of truth).
   const visible = useMemo(
-    () => filterPaths(paths, { pathTypeFilter, strongestN, minPowerDbm }),
-    [paths, pathTypeFilter, strongestN, minPowerDbm],
+    () => filterPaths(paths, { pathTypeFilter, strongestN, minPowerDbm, hiddenLinkDevices }),
+    [paths, pathTypeFilter, strongestN, minPowerDbm, hiddenLinkDevices],
   );
   // Color/width ranges are computed over the visible set.
   const range = useMemo(() => powerRange(visible), [visible]);
@@ -921,6 +922,9 @@ function OverlayBackdrop({ url }: { url: string }) {
   );
 }
 
+// Camera pose getter registered by ViewerHotkeys for the render button.
+let cameraPoseGetter: (() => { position: Vec3; target: Vec3 }) | null = null;
+
 // --------------------------------------------------------------- hotkeys
 
 /** Viewer keyboard shortcuts (Sionna RT GUI parity):
@@ -936,6 +940,26 @@ function ViewerHotkeys() {
   const setViewport = useAppStore((s) => s.setViewport);
   const setShowRadioMap = useAppStore((s) => s.setShowRadioMap);
   const pointer = useRef<{ x: number; y: number } | null>(null);
+  // Ghost-preview placement (AODT style): K/L arm a translucent marker that
+  // follows the cursor's surface hit; click places, Esc cancels.
+  const [placing, setPlacing] = useState<"tx" | "rx" | null>(null);
+  const [ghost, setGhost] = useState<Vec3 | null>(null);
+  const placingRef = useRef<typeof placing>(null);
+  const ghostRef = useRef<Vec3 | null>(null);
+  placingRef.current = placing;
+  ghostRef.current = ghost;
+
+  useEffect(() => {
+    cameraPoseGetter = () => ({
+      position: [camera.position.x, camera.position.y, camera.position.z],
+      target: controls?.target
+        ? [controls.target.x, controls.target.y, controls.target.z]
+        : [0, 0, 0],
+    });
+    return () => {
+      cameraPoseGetter = null;
+    };
+  }, [camera, controls]);
 
   // Local clipping must be on for the slice plane to work at all.
   useEffect(() => {
@@ -956,17 +980,16 @@ function ViewerHotkeys() {
     };
     canvas.addEventListener("pointermove", onMove);
 
-    const placeDevice = (kind: "tx" | "rx") => {
-      if (!pointer.current) return;
+    const surfacePos = (): Vec3 | null => {
+      if (!pointer.current) return null;
       const ray = new THREE.Raycaster();
       ray.setFromCamera(new THREE.Vector2(pointer.current.x, pointer.current.y), camera);
       const hits = ray
         .intersectObjects(three.children, true)
         .filter((h) => (h.object as THREE.Mesh).isMesh && h.object.visible);
-      let pos: THREE.Vector3 | null = null;
       const hit = hits[0];
       if (hit) {
-        pos = hit.point.clone();
+        const pos = hit.point.clone();
         if (hit.face) {
           // +1.5 m along the surface normal, like the RT GUI's placement.
           const n = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
@@ -974,15 +997,31 @@ function ViewerHotkeys() {
         } else {
           pos.z += 1.5;
         }
-      } else {
-        // No geometry under the cursor: drop onto the z=0 ground plane.
-        const t = new THREE.Vector3();
-        if (ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 0, 1), 0), t)) {
-          pos = t.setZ(1.5);
-        }
+        return [pos.x, pos.y, pos.z];
       }
-      if (pos) void addDevice(kind, [pos.x, pos.y, pos.z]);
+      // No geometry under the cursor: drop onto the z=0 ground plane.
+      const t = new THREE.Vector3();
+      if (ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 0, 1), 0), t)) {
+        return [t.x, t.y, 1.5];
+      }
+      return null;
     };
+    const onGhostMove = () => {
+      if (placingRef.current) setGhost(surfacePos());
+    };
+    canvas.addEventListener("pointermove", onGhostMove);
+    // Capture-phase click commits the ghost BEFORE r3f selection handlers run.
+    const onPlaceClick = (e: PointerEvent) => {
+      const kind = placingRef.current;
+      if (!kind || e.button !== 0) return;
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      const pos = ghostRef.current ?? surfacePos();
+      if (pos) void addDevice(kind, pos);
+      setPlacing(null);
+      setGhost(null);
+    };
+    canvas.addEventListener("pointerdown", onPlaceClick, { capture: true });
 
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement | null;
@@ -1015,10 +1054,16 @@ function ViewerHotkeys() {
           break;
         }
         case "k":
-          placeDevice("tx");
+          setPlacing("tx");
+          setGhost(surfacePos());
           break;
         case "l":
-          placeDevice("rx");
+          setPlacing("rx");
+          setGhost(surfacePos());
+          break;
+        case "escape":
+          setPlacing(null);
+          setGhost(null);
           break;
         case "s":
           setViewport({ showSlice: !viewport.showSlice });
@@ -1034,11 +1079,25 @@ function ViewerHotkeys() {
     window.addEventListener("keydown", onKey);
     return () => {
       canvas.removeEventListener("pointermove", onMove);
+      canvas.removeEventListener("pointermove", onGhostMove);
+      canvas.removeEventListener("pointerdown", onPlaceClick, { capture: true });
       window.removeEventListener("keydown", onKey);
     };
   }, [gl, camera, three, controls, addDevice, setViewport, setShowRadioMap]);
 
-  return null;
+  if (!placing || !ghost) return null;
+  return (
+    // Translucent ghost marker following the cursor (always on top).
+    <mesh position={ghost} renderOrder={999}>
+      <sphereGeometry args={[0.6, 20, 14]} />
+      <meshBasicMaterial
+        color={placing === "tx" ? "#ff5252" : "#2e9bff"}
+        transparent
+        opacity={0.55}
+        depthTest={false}
+      />
+    </mesh>
+  );
 }
 
 // ------------------------------------------------------------------ main
@@ -1060,6 +1119,29 @@ export default function Viewer3D() {
   const resolvedEnv = useAppStore((s) => s.resolvedEnvironment);
   const [assetFailed, setAssetFailed] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
+  const [rendering, setRendering] = useState(false);
+
+  const doRender = async () => {
+    if (!projectId || rendering) return;
+    const pose = cameraPoseGetter?.();
+    if (!pose) return;
+    setRendering(true);
+    try {
+      const url = await api.renderScene(projectId, {
+        camera_position: pose.position,
+        look_at: pose.target,
+        fov_deg: 45,
+        width: 1280,
+        height: 720,
+        spp: 64,
+      });
+      window.open(url, "_blank");
+    } catch (e) {
+      useAppStore.setState({ error: e instanceof Error ? e.message : String(e) });
+    } finally {
+      setRendering(false);
+    }
+  };
 
   const uri = scene?.assets.visual_scene_uri ?? null;
   const url = projectId && uri ? api.assetUrl(projectId, uri) : null;
@@ -1173,6 +1255,14 @@ export default function Viewer3D() {
           🖼
         </button>
       )}
+      <button
+        className={"viewport-gear viewport-render" + (rendering ? " active" : "")}
+        title="Path-traced render of the RF scene from this camera (Mitsuba)"
+        disabled={rendering}
+        onClick={() => void doRender()}
+      >
+        📷
+      </button>
       {panelOpen && <ViewportPanel onClose={() => setPanelOpen(false)} />}
     </div>
   );
