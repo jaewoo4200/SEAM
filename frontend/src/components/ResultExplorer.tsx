@@ -443,7 +443,7 @@ export function TrajectorySection() {
         </button>
         <button
           disabled={disabled}
-          title="Re-seed from the current first RX position, walking toward the scene center"
+          title="Seed the Start/End fields: start at the current first RX position, walking toward the scene center"
           onClick={() => {
             touched.current = true;
             const seeded = seededEndpoints();
@@ -451,7 +451,7 @@ export function TrajectorySection() {
             setEnd(seeded.end);
           }}
         >
-          Use RX
+          Start at RX
         </button>
       </div>
       {vecField("Start", start, (v) => {
@@ -785,6 +785,32 @@ function ScenarioPlayback({ scenario }: { scenario: ScenarioResultSet }) {
       <h4 style={{ marginTop: 8 }}>Link metrics</h4>
       <LinkMetricsTable links={frame.links} />
     </div>
+  );
+}
+
+/** "Trajectory rays" checkbox: the per-frame rays of an include_paths
+ *  trajectory result, independent of the static Rays toggle (the latest
+ *  computation flips these automatically; this is the manual override). */
+function TrajectoryRaysToggle() {
+  const trajectory = useAppStore((s) => s.trajectory);
+  const showTrajectoryRays = useAppStore((s) => s.showTrajectoryRays);
+  const toggleOverlay = useAppStore((s) => s.toggleOverlay);
+  const has =
+    trajectory !== null &&
+    trajectory.samples.some((s) => (s.paths?.length ?? 0) > 0);
+  return (
+    <label
+      className={has ? "" : "disabled"}
+      title="Per-waypoint rays from the trajectory result (independent of the static Rays toggle)"
+    >
+      <input
+        type="checkbox"
+        checked={showTrajectoryRays}
+        disabled={!has}
+        onChange={() => toggleOverlay("trajectoryRays")}
+      />{" "}
+      Trajectory rays
+    </label>
   );
 }
 
@@ -1982,6 +2008,7 @@ export default function ResultExplorer() {
           />{" "}
           Beamforming
         </label>
+        <TrajectoryRaysToggle />
         <ScenarioOverlayToggle />
       </div>
 

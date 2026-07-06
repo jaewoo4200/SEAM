@@ -244,7 +244,13 @@ interface AppState {
   selectDevice: (deviceId: string) => void;
   clearSelection: () => void;
   selectPath: (pathId: string | null) => void;
-  toggleOverlay: (kind: "paths" | "radioMap" | "meshRadioMap" | "beamforming") => void;
+  toggleOverlay: (
+    kind: "paths" | "radioMap" | "meshRadioMap" | "beamforming" | "trajectoryRays",
+  ) => void;
+  /** Per-frame trajectory rays overlay (include_paths results). Independent of
+   *  the static Rays toggle: computing a trajectory turns it ON, computing
+   *  static paths turns it OFF (latest computation wins), user can re-toggle. */
+  showTrajectoryRays: boolean;
   runValidation: () => Promise<void>;
   compileRF: () => Promise<void>;
   simulatePaths: () => Promise<void>;
@@ -784,6 +790,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     showRadioMap: true,
     showMeshRadioMap: true,
     showBeamforming: true,
+    showTrajectoryRays: true,
     showScenario: false,
 
     pathsConfig: defaultSimConfig(),
@@ -919,6 +926,7 @@ export const useAppStore = create<AppState>()((set, get) => {
           showRadioMap: true,
           showMeshRadioMap: true,
           showBeamforming: true,
+          showTrajectoryRays: true,
           // A persisted scenario loads for playback ON DEMAND - it must not
           // take over the viewport just because the project has one stored.
           showScenario: false,
@@ -1174,6 +1182,8 @@ export const useAppStore = create<AppState>()((set, get) => {
       if (kind === "paths") set({ showPaths: !get().showPaths });
       else if (kind === "radioMap") set({ showRadioMap: !get().showRadioMap });
       else if (kind === "meshRadioMap") set({ showMeshRadioMap: !get().showMeshRadioMap });
+      else if (kind === "trajectoryRays")
+        set({ showTrajectoryRays: !get().showTrajectoryRays });
       else set({ showBeamforming: !get().showBeamforming });
     },
 
@@ -1217,6 +1227,11 @@ export const useAppStore = create<AppState>()((set, get) => {
         set({
           pathResults: result,
           selectedPathId: null,
+          // Latest computation wins: a fresh static solve is what the user
+          // wants to see, so the trajectory-ray takeover steps aside (both
+          // remain independently toggleable in the overlay row).
+          showPaths: true,
+          showTrajectoryRays: false,
           ...resultsMode(),
           notice: `Simulated ${result.paths.length} path(s) via ${result.backend} backend`,
         });
@@ -1733,6 +1748,8 @@ export const useAppStore = create<AppState>()((set, get) => {
           trajectory: result,
           trajFrame: 0,
           trajPlaying: false,
+          // Latest computation wins: show the fresh per-frame rays.
+          showTrajectoryRays: true,
           ...resultsMode(),
           notice: `Trajectory: ${result.samples.length} sample(s) via ${result.backend} backend`,
         });

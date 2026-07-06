@@ -732,7 +732,7 @@ function RayPaths() {
  *  live rays are drawn (respecting the store filters) via the shared PathLines. */
 function TrajectoryOverlay({ trajectory }: { trajectory: TrajectoryResultSet }) {
   const trajFrame = useAppStore((s) => s.trajFrame);
-  const showPaths = useAppStore((s) => s.showPaths);
+  const showTrajectoryRays = useAppStore((s) => s.showTrajectoryRays);
   const markerRef = useRef<THREE.Mesh>(null);
 
   const samples = trajectory.samples;
@@ -754,8 +754,8 @@ function TrajectoryOverlay({ trajectory }: { trajectory: TrajectoryResultSet }) 
   if (!current) return null;
 
   // Live per-frame rays (only present when the trajectory was simulated with
-  // include_paths). When absent we fall back to the static pathResults overlay
-  // rendered separately by the parent.
+  // include_paths), gated by their own overlay toggle - independent of the
+  // static Rays toggle so both can be shown or hidden separately.
   const framePaths = current.paths ?? null;
 
   return (
@@ -764,7 +764,7 @@ function TrajectoryOverlay({ trajectory }: { trajectory: TrajectoryResultSet }) 
         // Yellow trail (AODT legend convention).
         <Line points={trail} color="#ffee58" lineWidth={2} />
       )}
-      {showPaths && framePaths && framePaths.length > 0 && (
+      {showTrajectoryRays && framePaths && framePaths.length > 0 && (
         <PathLines paths={framePaths} showInteractions={false} />
       )}
       <group position={current.position}>
@@ -778,18 +778,6 @@ function TrajectoryOverlay({ trajectory }: { trajectory: TrajectoryResultSet }) 
       </group>
     </group>
   );
-}
-
-/** True when the trajectory's current sample carries live per-frame ray paths
- *  (so the static pathResults overlay should yield to them). */
-function trajectoryHasFramePaths(
-  trajectory: TrajectoryResultSet | null,
-  trajFrame: number,
-): boolean {
-  if (!trajectory || trajectory.samples.length === 0) return false;
-  const frame = Math.max(0, Math.min(trajectory.samples.length - 1, trajFrame));
-  const paths = trajectory.samples[frame]?.paths;
-  return Array.isArray(paths) && paths.length > 0;
 }
 
 // ------------------------------------------------------------- scenario
@@ -1613,7 +1601,6 @@ export default function Viewer3D() {
   const meshRadioMap = useAppStore((s) => s.meshRadioMap);
   const showMeshRadioMapToggle = useAppStore((s) => s.showMeshRadioMap);
   const trajectory = useAppStore((s) => s.trajectory);
-  const trajFrame = useAppStore((s) => s.trajFrame);
   const scenario = useAppStore((s) => s.scenario);
   const showPaths = useAppStore((s) => s.showPaths);
   const showRadioMapToggle = useAppStore((s) => s.showRadioMap);
@@ -1693,10 +1680,9 @@ export default function Viewer3D() {
   // has it switched ON (a stored scenario must not hijack the viewport).
   const scenarioActive =
     scenario !== null && scenario.frames.length > 0 && mode === "results" && showScenario;
-  // When the current trajectory sample carries live per-frame rays, they take
-  // over from the static pathResults overlay (feature: trajectory live rays).
+  // Trajectory overlay (marker/trail; per-frame rays gated separately by the
+  // independent "Trajectory rays" toggle inside TrajectoryOverlay).
   const trajActive = trajectory !== null && mode === "results" && !scenarioActive;
-  const trajFramePaths = trajActive && trajectoryHasFramePaths(trajectory, trajFrame);
   const dirPos = directionalPosition(
     viewport.directionalAzimuthDeg,
     viewport.directionalElevationDeg,
@@ -1804,8 +1790,9 @@ export default function Viewer3D() {
             {scene && <Actors />}
           </>
         )}
-        {/* Static rays yield to live trajectory-frame rays when those are shown. */}
-        {pathResults && showPaths && mode === "results" && !scenarioActive && !trajFramePaths && <RayPaths />}
+        {/* Static rays and trajectory-frame rays are independent overlays;
+            each has its own toggle in the results overlay row. */}
+        {pathResults && showPaths && mode === "results" && !scenarioActive && <RayPaths />}
         {showRadioMap && <RadioMapPlane radioMap={radioMap} />}
         {showMeshRadioMap && <MeshRadioMapOverlay result={meshRadioMap} />}
         {trajActive && <TrajectoryOverlay trajectory={trajectory} />}
