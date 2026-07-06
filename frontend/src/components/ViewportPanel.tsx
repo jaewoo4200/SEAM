@@ -8,7 +8,7 @@
  */
 
 import { useAppStore } from "../store/appStore";
-import type { RadioMapColormap, ViewportSettings } from "../viewportSettings";
+import type { RadioMapColormap, RenderQuality, ViewportSettings } from "../viewportSettings";
 import { RADIO_MAP_COLORMAPS } from "../viewportSettings";
 
 /** Labeled slider bound to a numeric viewport field. */
@@ -184,6 +184,20 @@ export default function ViewportPanel({ onClose }: { onClose: () => void }) {
           step={0.1}
           onChange={(v) => patch({ markerScale: v })}
         />
+        <label
+          className="vp-color"
+          title="Render resolution preset for heavy imported scenes (fast ↔ sharp). Picking and RF solves stay exact — only on-screen sharpness changes."
+        >
+          <span>Render</span>
+          <select
+            value={viewport.renderQuality}
+            onChange={(e) => patch({ renderQuality: e.target.value as RenderQuality })}
+          >
+            <option value="performance">Fast (0.75× res)</option>
+            <option value="balanced">Balanced (1.25×)</option>
+            <option value="quality">Quality (native)</option>
+          </select>
+        </label>
         <Toggle
           label="Slice plane (S)"
           checked={viewport.showSlice}

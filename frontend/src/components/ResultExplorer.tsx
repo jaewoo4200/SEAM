@@ -351,6 +351,12 @@ export function TrajectorySection() {
   );
   const [routes, setRoutes] = useState<UERoute[]>([]);
   const [routeUe, setRouteUe] = useState<string>("");
+  // Height above the clicked surface for picked/drawn waypoints (and the
+  // follow-terrain snap height). Default = the first RX's authored height.
+  const [ueHeight, setUeHeight] = useState<number>(() => {
+    const z = firstRxPosition()[2];
+    return Number.isFinite(z) && z > 0 ? Math.round(z * 100) / 100 : 1.5;
+  });
   const drawUe = routeUe || rxIds.find((id) => !routes.some((r) => r.ue_id === id)) || rxIds[0] || "";
 
   const drawRoute = () => {
@@ -359,7 +365,7 @@ export function TrajectorySection() {
       label: `Route for ${drawUe}`,
       count: "multi",
       target: "surface",
-      heightOffset: firstRxPosition()[2],
+      heightOffset: ueHeight,
       onComplete: (pts) => {
         setRoutes((rs) => [
           ...rs.filter((r) => r.ue_id !== drawUe),
@@ -393,7 +399,7 @@ export function TrajectorySection() {
       label: "Trajectory start → end",
       count: 2,
       target: "surface",
-      heightOffset: firstRxPosition()[2],
+      heightOffset: ueHeight,
       onComplete: (pts) => {
         touched.current = true;
         setStart(pts[0]);
@@ -595,6 +601,23 @@ export function TrajectorySection() {
           <span className="solver-unit">s</span>
         </span>
       </label>
+      <label
+        className="solver-field"
+        title="Height above the clicked surface for picked/drawn waypoints (and the follow-terrain snap height) — keeps the UE above bumpy ground"
+      >
+        <span className="solver-field-label">UE height</span>
+        <span className="solver-field-input">
+          <input
+            type="number"
+            min={0}
+            step={0.1}
+            value={ueHeight}
+            disabled={disabled}
+            onChange={(e) => setUeHeight(Math.max(0, Number(e.target.value)))}
+          />
+          <span className="solver-unit">m</span>
+        </span>
+      </label>
       <div className="panel-actions">
         <button
           className="primary"
@@ -602,8 +625,8 @@ export function TrajectorySection() {
           onClick={() =>
             void simulateTrajectory(
               routes.length > 0
-                ? { routes, num_points: numPoints, dt_s: dt, follow_terrain: followTerrain }
-                : { start_m: start, end_m: end, num_points: numPoints, dt_s: dt, follow_terrain: followTerrain },
+                ? { routes, num_points: numPoints, dt_s: dt, follow_terrain: followTerrain, follow_height_m: ueHeight }
+                : { start_m: start, end_m: end, num_points: numPoints, dt_s: dt, follow_terrain: followTerrain, follow_height_m: ueHeight },
             )
           }
         >
@@ -689,6 +712,14 @@ function PlaybackTrajectory({
         {ueIds.length > 1 && <> · {ueIds.length} UEs</>} · backend{" "}
         <span className="mono">{trajectory.backend}</span>
         {hasFramePaths && <> · live rays</>}
+        <button
+          className="row-del"
+          style={{ marginLeft: 8 }}
+          title="Remove this trajectory result (clears the marker/trail/ray overlay immediately)"
+          onClick={() => useAppStore.getState().removeTrajectory()}
+        >
+          ✕ Remove
+        </button>
       </div>
       {ueIds.length > 1 && (
         <label className="solver-field">

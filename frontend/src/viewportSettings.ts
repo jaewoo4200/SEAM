@@ -36,10 +36,27 @@ export interface ViewportSettings {
   rmColormap: RadioMapColormap;
   rmVmin: number | null;
   rmVmax: number | null;
+  /** Render speed <-> quality preset (GPU-settings style). Only affects the
+   *  RENDER (canvas resolution); picking/solves/BVH are exact regardless. */
+  renderQuality: RenderQuality;
 }
 
 export type RadioMapColormap = "jet" | "viridis" | "plasma" | "turbo";
 export const RADIO_MAP_COLORMAPS: RadioMapColormap[] = ["jet", "viridis", "plasma", "turbo"];
+
+export type RenderQuality = "performance" | "balanced" | "quality";
+export const RENDER_QUALITIES: RenderQuality[] = ["performance", "balanced", "quality"];
+
+/** Canvas device-pixel-ratio for a render-quality preset: the dominant cost of
+ *  drawing a multi-million-triangle imported scene is fill/vertex work, which
+ *  scales with resolution. Lossless data-wise - only the on-screen sharpness
+ *  changes. */
+export function renderQualityDpr(q: RenderQuality): number {
+  const device = typeof window === "undefined" ? 1 : window.devicePixelRatio || 1;
+  if (q === "performance") return Math.min(device, 0.75);
+  if (q === "balanced") return Math.min(device, 1.25);
+  return device;
+}
 
 /** Radius (m) of the sphere the directional light is placed on. */
 export const DIRECTIONAL_RADIUS_M = 60;
@@ -73,6 +90,7 @@ export function defaultViewportSettings(): ViewportSettings {
     rmColormap: "jet",
     rmVmin: null,
     rmVmax: null,
+    renderQuality: "quality",
   };
 }
 
@@ -139,6 +157,9 @@ export function normalizeViewportSettings(
     rmVmax: raw.rmVmax === null || raw.rmVmax === undefined || !Number.isFinite(Number(raw.rmVmax))
       ? d.rmVmax
       : Number(raw.rmVmax),
+    renderQuality: RENDER_QUALITIES.includes(raw.renderQuality as RenderQuality)
+      ? (raw.renderQuality as RenderQuality)
+      : d.renderQuality,
   };
 }
 

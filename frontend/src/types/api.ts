@@ -472,6 +472,27 @@ export interface TrajectoryResultSet {
   metadata: Record<string, unknown>;
 }
 
+/** POST /projects/import-osm — build a project from OpenStreetMap building
+ *  footprints in a rectangle around a coordinate (needs internet). */
+export interface OsmImportRequest {
+  project_id?: string | null;
+  name: string;
+  lat: number;
+  lon: number;
+  width_m?: number;
+  height_m?: number;
+  default_building_material?: string;
+  ground_material?: string;
+  default_building_height_m?: number;
+}
+
+export interface OsmImportResponse {
+  project_id: string;
+  num_buildings: number;
+  num_skipped: number;
+  warnings: string[];
+}
+
 /** One routed UE for a multi-UE trajectory: resampled to num_points steps
  *  along its polyline by arc length at solve time. */
 export interface UERoute {

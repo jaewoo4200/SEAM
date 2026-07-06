@@ -282,6 +282,7 @@ function ImportSceneButton({
   onImported: (newId: string) => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
+  const [source, setSource] = useState<"xml" | "osm">("xml");
   const [xml, setXml] = useState<File | null>(null);
   const [meshes, setMeshes] = useState<File[]>([]);
   const [projectId, setProjectId] = useState("");
@@ -290,6 +291,12 @@ function ImportSceneButton({
   const [environment, setEnvironment] = useState<Environment>("auto");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // OSM import fields: center coordinate + rectangle size.
+  const [osmLat, setOsmLat] = useState("36.3721");
+  const [osmLon, setOsmLon] = useState("127.3604");
+  const [osmW, setOsmW] = useState(500);
+  const [osmH, setOsmH] = useState(500);
+  const [osmBldgH, setOsmBldgH] = useState(10);
   const wrapRef = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {
@@ -323,7 +330,36 @@ function ImportSceneButton({
   const effectiveId = idTouched ? projectId : slugifyId(name);
   const idValid = effectiveId.length > 0 && PROJECT_ID_PATTERN.test(effectiveId);
   const dupId = existingIds.includes(effectiveId);
-  const canSubmit = xml !== null && idValid && !dupId && !submitting;
+  const osmValid =
+    Number.isFinite(Number(osmLat)) &&
+    Math.abs(Number(osmLat)) <= 90 &&
+    Number.isFinite(Number(osmLon)) &&
+    Math.abs(Number(osmLon)) <= 180;
+  const canSubmit =
+    (source === "xml" ? xml !== null : osmValid) && idValid && !dupId && !submitting;
+
+  const submitOsm = async () => {
+    if (!idValid || !osmValid) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const info = await api.importOsm({
+        project_id: effectiveId,
+        name: name.trim() || effectiveId,
+        lat: Number(osmLat),
+        lon: Number(osmLon),
+        width_m: osmW,
+        height_m: osmH,
+        default_building_height_m: osmBldgH,
+      });
+      setOpen(false);
+      reset();
+      await onImported(info.project_id);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err));
+      setSubmitting(false);
+    }
+  };
 
   const submit = async () => {
     if (!xml || !idValid) return;
@@ -362,27 +398,95 @@ function ImportSceneButton({
       {open && (
         <div className="import-popover" role="dialog" aria-label="Import scene">
           <h4>Import scene</h4>
-          <label>
-            Scene XML
-            <input
-              type="file"
-              accept=".xml"
-              onChange={(e) => {
-                const f = e.target.files?.[0] ?? null;
-                setXml(f);
-                if (f && !name) setName(f.name.replace(/\.xml$/i, ""));
-              }}
-            />
-          </label>
-          <label>
-            Mesh files (optional .ply/.obj)
-            <input
-              type="file"
-              accept=".ply,.obj,.stl"
-              multiple
-              onChange={(e) => setMeshes(Array.from(e.target.files ?? []))}
-            />
-          </label>
+          <div className="mode-tabs import-source-tabs">
+            <button
+              className={source === "xml" ? "active" : ""}
+              onClick={() => setSource("xml")}
+            >
+              Mitsuba XML
+            </button>
+            <button
+              className={source === "osm" ? "active" : ""}
+              onClick={() => setSource("osm")}
+            >
+              OpenStreetMap
+            </button>
+          </div>
+          {source === "xml" && (
+            <>
+              <label>
+                Scene XML
+                <input
+                  type="file"
+                  accept=".xml"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0] ?? null;
+                    setXml(f);
+                    if (f && !name) setName(f.name.replace(/\.xml$/i, ""));
+                  }}
+                />
+              </label>
+              <label>
+                Mesh files (optional .ply/.obj)
+                <input
+                  type="file"
+                  accept=".ply,.obj,.stl"
+                  multiple
+                  onChange={(e) => setMeshes(Array.from(e.target.files ?? []))}
+                />
+              </label>
+            </>
+          )}
+          {source === "osm" && (
+            <>
+              <div className="osm-grid">
+                <label>
+                  Latitude
+                  <input type="text" value={osmLat} onChange={(e) => setOsmLat(e.target.value)} />
+                </label>
+                <label>
+                  Longitude
+                  <input type="text" value={osmLon} onChange={(e) => setOsmLon(e.target.value)} />
+                </label>
+                <label>
+                  Width (m, E–W)
+                  <input
+                    type="number"
+                    min={50}
+                    max={3000}
+                    value={osmW}
+                    onChange={(e) => setOsmW(Math.max(50, Math.min(3000, Number(e.target.value))))}
+                  />
+                </label>
+                <label>
+                  Height (m, N–S)
+                  <input
+                    type="number"
+                    min={50}
+                    max={3000}
+                    value={osmH}
+                    onChange={(e) => setOsmH(Math.max(50, Math.min(3000, Number(e.target.value))))}
+                  />
+                </label>
+                <label>
+                  Default bldg height (m)
+                  <input
+                    type="number"
+                    min={3}
+                    value={osmBldgH}
+                    onChange={(e) => setOsmBldgH(Math.max(3, Number(e.target.value)))}
+                  />
+                </label>
+              </div>
+              <p className="hint">
+                Fetches building footprints in a rectangle around the coordinate
+                from OpenStreetMap (Overpass API — needs internet), extrudes them
+                with OSM height/levels tags, and pre-assigns RF materials
+                (concrete buildings, 28 GHz-safe ground). Paste any coordinate
+                from Google Maps.
+              </p>
+            </>
+          )}
           <label>
             Name
             <input
@@ -423,8 +527,16 @@ function ImportSceneButton({
           {dupId && <span className="field-error">a project “{effectiveId}” already exists</span>}
           {error && <span className="field-error">{error}</span>}
           <div className="import-actions">
-            <button className="primary" disabled={!canSubmit} onClick={() => void submit()}>
-              {submitting ? "Importing…" : "Import"}
+            <button
+              className="primary"
+              disabled={!canSubmit}
+              onClick={() => void (source === "osm" ? submitOsm() : submit())}
+            >
+              {submitting
+                ? source === "osm"
+                  ? "Fetching OSM…"
+                  : "Importing…"
+                : "Import"}
             </button>
             <button
               onClick={() => {

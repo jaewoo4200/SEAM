@@ -351,9 +351,12 @@ interface AppState {
     dt_s: number;
     ue_id?: string | null;
     follow_terrain?: boolean;
+    follow_height_m?: number;
     /** Multi-UE routes; when set the start/end/ue_id fields are ignored. */
     routes?: UERoute[];
   }) => Promise<void>;
+  /** Drop the loaded trajectory result (overlay clears immediately). */
+  removeTrajectory: () => void;
   setTrajFrame: (frame: number) => void;
   setTrajPlaying: (playing: boolean) => void;
   setTrajSpeed: (speed: number) => void;
@@ -1332,6 +1335,8 @@ export const useAppStore = create<AppState>()((set, get) => {
       set({ scenario: null, scenarioFrame: 0, scenarioPlaying: false, showScenario: false }),
     removeRadioMap: () => set({ radioMap: null }),
     removeMeshRadioMap: () => set({ meshRadioMap: null }),
+    removeTrajectory: () =>
+      set({ trajectory: null, trajFrame: 0, trajPlaying: false }),
 
     exportRfdata: async () => {
       const pid = get().projectId;
@@ -1756,7 +1761,7 @@ export const useAppStore = create<AppState>()((set, get) => {
 
     // ---------------------------------------------------- trajectory
 
-    simulateTrajectory: async ({ start_m, end_m, num_points, dt_s, ue_id, follow_terrain, routes }) => {
+    simulateTrajectory: async ({ start_m, end_m, num_points, dt_s, ue_id, follow_terrain, follow_height_m, routes }) => {
       const pid = get().projectId;
       if (!pid) return;
       await run("Simulating trajectory…", async () => {
@@ -1769,6 +1774,7 @@ export const useAppStore = create<AppState>()((set, get) => {
           num_points,
           dt_s,
           follow_terrain: follow_terrain ?? false,
+          ...(follow_height_m !== undefined ? { follow_height_m } : {}),
           // Request per-waypoint ray paths so the viewer can render live rays
           // during playback/scrub (feature: trajectory live rays).
           include_paths: true,

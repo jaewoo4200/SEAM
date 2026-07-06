@@ -30,6 +30,8 @@ import type {
   MaterialSuggestionResponse,
   MeshRadioMapRequest,
   MeshRadioMapResultSet,
+  OsmImportRequest,
+  OsmImportResponse,
   PathResultSet,
   ProjectCreateRequest,
   ProjectDeleteResponse,
@@ -133,6 +135,10 @@ export const api = {
   // new project. `form` carries: file (the .xml), project_id, name,
   // environment, and zero or more `meshes` file parts.
   importScene: (form: FormData) => postForm<ProjectInfo>("/projects/import", form),
+  // One-shot OpenStreetMap import: building footprints in a rectangle around
+  // a lat/lon, extruded + RF-preassigned (needs internet for Overpass).
+  importOsm: (req: OsmImportRequest) =>
+    request<OsmImportResponse>("POST", "/projects/import-osm", req),
 
   // scene
   getScene: (pid: string) => request<Scene>("GET", `/projects/${pid}/scene`),

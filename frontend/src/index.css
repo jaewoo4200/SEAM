@@ -2360,3 +2360,20 @@ button.picking {
   color: var(--muted);
   font-size: 12px;
 }
+
+/* --------------------------------------------------- OSM import fields */
+.import-source-tabs {
+  margin-bottom: 8px;
+}
+.osm-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 10px;
+}
+.osm-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+  color: var(--muted);
+}

@@ -12,7 +12,7 @@ import { SELECTED_PATH_COLOR } from "./common";
 import { filterPaths, pathColor, powerRange, powerWidth } from "../pathFilter";
 import { samplesAtStep, samplesForUe, trajectoryUeIds } from "../trajectoryUtils";
 import { api } from "../api/client";
-import { directionalPosition } from "../viewportSettings";
+import { directionalPosition, renderQualityDpr } from "../viewportSettings";
 import type { RadioMapColormap } from "../viewportSettings";
 import ViewportPanel from "./ViewportPanel";
 import MeshRadioMapOverlay from "./MeshRadioMapOverlay";
@@ -1626,11 +1626,21 @@ function PickController() {
     ? Math.max(bounds.max[0] - bounds.min[0], bounds.max[1] - bounds.min[1])
     : 40;
   const dotR = Math.min(3.0, Math.max(0.35, extent * 0.006));
+  // Dots render at surface + heightOffset (the actual committed height): on
+  // bumpy terrain a surface-level dot half-buries, and the offset dot honestly
+  // previews where the UE will fly. A thin stem ties it back to the ground
+  // point under the crosshair so the offset never reads as a misplacement.
+  const lift = (p: Vec3): Vec3 => [p[0], p[1], p[2] + pick.heightOffset];
   const dot = (p: Vec3, key: string, ghost = false) => (
-    <mesh key={key} position={p} renderOrder={999} userData={{ __noFit: true }}>
-      <sphereGeometry args={[dotR, 18, 12]} />
-      <meshBasicMaterial color={PICK_COLOR} transparent opacity={ghost ? 0.5 : 0.95} depthTest={false} />
-    </mesh>
+    <group key={key} userData={{ __noFit: true }}>
+      <mesh position={lift(p)} renderOrder={999}>
+        <sphereGeometry args={[dotR, 18, 12]} />
+        <meshBasicMaterial color={PICK_COLOR} transparent opacity={ghost ? 0.5 : 0.95} depthTest={false} />
+      </mesh>
+      {pick.heightOffset > dotR && (
+        <Line points={[p, lift(p)]} color={PICK_COLOR} lineWidth={1} transparent opacity={0.5} />
+      )}
+    </group>
   );
   const wantMore = pick.count === "multi" || pickPoints.length < pick.count;
   return (
@@ -1640,7 +1650,7 @@ function PickController() {
       {/* Rubber-band from the last placed point to the cursor. */}
       {hover && pickPoints.length > 0 && wantMore && (
         <Line
-          points={[pickPoints[pickPoints.length - 1], hover]}
+          points={[lift(pickPoints[pickPoints.length - 1]), lift(hover)]}
           color={PICK_COLOR}
           lineWidth={2}
           dashed
@@ -1795,7 +1805,9 @@ export default function Viewer3D() {
   return (
     <div className={"viewer3d" + (pickActive ? " picking" : "")}>
       <Canvas
-        dpr={[1, 2]}
+        // Render speed <-> quality preset (viewport panel): resolution is the
+        // dominant draw cost on multi-million-triangle imports. Data-lossless.
+        dpr={renderQualityDpr(viewport.renderQuality)}
         flat
         // preserveDrawingBuffer lets captureViewport() read the canvas as a
         // JPEG data URL (AI/VLM) after the frame has been presented.
