@@ -1,0 +1,42 @@
+{
+  "/terrain/ground": {
+    "mesh_name": "ground",
+    "rf_material_id": "ground_28ghz",
+    "group_mesh_file": null
+  },
+  "/roads/r01/surface": {
+    "mesh_name": "road_surface",
+    "rf_material_id": "asphalt_custom",
+    "group_mesh_file": null
+  },
+  "/buildings/b01/walls": {
+    "mesh_name": "building_01_walls",
+    "rf_material_id": null,
+    "group_mesh_file": null
+  },
+  "/buildings/b01/window_01": {
+    "mesh_name": "building_01_window_01",
+    "rf_material_id": null,
+    "group_mesh_file": null
+  },
+  "/buildings/b01/window_02": {
+    "mesh_name": "building_01_window_02",
+    "rf_material_id": null,
+    "group_mesh_file": null
+  },
+  "/buildings/b02/walls": {
+    "mesh_name": "building_02_walls",
+    "rf_material_id": null,
+    "group_mesh_file": null
+  },
+  "/vegetation/tree_01/trunk": {
+    "mesh_name": "tree_01_trunk",
+    "rf_material_id": null,
+    "group_mesh_file": null
+  },
+  "/vegetation/tree_01/canopy": {
+    "mesh_name": "tree_01_canopy",
+    "rf_material_id": null,
+    "group_mesh_file": null
+  }
+}
