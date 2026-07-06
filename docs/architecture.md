@@ -231,6 +231,28 @@ measured per-link samples (RX position + measured path gain) into
 returns the stored set. These feed material calibration and RF disambiguation
 (see `docs/ai_assistant.md`, `docs/accuracy.md`).
 
+### OpenStreetMap import
+
+`POST /projects/import-osm {name, lat, lon, width_m, height_m, ...}` builds a
+ready-to-simulate outdoor project from a geographic rectangle in one shot
+(`app.services.osm_import`). It fetches building footprints from the Overpass
+API, projects each way's lon/lat ring to local ENU meters via an
+equirectangular tangent-plane approximation about the center (sub-metre for the
+≤3 km rectangles it allows), extrudes the footprints with
+`trimesh.creation.extrude_polygon` (height from the OSM `height` /
+`building:levels` tags, else a default), and drops a thin ground plane under
+them. The result is one named geometry per building in a single
+`visual/scene.glb` (matching each prim's `mesh_ref.mesh_name`), one prim per
+building tagged `building` plus a `ground`/`terrain` prim, all RF-bound to the
+requested materials with status `rule_suggested` and source `osm_import`, and a
+`coordinate_system.origin_lat_lon_alt` anchoring the scene. Both material ids
+are validated against the default library (400 on unknown); footprints with
+fewer than three points or invalid polygons are skipped and counted, and above
+2000 buildings only the largest-area ones are kept (warned). The Overpass
+endpoint is overridable via `SEAM_OVERPASS_URL` (`SIONNATWIN_OVERPASS_URL`
+fallback); an unreachable endpoint or garbage response returns 502 and a
+timeout returns 504.
+
 ## Simulation backend interface
 
 All backends implement one protocol

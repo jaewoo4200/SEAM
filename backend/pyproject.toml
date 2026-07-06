@@ -21,6 +21,10 @@ dependencies = [
     "scipy>=1.11",
     # trimesh ray casting (terrain-following trajectories) needs an R-tree.
     "rtree>=1.2",
+    # OpenStreetMap import: extrude building footprints (shapely polygons) via
+    # trimesh, which needs an FSF-approved triangulation engine at runtime.
+    "shapely>=2.0",
+    "mapbox-earcut>=1.0",
     "pyyaml>=6.0",
     "httpx>=0.27",
     "pillow>=10.3",
