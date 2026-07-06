@@ -152,6 +152,9 @@ interface AppState {
   pathTypeFilter: PathType | "all";
   // Device ids whose links are hidden in ray overlays/tables (filter chips).
   hiddenLinkDevices: string[];
+  /** Prim ids hidden in the 3D viewer (eye toggle in the scene tree).
+   *  RF-helper geometry (occlusion blockers) is seeded hidden per project. */
+  hiddenPrims: string[];
   strongestN: number;
   minPowerDbm: number | null;
   colorBy: ColorBy;
@@ -283,6 +286,7 @@ interface AppState {
   setPathTypeFilter: (f: PathType | "all") => void;
   toggleLinkDevice: (id: string) => void;
   setHiddenLinkDevices: (ids: string[]) => void;
+  togglePrimVisibility: (primId: string) => void;
   setStrongestN: (n: number) => void;
   setMinPowerDbm: (p: number | null) => void;
   setColorBy: (c: ColorBy) => void;
@@ -677,6 +681,7 @@ export const useAppStore = create<AppState>()((set, get) => {
 
     pathTypeFilter: "all",
     hiddenLinkDevices: [],
+    hiddenPrims: [],
     strongestN: 50,
     minPowerDbm: null,
     colorBy: "type",
@@ -745,10 +750,23 @@ export const useAppStore = create<AppState>()((set, get) => {
         // filling any missing (older-scene) fields with backend defaults.
         const stored = scene.simulation_configs[0];
         const seed = normalizeConfig(stored);
+        // The environment split exists for a reason (owner directive): an
+        // indoor project must OPEN with the indoor solver/grid defaults, not
+        // only after the user re-picks the env dropdown. The preset overlays
+        // just its env-signature fields; other stored values survive.
+        const resolvedForOpen = resolveEnvironment(scene.environment, scene);
+        const envPreset = presetForEnvironment(scene.environment, scene);
+        const seeded = { ...seed, ...envPreset.paths };
+        const seededRm = {
+          ...seed,
+          ...envPreset.paths,
+          max_depth: ENV_RADIOMAP_DEPTH[resolvedForOpen],
+          radio_map: { ...seed.radio_map, ...envPreset.radioMap },
+        };
         set({
           projectId,
           scene,
-          resolvedEnvironment: resolveEnvironment(scene.environment, scene),
+          resolvedEnvironment: resolvedForOpen,
           materials,
           selection: [],
           selectedDeviceId: null,
@@ -763,14 +781,19 @@ export const useAppStore = create<AppState>()((set, get) => {
           selectedPathId: null,
           // Overlay visibility starts fresh per project.
           hiddenLinkDevices: [],
+          // RF occlusion helpers (blocker slices) are solver aids, not
+          // visual geometry: hide them by default (eye toggle re-shows).
+          hiddenPrims: scene.prims
+            .filter((pr) => /occlusion|blocker/i.test(pr.mesh_ref?.mesh_name ?? pr.id))
+            .map((pr) => pr.id),
           showPaths: true,
           showRadioMap: true,
           showBeamforming: true,
           // A persisted scenario loads for playback ON DEMAND - it must not
           // take over the viewport just because the project has one stored.
           showScenario: false,
-          pathsConfig: seed,
-          radioMapConfig: { ...seed },
+          pathsConfig: seeded,
+          radioMapConfig: seededRm,
           // Auto-update is opt-in; reset per project.
           autoPaths: false,
           autoRadioMap: false,
@@ -1306,8 +1329,22 @@ export const useAppStore = create<AppState>()((set, get) => {
         name: isTx ? "Transmitter" : "Receiver",
         kind,
         // Explicit position (K/L hotkey placement at the surface hit, Sionna
-        // RT GUI convention) wins over the kind defaults.
-        position: position ?? (isTx ? [0, 0, 10] : [10, 0, 1.5]),
+        // RT GUI convention) wins. The fallback is env/bounds-aware: a 10 m
+        // mast default put indoor TXs above the ceiling (outside the room).
+        position:
+          position ??
+          (() => {
+            const b = get().sceneBounds;
+            const indoor = get().resolvedEnvironment === "indoor";
+            if (!b) return (isTx ? [0, 0, 10] : [10, 0, 1.5]) as Vec3;
+            const cx = (b.min[0] + b.max[0]) / 2;
+            const cy = (b.min[1] + b.max[1]) / 2;
+            const txZ = indoor ? Math.min(b.max[2] - 0.3, b.min[2] + 2.5) : 10;
+            const off = Math.min(5, (b.max[0] - b.min[0]) / 4);
+            return (isTx
+              ? [cx, cy, Math.max(b.min[2] + 0.5, txZ)]
+              : [cx + off, cy, b.min[2] + 1.5]) as Vec3;
+          })(),
         orientation_deg: [0, 0, 0],
         power_dbm: 30,
         antenna: {
@@ -1409,6 +1446,15 @@ export const useAppStore = create<AppState>()((set, get) => {
       });
     },
     setHiddenLinkDevices: (ids) => set({ hiddenLinkDevices: ids }),
+
+    togglePrimVisibility: (primId) => {
+      const cur = get().hiddenPrims;
+      set({
+        hiddenPrims: cur.includes(primId)
+          ? cur.filter((id) => id !== primId)
+          : [...cur, primId],
+      });
+    },
     setStrongestN: (n) => set({ strongestN: n }),
     setMinPowerDbm: (p) => set({ minPowerDbm: p }),
     setColorBy: (c) => set({ colorBy: c }),

@@ -1927,3 +1927,27 @@ button.picking {
 .fw-body .panel {
   border-bottom: none;
 }
+
+
+/* Per-prim visibility (scene-tree eye toggle). */
+.tree-eye {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  padding: 0 4px;
+  font-size: 11px;
+  line-height: 1;
+  opacity: 0;
+  flex: none;
+}
+.tree-row:hover .tree-eye,
+.tree-eye.off {
+  opacity: 1;
+}
+.tree-eye.off {
+  color: var(--warn);
+}
+.tree-name.tree-hidden {
+  opacity: 0.45;
+  text-decoration: line-through;
+}

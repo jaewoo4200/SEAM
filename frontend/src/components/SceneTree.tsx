@@ -110,6 +110,8 @@ function TreeRow({
 }) {
   const selection = useAppStore((s) => s.selection);
   const selectPrim = useAppStore((s) => s.selectPrim);
+  const hiddenPrims = useAppStore((s) => s.hiddenPrims);
+  const togglePrimVisibility = useAppStore((s) => s.togglePrimVisibility);
   const hasChildren = node.children.length > 0;
   const isCollapsed = collapsed.has(node.path);
   const selected = node.prim !== null && selection.includes(node.prim.id);
@@ -141,8 +143,24 @@ function TreeRow({
           {hasChildren ? (isCollapsed ? "▸" : "▾") : ""}
         </span>
         {rf && node.prim?.type === "mesh_primitive" && <StatusDot status={rf.assignment_status} />}
-        <span className="tree-name">{node.prim?.name || node.name}</span>
+        <span
+          className={"tree-name" + (node.prim && hiddenPrims.includes(node.prim.id) ? " tree-hidden" : "")}
+        >
+          {node.prim?.name || node.name}
+        </span>
         {rf?.material_id && <span className="tree-mat">{rf.material_id}</span>}
+        {node.prim && (
+          <button
+            className={"tree-eye" + (hiddenPrims.includes(node.prim.id) ? " off" : "")}
+            title={hiddenPrims.includes(node.prim.id) ? "Show in viewer" : "Hide in viewer"}
+            onClick={(e) => {
+              e.stopPropagation();
+              togglePrimVisibility(node.prim!.id);
+            }}
+          >
+            {hiddenPrims.includes(node.prim.id) ? "◌" : "◉"}
+          </button>
+        )}
       </div>
       {hasChildren &&
         !isCollapsed &&

@@ -157,6 +157,7 @@ function GLBScene({ url }: { url: string }) {
   const selection = useAppStore((s) => s.selection);
   const validation = useAppStore((s) => s.validation);
   const selectPrim = useAppStore((s) => s.selectPrim);
+  const hiddenPrims = useAppStore((s) => s.hiddenPrims);
   const showSlice = useAppStore((s) => s.viewport.showSlice);
   const sliceZ = useAppStore((s) => s.viewport.sliceZ);
 
@@ -192,6 +193,8 @@ function GLBScene({ url }: { url: string }) {
       if (mesh.userData.__origMat === undefined) mesh.userData.__origMat = mesh.material;
       const orig = mesh.userData.__origMat as THREE.Material | THREE.Material[];
       const prim = findPrim(mesh);
+      // Scene-tree eye toggle (occlusion-blocker helpers seed hidden).
+      mesh.visible = !(prim && hiddenPrims.includes(prim.id));
       const selected = prim !== null && selection.includes(prim.id);
       const color = overlayColor(prim, mode, materials, sevMap);
       if (color === null) {
@@ -242,7 +245,7 @@ function GLBScene({ url }: { url: string }) {
       });
       for (const m of created) m.dispose();
     };
-  }, [gltf, findPrim, mode, selection, materials, validation, showSlice, sliceZ]);
+  }, [gltf, findPrim, mode, selection, materials, validation, showSlice, sliceZ, hiddenPrims]);
 
   return (
     <primitive
@@ -363,7 +366,10 @@ function deviceMarkerRadius(
       const vals = pos.map((p) => p[axis]);
       maxSpan = Math.max(maxSpan, Math.max(...vals) - Math.min(...vals));
     }
-    return Math.min(1.0, Math.max(0.15, maxSpan * 0.02));
+    // Outdoor floor 1.0 m: two devices 40 m apart on a 350 m site otherwise
+    // shrink to sub-meter dots invisible from the framed camera.
+    const floor = _env === "indoor" ? 0.15 : 1.0;
+    return Math.min(2.5, Math.max(floor, maxSpan * 0.02));
   })();
   return base * markerScale;
 }
@@ -1061,11 +1067,16 @@ function ViewerHotkeys() {
   // hundreds-of-meters outdoor scene (reported: outdoor loads over-zoomed).
   const projectIdForFrame = useAppStore((s) => s.projectId);
   const boundsForFrame = useAppStore((s) => s.sceneBounds);
+  const envForFrame = useAppStore((s) => s.resolvedEnvironment);
   const framedProject = useRef<string | null>(null);
   useEffect(() => {
     if (!projectIdForFrame || !boundsForFrame) return;
-    if (framedProject.current === projectIdForFrame) return;
-    framedProject.current = projectIdForFrame;
+    // Key the guard on the CAMERA too: drei's makeDefault swaps the default
+    // camera in after mount, and framing the placeholder camera leaves the
+    // real one at the stock pose (seen as an over-zoomed initial view).
+    const key = `${projectIdForFrame}:${(camera as THREE.Camera).uuid}`;
+    if (framedProject.current === key) return;
+    framedProject.current = key;
     const b = boundsForFrame;
     const center = new THREE.Vector3(
       (b.min[0] + b.max[0]) / 2,
@@ -1077,13 +1088,30 @@ function ViewerHotkeys() {
       Math.hypot(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]) / 2,
     );
     const persp = camera as THREE.PerspectiveCamera;
-    const dist = (radius / Math.tan(((persp.fov ?? 45) * Math.PI) / 360)) * 1.2;
-    // Same iso view direction as the default pose (SW, elevated).
-    const dir = new THREE.Vector3(1, -1, 0.75).normalize();
-    camera.position.copy(center.clone().addScaledVector(dir, dist));
-    controls?.target?.copy(center);
+    // The environment split exists for a reason: an indoor room wants a
+    // close-in, human-scale three-quarter view that looks INTO the volume, while
+    // an outdoor site wants a raised site-survey overview with margin for
+    // orbiting. Same fit math, different composition per environment.
+    const preset =
+      envForFrame === "indoor"
+        ? { dir: new THREE.Vector3(1, -1.1, 0.85), margin: 1.15 }
+        : { dir: new THREE.Vector3(1, -0.9, 1.25), margin: 1.35 };
+    const dist =
+      (radius / Math.tan(((persp.fov ?? 45) * Math.PI) / 360)) * preset.margin;
+    camera.position.copy(
+      center.clone().addScaledVector(preset.dir.clone().normalize(), dist),
+    );
+    // Indoor: aim at standing height inside the room, not the geometric
+    // center of the shell - reads like walking into the model.
+    if (envForFrame === "indoor") {
+      const aim = center.clone();
+      aim.z = Math.min(center.z, b.min[2] + 1.5);
+      controls?.target?.copy(aim);
+    } else {
+      controls?.target?.copy(center);
+    }
     controls?.update?.();
-  }, [projectIdForFrame, boundsForFrame, camera, controls]);
+  }, [projectIdForFrame, boundsForFrame, envForFrame, camera, controls]);
 
   useEffect(() => {
     cameraPoseGetter = () => ({
@@ -1184,11 +1212,41 @@ function ViewerHotkeys() {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const { viewport } = useAppStore.getState();
       switch (e.key.toLowerCase()) {
-        case "r":
-          camera.position.set(35, -35, 25);
-          controls?.target?.set(0, 0, 0);
+        case "r": {
+          // Reset = the same env-aware framing as project open, not a fixed
+          // outdoor pose that dwarfs indoor rooms.
+          const st = useAppStore.getState();
+          const b = st.sceneBounds;
+          if (!b) {
+            camera.position.set(35, -35, 25);
+            controls?.target?.set(0, 0, 0);
+            controls?.update?.();
+            break;
+          }
+          const center = new THREE.Vector3(
+            (b.min[0] + b.max[0]) / 2,
+            (b.min[1] + b.max[1]) / 2,
+            (b.min[2] + b.max[2]) / 2,
+          );
+          const radius = Math.max(
+            1,
+            Math.hypot(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]) / 2,
+          );
+          const persp = camera as THREE.PerspectiveCamera;
+          const indoor = st.resolvedEnvironment === "indoor";
+          const preset = indoor
+            ? { dir: new THREE.Vector3(1, -1.1, 0.85), margin: 1.15 }
+            : { dir: new THREE.Vector3(1, -0.9, 1.25), margin: 1.35 };
+          const dist =
+            (radius / Math.tan(((persp.fov ?? 45) * Math.PI) / 360)) * preset.margin;
+          camera.position.copy(
+            center.clone().addScaledVector(preset.dir.clone().normalize(), dist),
+          );
+          if (indoor) center.z = Math.min(center.z, b.min[2] + 1.5);
+          controls?.target?.copy(center);
           controls?.update?.();
           break;
+        }
         case "f": {
           const box = new THREE.Box3();
           // Skip overlays/helpers (radio-map plane, textured backdrop, pick
@@ -1527,6 +1585,29 @@ export default function Viewer3D() {
     viewport.directionalAzimuthDeg,
     viewport.directionalElevationDeg,
   );
+  // Grid/axes helpers scale with the scene: fixed sizes either drown an
+  // indoor room or vanish on an outdoor site.
+  const boundsForHelpers = useAppStore((s) => s.sceneBounds);
+  const gridSize = boundsForHelpers
+    ? Math.ceil(
+        Math.max(
+          30,
+          Math.max(
+            boundsForHelpers.max[0] - boundsForHelpers.min[0],
+            boundsForHelpers.max[1] - boundsForHelpers.min[1],
+          ) * 1.2,
+        ) / 10,
+      ) * 10
+    : resolvedEnv === "indoor"
+      ? 30
+      : 200;
+  const gridCenter: [number, number] = boundsForHelpers
+    ? [
+        (boundsForHelpers.min[0] + boundsForHelpers.max[0]) / 2,
+        (boundsForHelpers.min[1] + boundsForHelpers.max[1]) / 2,
+      ]
+    : [0, 0];
+  const axesSize = resolvedEnv === "indoor" ? 4 : Math.max(10, gridSize * 0.08);
 
   return (
     <div className={"viewer3d" + (pickActive ? " picking" : "")}>
@@ -1558,14 +1639,17 @@ export default function Viewer3D() {
           intensity={viewport.directionalIntensity}
           color={viewport.directionalColor}
         />
-        {/* gridHelper lies in XZ by default; rotate +90° about X into the XY ground plane. */}
+        {/* gridHelper lies in XZ by default; rotate +90° about X into the XY
+            ground plane. Sized/centered from the scene bounds so a 350 m site
+            is actually covered (the fixed 200 m origin grid was not). */}
         {viewport.showGrid && (
           <gridHelper
-            args={resolvedEnv === "indoor" ? [30, 30, "#2c3947", "#1b2531"] : [200, 50, "#2c3947", "#1b2531"]}
+            args={[gridSize, resolvedEnv === "indoor" ? 30 : 50, "#2c3947", "#1b2531"]}
             rotation={[Math.PI / 2, 0, 0]}
+            position={[gridCenter[0], gridCenter[1], 0]}
           />
         )}
-        {viewport.showAxes && <axesHelper args={[4]} />}
+        {viewport.showAxes && <axesHelper args={[axesSize]} />}
         <ScreenshotCapture />
         <ViewerHotkeys />
         <PickController />
