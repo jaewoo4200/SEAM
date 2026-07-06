@@ -191,6 +191,9 @@ function GLBScene({ url }: { url: string }) {
       if (!mesh.isMesh) return;
       // Cache the original visual material once so mode switches can restore it.
       if (mesh.userData.__origMat === undefined) mesh.userData.__origMat = mesh.material;
+      // Imported GLBs (e.g. the FTC bundle terrain) can ship without a normal
+      // attribute; lit materials then shade to solid black in Visual mode.
+      if (!mesh.geometry.attributes.normal) mesh.geometry.computeVertexNormals();
       const orig = mesh.userData.__origMat as THREE.Material | THREE.Material[];
       const prim = findPrim(mesh);
       // Scene-tree eye toggle (occlusion-blocker helpers seed hidden).
