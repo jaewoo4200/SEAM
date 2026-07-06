@@ -352,6 +352,13 @@ class OllamaTextProvider(MaterialSuggestionProvider):
         has_image = bool(screenshot)
         image_b64 = _strip_data_url_prefix(screenshot) if has_image else None
         model = settings.vision_model if has_image else settings.text_model
+        if has_image and settings.vision_model != settings.text_model:
+            # Honesty over silence: attaching a screenshot swaps to the vision
+            # model, which may be smaller/weaker than the configured text one.
+            warnings.append(
+                f"screenshot attached: using vision model '{settings.vision_model}' "
+                f"instead of text model '{settings.text_model}'"
+            )
         try:
             import httpx  # lazy: never required at import time
 
@@ -387,6 +394,14 @@ class OllamaTextProvider(MaterialSuggestionProvider):
             )
         except Exception as exc:
             reason = str(exc) or exc.__class__.__name__
+            # Parity with local_openai: if the model rejected the IMAGE payload
+            # (text-only model behind a vision-model name), retry without it
+            # before dropping all the way to rules.
+            if has_image:
+                try:
+                    return self.suggest(scene, library, prim_ids, screenshot=None)
+                except Exception:  # noqa: BLE001 - fall through to rules below
+                    pass
             fallback = RuleBasedProvider().suggest(scene, library, prim_ids)
             fallback.warnings = [
                 f"ollama_text failed: {reason}; fell back to rule_based",

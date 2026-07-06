@@ -107,6 +107,8 @@ export default function AISuggestionPanel() {
   const suggestions = useAppStore((s) => s.suggestions);
   const decisions = useAppStore((s) => s.decisions);
   const suggestMaterials = useAppStore((s) => s.suggestMaterials);
+  const sendScreenshot = useAppStore((s) => s.sendScreenshot);
+  const setSendScreenshot = useAppStore((s) => s.setSendScreenshot);
   const aiProvider = useAppStore((s) => s.aiProvider);
   const setAiProvider = useAppStore((s) => s.setAiProvider);
   const applyDecisions = useAppStore((s) => s.applyDecisions);
@@ -151,6 +153,19 @@ export default function AISuggestionPanel() {
         </label>
       ))}
 
+      {/* The vision opt-in lives HERE, next to the button that uses it (it
+          also exists in Simulation > LIVE & AI; same store flag). */}
+      <label className="solver-check">
+        <input
+          type="checkbox"
+          checked={sendScreenshot}
+          onChange={(e) => setSendScreenshot(e.target.checked)}
+        />
+        Attach viewport screenshot
+        <span className="hint" style={{ marginLeft: 6 }}>
+          vision-capable providers see the 3D view (may switch to the vision model)
+        </span>
+      </label>
       <div className="panel-actions">
         <button
           className="primary"

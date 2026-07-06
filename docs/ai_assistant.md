@@ -19,16 +19,20 @@ Behind them sits a provider chain:
 | provider | needs | behavior |
 |---|---|---|
 | `rule_based` | nothing | deterministic keyword rules over name / visual material name / tags (window→`itu_glass`, brick→`itu_brick`, road→`asphalt_custom`, ...) |
-| `ollama_text` | reachable Ollama server + text model | prompts a local LLM with prim evidence, expects strict JSON back |
-| `ollama_vision` | *planned, not implemented* | same contract with image evidence; not selectable yet — `SIONNATWIN_AI_VISION_MODEL` is reserved config until then |
+| `local_openai` | reachable OpenAI-compatible server (LM Studio 등, `SIONNATWIN_OPENAI_URL`) | prompts a local LLM with prim evidence, strict JSON back. **Vision supported**: with a screenshot the request becomes multimodal (`image_url`); if the loaded model rejects images it retries text-only before falling back |
+| `ollama_text` | reachable Ollama server + text model | same contract via Ollama chat API. **Vision supported**: a screenshot attaches as base64 `images` and the call switches to `SIONNATWIN_AI_VISION_MODEL` (a warning notes the model swap); image rejection retries text-only |
 | `disabled` | — | returns no suggestions (AI turned off) |
 
 Selection: `SuggestMaterialsRequest.provider` forces a specific provider;
-otherwise the best available one is used. **Fallback chain: ollama →
-rule_based.** If the Ollama server is unreachable, times out, or returns
-JSON that fails schema validation, the response falls back to the rule-based
-provider and records what happened in `warnings`. The `provider` field of
-the response always names the provider that *actually* produced the result.
+otherwise the best available one is used (`local_openai` → `ollama_text` →
+`rule_based`). If a server is unreachable, times out, or returns JSON that
+fails schema validation, the response falls back down the chain and records
+what happened in `warnings`. The `provider`/`model` fields of the response
+always name what *actually* produced the result.
+
+**Live-verified**: LM Studio + `google/gemma-4-31b` end-to-end (text and
+multimodal), including library-id validation of every suggestion — the model
+cannot introduce a material id that is not in the project's RF library.
 
 All Ollama access is lazy (imported/probed inside functions): no AI server,
 no GPU, and no compatible model are required for anything else to work, and
@@ -42,9 +46,11 @@ Environment variables (read once by `app.core.config.get_settings()`):
 | variable | default | meaning |
 |---|---|---|
 | `SIONNATWIN_AI_ENABLED` | `auto` | `auto` (use if reachable) \| `on` \| `off` |
-| `SIONNATWIN_OLLAMA_URL` | `http://localhost:11434` | Ollama-compatible endpoint |
-| `SIONNATWIN_AI_TEXT_MODEL` | `qwen3:8b` | text model name (configuration, not hardcoded) |
-| `SIONNATWIN_AI_VISION_MODEL` | `qwen2.5vl:3b` | reserved for the future vision provider; unused in the MVP |
+| `SIONNATWIN_OLLAMA_URL` | `http://localhost:11434` | Ollama endpoint |
+| `SIONNATWIN_AI_TEXT_MODEL` | `qwen3:8b` | Ollama text model |
+| `SIONNATWIN_AI_VISION_MODEL` | `qwen2.5vl:3b` | Ollama vision model used when a screenshot is attached (e.g. set to `llava` to use LLaVA) |
+| `SIONNATWIN_OPENAI_URL` | `http://localhost:1234/v1` | OpenAI-compatible endpoint (LM Studio 기본 포트) |
+| `SIONNATWIN_OPENAI_MODEL` | `google/gemma-4-31b` | model id served by the OpenAI-compatible server |
 | `SIONNATWIN_AI_TIMEOUT_S` | `60` | request timeout |
 | `SIONNATWIN_AI_AUTO_APPLY` | `false` | reserved for a future auto-apply gate; parsed into settings but **no code acts on it in the MVP** |
 
