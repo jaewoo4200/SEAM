@@ -34,6 +34,7 @@ export interface PanelLayoutState {
  *  default docks are declared here so normalization has a dependency-free
  *  source of truth. */
 export const DOCKABLE_PANELS: { id: string; defaultDock: DockTarget }[] = [
+  { id: "metrics", defaultDock: "right" },
   { id: "trajectory", defaultDock: "right" },
   { id: "scenario", defaultDock: "right" },
   { id: "mlDataset", defaultDock: "right" },

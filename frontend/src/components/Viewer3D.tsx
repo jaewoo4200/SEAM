@@ -807,7 +807,18 @@ function ScreenshotCapture() {
         return null;
       }
     });
-    return () => registerViewportCapture(null);
+    viewportPngGetter = () => {
+      try {
+        const c = gl.domElement;
+        return c.width > 0 ? c.toDataURL("image/png") : null;
+      } catch {
+        return null;
+      }
+    };
+    return () => {
+      registerViewportCapture(null);
+      viewportPngGetter = null;
+    };
   }, [gl, registerViewportCapture]);
   return null;
 }
@@ -982,6 +993,9 @@ let gizmoBusy = false;
 
 // Camera pose getter registered by ViewerHotkeys for the render button.
 let cameraPoseGetter: (() => { position: Vec3; target: Vec3 }) | null = null;
+// Full-resolution PNG of the live canvas (exactly what the user sees) for the
+// paper-ready "save view" button; requires preserveDrawingBuffer.
+let viewportPngGetter: (() => string | null) | null = null;
 
 // --------------------------------------------------------------- hotkeys
 
@@ -1356,6 +1370,22 @@ export default function Viewer3D() {
   const [legendOpen, setLegendOpen] = useState(false);
   const armPlacement = useAppStore((s) => s.armPlacement);
 
+  // Paper-ready: download exactly the pixels on screen (camera pose, overlays,
+  // rays — WYSIWYG), full canvas resolution, PNG.
+  const saveView = () => {
+    const url = viewportPngGetter?.();
+    if (!url) {
+      useAppStore.setState({ error: "Viewport capture unavailable (canvas not ready)" });
+      return;
+    }
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${projectId ?? "scene"}_view_${stamp}.png`;
+    a.click();
+    useAppStore.setState({ notice: `Saved view as ${a.download}` });
+  };
+
   const doRender = async () => {
     if (!projectId || rendering) return;
     const pose = cameraPoseGetter?.();
@@ -1548,12 +1578,19 @@ export default function Viewer3D() {
         </button>
       )}
       <button
+        className="viewport-gear viewport-snap"
+        title="Save this exact view as a PNG (what you see, full resolution — paper-ready)"
+        onClick={saveView}
+      >
+        📸
+      </button>
+      <button
         className={"viewport-gear viewport-render" + (rendering ? " active" : "")}
-        title="Path-traced render of the RF scene from this camera (Mitsuba)"
+        title="Offline path-traced render via Mitsuba (slower, physically shaded — not the on-screen view)"
         disabled={rendering}
         onClick={() => void doRender()}
       >
-        📷
+        🎞
       </button>
       {panelOpen && <ViewportPanel onClose={() => setPanelOpen(false)} />}
     </div>

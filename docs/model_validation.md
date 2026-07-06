@@ -32,6 +32,9 @@
 | 9 | **Breakpoint 거리** | `d'BP = 4·h'BS·h'UT·fc/c`, h'=h−1.0 (hE=1.0 m), fc [Hz], c=2.998e8 — `:93-98` | TR 38.901 Note 1: `d'BP=4·h'BS·h'UT·fc/c`, fc는 **Hz**, hE=1.0 m (UMi) [1] | CORRECT (플래그 A) | 수식·계수4·유효높이 차감·fc[Hz] 관례 정확. UMa hE는 아래 플래그 A 참고. |
 | 10 | **잡음 플로어** | `−174 + 10log10(B) + NF` — `sionna_backend.py:302` | 290 K에서 kTB = −174 dBm/Hz [4] | CORRECT | 표준 kTB+NF. SINR=SNR(간섭항 없음)임을 docstring에 명시. |
 | 11 | **Shannon 용량** | `B·log2(1+SNR_lin)/1e6` Mbps — `:434-436` | Shannon–Hartley `C=B·log2(1+SNR)` [8][9] | CORRECT | SNR을 dB→선형 변환 후 사용, 정확. |
+| 11a | **RSRP** | `RSS − 10log10(N_sc)`, `N_sc=N_RB·12` — `:544-550` | 3GPP TS 38.215 [18]: RSRP = 자원요소(RE)당 평균 수신전력 | CORRECT | 광대역 RSS를 점유 부반송파에 균등 분배(RE당 전력). |
+| 11b | **RSSI** | `10log10(lin(RSS)+lin(noise_floor))` — `:551-552` | TS 38.215 [18]: RSSI = 대역 내 총 수신전력(신호+잡음+간섭) | CORRECT (플래그 C) | 간섭항 없음(SNR=SINR 관례와 동일). |
+| 11c | **RSRQ** | `10log10(N_RB·lin(RSRP)/lin(RSSI))` — `:553` | TS 38.215 [18]: RSRQ = N_RB·RSRP/RSSI | CORRECT | 신호지배 한계에서 `10log10(1/12)=−10.79 dB` 상한. |
 | 12 | **RMS 지연 확산** | power-weighted `sqrt(Σw(τ−τ̄)²/Σw)`, 가중치=선형 전력 — `:300-313` | PDP 2차 중심 모멘트(선형 전력 가중) [7] | CORRECT | 평균지연·분산 모두 선형 전력 가중, 정확. |
 | 13 | **간섭성 대역폭** | `Bc = 1/(2π·στ)` [MHz] — `:316-322` | Jakes 이론형(0.5 상관): `Bc=1/(2πστ)` [5] | CORRECT | 이론(Jakes) 50% 경계. Rappaport/Lee 경험식 `1/(5στ)`·`1/(50στ)` 은 다른 관례일 뿐 더 정확한 것은 아님. docstring에 "이론형" 명시 권장. |
 | 14 | **K-factor** | `10log10(P_LoS / ΣP_NLoS)` — `:286-297` | Rician K = 지배(LOS) 전력 / 산란(NLOS) 전력 [7][9] | CORRECT | LOS/NLOS 부재 시 None 반환(정의 불가/∞) 처리 정확. |
@@ -58,6 +61,32 @@
 - **d3D vs d2D:** LOS/NLOS PL 항은 d3D, breakpoint 비교·유효범위는 d2D(UMa/UMi)/d3D(InH). `_geometry()` (`:101-109`)가 피타고라스로 d2D 유도, 정확.
 - **유효 범위** (`:190, :209`): 주파수 0.5–100 GHz(Note 2, fH=100 GHz), UMa/UMi 10 m–5 km(2D), InH 1–150 m(3D) — 스펙 적용 열과 일치.
 - **CFR** (`:325-360`): `H(f)=Σ a_l·exp(−j2πf·τ_l)`, `|a_l|=sqrt(선형전력)` — 전압진폭/전력 변환 및 푸리에 부호 관례 정확.
+
+### 2.5 3GPP 측정 지표 — RSRP / RSSI / RSRQ (`channel_analysis.py:539-609`)
+
+레이트레이싱으로 얻은 광대역 RSS를, 요청한 부반송파 간격(`subcarrier_spacing_khz`,
+기본 30 kHz = 5G NR FR1, 15 kHz = LTE)의 OFDM 자원격자 위에 얹어 3GPP **TS 38.215**
+[18] 스타일 측정량을 유도한다. 자원블록 수는 `N_RB = ⌊B / (12·SCS)⌋`(RB당 12
+부반송파), 점유 부반송파는 `N_sc = 12·N_RB` 이다.
+
+- **RSRP (Reference Signal Received Power)** = 자원요소(RE)당 평균 수신전력.
+  광대역 RSS를 점유 부반송파에 균등 분배하므로
+  `RSRP[dBm] = RSS[dBm] − 10·log10(N_sc)`.
+- **RSSI (Received Signal Strength Indicator)** = 측정 대역 내 총 수신전력(신호 +
+  잡음 + 간섭)을 선형으로 합산: `RSSI = 10·log10(lin(RSS) + lin(noise_floor))`.
+  본 도구는 **간섭항이 없다**(단일 링크). 이는 §2.1 #10의 `SINR = SNR`(간섭원
+  미모델링) 관례와 동일한 한계이며, 다중셀 간섭을 넣으려면 이 항에 간섭 전력을
+  더해야 한다.
+- **RSRQ (Reference Signal Received Quality)** = `N_RB·RSRP/RSSI`(선형),
+  `RSRQ[dB] = 10·log10(N_RB·lin(RSRP)/lin(RSSI))`.
+
+**신호지배 상한(스팟체크):** 잡음·간섭이 신호보다 훨씬 작아 `RSSI → RSS` 로
+수렴하면 `RSRQ → 10·log10(N_RB·RSRP/RSS) = 10·log10(N_RB/N_sc) = 10·log10(1/12)
+= −10.79 dB`. 즉 RSRQ 의 이론적 상한은 SCS·대역폭과 무관하게 **−10.79 dB** 이다
+(정확히 100% 자원 점유·간섭 0 가정). `tests/test_channel_analysis.py` 는 고 SNR
+mock 링크에서 이 값을 ±0.05 dB 로 핀하고, SCS 를 30→15 kHz 로 반감하면 `N_sc` 가
+배가되어 RSRP 가 정확히 `−10·log10(N_sc15/N_sc30)`(≈ −3.01 dB, 격자 반올림 제외)
+만큼 감소함을 검증한다.
 
 ---
 
@@ -96,12 +125,24 @@
      ```
   - **권장:** 인용 교과서 판(edition)을 확정한 뒤 택일. 확정 전까지는 옵션 1(주석)만 적용.
 
+### 플래그 C — RSSI 간섭항 부재 (`channel_analysis.py:551-552`) — NEEDS-CHECK / 낮음
+
+- **현상:** RSSI = `lin(RSS) + lin(noise_floor)` — **간섭 전력 항이 없다**.
+- **기준:** TS 38.215 [18]. RSSI 는 원칙적으로 신호 + 잡음 + **인접셀 간섭**을 모두
+  포함한다. 단일 링크 시뮬레이션에는 간섭원이 없으므로 현재 정의가 물리적으로 옳다.
+- **영향:** 다중셀/간섭 환경을 넣으면 RSSI(따라서 RSRQ)가 실제보다 낙관적. §2.1
+  #10 의 `SINR = SNR`(간섭 미모델링) 관례와 **정확히 동일한 한계**이며, docstring
+  (`:539-542`)에 "no interference term" 을 명시하는 것으로 충분(계산 변경 없음).
+- **채택할 변경 (주석):** 간섭 전력을 지원하게 되면 `rssi_lin` 에 `Σ lin(I_k)` 를
+  더하는 확장 지점임을 1줄 주석으로 표기.
+
 ### 정리
 
 | 플래그 | 파일:line | 유형 | 필수 변경 | 심각도 |
 |--------|-----------|------|-----------|--------|
 | A | `channel_analysis.py:93-98` | 주석(+선택적 경고 플래그) | 아니오(문서화) | 낮음 |
 | B | `plugin.py:104` | 주석 또는 상수 정정(의도 확인 후) | 의도 확인 필요 | 낮음 |
+| C | `channel_analysis.py:551-552` | 주석(간섭항 확장 지점) | 아니오(문서화) | 낮음 |
 
 ---
 
@@ -197,6 +238,7 @@
 - [15] Ray-Tracing Calibration from Channel Sounding Measurements in a Millimeter-Wave Industrial Scenario, EuCAP 2024 (arXiv:2404.10590) — https://arxiv.org/abs/2404.10590
 - [16] 3GPP TR 38.901 §7.8 캘리브레이션 (레퍼런스 결과 R1-165974/R1-165975/R1-1700990/R1-1909704) — https://panel.castle.cloud/view_spec/38901-h00/pdf/
 - [17] 38.901 InH 모델 vs 측정 (σ_SF < 0.6 dB) (arXiv:2504.15589) — https://arxiv.org/pdf/2504.15589
+- [18] 3GPP TS 38.215, "NR; Physical layer measurements" (RSRP/RSSI/RSRQ 정의) — https://www.3gpp.org/DynaReport/38215.htm
 
 **미검증 항목 정리:**
 - Sionna RT FSPL "<0.01 dB / <1 ns" 정량 임계값 — 참조 문헌 [14] 본문에서 수치 미확인 **(미검증)**.
@@ -205,4 +247,4 @@
 - NYURay 리뷰 PDF의 arXiv 미러(2507.22027) 식별자 — 원 노트 값 미확인, npj 정식 링크 [11] 로 대체 인용.
 - 반사계수 ≤ 1 에너지 불변식 — 인용 도구에 형식적 수용기준으로 명시된 바 없음(권장 테스트) **(미검증)**.
 
-**저장소 근거:** `backend/app/services/channel_analysis.py` (FSPL `:59-67`, 38.901 `:93-221`, CI `:75-83`, CIR/CFR/DS `:271-360`, delta-vs-RT `:247-260`); `backend/app/services/calibration.py:71-204`; `backend/app/services/simulation_backends/sionna_backend.py` (엔진 디스패치 `:326,:350`, 경로별 전력 `:882`, 소자전력 합 `:843-848`, 배열 `:159-189`, 잡음 `:302`, 스티어링/코드북/MRT/SVD `:49-85, :693-699`); `plugins/example_two_ray/plugin.py:104-123`; `backend/app/services/rfdata_export.py:196-217`.
+**저장소 근거:** `backend/app/services/channel_analysis.py` (FSPL `:59-67`, 38.901 `:93-221`, CI `:75-83`, CIR/CFR/DS `:271-360`, delta-vs-RT `:247-260`, RSRP/RSSI/RSRQ `:539-609`); `backend/app/services/calibration.py:71-204`; `backend/app/services/simulation_backends/sionna_backend.py` (엔진 디스패치 `:326,:350`, 경로별 전력 `:882`, 소자전력 합 `:843-848`, 배열 `:159-189`, 잡음 `:302`, 스티어링/코드북/MRT/SVD `:49-85, :693-699`); `plugins/example_two_ray/plugin.py:104-123`; `backend/app/services/rfdata_export.py:196-217`.

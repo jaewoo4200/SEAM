@@ -61,6 +61,9 @@ class ChannelAnalysisRequest(StrictModel):
     # per-path |Doppler| (Nyquist) so the fastest tap is resolved, falling back
     # to 1 kHz when no path has any Doppler.
     sampling_frequency_hz: Optional[float] = Field(default=None, gt=0.0)
+    # OFDM subcarrier spacing [kHz] for the 3GPP measurement quantities
+    # (RSRP/RSSI/RSRQ resource grid). 30 kHz = 5G NR FR1 default; 15 = LTE.
+    subcarrier_spacing_khz: float = Field(default=30.0, gt=0.0)
 
 
 class ChannelAnalysisResult(StrictModel):
@@ -75,6 +78,15 @@ class ChannelAnalysisResult(StrictModel):
     rt_path_loss_db: Optional[float] = None
     snr_db: Optional[float] = None
     shannon_capacity_mbps: Optional[float] = None
+    # 3GPP measurement quantities (TS 38.215-style, derived from the
+    # ray-traced wideband RSS over an OFDM grid at subcarrier_spacing_khz):
+    # RSRP = per-resource-element power = RSS - 10log10(num_subcarriers);
+    # RSSI = wideband signal + noise power; RSRQ = N_RB * RSRP / RSSI.
+    rsrp_dbm: Optional[float] = None
+    rssi_dbm: Optional[float] = None
+    rsrq_db: Optional[float] = None
+    num_resource_blocks: Optional[int] = None
+    subcarrier_spacing_khz: float = 30.0
     # Dispersion / fading metrics.
     num_paths: int = 0
     k_factor_db: Optional[float] = None  # LoS power / sum(NLoS); None if no LoS

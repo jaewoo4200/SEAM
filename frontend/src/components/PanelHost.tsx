@@ -20,6 +20,7 @@ import {
 } from "../panelLayout";
 import type { DockTarget, FloatRect } from "../panelLayout";
 import ChannelPanel from "./ChannelPanel";
+import MetricsPanel from "./MetricsPanel";
 import {
   MlDatasetSection,
   ScenarioSection,
@@ -35,6 +36,7 @@ export interface PanelDef {
 /** Order here is the default vertical order in the sidebar. Ids must match
  *  DOCKABLE_PANELS in panelLayout.ts (the persistence source of truth). */
 export const PANEL_REGISTRY: PanelDef[] = [
+  { id: "metrics", title: "Metrics dashboard", render: () => <MetricsPanel /> },
   { id: "channel", title: "Channel analysis", render: () => <ChannelPanel /> },
   { id: "trajectory", title: "UE trajectory", render: () => <TrajectorySection /> },
   { id: "scenario", title: "Scenario playback", render: () => <ScenarioSection /> },

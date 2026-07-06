@@ -298,3 +298,65 @@ def test_api_channel_unknown_config_400(api_client):
 def test_api_channel_unknown_project_404(api_client):
     resp = api_client.post("/api/projects/nope/analyze/channel", json=MOCK_REQ)
     assert resp.status_code == 404
+
+
+# ---------------------------------------- 3GPP measurement quantities (38.215)
+
+
+def _lin(dbm: float) -> float:
+    return 10.0 ** (dbm / 10.0)
+
+
+def test_api_rsrp_rssi_rsrq_default_scs30(api_client):
+    # Default SCS 30 kHz over the default 100 MHz grid gives 277 resource
+    # blocks; RSRP/RSSI/RSRQ follow the TS 38.215 definitions exactly.
+    resp = api_client.post("/api/projects/ch_test/analyze/channel", json=MOCK_REQ)
+    assert resp.status_code == 200
+    body = resp.json()
+
+    n_rb = body["num_resource_blocks"]
+    assert n_rb == 277  # int(100e6 / (12 * 30e3))
+    assert body["subcarrier_spacing_khz"] == 30.0
+
+    rss = body["rss_dbm"]
+    noise_floor = body["metadata"]["noise_floor_dbm"]
+
+    # RSRP = per-resource-element power = RSS spread over the 277*12 subcarriers.
+    assert body["rsrp_dbm"] == pytest.approx(rss - 10.0 * math.log10(n_rb * 12), abs=1e-6)
+
+    # RSSI = wideband signal + noise power (no interference term).
+    exp_rssi = 10.0 * math.log10(_lin(rss) + _lin(noise_floor))
+    assert body["rssi_dbm"] == pytest.approx(exp_rssi, abs=1e-6)
+
+    # RSRQ = N_RB * RSRP / RSSI (linear).
+    exp_rsrq = 10.0 * math.log10(n_rb * _lin(body["rsrp_dbm"]) / _lin(body["rssi_dbm"]))
+    assert body["rsrq_db"] == pytest.approx(exp_rsrq, abs=1e-6)
+
+    # At high SNR (signal >> noise) RSSI -> signal power, so
+    # RSRQ -> 10log10(N_RB * RSRP / RSS) = 10log10(N_RB / N_sc) = 10log10(1/12).
+    assert rss - noise_floor > 20.0  # comfortably signal-dominated
+    assert body["rsrq_db"] == pytest.approx(10.0 * math.log10(1.0 / 12.0), abs=0.05)
+
+
+def test_api_rsrp_scs15_doubles_resource_blocks(api_client):
+    # Halving the subcarrier spacing doubles the subcarriers per RB-width, so
+    # the 100 MHz grid packs 555 RBs (vs 277 at 30 kHz) and RSRP drops because
+    # the same wideband RSS is spread over more resource elements.
+    resp30 = api_client.post("/api/projects/ch_test/analyze/channel", json=MOCK_REQ)
+    resp15 = api_client.post(
+        "/api/projects/ch_test/analyze/channel",
+        json={"config": {"backend": "mock"}, "subcarrier_spacing_khz": 15.0},
+    )
+    assert resp30.status_code == 200 and resp15.status_code == 200
+    b30, b15 = resp30.json(), resp15.json()
+
+    assert b15["num_resource_blocks"] == 555  # int(100e6 / (12 * 15e3))
+    assert b15["subcarrier_spacing_khz"] == 15.0
+
+    n_sc30 = b30["num_resource_blocks"] * 12
+    n_sc15 = b15["num_resource_blocks"] * 12
+    # RSRP shift is exactly -10log10(N_sc15/N_sc30) (~ -3.01 dB minus the
+    # grid-rounding from the int() floor of the RB count).
+    exp_delta = -10.0 * math.log10(n_sc15 / n_sc30)
+    assert b15["rsrp_dbm"] - b30["rsrp_dbm"] == pytest.approx(exp_delta, abs=1e-6)
+    assert exp_delta == pytest.approx(-3.01, abs=0.02)

@@ -78,6 +78,15 @@ bash scripts/start.sh     # 2. 백엔드+프론트 실행
 - **도킹 가능한 패널** — 패널 헤더의 ◧/◨/⧉ 버튼으로 사이드바 간 이동 또는
   뷰포트 위 플로팅 창으로 분리할 수 있으며, 플로팅 상태는 모드 탭 전환에도
   유지됩니다.
+- **Metrics dashboard + 논문용 내보내기** — 링크 KPI(RSS/RSRP/RSSI/RSRQ/SNR/
+  Shannon 용량/지연확산/도플러…)와 CIR·CFR·도플러·경로손실 차트를 한 패널에서
+  한눈에. 모든 그림은 흰 배경 Times New Roman(serif) 논문 스타일이며, 차트마다
+  **PNG/SVG/CSV export** 버튼이 내장됩니다. 뷰포트 **📸**(보이는 그대로 PNG) /
+  **🎞**(Mitsuba 오프라인 렌더)로 씬 이미지도 저장.
+- **라이브 채널 파라미터 튜닝 + 3GPP 측정량** — Channel 패널의 Live parameters
+  에서 주파수/대역폭/TX 파워/잡음지수/SCS(부반송파 간격)를 즉시 조정하면 자동
+  재분석되고, **TS 38.215 스타일 RSRP/RSSI/RSRQ**(요청 SCS의 OFDM 자원격자 기준)
+  가 함께 산출됩니다.
 - **결정론적 Mock 백엔드** — GPU/Sionna 없이 Friis + 이미지법 반사로 예제
   경로/라디오맵을 계산. 프론트엔드·테스트가 하드웨어 없이 돌아갑니다.
 - **실제 Sionna RT 경로** — `sionna-rt`(검증 2.0.x) 설치 시 컴파일된

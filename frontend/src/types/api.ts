@@ -523,6 +523,8 @@ export interface ChannelAnalysisRequest {
   tx_id?: string | null;
   rx_id?: string | null;
   num_cfr_points?: number;
+  // OFDM subcarrier spacing for RSRP/RSSI/RSRQ (kHz; 30 = 5G FR1, 15 = LTE).
+  subcarrier_spacing_khz?: number;
 }
 
 export interface ChannelAnalysisResult {
@@ -542,6 +544,12 @@ export interface ChannelAnalysisResult {
   rt_path_loss_db: number | null;
   snr_db: number | null;
   shannon_capacity_mbps: number | null;
+  // 3GPP measurement quantities (TS 38.215-style) over an OFDM grid.
+  rsrp_dbm?: number | null;
+  rssi_dbm?: number | null;
+  rsrq_db?: number | null;
+  num_resource_blocks?: number | null;
+  subcarrier_spacing_khz?: number;
   num_paths: number;
   k_factor_db: number | null;
   mean_delay_ns: number | null;

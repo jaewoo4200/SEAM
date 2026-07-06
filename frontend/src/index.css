@@ -1431,9 +1431,15 @@ h4 {
   font-size: 14px;
 }
 
-/* Mitsuba render button sits right of the texture toggle. */
-.viewport-render {
+/* Save-view (WYSIWYG PNG) sits right of the texture toggle. */
+.viewport-snap {
   left: 216px;
+  font-size: 14px;
+}
+
+/* Mitsuba offline render button sits last. */
+.viewport-render {
+  left: 252px;
   font-size: 14px;
 }
 
@@ -1824,4 +1830,85 @@ button.picking {
   cursor: nwse-resize;
   touch-action: none;
   background: linear-gradient(135deg, transparent 50%, var(--border-light) 50%);
+}
+
+/* --------------------------------------------- paper-ready chart kit */
+
+.chart-frame {
+  margin: 8px 0 14px 0;
+}
+.chart-frame-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+.chart-frame-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+.chart-frame-actions {
+  display: inline-flex;
+  gap: 4px;
+}
+.chart-frame-actions button {
+  padding: 1px 7px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+/* The figure itself is paper-styled (white, serif) so PNG/SVG exports are
+   exactly what you see. */
+.chart-svg {
+  width: 100%;
+  height: auto;
+  background: #ffffff;
+  border: 1px solid var(--border-light);
+  border-radius: 3px;
+}
+
+/* Metrics dashboard KPI grid. */
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+  gap: 6px;
+  margin: 8px 0;
+}
+.metric-cell {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 8px;
+}
+.metric-cell-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.metric-cell-value {
+  font-size: 14px;
+  margin-top: 2px;
+}
+
+/* Metrics dashboard chrome. */
+.metrics-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.metrics-export-all {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+.metrics-panel .metrics-header-hint {
+  margin: 0;
+  flex: 1;
+  min-width: 140px;
+}
+.metrics-panel .metrics-empty-fig {
+  margin: 4px 0 0 0;
 }

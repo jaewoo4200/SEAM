@@ -306,7 +306,12 @@ interface AppState {
   setScenarioLoop: (loop: boolean) => void;
 
   // channel analysis
-  analyzeChannel: (txId: string, rxId: string, numCfrPoints?: number) => Promise<void>;
+  analyzeChannel: (
+    txId: string,
+    rxId: string,
+    numCfrPoints?: number,
+    scsKhz?: number,
+  ) => Promise<void>;
   clearChannel: () => void;
 
   // live sync + AI screenshot groundwork
@@ -382,7 +387,12 @@ export const useAppStore = create<AppState>()((set, get) => {
   // --- auto-update: debounced, non-overlapping recompute per target ---
   const autoTimers: Partial<Record<AutoTarget, ReturnType<typeof setTimeout>>> = {};
   // The last channel analysis the user ran; auto-update re-runs this pair.
-  let lastChannelArgs: { txId: string; rxId: string; numCfrPoints?: number } | null = null;
+  let lastChannelArgs: {
+    txId: string;
+    rxId: string;
+    numCfrPoints?: number;
+    scsKhz?: number;
+  } | null = null;
 
   function autoEnabled(target: AutoTarget): boolean {
     switch (target) {
@@ -410,7 +420,7 @@ export const useAppStore = create<AppState>()((set, get) => {
         return;
       case "channel": {
         const a = lastChannelArgs;
-        if (a) void get().analyzeChannel(a.txId, a.rxId, a.numCfrPoints);
+        if (a) void get().analyzeChannel(a.txId, a.rxId, a.numCfrPoints, a.scsKhz);
         return;
       }
     }
@@ -1434,12 +1444,12 @@ export const useAppStore = create<AppState>()((set, get) => {
 
     // ---------------------------------------------------- channel analysis
 
-    analyzeChannel: async (txId, rxId, numCfrPoints) => {
+    analyzeChannel: async (txId, rxId, numCfrPoints, scsKhz) => {
       const pid = get().projectId;
       if (!pid) return;
-      // Remember the pair so auto-update can re-run the same analysis after
-      // scene changes (device moves, live sync, material edits).
-      setLastChannelArgs({ txId, rxId, numCfrPoints });
+      // Remember the pair (and SCS) so auto-update can re-run the same analysis
+      // after scene changes (device moves, live sync, material edits).
+      setLastChannelArgs({ txId, rxId, numCfrPoints, scsKhz });
       await run("Analyzing channel…", async () => {
         const result = await api.analyzeChannel(pid, {
           config: get().pathsConfig,
@@ -1447,6 +1457,8 @@ export const useAppStore = create<AppState>()((set, get) => {
           rx_id: rxId,
           // Only send num_cfr_points when provided so the backend default holds.
           ...(numCfrPoints !== undefined ? { num_cfr_points: numCfrPoints } : {}),
+          // Likewise the SCS: omit to let the backend default (30 kHz) hold.
+          ...(scsKhz !== undefined ? { subcarrier_spacing_khz: scsKhz } : {}),
         });
         set({
           channelResult: result,

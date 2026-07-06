@@ -143,6 +143,54 @@ diffraction, Lit-region diffraction)가 있습니다. 레이를 지우려면 **R
    **Path-loss models vs RT**(경로손실 모델 대비 레이 트레이싱) 비교 표가
    나옵니다. 결과를 지우려면 채널 지우기 버튼을 누릅니다.
 
+### Live parameters — 파라미터 즉시 조정 → 자동 재분석
+
+Channel 패널의 **Live parameters** 섹션에서 다음 값을 슬라이더/입력으로 바로
+조정할 수 있습니다: **Frequency (GHz)**, **Bandwidth (MHz)**, **TX power (dBm)**,
+**Noise figure (dB)**, **SCS (kHz)**(부반송파 간격; 15=LTE, 30=5G FR1 기본,
+60/120도 선택). 값을 바꾸면 **현재 TX↔RX 쌍이 이미 분석된 상태일 때 자동으로
+재분석**되어(디바운스), Link budget·지표가 즉시 갱신됩니다. SCS 옆에는 현재
+대역폭에서의 **N_RB**(자원블록 수 = ⌊BW/(12·SCS)⌋)가 함께 표시됩니다.
+**Reset** 버튼은 이 값들을 현재 솔버 설정과 TX 디바이스 값으로 되돌립니다.
+
+### 3GPP 측정 지표 (한 줄 요약)
+
+Link budget에는 RSS·SNR·경로손실과 함께 3GPP TS 38.215 스타일 측정량이 나옵니다:
+
+- **RSRP** (Reference Signal Received Power): 자원요소(RE)당 평균 수신전력 =
+  `RSS − 10log10(N_sc)`. 광대역 RSS를 점유 부반송파에 균등 분배한 값.
+- **RSSI** (Received Signal Strength Indicator): 대역 내 총 수신전력 = 신호+잡음
+  선형 합(단일 링크라 간섭항은 없음).
+- **RSRQ** (Reference Signal Received Quality): 링크 품질 = `N_RB·RSRP/RSSI`;
+  신호지배 상한은 `10log10(1/12) = −10.79 dB`.
+
+---
+
+## 6.5 Metrics dashboard + 논문용 그림 내보내기 (2분)
+
+### Metrics dashboard 패널
+
+**Metrics dashboard** 패널(도킹 가능 — ◧/◨/⧉ 로 사이드바 이동·플로팅)은 마지막
+채널 분석의 **모든 지표를 한눈에** 보여줍니다. 상단에 KPI 그리드(RSS/RSRP/RSSI/
+RSRQ/경로손실/SNR/Shannon 용량/K-factor/지연확산/도플러/N_RB @ SCS 등, 각 셀에
+정의 툴팁), 아래에 **Power-delay profile(CIR)**, **CFR magnitude**, **Doppler
+fading envelope**, **Path-loss model 비교** 차트가 깔립니다.
+
+- 모든 그림은 **흰 배경 · Times New Roman(serif) 논문 스타일**로 렌더됩니다.
+- 각 차트 프레임에는 **PNG / SVG / CSV export** 버튼이 내장되어, 그림을 그대로
+  비트맵/벡터로 저장하거나 원 데이터를 CSV로 뽑을 수 있습니다.
+- KPI 표 전체를 `metric,value,unit` CSV로 받는 **export-all** 버튼도 있습니다.
+
+### 뷰포트 내보내기 버튼 — 📸 vs 🎞
+
+뷰포트 우측 버튼 두 개로 씬 이미지를 저장합니다:
+
+- **📸** — **보이는 그대로(WYSIWYG) PNG 저장.** 현재 화면(레이·마커·오버레이
+  포함)을 캔버스 전체 해상도로 그대로 내보냅니다. 논문/슬라이드용 스냅샷에 적합.
+- **🎞** — **Mitsuba 오프라인 렌더.** 물리 기반 경로추적으로 (느리지만) 물리적
+  으로 셰이딩된 이미지를 별도로 렌더합니다. 화면에 보이는 실시간 뷰가 아니라
+  오프라인 렌더 결과라는 점에 유의하세요.
+
 ---
 
 ## 7. 디바이스 이동 → 자동 업데이트 (1분)

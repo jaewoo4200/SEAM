@@ -536,6 +536,22 @@ def analyze_channel(
         snr_lin = 10.0 ** (snr_db / 10.0)
         shannon_capacity_mbps = config.bandwidth_hz * math.log2(1.0 + snr_lin) / 1e6
 
+    # ---- 3GPP measurement quantities (TS 38.215-style) over an OFDM grid at
+    # the requested subcarrier spacing. RSRP is the per-resource-element power
+    # (wideband RSS spread evenly across occupied subcarriers), RSSI includes
+    # the thermal+NF noise, RSRQ = N_RB * RSRP / RSSI.
+    scs_khz = request.subcarrier_spacing_khz
+    n_rb = max(1, int(config.bandwidth_hz / (12.0 * scs_khz * 1e3)))
+    n_sc = n_rb * 12
+    rsrp_dbm: Optional[float] = None
+    rssi_dbm: Optional[float] = None
+    rsrq_db: Optional[float] = None
+    if rss_dbm is not None:
+        rsrp_dbm = rss_dbm - 10.0 * math.log10(n_sc)
+        rssi_lin = _lin_from_dbm(rss_dbm) + _lin_from_dbm(noise_floor)
+        rssi_dbm = 10.0 * math.log10(rssi_lin)
+        rsrq_db = 10.0 * math.log10(n_rb * _lin_from_dbm(rsrp_dbm) / rssi_lin)
+
     # ---- Dispersion / fading metrics.
     cir = build_cir(paths, doppler_by_path_id)
     kf = k_factor_db(paths)
@@ -586,6 +602,11 @@ def analyze_channel(
         rt_path_loss_db=rt_path_loss_db,
         snr_db=snr_db,
         shannon_capacity_mbps=shannon_capacity_mbps,
+        rsrp_dbm=rsrp_dbm,
+        rssi_dbm=rssi_dbm,
+        rsrq_db=rsrq_db,
+        num_resource_blocks=n_rb,
+        subcarrier_spacing_khz=scs_khz,
         num_paths=len(paths),
         k_factor_db=kf,
         mean_delay_ns=mean_delay,

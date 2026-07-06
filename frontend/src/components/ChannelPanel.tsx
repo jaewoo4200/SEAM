@@ -6,10 +6,22 @@
  * every 3GPP TR 38.901 / CI model shows its delta versus RT.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAppStore } from "../store/appStore";
 import { PATH_COLORS } from "./common";
 import type { CirTap, PathType } from "../types/api";
+
+/** SCS options for the OFDM grid (kHz). 15 = LTE, 30 = 5G FR1 default. */
+const SCS_OPTIONS = [15, 30, 60, 120] as const;
+
+/** Live, staged channel parameters editable in the panel (human-facing units). */
+interface LiveParams {
+  freqGhz: number;
+  bandwidthMhz: number;
+  txPowerDbm: number;
+  noiseFigureDb: number;
+  scsKhz: number;
+}
 
 /** Collapsible section shell (matches SolverControls' look). */
 function Section({
@@ -191,6 +203,9 @@ export default function ChannelPanel() {
   const clearChannel = useAppStore((s) => s.clearChannel);
   const autoChannel = useAppStore((s) => s.autoChannel);
   const setAuto = useAppStore((s) => s.setAuto);
+  const pathsConfig = useAppStore((s) => s.pathsConfig);
+  const setPathsConfig = useAppStore((s) => s.setPathsConfig);
+  const updateDevice = useAppStore((s) => s.updateDevice);
 
   const [open, setOpen] = useState(false);
   const txs = useMemo(() => scene?.devices.filter((d) => d.kind === "tx") ?? [], [scene]);
@@ -210,6 +225,102 @@ export default function ChannelPanel() {
     if (txId && !txs.some((d) => d.id === txId)) setTxId(txs[0]?.id ?? "");
     if (rxId && !rxs.some((d) => d.id === rxId)) setRxId(rxs[0]?.id ?? "");
   }, [txs, rxs, txId, rxId]);
+
+  // --- Live parameters (staged, edited in the panel) -------------------
+  const selectedTx = useMemo(() => txs.find((d) => d.id === txId) ?? null, [txs, txId]);
+
+  /** Read the current config + selected TX into human-facing units. */
+  const seedFromConfig = useMemo<() => LiveParams>(
+    () => () => ({
+      freqGhz: pathsConfig.frequency_hz / 1e9,
+      bandwidthMhz: pathsConfig.bandwidth_hz / 1e6,
+      txPowerDbm: selectedTx?.power_dbm ?? 30,
+      noiseFigureDb: pathsConfig.noise_figure_db,
+      scsKhz: 30,
+    }),
+    [pathsConfig.frequency_hz, pathsConfig.bandwidth_hz, pathsConfig.noise_figure_db, selectedTx],
+  );
+
+  const [live, setLive] = useState<LiveParams>(seedFromConfig);
+
+  // Re-seed the staged values whenever the selected TX changes (so the power
+  // field tracks the device you're analyzing). The SCS is preserved across a
+  // TX switch by keeping the previous value.
+  useEffect(() => {
+    setLive((prev) => ({ ...seedFromConfig(), scsKhz: prev.scsKhz }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [txId]);
+
+  // Derived N_RB shown next to the SCS select: floor(BW / (12 * SCS)).
+  const numResourceBlocks = useMemo(() => {
+    const bwHz = live.bandwidthMhz * 1e6;
+    const scsHz = live.scsKhz * 1e3;
+    if (!(bwHz > 0) || !(scsHz > 0)) return 0;
+    return Math.floor(bwHz / (12 * scsHz));
+  }, [live.bandwidthMhz, live.scsKhz]);
+
+  // Only auto-re-run when a result already exists for the *currently selected*
+  // pair (which also covers "the user pressed Analyze once for this pair").
+  const hasResultForPair =
+    channelResult != null && channelResult.tx_id === txId && channelResult.rx_id === rxId;
+
+  // Debounced apply: patch pathsConfig, persist TX power if it changed, and
+  // re-run analysis when a result already exists for the pair.
+  const applyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Latest gating inputs read inside the debounced callback without re-arming
+  // the timer on every keystroke of unrelated state.
+  const applyCtx = useRef({ txId, rxId, numCfrPoints, hasResultForPair, prevPowerDbm: 0 });
+  applyCtx.current = {
+    txId,
+    rxId,
+    numCfrPoints,
+    hasResultForPair,
+    prevPowerDbm: selectedTx?.power_dbm ?? 30,
+  };
+
+  /** Stage a change and schedule the 500 ms debounced apply. The side effect is
+   *  kept out of the state updater (StrictMode double-invokes updaters). */
+  function patchLive(patch: Partial<LiveParams>): void {
+    const next = { ...live, ...patch };
+    setLive(next);
+    if (applyTimer.current) clearTimeout(applyTimer.current);
+    applyTimer.current = setTimeout(() => {
+      applyTimer.current = null;
+      const ctx = applyCtx.current;
+      // (a) push frequency/bandwidth/noise-figure into the solver config.
+      setPathsConfig({
+        frequency_hz: Math.round(next.freqGhz * 1e9),
+        bandwidth_hz: Math.round(next.bandwidthMhz * 1e6),
+        noise_figure_db: next.noiseFigureDb,
+      });
+      // (b) persist TX power only when it actually changed (writes the scene).
+      if (ctx.txId && Math.abs(next.txPowerDbm - ctx.prevPowerDbm) > 1e-9) {
+        void updateDevice(ctx.txId, { power_dbm: next.txPowerDbm });
+      }
+      // (c) re-run the analysis for the selected pair, but only if one already
+      // exists for it (mirrors lastChannelArgs / Analyze-first semantics).
+      if (ctx.hasResultForPair && ctx.txId && ctx.rxId) {
+        void analyzeChannel(ctx.txId, ctx.rxId, ctx.numCfrPoints, next.scsKhz);
+      }
+    }, 500);
+  }
+
+  // Cancel any pending debounced apply on unmount.
+  useEffect(
+    () => () => {
+      if (applyTimer.current) clearTimeout(applyTimer.current);
+    },
+    [],
+  );
+
+  /** Restore the staged values from the current config + device. */
+  function resetLive(): void {
+    if (applyTimer.current) {
+      clearTimeout(applyTimer.current);
+      applyTimer.current = null;
+    }
+    setLive(seedFromConfig());
+  }
 
   const disabled = busy !== null;
   const r = channelResult;
@@ -265,11 +376,121 @@ export default function ChannelPanel() {
             />
           </span>
         </label>
+        <div
+          className="channel-live"
+          style={{
+            marginTop: 8,
+            paddingTop: 8,
+            borderTop: "1px solid var(--border, #333)",
+          }}
+        >
+          <div
+            className="channel-live-head"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              marginBottom: 6,
+            }}
+          >
+            <span className="channel-live-title" style={{ fontWeight: 600, fontSize: 12 }}>
+              Live parameters
+            </span>
+            <button
+              className="channel-live-reset"
+              disabled={disabled}
+              onClick={resetLive}
+              title="Restore these values from the current solver config and TX device"
+            >
+              Reset to config
+            </button>
+          </div>
+          <label className="solver-field">
+            <span className="solver-field-label">Frequency (GHz)</span>
+            <span className="solver-field-input">
+              <input
+                type="number"
+                min={0.1}
+                max={100}
+                step={0.1}
+                value={live.freqGhz}
+                disabled={disabled}
+                onChange={(e) => patchLive({ freqGhz: Number(e.target.value) })}
+              />
+            </span>
+          </label>
+          <label className="solver-field">
+            <span className="solver-field-label">Bandwidth (MHz)</span>
+            <span className="solver-field-input">
+              <input
+                type="number"
+                min={0.1}
+                max={2000}
+                step={1}
+                value={live.bandwidthMhz}
+                disabled={disabled}
+                onChange={(e) => patchLive({ bandwidthMhz: Number(e.target.value) })}
+              />
+            </span>
+          </label>
+          <label className="solver-field">
+            <span className="solver-field-label">TX power (dBm)</span>
+            <span className="solver-field-input">
+              <input
+                type="number"
+                min={-30}
+                max={60}
+                step={1}
+                value={live.txPowerDbm}
+                disabled={disabled || !selectedTx}
+                onChange={(e) => patchLive({ txPowerDbm: Number(e.target.value) })}
+              />
+            </span>
+          </label>
+          <label className="solver-field">
+            <span className="solver-field-label">Noise figure (dB)</span>
+            <span className="solver-field-input">
+              <input
+                type="number"
+                min={0}
+                max={30}
+                step={0.5}
+                value={live.noiseFigureDb}
+                disabled={disabled}
+                onChange={(e) => patchLive({ noiseFigureDb: Number(e.target.value) })}
+              />
+            </span>
+          </label>
+          <label className="solver-field">
+            <span className="solver-field-label">SCS (kHz)</span>
+            <span className="solver-field-input">
+              <select
+                value={live.scsKhz}
+                disabled={disabled}
+                onChange={(e) => patchLive({ scsKhz: Number(e.target.value) })}
+              >
+                {SCS_OPTIONS.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+              <span
+                className="channel-nrb mono"
+                style={{ marginLeft: 8, opacity: 0.8, whiteSpace: "nowrap" }}
+                title="Resource blocks = floor(BW / (12 × SCS))"
+              >
+                N_RB {numResourceBlocks}
+              </span>
+            </span>
+          </label>
+        </div>
+
         <div className="panel-actions">
           <button
             className="primary"
             disabled={!projectId || disabled || !txId || !rxId}
-            onClick={() => void analyzeChannel(txId, rxId, numCfrPoints)}
+            onClick={() => void analyzeChannel(txId, rxId, numCfrPoints, live.scsKhz)}
           >
             Analyze
           </button>
