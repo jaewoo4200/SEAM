@@ -6,9 +6,10 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
 from app.api import deps
-from app.schemas.scene import Scene
+from app.schemas.scene import Scene, SceneBounds
 from app.schemas.validation import ValidationReport
 from app.services.project_store import InvalidAssetPathError, ProjectNotFoundError
+from app.services.scene_bounds import compute_scene_bounds
 from app.services.scene_validator import validate_scene
 
 router = APIRouter(tags=["scene"])
@@ -31,6 +32,25 @@ _MEDIA_TYPES = {
 @router.get("/projects/{project_id}/scene", response_model=Scene)
 def get_scene(project_id: str) -> Scene:
     return deps.load_scene_or_404(deps.get_store(), project_id)
+
+
+@router.get("/projects/{project_id}/scene/bounds", response_model=SceneBounds)
+def get_scene_bounds(project_id: str) -> SceneBounds:
+    """World-space AABB of the visual scene (devices/actors merged in).
+
+    Lets the UI seed dataset sampling regions, trajectory endpoints, and
+    placement defaults from real geometry. 404s when the project has neither
+    a visual mesh nor any devices to bound.
+    """
+    store = deps.get_store()
+    scene = deps.load_scene_or_404(store, project_id)
+    bounds = compute_scene_bounds(store.resolve(project_id), scene)
+    if bounds is None:
+        raise HTTPException(
+            status_code=404,
+            detail="scene has no visual mesh or devices to compute bounds from",
+        )
+    return bounds
 
 
 @router.put("/projects/{project_id}/scene", response_model=Scene)

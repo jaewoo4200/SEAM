@@ -34,6 +34,10 @@ class DatasetSampling(StrictModel):
     start_m: Optional[Vec3] = None
     end_m: Optional[Vec3] = None
     seed: int = Field(default=0, ge=0)
+    # Snap each sampled position's z to the scene surface underneath it
+    # (raycast down onto the visual mesh) + height_m. Meant for outdoor
+    # scenes with sloped terrain; indoor scenes should leave this off.
+    follow_terrain: bool = False
 
 
 class DatasetGenerateRequest(StrictModel):

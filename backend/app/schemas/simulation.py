@@ -109,3 +109,8 @@ class TrajectorySimulateRequest(StrictModel):
     dt_s: float = Field(default=0.1, gt=0.0)
     # Include the full ray paths per waypoint so playback redraws rays live.
     include_paths: bool = False
+    # Snap each waypoint's z to the scene surface underneath it plus
+    # follow_height_m (raycast down onto the visual mesh). For outdoor
+    # sloped terrain; indoor scenes should leave this off.
+    follow_terrain: bool = False
+    follow_height_m: float = Field(default=1.5, gt=0.0)

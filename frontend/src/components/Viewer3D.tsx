@@ -1006,6 +1006,15 @@ function ViewerHotkeys() {
   const ghostRef = useRef<Vec3 | null>(null);
   placingRef.current = placing;
   ghostRef.current = ghost;
+  // UI buttons arm the same ghost placement as the K/L hotkeys (mouse
+  // discoverability); the store field is consumed once here.
+  const placeArm = useAppStore((s) => s.placeArm);
+  useEffect(() => {
+    if (placeArm) {
+      setPlacing(placeArm);
+      useAppStore.getState().armPlacement(null);
+    }
+  }, [placeArm]);
 
   useEffect(() => {
     cameraPoseGetter = () => ({
@@ -1076,6 +1085,8 @@ function ViewerHotkeys() {
     const onPlaceClick = (e: PointerEvent) => {
       const kind = placingRef.current;
       if (!kind || e.button !== 0) return;
+      // An active panel pick owns viewport clicks; ghost placement yields.
+      if (useAppStore.getState().pick) return;
       e.stopImmediatePropagation();
       e.preventDefault();
       const pos = ghostRef.current ?? surfacePos();
@@ -1116,10 +1127,12 @@ function ViewerHotkeys() {
           break;
         }
         case "k":
+          if (useAppStore.getState().pick) return; // pick owns the viewport
           setPlacing("tx");
           setGhost(surfacePos());
           break;
         case "l":
+          if (useAppStore.getState().pick) return;
           setPlacing("rx");
           setGhost(surfacePos());
           break;
@@ -1162,6 +1175,161 @@ function ViewerHotkeys() {
   );
 }
 
+// ---------------------------------------------------------------- pick mode
+
+const PICK_COLOR = "#ffd54f";
+/** Click-vs-orbit discrimination thresholds (standard tap test). */
+const PICK_MAX_MOVE_PX = 5;
+const PICK_MAX_MS = 500;
+
+/** Store-driven click-to-place: while a PickRequest is active, taps on the
+ *  viewport resolve to world points (scene mesh first, z=0 ground fallback)
+ *  and flow back to the requesting panel via the store. Orbiting stays fully
+ *  usable during a pick — only genuine taps (small move, short press) place.
+ */
+function PickController() {
+  const gl = useThree((s) => s.gl);
+  const camera = useThree((s) => s.camera);
+  const three = useThree((s) => s.scene);
+  const pick = useAppStore((s) => s.pick);
+  const pickPoints = useAppStore((s) => s.pickPoints);
+  const [hover, setHover] = useState<Vec3 | null>(null);
+  const pickRef = useRef(pick);
+  pickRef.current = pick;
+  const downRef = useRef<{ x: number; y: number; t: number; moved: boolean } | null>(null);
+
+  useEffect(() => {
+    if (!pick) {
+      setHover(null);
+      return;
+    }
+    const canvas = gl.domElement;
+
+    const resolve = (clientX: number, clientY: number): Vec3 | null => {
+      const req = pickRef.current;
+      if (!req) return null;
+      const r = canvas.getBoundingClientRect();
+      const ndc = new THREE.Vector2(
+        ((clientX - r.left) / r.width) * 2 - 1,
+        -((clientY - r.top) / r.height) * 2 + 1,
+      );
+      const ray = new THREE.Raycaster();
+      ray.setFromCamera(ndc, camera);
+      if (req.target === "surface") {
+        const hits = ray
+          .intersectObjects(three.children, true)
+          .filter((h) => (h.object as THREE.Mesh).isMesh && h.object.visible);
+        if (hits[0]) {
+          const p = hits[0].point;
+          return [p.x, p.y, p.z + req.heightOffset];
+        }
+      }
+      const t = new THREE.Vector3();
+      if (ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 0, 1), 0), t)) {
+        return [t.x, t.y, req.heightOffset];
+      }
+      return null;
+    };
+
+    const onMove = (e: PointerEvent) => {
+      setHover(resolve(e.clientX, e.clientY));
+      const d = downRef.current;
+      if (d && Math.hypot(e.clientX - d.x, e.clientY - d.y) > PICK_MAX_MOVE_PX) {
+        d.moved = true;
+      }
+    };
+    // Capture-phase down/up so a committing tap runs BEFORE r3f's synthetic
+    // events (marker selection, onPointerMissed) — same pattern as the K/L
+    // ghost placement.
+    const onDown = (e: PointerEvent) => {
+      if (e.button !== 0 || gizmoBusy) return;
+      downRef.current = { x: e.clientX, y: e.clientY, t: performance.now(), moved: false };
+    };
+    const onUp = (e: PointerEvent) => {
+      const d = downRef.current;
+      downRef.current = null;
+      if (!pickRef.current || !d || e.button !== 0 || gizmoBusy) return;
+      const isTap =
+        !d.moved &&
+        Math.hypot(e.clientX - d.x, e.clientY - d.y) <= PICK_MAX_MOVE_PX &&
+        performance.now() - d.t <= PICK_MAX_MS;
+      if (!isTap) return; // orbit/pan drag — never place
+      // Only commit taps that end over the canvas (a drag ending off-canvas
+      // resolves via the window listener but must not place).
+      if (e.target !== canvas) return;
+      const p = resolve(e.clientX, e.clientY);
+      if (!p) return;
+      e.stopImmediatePropagation();
+      e.preventDefault();
+      useAppStore.getState().addPickPoint(p);
+    };
+    const onCancel = () => {
+      downRef.current = null;
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") useAppStore.getState().cancelPick();
+    };
+
+    canvas.addEventListener("pointermove", onMove);
+    canvas.addEventListener("pointerdown", onDown, { capture: true });
+    // Up on window so a drag that ends off-canvas still resets the tap test.
+    window.addEventListener("pointerup", onUp, { capture: true });
+    window.addEventListener("pointercancel", onCancel);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      canvas.removeEventListener("pointermove", onMove);
+      canvas.removeEventListener("pointerdown", onDown, { capture: true });
+      window.removeEventListener("pointerup", onUp, { capture: true });
+      window.removeEventListener("pointercancel", onCancel);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [pick, gl, camera, three]);
+
+  if (!pick) return null;
+  const dot = (p: Vec3, key: string, ghost = false) => (
+    <mesh key={key} position={p} renderOrder={999}>
+      <sphereGeometry args={[0.45, 18, 12]} />
+      <meshBasicMaterial color={PICK_COLOR} transparent opacity={ghost ? 0.45 : 0.9} depthTest={false} />
+    </mesh>
+  );
+  return (
+    <>
+      {pickPoints.map((p, i) => dot(p, `p${i}`))}
+      {hover && dot(hover, "ghost", true)}
+      {/* Rubber-band from the last placed point to the cursor for multi-point picks. */}
+      {hover && pickPoints.length > 0 && pickPoints.length < pick.count && (
+        <Line
+          points={[pickPoints[pickPoints.length - 1], hover]}
+          color={PICK_COLOR}
+          lineWidth={2}
+          dashed
+          dashSize={0.5}
+          gapSize={0.3}
+        />
+      )}
+    </>
+  );
+}
+
+/** Dashed preview of a planned (not yet simulated) trajectory segment,
+ *  published by TrajectorySection while it is mounted. */
+function TrajPreviewLine() {
+  const seg = useAppStore((s) => s.trajPreview);
+  const picking = useAppStore((s) => s.pick !== null);
+  if (!seg || picking) return null;
+  return (
+    <>
+      <Line points={[seg[0], seg[1]]} color={PICK_COLOR} lineWidth={2} dashed dashSize={0.6} gapSize={0.4} />
+      {seg.map((p, i) => (
+        <mesh key={i} position={p} renderOrder={998}>
+          <sphereGeometry args={[0.35, 16, 10]} />
+          <meshBasicMaterial color={PICK_COLOR} transparent opacity={0.7} depthTest={false} />
+        </mesh>
+      ))}
+    </>
+  );
+}
+
 // ------------------------------------------------------------------ main
 
 export default function Viewer3D() {
@@ -1179,9 +1347,14 @@ export default function Viewer3D() {
   const viewport = useAppStore((s) => s.viewport);
   const setViewport = useAppStore((s) => s.setViewport);
   const resolvedEnv = useAppStore((s) => s.resolvedEnvironment);
+  const pickActive = useAppStore((s) => s.pick);
+  const pickCount = useAppStore((s) => s.pickPoints.length);
+  const cancelPick = useAppStore((s) => s.cancelPick);
   const [assetFailed, setAssetFailed] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
   const [rendering, setRendering] = useState(false);
+  const [legendOpen, setLegendOpen] = useState(false);
+  const armPlacement = useAppStore((s) => s.armPlacement);
 
   const doRender = async () => {
     if (!projectId || rendering) return;
@@ -1197,7 +1370,10 @@ export default function Viewer3D() {
         height: 720,
         spp: 64,
       });
-      window.open(url, "_blank");
+      // Popup blockers make window.open return null; surface the URL as a
+      // notice instead of silently doing nothing.
+      const win = window.open(url, "_blank");
+      if (!win) useAppStore.setState({ notice: "Render ready: " + url });
     } catch (e) {
       useAppStore.setState({ error: e instanceof Error ? e.message : String(e) });
     } finally {
@@ -1231,7 +1407,7 @@ export default function Viewer3D() {
   );
 
   return (
-    <div className="viewer3d">
+    <div className={"viewer3d" + (pickActive ? " picking" : "")}>
       <Canvas
         dpr={[1, 2]}
         flat
@@ -1268,6 +1444,8 @@ export default function Viewer3D() {
         {viewport.showAxes && <axesHelper args={[4]} />}
         <ScreenshotCapture />
         <ViewerHotkeys />
+        <PickController />
+        <TrajPreviewLine />
         {overlayUrl && <OverlayBackdrop url={overlayUrl} />}
         <Suspense
           fallback={
@@ -1298,11 +1476,61 @@ export default function Viewer3D() {
         {trajActive && <TrajectoryOverlay trajectory={trajectory} />}
       </Canvas>
       {showRadioMap && <RadioMapLegend radioMap={radioMap} />}
+      {pickActive && (
+        <div className="viewer-banner pick-banner">
+          <span>
+            Click to place: <strong>{pickActive.label}</strong> ({pickCount}/{pickActive.count})
+            — orbit freely, Esc cancels
+          </span>
+          <button onClick={() => cancelPick()} title="Cancel pick (Esc)">
+            ×
+          </button>
+        </div>
+      )}
       {scene && (!url || assetFailed) && (
         <div className="viewer-banner">Visual asset missing — showing placeholder geometry</div>
       )}
+      {/* Visible placement buttons: arm the same viewer ghost as the K/L
+          hotkeys, for mouse discoverability. */}
       <button
-        className={"viewport-gear" + (panelOpen ? " active" : "")}
+        className="viewport-gear viewport-place viewport-place-tx"
+        title="Place TX by clicking in the scene (K)"
+        onClick={() => armPlacement("tx")}
+      >
+        +TX@
+      </button>
+      <button
+        className="viewport-gear viewport-place viewport-place-rx"
+        title="Place RX by clicking (L)"
+        onClick={() => armPlacement("rx")}
+      >
+        +RX@
+      </button>
+      <button
+        className={"viewport-gear viewport-help" + (legendOpen ? " active" : "")}
+        title="Keyboard shortcuts"
+        onClick={() => setLegendOpen((o) => !o)}
+      >
+        ?
+      </button>
+      {legendOpen && (
+        <div className="hotkey-legend">
+          <div className="hotkey-legend-title">Shortcuts</div>
+          <ul>
+            <li><kbd>R</kbd> reset view</li>
+            <li><kbd>F</kbd> fit scene</li>
+            <li><kbd>K</kbd> place TX</li>
+            <li><kbd>L</kbd> place RX</li>
+            <li><kbd>S</kbd> slice</li>
+            <li><kbd>M</kbd> radio map</li>
+            <li><kbd>Esc</kbd> cancel</li>
+            <li>gizmo: click TX/RX then drag X/Y/Z arrows</li>
+            <li>panel Pick buttons: yellow crosshair mode</li>
+          </ul>
+        </div>
+      )}
+      <button
+        className={"viewport-gear viewport-settings-gear" + (panelOpen ? " active" : "")}
         title="Viewport lighting & display"
         onClick={() => setPanelOpen((o) => !o)}
       >

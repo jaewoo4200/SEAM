@@ -33,6 +33,7 @@ import type {
   ScenarioResultSet,
   ScenarioSimulateRequest,
   Scene,
+  SceneBounds,
   SimulateRequest,
   SuggestMaterialsRequest,
   TrajectoryResultSet,
@@ -119,6 +120,7 @@ export const api = {
 
   // scene
   getScene: (pid: string) => request<Scene>("GET", `/projects/${pid}/scene`),
+  sceneBounds: (pid: string) => request<SceneBounds>("GET", `/projects/${pid}/scene/bounds`),
   putScene: (pid: string, scene: Scene) => request<Scene>("PUT", `/projects/${pid}/scene`, scene),
   validateScene: (pid: string) =>
     request<ValidationReport>("POST", `/projects/${pid}/scene/validate`),

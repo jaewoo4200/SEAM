@@ -98,6 +98,12 @@ def run_trajectory(
     noise_floor = noise_floor_dbm(config)
 
     warnings: list[str] = []
+    if request.follow_terrain:
+        from app.services.terrain import snap_to_terrain
+
+        waypoints = snap_to_terrain(
+            project_dir, scene, waypoints, request.follow_height_m, warnings
+        )
     samples: list[TrajectorySample] = []
     doppler_spreads: list[Optional[float]] = []
     for i, wp in enumerate(waypoints):
@@ -148,6 +154,21 @@ def run_trajectory(
                 strongest_delay_ns=strongest,
                 paths=frame_paths,
             )
+        )
+
+    # A trajectory that mostly walks out of the scene looks like a successful
+    # run with NaN/0 samples; make that loud (mirrors the dataset guard).
+    zero_count = sum(1 for s in samples if s.path_count == 0)
+    if zero_count == len(samples) and samples:
+        warnings.append(
+            f"ALL {len(samples)} waypoints produced zero paths — the trajectory "
+            "is almost certainly outside the scene geometry. Pick the endpoints "
+            "in the viewport or use scene bounds."
+        )
+    elif zero_count > len(samples) / 2:
+        warnings.append(
+            f"{zero_count}/{len(samples)} waypoints produced zero paths (UE "
+            "outside the scene or fully occluded)"
         )
 
     return TrajectoryResultSet(

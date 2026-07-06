@@ -438,6 +438,13 @@ h4 {
   color: var(--err);
   border: none;
 }
+/* Armed two-step delete confirm (× → ✓?): stay visible + danger-colored even
+   without hover so the pending confirm is obvious. */
+.tree-row .tree-del.armed {
+  visibility: visible;
+  color: var(--err);
+  font-weight: 600;
+}
 
 /* --------------------------------------------------- solver controls */
 
@@ -953,6 +960,40 @@ h4 {
   flex-wrap: wrap;
 }
 
+/* RF material assign helper: live selection count chip + 3-step hint (F9). */
+.assign-hint-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.count-chip {
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  padding: 2px 10px;
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--panel-2);
+  white-space: nowrap;
+}
+.count-chip.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.assign-steps {
+  flex: 1 1 160px;
+  margin: 0;
+}
+
+/* Results: all paths hidden by filters — recoverable empty state (F10). */
+.filters-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
 /* --------------------------------------------------------- validation */
 
 .chips {
@@ -1359,16 +1400,82 @@ h4 {
   color: var(--accent);
 }
 
+/* Discoverability cluster (left→right): +TX@ · +RX@ · ? , then the settings
+   gear cluster (⚙ · 🖼 · 📷) shifted right so nothing overlaps. */
+.viewport-place {
+  width: auto;
+  padding: 0 7px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.viewport-place-tx {
+  left: 10px;
+}
+.viewport-place-rx {
+  left: 58px;
+}
+
+/* "?" hotkey-legend toggle. */
+.viewport-help {
+  left: 106px;
+}
+
+/* Settings gear (⚙) sits after the discoverability cluster. */
+.viewport-settings-gear {
+  left: 144px;
+}
+
 /* Textured-overlay quick toggle sits right of the gear. */
 .viewport-tex {
-  left: 46px;
+  left: 180px;
   font-size: 14px;
 }
 
 /* Mitsuba render button sits right of the texture toggle. */
 .viewport-render {
-  left: 82px;
+  left: 216px;
   font-size: 14px;
+}
+
+/* Floating hotkey legend, matches the viewport panel styling. */
+.hotkey-legend {
+  position: absolute;
+  top: 48px;
+  left: 10px;
+  width: 236px;
+  background: rgba(17, 22, 29, 0.96);
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  z-index: 7;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--text);
+}
+.hotkey-legend-title {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.hotkey-legend ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.hotkey-legend kbd {
+  display: inline-block;
+  min-width: 16px;
+  text-align: center;
+  padding: 1px 5px;
+  margin-right: 6px;
+  background: rgba(11, 15, 20, 0.9);
+  border: 1px solid var(--border-light);
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 11px;
+  color: var(--accent);
 }
 
 /* Floating lighting/display panel anchored below the gear. */
@@ -1578,4 +1685,143 @@ button.danger:not(:disabled) {
 }
 button.danger:hover:not(:disabled) {
   background: rgba(239, 83, 80, 0.14);
+}
+
+/* ------------------------------------------- viewport pick mode (click-to-place) */
+
+.viewer3d.picking canvas {
+  cursor: crosshair;
+}
+.pick-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: rgba(255, 213, 79, 0.12);
+  border: 1px solid #ffd54f;
+  color: #ffe082;
+}
+.pick-banner button {
+  border: none;
+  background: transparent;
+  color: #ffe082;
+  padding: 0 4px;
+  font-size: 14px;
+}
+button.picking {
+  border-color: #ffd54f;
+  color: #ffd54f;
+}
+
+/* Zero-path dataset flag in the ML dataset list. */
+.dataset-flag {
+  margin-left: 6px;
+  color: var(--warn);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.ai-note.warn {
+  border-color: var(--warn);
+  color: var(--amber);
+}
+
+/* --------------------------------------------- dockable / floating panels */
+
+.dock-card {
+  border-bottom: 1px solid var(--border);
+}
+.dock-card-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px 6px 6px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+}
+.dock-card-title {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+.dock-card-collapse {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  padding: 0 4px;
+  font-size: 10px;
+}
+.dock-card-actions {
+  display: inline-flex;
+  gap: 2px;
+}
+.dock-card-actions button,
+.fw-actions button {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  padding: 1px 5px;
+  font-size: 12px;
+  line-height: 1.2;
+}
+.dock-card-actions button:hover,
+.fw-actions button:hover {
+  color: var(--accent);
+  background: var(--panel-3);
+}
+
+/* The layer itself must not block the canvas; each window re-enables events. */
+.floating-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 30;
+}
+.floating-window {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  pointer-events: auto;
+  background: var(--panel);
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  box-shadow: 0 10px 32px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+}
+.fw-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--panel-3);
+  border-bottom: 1px solid var(--border);
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text);
+}
+.fw-title:active {
+  cursor: grabbing;
+}
+.fw-body {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+.fw-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+  cursor: nwse-resize;
+  touch-action: none;
+  background: linear-gradient(135deg, transparent 50%, var(--border-light) 50%);
 }

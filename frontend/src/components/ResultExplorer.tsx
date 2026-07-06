@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAppStore } from "../store/appStore";
 import { api, ApiError } from "../api/client";
-import ChannelPanel from "./ChannelPanel";
 import BeamSweepHeatmap from "./BeamSweepHeatmap";
 import { PATH_COLORS, SELECTED_PATH_COLOR, formatVec } from "./common";
 import { filterPaths, pathColor, pathDepth, powerRange } from "../pathFilter";
@@ -252,7 +251,33 @@ function firstRxPosition(): Vec3 {
   return rx ? rx.position : [10, 0, 1.5];
 }
 
-function TrajectorySection() {
+/** Span for auto-seeded trajectories: most of the scene, capped at 30 m. */
+function defaultSpan(): number {
+  const b = useAppStore.getState().sceneBounds;
+  if (!b) return 30;
+  const ext = Math.max(b.max[0] - b.min[0], b.max[1] - b.min[1]);
+  return Math.max(1, Math.min(30, ext * 0.6));
+}
+
+/** Seed start/end from the first RX walking toward the scene center so the
+ *  path stays inside the geometry (audit: +30 m constant left small rooms). */
+function seededEndpoints(): { start: Vec3; end: Vec3 } {
+  const start = firstRxPosition();
+  const b = useAppStore.getState().sceneBounds;
+  const span = defaultSpan();
+  let dir: [number, number] = [1, 0];
+  if (b) {
+    const cx = (b.min[0] + b.max[0]) / 2;
+    const cy = (b.min[1] + b.max[1]) / 2;
+    const dx = cx - start[0];
+    const dy = cy - start[1];
+    const len = Math.hypot(dx, dy);
+    if (len > 0.5) dir = [dx / len, dy / len];
+  }
+  return { start, end: [start[0] + dir[0] * span, start[1] + dir[1] * span, start[2]] };
+}
+
+export function TrajectorySection() {
   const trajectory = useAppStore((s) => s.trajectory);
   const trajFrame = useAppStore((s) => s.trajFrame);
   const trajPlaying = useAppStore((s) => s.trajPlaying);
@@ -265,15 +290,48 @@ function TrajectorySection() {
   const simulateTrajectory = useAppStore((s) => s.simulateTrajectory);
   const busy = useAppStore((s) => s.busy);
   const projectId = useAppStore((s) => s.projectId);
+  const requestPick = useAppStore((s) => s.requestPick);
+  const pickLabel = useAppStore((s) => s.pick?.label ?? null);
+  const sceneBounds = useAppStore((s) => s.sceneBounds);
 
-  // Default: current first rx position -> +30 m in x.
-  const [start, setStart] = useState<Vec3>(() => firstRxPosition());
-  const [end, setEnd] = useState<Vec3>(() => {
-    const s = firstRxPosition();
-    return [s[0] + 30, s[1], s[2]];
-  });
+  // Default: first RX walking toward the scene center, span scaled to the
+  // scene (falls back to +30 m in X when bounds are unknown).
+  const [start, setStart] = useState<Vec3>(() => seededEndpoints().start);
+  const [end, setEnd] = useState<Vec3>(() => seededEndpoints().end);
   const [numPoints, setNumPoints] = useState(8);
   const [dt, setDt] = useState(0.1);
+  const [followTerrain, setFollowTerrain] = useState(false);
+  // Bounds usually arrive async right after project open; re-seed the
+  // defaults once when they land unless the user already edited the fields.
+  const touched = useRef(false);
+  useEffect(() => {
+    if (sceneBounds && !touched.current) {
+      const seeded = seededEndpoints();
+      setStart(seeded.start);
+      setEnd(seeded.end);
+    }
+  }, [sceneBounds]);
+
+  // Live preview of the planned segment in the 3D viewer (cleared on unmount).
+  const setTrajPreview = useAppStore((s) => s.setTrajPreview);
+  useEffect(() => {
+    setTrajPreview([start, end]);
+    return () => setTrajPreview(null);
+  }, [start, end, setTrajPreview]);
+
+  const pickBoth = () => {
+    requestPick({
+      label: "Trajectory start → end",
+      count: 2,
+      target: "surface",
+      heightOffset: firstRxPosition()[2],
+      onComplete: (pts) => {
+        touched.current = true;
+        setStart(pts[0]);
+        setEnd(pts[1]);
+      },
+    });
+  };
 
   // Playback timer: advance frames by dt*1000/speed; stop at the last frame.
   const dtRef = useRef(dt);
@@ -333,26 +391,55 @@ function TrajectorySection() {
   const fmt = (v: number | null, unit: string, digits = 1) =>
     v === null ? "n/a" : `${v.toFixed(digits)} ${unit}`;
 
+  const picking = pickLabel === "Trajectory start → end";
   return (
     <div className="traj-section">
-      <h4>Trajectory</h4>
-      {vecField("Start", start, setStart)}
       <div className="panel-actions">
         <button
+          className={"primary" + (picking ? " picking" : "")}
           disabled={disabled}
-          title="Re-seed Start from the current first RX position (and End = Start + 30 m in X)"
+          title="Click two points in the 3D view: first the start, then the end (Esc cancels)"
+          onClick={pickBoth}
+        >
+          {picking ? "Click start, then end… (Esc)" : "🎯 Pick start → end in viewport"}
+        </button>
+        <button
+          disabled={disabled}
+          title="Re-seed from the current first RX position, walking toward the scene center"
           onClick={() => {
-            // Re-seed from the CURRENT first RX position (mirrors the mount
-            // default: start = firstRx, end = start + [30, 0, 0]).
-            const rx = firstRxPosition();
-            setStart(rx);
-            setEnd([rx[0] + 30, rx[1], rx[2]]);
+            touched.current = true;
+            const seeded = seededEndpoints();
+            setStart(seeded.start);
+            setEnd(seeded.end);
           }}
         >
           Use RX
         </button>
       </div>
-      {vecField("End", end, setEnd)}
+      {vecField("Start", start, (v) => {
+        touched.current = true;
+        setStart(v);
+      })}
+      {vecField("End", end, (v) => {
+        touched.current = true;
+        setEnd(v);
+      })}
+      <p className="hint">
+        X east · Y north · Z up (m). The dashed yellow line in the viewer
+        previews this path.
+      </p>
+      <label className="solver-check">
+        <input
+          type="checkbox"
+          checked={followTerrain}
+          disabled={disabled}
+          onChange={(e) => setFollowTerrain(e.target.checked)}
+        />
+        Follow terrain
+        <span className="hint" style={{ marginLeft: 6 }}>
+          snap each waypoint to the surface below +1.5 m (outdoor slopes)
+        </span>
+      </label>
       <label className="solver-field">
         <span className="solver-field-label">Num points</span>
         <span className="solver-field-input">
@@ -386,7 +473,7 @@ function TrajectorySection() {
           className="primary"
           disabled={!projectId || disabled}
           onClick={() =>
-            void simulateTrajectory({ start_m: start, end_m: end, num_points: numPoints, dt_s: dt })
+            void simulateTrajectory({ start_m: start, end_m: end, num_points: numPoints, dt_s: dt, follow_terrain: followTerrain })
           }
         >
           Simulate trajectory
@@ -638,7 +725,7 @@ function ScenarioPlayback({ scenario }: { scenario: ScenarioResultSet }) {
   );
 }
 
-function ScenarioSection() {
+export function ScenarioSection() {
   const scenario = useAppStore((s) => s.scenario);
   const simulateScenario = useAppStore((s) => s.simulateScenario);
   const busy = useAppStore((s) => s.busy);
@@ -651,7 +738,6 @@ function ScenarioSection() {
 
   return (
     <div className="traj-section">
-      <h4>Scenario (V2X)</h4>
       <label className="solver-field">
         <span className="solver-field-label">Num frames</span>
         <span className="solver-field-input">
@@ -726,17 +812,22 @@ function formatCreatedAt(iso: string | null | undefined): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
 }
 
-function MlDatasetSection() {
+export function MlDatasetSection() {
   const projectId = useAppStore((s) => s.projectId);
   // READ-ONLY: passed as the solver config for dataset generation.
   const pathsConfig = useAppStore((s) => s.pathsConfig);
+  const sceneBounds = useAppStore((s) => s.sceneBounds);
+  const requestPick = useAppStore((s) => s.requestPick);
+  const pickLabel = useAppStore((s) => s.pick?.label ?? null);
 
   const [name, setName] = useState("dataset");
   const [mode, setMode] = useState<DatasetSampling["mode"]>("random");
   const [numSamples, setNumSamples] = useState(256);
   const [cfrPoints, setCfrPoints] = useState(128);
   const [heightM, setHeightM] = useState(1.5);
-  // region min/max XY for random/grid.
+  // Region min/max XY for random/grid. Seeded from the real scene bounds when
+  // they arrive (audit blocker: the old ±50 m constants sampled outside every
+  // indoor scene, producing all-zero datasets).
   const [regionMinX, setRegionMinX] = useState(-50);
   const [regionMinY, setRegionMinY] = useState(-50);
   const [regionMaxX, setRegionMaxX] = useState(50);
@@ -747,6 +838,62 @@ function MlDatasetSection() {
   const [end, setEnd] = useState<Vec3>([50, 0, 1.5]);
   const [seed, setSeed] = useState(0);
   const [includePaths, setIncludePaths] = useState(false);
+  const [followTerrain, setFollowTerrain] = useState(false);
+
+  const touched = useRef(false);
+  const fitToScene = () => {
+    const b = useAppStore.getState().sceneBounds;
+    if (!b) return;
+    // Nudge 0.3 m inside the AABB so wall-hugging samples don't start embedded
+    // in the boundary geometry.
+    const pad = Math.min(0.3, (b.max[0] - b.min[0]) / 10, (b.max[1] - b.min[1]) / 10);
+    const r2 = (v: number) => Math.round(v * 100) / 100;
+    setRegionMinX(r2(b.min[0] + pad));
+    setRegionMinY(r2(b.min[1] + pad));
+    setRegionMaxX(r2(b.max[0] - pad));
+    setRegionMaxY(r2(b.max[1] - pad));
+    // UE height: 1.5 m if it fits inside the scene's Z range, else mid-height.
+    const h = b.min[2] + 1.5 < b.max[2] ? 1.5 : Math.max(0.1, (b.max[2] - b.min[2]) / 2);
+    setHeightM(r2(h));
+    // Trajectory default: diagonal across the region at UE height.
+    setStart([r2(b.min[0] + pad), r2(b.min[1] + pad), r2(h)]);
+    setEnd([r2(b.max[0] - pad), r2(b.max[1] - pad), r2(h)]);
+  };
+  // Bounds arrive async after project open; seed once unless the user
+  // already edited the coordinates.
+  useEffect(() => {
+    if (sceneBounds && !touched.current) fitToScene();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sceneBounds]);
+
+  const pickRegion = () => {
+    requestPick({
+      label: "Dataset region (two corners)",
+      count: 2,
+      target: "surface",
+      heightOffset: 0,
+      onComplete: ([a, b]) => {
+        touched.current = true;
+        setRegionMinX(Math.min(a[0], b[0]));
+        setRegionMaxX(Math.max(a[0], b[0]));
+        setRegionMinY(Math.min(a[1], b[1]));
+        setRegionMaxY(Math.max(a[1], b[1]));
+      },
+    });
+  };
+  const pickPath = () => {
+    requestPick({
+      label: "Dataset path start → end",
+      count: 2,
+      target: "surface",
+      heightOffset: heightM,
+      onComplete: (pts) => {
+        touched.current = true;
+        setStart(pts[0]);
+        setEnd(pts[1]);
+      },
+    });
+  };
 
   const [datasets, setDatasets] = useState<DatasetInfo[]>([]);
   const [generating, setGenerating] = useState(false);
@@ -833,6 +980,7 @@ function MlDatasetSection() {
       num_samples: numSamples,
       grid_spacing_m: gridSpacing,
       seed,
+      follow_terrain: followTerrain,
     };
     if (mode === "random" || mode === "grid") {
       sampling.region_min = [regionMinX, regionMinY, 0];
@@ -863,7 +1011,6 @@ function MlDatasetSection() {
 
   return (
     <div className="traj-section">
-      <h4>ML dataset</h4>
       <label className="solver-field">
         <span className="solver-field-label">Name</span>
         <span className="solver-field-input">
@@ -893,6 +1040,32 @@ function MlDatasetSection() {
 
       {regionMode && (
         <>
+          <div className="panel-actions">
+            <button
+              className={pickLabel === "Dataset region (two corners)" ? "picking" : ""}
+              disabled={generating}
+              title="Click two opposite corners of the UE sampling region in the 3D view (Esc cancels)"
+              onClick={pickRegion}
+            >
+              {pickLabel === "Dataset region (two corners)"
+                ? "Click 2 corners… (Esc)"
+                : "🎯 Pick region in viewport"}
+            </button>
+            <button
+              disabled={generating || !sceneBounds}
+              title={
+                sceneBounds
+                  ? "Set the region and height to cover the whole scene"
+                  : "Scene bounds unavailable (no visual mesh)"
+              }
+              onClick={() => {
+                touched.current = true;
+                fitToScene();
+              }}
+            >
+              Fit to scene
+            </button>
+          </div>
           <div className="solver-array-grid">
             <span className="solver-array-label">Region min</span>
             <span className="traj-vec">
@@ -901,14 +1074,20 @@ function MlDatasetSection() {
                 step={1}
                 value={regionMinX}
                 disabled={generating}
-                onChange={(e) => setRegionMinX(Number(e.target.value))}
+                onChange={(e) => {
+                  touched.current = true;
+                  setRegionMinX(Number(e.target.value));
+                }}
               />
               <input
                 type="number"
                 step={1}
                 value={regionMinY}
                 disabled={generating}
-                onChange={(e) => setRegionMinY(Number(e.target.value))}
+                onChange={(e) => {
+                  touched.current = true;
+                  setRegionMinY(Number(e.target.value));
+                }}
               />
             </span>
             <span className="solver-array-label">Region max</span>
@@ -918,17 +1097,30 @@ function MlDatasetSection() {
                 step={1}
                 value={regionMaxX}
                 disabled={generating}
-                onChange={(e) => setRegionMaxX(Number(e.target.value))}
+                onChange={(e) => {
+                  touched.current = true;
+                  setRegionMaxX(Number(e.target.value));
+                }}
               />
               <input
                 type="number"
                 step={1}
                 value={regionMaxY}
                 disabled={generating}
-                onChange={(e) => setRegionMaxY(Number(e.target.value))}
+                onChange={(e) => {
+                  touched.current = true;
+                  setRegionMaxY(Number(e.target.value));
+                }}
               />
             </span>
           </div>
+          {sceneBounds && (
+            <p className="hint">
+              Scene spans [{sceneBounds.min[0].toFixed(1)}, {sceneBounds.min[1].toFixed(1)}]
+              …[{sceneBounds.max[0].toFixed(1)}, {sceneBounds.max[1].toFixed(1)}] m — samples
+              outside it get zero paths.
+            </p>
+          )}
           {mode === "grid" &&
             numField("Grid spacing", gridSpacing, (v) => setGridSpacing(v), {
               min: 0.1,
@@ -940,8 +1132,26 @@ function MlDatasetSection() {
 
       {mode === "trajectory" && (
         <>
-          {vecField("Start", start, setStart)}
-          {vecField("End", end, setEnd)}
+          <div className="panel-actions">
+            <button
+              className={pickLabel === "Dataset path start → end" ? "picking" : ""}
+              disabled={generating}
+              title="Click the path start, then the end, in the 3D view (Esc cancels)"
+              onClick={pickPath}
+            >
+              {pickLabel === "Dataset path start → end"
+                ? "Click start, then end… (Esc)"
+                : "🎯 Pick path in viewport"}
+            </button>
+          </div>
+          {vecField("Start", start, (v) => {
+            touched.current = true;
+            setStart(v);
+          })}
+          {vecField("End", end, (v) => {
+            touched.current = true;
+            setEnd(v);
+          })}
         </>
       )}
 
@@ -954,6 +1164,18 @@ function MlDatasetSection() {
           onChange={(e) => setIncludePaths(e.target.checked)}
         />
         Include paths
+      </label>
+      <label className="solver-check">
+        <input
+          type="checkbox"
+          checked={followTerrain}
+          disabled={generating}
+          onChange={(e) => setFollowTerrain(e.target.checked)}
+        />
+        Follow terrain
+        <span className="hint" style={{ marginLeft: 6 }}>
+          snap sample heights to the surface below (outdoor slopes)
+        </span>
       </label>
 
       <div className="panel-actions">
@@ -969,7 +1191,7 @@ function MlDatasetSection() {
 
       {genError && <p className="hint">Generate failed: {genError}</p>}
       {genWarnings.length > 0 && (
-        <div className="ai-note">
+        <div className={"ai-note" + (genWarnings.some((w) => w.includes("zero paths")) ? " warn" : "")}>
           {genWarnings.map((w, i) => (
             <div key={i}>{w}</div>
           ))}
@@ -992,9 +1214,22 @@ function MlDatasetSection() {
             </tr>
           </thead>
           <tbody>
-            {datasets.map((d) => (
+            {datasets.map((d) => {
+              const zeroRaw = d.metadata?.num_zero_path_samples;
+              const zero = typeof zeroRaw === "number" ? zeroRaw : 0;
+              return (
               <tr key={d.dataset_id}>
-                <td className="mono">{d.name}</td>
+                <td className="mono">
+                  {d.name}
+                  {zero > 0 && (
+                    <span
+                      className="dataset-flag"
+                      title={`${zero}/${d.num_samples} samples have zero paths (UE outside the scene or occluded)`}
+                    >
+                      ⚠ {zero}∅
+                    </span>
+                  )}
+                </td>
                 <td className="mono">{d.num_samples}</td>
                 <td className="mono">{formatCreatedAt(d.created_at)}</td>
                 <td className="mono">{formatBytes(d.size_bytes)}</td>
@@ -1014,7 +1249,8 @@ function MlDatasetSection() {
                     ))}
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       )}
@@ -1100,11 +1336,21 @@ export default function ResultExplorer() {
   const filter = useAppStore((s) => s.pathTypeFilter);
   const setFilter = useAppStore((s) => s.setPathTypeFilter);
   const strongestN = useAppStore((s) => s.strongestN);
+  const setStrongestN = useAppStore((s) => s.setStrongestN);
   const minPowerDbm = useAppStore((s) => s.minPowerDbm);
+  const setMinPowerDbm = useAppStore((s) => s.setMinPowerDbm);
   const colorBy = useAppStore((s) => s.colorBy);
   const hiddenLinkDevices = useAppStore((s) => s.hiddenLinkDevices);
   const toggleLinkDevice = useAppStore((s) => s.toggleLinkDevice);
   const setHiddenLinkDevices = useAppStore((s) => s.setHiddenLinkDevices);
+
+  // Reset every path filter to its default so a hidden set becomes visible again.
+  const resetFilters = () => {
+    setFilter("all");
+    setStrongestN(50);
+    setMinPowerDbm(null);
+    setHiddenLinkDevices([]);
+  };
 
   const [sortKey, setSortKey] = useState<SortKey>("power_dbm");
   const [sortDir, setSortDir] = useState<1 | -1>(-1);
@@ -1178,7 +1424,9 @@ export default function ResultExplorer() {
 
   return (
     <>
-      <ChannelPanel />
+      {/* Channel/Trajectory/Scenario/ML-dataset cards are dockable panels now
+          (PanelHost registry): they render in the sidebar of the user's
+          choice or float over the viewport, and survive mode switches. */}
       <div className="panel">
         <h3 className="panel-title">Results</h3>
       <div className="panel-actions">
@@ -1313,57 +1561,66 @@ export default function ResultExplorer() {
             ))}
           </div>
 
-          <table className="results-table">
-            <thead>
-              <tr>
-                <th onClick={() => toggleSort("path_id")}>path{sortMark("path_id")}</th>
-                <th onClick={() => toggleSort("path_type")}>type{sortMark("path_type")}</th>
-                <th onClick={() => toggleSort("power_dbm")}>dBm{sortMark("power_dbm")}</th>
-                <th onClick={() => toggleSort("delay_ns")}>ns{sortMark("delay_ns")}</th>
-                <th onClick={() => toggleSort("interactions")}>#int{sortMark("interactions")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sorted.map((p) => (
-                <tr
-                  key={p.path_id}
-                  className={p.path_id === selectedPathId ? "selected" : ""}
-                  onClick={() => selectPath(p.path_id === selectedPathId ? null : p.path_id)}
-                >
-                  <td className="mono">{p.path_id}</td>
-                  <td>
-                    <span className="path-type">
-                      <span
-                        className="dot"
-                        style={{ background: pathColor(p, colorBy, range) }}
-                        title={colorBy === "depth" ? `depth ${pathDepth(p)}` : undefined}
-                      />
-                      {p.path_type}
-                    </span>
-                  </td>
-                  <td className="mono">{p.power_dbm.toFixed(1)}</td>
-                  <td className="mono">{p.delay_ns.toFixed(1)}</td>
-                  <td className="mono">{p.interactions.length}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          {visible.length === 0 && pathResults.paths.length > 0 ? (
+            // All paths hidden by the active filters: the table/scatter would
+            // silently vanish, so surface a recoverable empty state (F10).
+            <div className="empty-state filters-empty">
+              <div>All {pathResults.paths.length} paths hidden by current filters</div>
+              <button className="primary" style={{ marginTop: 8 }} onClick={resetFilters}>
+                Reset filters
+              </button>
+            </div>
+          ) : (
+            <>
+              <table className="results-table">
+                <thead>
+                  <tr>
+                    <th onClick={() => toggleSort("path_id")}>path{sortMark("path_id")}</th>
+                    <th onClick={() => toggleSort("path_type")}>type{sortMark("path_type")}</th>
+                    <th onClick={() => toggleSort("power_dbm")}>dBm{sortMark("power_dbm")}</th>
+                    <th onClick={() => toggleSort("delay_ns")}>ns{sortMark("delay_ns")}</th>
+                    <th onClick={() => toggleSort("interactions")}>#int{sortMark("interactions")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sorted.map((p) => (
+                    <tr
+                      key={p.path_id}
+                      className={p.path_id === selectedPathId ? "selected" : ""}
+                      onClick={() => selectPath(p.path_id === selectedPathId ? null : p.path_id)}
+                    >
+                      <td className="mono">{p.path_id}</td>
+                      <td>
+                        <span className="path-type">
+                          <span
+                            className="dot"
+                            style={{ background: pathColor(p, colorBy, range) }}
+                            title={colorBy === "depth" ? `depth ${pathDepth(p)}` : undefined}
+                          />
+                          {p.path_type}
+                        </span>
+                      </td>
+                      <td className="mono">{p.power_dbm.toFixed(1)}</td>
+                      <td className="mono">{p.delay_ns.toFixed(1)}</td>
+                      <td className="mono">{p.interactions.length}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
 
-          {selectedPath && <PathDetail path={selectedPath} />}
+              {selectedPath && <PathDetail path={selectedPath} />}
 
-          {visible.length > 0 && (
-            <DelayPowerScatter
-              paths={visible}
-              selectedPathId={selectedPathId}
-              onSelect={(id) => selectPath(id)}
-            />
+              {visible.length > 0 && (
+                <DelayPowerScatter
+                  paths={visible}
+                  selectedPathId={selectedPathId}
+                  onSelect={(id) => selectPath(id)}
+                />
+              )}
+            </>
           )}
         </>
       )}
-
-        <TrajectorySection />
-        <ScenarioSection />
-        <MlDatasetSection />
       </div>
     </>
   );

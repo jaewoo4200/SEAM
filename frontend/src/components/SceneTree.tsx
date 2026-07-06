@@ -1,8 +1,69 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent } from "react";
 import { useAppStore } from "../store/appStore";
 import { StatusDot } from "./common";
 import type { Prim } from "../types/api";
+
+/** Two-step inline confirm: the first click arms the danger state (auto-reverts
+ *  after ~4s), the second runs the action. Mirrors the inline-form style used by
+ *  RFMaterialPanel rather than a blocking window.confirm. */
+function useArmedConfirm(): {
+  armed: boolean;
+  arm: () => void;
+  disarm: () => void;
+} {
+  const [armed, setArmed] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clear = () => {
+    if (timer.current) {
+      clearTimeout(timer.current);
+      timer.current = null;
+    }
+  };
+  useEffect(() => clear, []);
+  const arm = () => {
+    clear();
+    setArmed(true);
+    timer.current = setTimeout(() => setArmed(false), 4000);
+  };
+  const disarm = () => {
+    clear();
+    setArmed(false);
+  };
+  return { armed, arm, disarm };
+}
+
+/** Per-row delete button with a two-step (× → ✓?) inline confirm. */
+function RowDeleteButton({
+  label,
+  disabled,
+  onConfirm,
+}: {
+  label: string;
+  disabled: boolean;
+  onConfirm: () => void;
+}) {
+  const { armed, arm, disarm } = useArmedConfirm();
+  return (
+    <button
+      className={"tree-del" + (armed ? " armed" : "")}
+      disabled={disabled}
+      title={armed ? `Confirm delete ${label}` : `Delete ${label}`}
+      onClick={(e) => {
+        e.stopPropagation();
+        if (armed) {
+          disarm();
+          onConfirm();
+        } else {
+          arm();
+        }
+      }}
+      onBlur={disarm}
+    >
+      {armed ? "✓?" : "×"}
+    </button>
+  );
+}
 
 interface TreeNode {
   name: string;
@@ -111,6 +172,7 @@ export default function SceneTree() {
   const deleteActor = useAppStore((s) => s.deleteActor);
   const busy = useAppStore((s) => s.busy);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const clearConfirm = useArmedConfirm();
 
   const tree = useMemo(() => buildTree(scene?.prims ?? []), [scene]);
 
@@ -151,11 +213,24 @@ export default function SceneTree() {
             +RX
           </button>
           <button
+            className={clearConfirm.armed ? "danger" : ""}
             disabled={busy !== null || scene.devices.length === 0}
-            onClick={() => void clearDevices()}
-            title="Clear all radio devices"
+            onClick={() => {
+              if (clearConfirm.armed) {
+                clearConfirm.disarm();
+                void clearDevices();
+              } else {
+                clearConfirm.arm();
+              }
+            }}
+            onBlur={clearConfirm.disarm}
+            title={
+              clearConfirm.armed
+                ? "Click again to clear all devices"
+                : "Clear all radio devices"
+            }
           >
-            Clear all
+            {clearConfirm.armed ? `Really clear ${scene.devices.length}?` : "Clear all"}
           </button>
         </span>
       </div>
@@ -173,17 +248,11 @@ export default function SceneTree() {
           </span>
           <span className="tree-name">{d.id}</span>
           {d.name && <span className="tree-mat">{d.name}</span>}
-          <button
-            className="tree-del"
+          <RowDeleteButton
+            label={d.id}
             disabled={busy !== null}
-            title={`Delete ${d.id}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              void deleteDevice(d.id);
-            }}
-          >
-            ×
-          </button>
+            onConfirm={() => void deleteDevice(d.id)}
+          />
         </div>
       ))}
 
@@ -219,17 +288,11 @@ export default function SceneTree() {
           </span>
           <span className="tree-name">{a.id}</span>
           {a.name && <span className="tree-mat">{a.name}</span>}
-          <button
-            className="tree-del"
+          <RowDeleteButton
+            label={a.id}
             disabled={busy !== null}
-            title={`Delete ${a.id}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              void deleteActor(a.id);
-            }}
-          >
-            ×
-          </button>
+            onConfirm={() => void deleteActor(a.id)}
+          />
         </div>
       ))}
     </div>

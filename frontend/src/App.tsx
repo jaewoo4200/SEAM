@@ -11,6 +11,7 @@ import ValidationPanel from "./components/ValidationPanel";
 import AISuggestionPanel from "./components/AISuggestionPanel";
 import ResultExplorer from "./components/ResultExplorer";
 import SolverControls from "./components/SolverControls";
+import { FloatingLayer, PanelHost } from "./components/PanelHost";
 
 // Guard against React 18 StrictMode double-mount kicking off two boots.
 let booted = false;
@@ -62,6 +63,8 @@ export default function App() {
         <>
           <SolverControls key={`sc-${projectId}`} />
           <ResultExplorer key={`re-${projectId}`} />
+          {/* Dockable cards whose current home is the right sidebar. */}
+          <PanelHost side="right" />
         </>
       );
       break;
@@ -79,6 +82,9 @@ export default function App() {
         >
           <aside className="sidebar left">
             <SceneTree />
+            {/* Dockable cards moved to the left sidebar live below the tree
+                and stay visible across mode-tab switches. */}
+            <PanelHost side="left" />
           </aside>
           <PanelHandle
             side="left"
@@ -88,6 +94,8 @@ export default function App() {
           />
           <main className="viewer-wrap">
             <Viewer3D />
+            {/* Floating (detached) panels overlay the viewport in any mode. */}
+            <FloatingLayer />
           </main>
           <PanelHandle
             side="right"

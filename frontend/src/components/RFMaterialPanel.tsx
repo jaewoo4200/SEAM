@@ -298,6 +298,18 @@ export default function RFMaterialPanel() {
         </table>
       )}
 
+      <div className="assign-hint-row">
+        <span className={"count-chip" + (selection.length > 0 ? " active" : "")}>
+          {selection.length} selected
+        </span>
+        {selection.length === 0 && (
+          <span className="hint assign-steps">
+            1. Select surfaces in the tree/viewport (Ctrl-click adds) · 2. Pick a material row ·
+            3. Assign
+          </span>
+        )}
+      </div>
+
       <div className="panel-actions">
         <button
           className="primary"

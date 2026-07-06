@@ -45,8 +45,21 @@ DATASETS_SUBDIR = Path("export") / "datasets"
 SCHEMA_VERSION = "1.0"
 
 
-def _sample_positions(sampling: DatasetSampling, scene: Scene, warnings: list[str]):
+def _sample_positions(
+    sampling: DatasetSampling, scene: Scene, warnings: list[str], project_dir: Path
+):
     import numpy as np
+
+    def _snap(pts):
+        if not sampling.follow_terrain:
+            return pts
+        from .terrain import snap_to_terrain
+
+        snapped = snap_to_terrain(
+            project_dir, scene, [list(map(float, p)) for p in pts],
+            sampling.height_m, warnings,
+        )
+        return np.asarray(snapped, dtype=np.float64)
 
     if sampling.mode == "trajectory":
         if not sampling.start_m or not sampling.end_m:
@@ -54,19 +67,32 @@ def _sample_positions(sampling: DatasetSampling, scene: Scene, warnings: list[st
         t = np.linspace(0.0, 1.0, sampling.num_samples)[:, None]
         a = np.asarray(sampling.start_m, dtype=np.float64)
         b = np.asarray(sampling.end_m, dtype=np.float64)
-        return a[None, :] * (1 - t) + b[None, :] * t
+        return _snap(a[None, :] * (1 - t) + b[None, :] * t)
 
     if sampling.region_min and sampling.region_max:
         lo = np.asarray(sampling.region_min, dtype=np.float64)
         hi = np.asarray(sampling.region_max, dtype=np.float64)
     else:
-        # Fallback region: device bounding box padded by 25 m.
-        pts = np.asarray([d.position for d in scene.devices] or [[0, 0, 0]])
-        lo, hi = pts.min(axis=0) - 25.0, pts.max(axis=0) + 25.0
-        warnings.append(
-            "sampling region omitted; using device bounding box +/-25 m "
-            f"({lo[:2].round(1).tolist()}..{hi[:2].round(1).tolist()})"
-        )
+        # Fallback region: the actual scene AABB (the old device-bbox ±25 m
+        # guess sampled mostly outside small indoor scenes — audit F3).
+        from .scene_bounds import compute_scene_bounds
+
+        bounds = compute_scene_bounds(project_dir, scene)
+        if bounds is not None:
+            lo = np.asarray(bounds.min, dtype=np.float64)
+            hi = np.asarray(bounds.max, dtype=np.float64)
+            warnings.append(
+                "sampling region omitted; using the scene bounds "
+                f"({lo[:2].round(1).tolist()}..{hi[:2].round(1).tolist()})"
+            )
+        else:
+            pts = np.asarray([d.position for d in scene.devices] or [[0, 0, 0]])
+            lo, hi = pts.min(axis=0) - 25.0, pts.max(axis=0) + 25.0
+            warnings.append(
+                "sampling region omitted and the scene has no visual mesh; "
+                "using device bounding box +/-25 m "
+                f"({lo[:2].round(1).tolist()}..{hi[:2].round(1).tolist()})"
+            )
 
     if sampling.mode == "grid":
         xs = np.arange(lo[0], hi[0] + 1e-9, sampling.grid_spacing_m)
@@ -78,12 +104,12 @@ def _sample_positions(sampling: DatasetSampling, scene: Scene, warnings: list[st
                 f"grid has {len(pts)} points; truncated to num_samples={sampling.num_samples}"
             )
             pts = pts[: sampling.num_samples]
-        return pts
+        return _snap(pts)
 
     rng = np.random.default_rng(sampling.seed)
     xy = rng.uniform(lo[:2], hi[:2], size=(sampling.num_samples, 2))
     z = np.full((sampling.num_samples, 1), sampling.height_m)
-    return np.concatenate([xy, z], axis=1)
+    return _snap(np.concatenate([xy, z], axis=1))
 
 
 def _complex_gains(result: PathResultSet):
@@ -123,7 +149,7 @@ def generate_dataset(
         antenna=rx_proto.antenna if rx_proto else Antenna(),
     )
 
-    positions = _sample_positions(request.sampling, scene, warnings)
+    positions = _sample_positions(request.sampling, scene, warnings, project_dir)
     n = len(positions)
     k = request.num_cfr_points
     freqs = (
@@ -176,6 +202,23 @@ def generate_dataset(
         if paths_dump is not None:
             paths_dump.append([p.model_dump() for p in result.paths])
 
+    # A dataset full of zero-path samples is garbage that *looks* like a
+    # success (200 + files on disk). Detect and warn loudly — the usual cause
+    # is a sampling region that extends outside the actual scene geometry.
+    zero_count = int(np.count_nonzero(num_paths == 0))
+    if zero_count == n:
+        warnings.append(
+            f"ALL {n} samples produced zero paths — the sampling region is "
+            "almost certainly outside the scene geometry. Use the scene "
+            "bounds (GET /scene/bounds or the UI's 'Fit to scene' button) "
+            "to place the region, then regenerate."
+        )
+    elif zero_count > 0:
+        warnings.append(
+            f"{zero_count}/{n} samples produced zero paths (UE outside the "
+            "scene or fully occluded); their cfr/labels are zero/NaN."
+        )
+
     max_p = max((len(g) for g in gains_per_sample), default=0) or 1
     cir_gain = np.zeros((n, max_p), dtype=np.complex64)
     cir_delay = np.full((n, max_p), np.nan, dtype=np.float32)
@@ -217,6 +260,7 @@ def generate_dataset(
         "engine": config.engine or "builtin",
         "created_at": datetime.now(timezone.utc).isoformat(),
         "duration_s": round(time.monotonic() - started, 2),
+        "num_zero_path_samples": zero_count,
         "conventions": {
             "coordinates": "Z-up ENU meters",
             "power": "dBm; cir_gain is linear voltage gain (|g|^2 = mW at 0 dBm tx ref)",
@@ -250,7 +294,8 @@ def generate_dataset(
         created_at=metadata["created_at"], files=files, size_bytes=size,
         warnings=warnings, metadata={"duration_s": metadata["duration_s"],
                                       "backend": backend.name,
-                                      "engine": metadata["engine"]},
+                                      "engine": metadata["engine"],
+                                      "num_zero_path_samples": zero_count},
     )
 
 

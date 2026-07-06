@@ -29,6 +29,7 @@ import type {
   RFMaterialLibrary,
   ScenarioResultSet,
   Scene,
+  SceneBounds,
   SimulationConfig,
   SuggestionDecision,
   TrajectoryResultSet,
@@ -44,8 +45,44 @@ import {
 import type { ViewportSettings } from "../viewportSettings";
 import { CONFIG_PRESETS } from "../configPresets";
 import type { ConfigPresetId } from "../configPresets";
+import { clampRect, loadPanelLayout, savePanelLayout } from "../panelLayout";
+import type { DockTarget, FloatRect, PanelLayout } from "../panelLayout";
+
+// Loaded once at store creation; normalization guards stale localStorage.
+const initialPanelLayout = loadPanelLayout();
+
+// Dev-only store handle for interaction tests (same spirit as __stwScene).
+declare global {
+  interface Window {
+    __stwStore?: unknown;
+  }
+}
+
+// Monotonic pick-request token (module scope: survives store updates).
+let pickCounter = 0;
 
 export type Mode = "visual" | "rf" | "validation" | "ai" | "results";
+
+// ------------------------------------------------------------ viewport pick
+// Generic click-to-place: any panel can request N world-space points from the
+// 3D viewport (trajectory endpoints, dataset region corners, waypoints...).
+
+export type PickTarget = "surface" | "ground";
+
+export interface PickRequest {
+  /** Monotonic token guarding stale completions/cancels. */
+  id: number;
+  /** Shown in the viewport banner, e.g. "Trajectory start → end". */
+  label: string;
+  /** Number of points to collect before completing (1, 2, or more). */
+  count: number;
+  /** Meters added along world +Z to the raycast hit (terrain snap height). */
+  heightOffset: number;
+  /** 'surface' = mesh-first with z=0 ground fallback; 'ground' = force z=0 plane. */
+  target: PickTarget;
+  onComplete: (pts: Vec3[]) => void;
+  onCancel?: () => void;
+}
 
 /** Compute-targets that support debounced auto-update on scene changes. */
 type AutoTarget = "paths" | "radioMap" | "beamforming" | "channel";
@@ -133,6 +170,23 @@ interface AppState {
   // --- channel analysis ---
   channelResult: ChannelAnalysisResult | null;
 
+  // --- viewport pick mode (click-to-place) ---
+  pick: PickRequest | null;
+  /** Points collected so far for the active pick (drives live markers). */
+  pickPoints: Vec3[];
+  /** Planned trajectory segment previewed in the viewer (dashed line). */
+  trajPreview: [Vec3, Vec3] | null;
+  /** Arms the viewer's ghost device placement from UI buttons (mouse
+   *  discoverability for the K/L hotkey flow); the viewer clears it. */
+  placeArm: "tx" | "rx" | null;
+
+  // --- scene bounds (fetched per project; seeds sane coordinate defaults) ---
+  sceneBounds: SceneBounds | null;
+
+  // --- dockable panel layout (attach/detach, photo-editor style) ---
+  panelLayout: PanelLayout;
+  panelZ: string[];
+
   // --- live sync + AI screenshot groundwork ---
   liveMode: boolean;
   /** Latest viewport JPEG data URL (captured on demand from Viewer3D). */
@@ -169,6 +223,19 @@ interface AppState {
   suggestMaterials: () => Promise<void>;
   setDecision: (primId: string, decision: SuggestionDecision | null) => void;
   applyDecisions: () => Promise<void>;
+
+  // viewport pick mode
+  requestPick: (req: Omit<PickRequest, "id">) => number;
+  addPickPoint: (p: Vec3) => void;
+  cancelPick: (id?: number) => void;
+  setTrajPreview: (seg: [Vec3, Vec3] | null) => void;
+  armPlacement: (kind: "tx" | "rx" | null) => void;
+
+  // dockable panels
+  setPanelDock: (id: string, dock: DockTarget) => void;
+  setPanelFloatRect: (id: string, rect: FloatRect) => void;
+  raisePanel: (id: string) => void;
+  resetPanelLayout: () => void;
 
   // environment mode (Toolbar Environment select)
   setEnvironment: (environment: Environment) => Promise<void>;
@@ -220,6 +287,7 @@ interface AppState {
     num_points: number;
     dt_s: number;
     ue_id?: string | null;
+    follow_terrain?: boolean;
   }) => Promise<void>;
   setTrajFrame: (frame: number) => void;
   setTrajPlaying: (playing: boolean) => void;
@@ -256,9 +324,11 @@ interface AppState {
 export const useAppStore = create<AppState>()((set, get) => {
   /** Run an async action with busy/error bookkeeping. Returns undefined on failure. */
   async function run<T>(label: string, fn: () => Promise<T>): Promise<T | undefined> {
-    // Clear the previous notice too: dismissing a later error must not
-    // resurrect a stale success toast from an unrelated earlier action.
-    set({ busy: label, error: null, notice: null });
+    // An unread error must survive unrelated actions (audit: starting any
+    // action silently wiped the previous failure before the user saw it).
+    // Errors clear only via explicit dismiss or replacement by a newer one;
+    // stale success notices do get cleared.
+    set({ busy: label, notice: null });
     try {
       return await fn();
     } catch (err) {
@@ -586,6 +656,14 @@ export const useAppStore = create<AppState>()((set, get) => {
 
     channelResult: null,
 
+    pick: null,
+    pickPoints: [],
+    trajPreview: null,
+    placeArm: null,
+    sceneBounds: null,
+    panelLayout: initialPanelLayout.layout,
+    panelZ: initialPanelLayout.z,
+
     liveMode: false,
     lastViewportShot: null,
     sendScreenshot: false,
@@ -614,6 +692,8 @@ export const useAppStore = create<AppState>()((set, get) => {
     },
 
     openProject: async (projectId) => {
+      // A point picked against the old scene must never land in the new one.
+      get().cancelPick();
       await run(`Opening ${projectId}…`, async () => {
         const [rawScene, materials] = await Promise.all([
           api.getScene(projectId),
@@ -665,9 +745,21 @@ export const useAppStore = create<AppState>()((set, get) => {
           channelResult: null,
           // Live sync is opt-in and reset per project (stops any prior poll).
           liveMode: false,
+          // Pick state is per-scene; bounds refetch below.
+          pick: null,
+          pickPoints: [],
+          sceneBounds: null,
           // Viewport lighting/helpers are per-project (localStorage-backed).
           viewport: loadViewportSettings(projectId),
         });
+        // Scene bounds seed sane coordinate defaults (dataset region,
+        // trajectory endpoints). 404 = no mesh/devices; leave null.
+        void api
+          .sceneBounds(projectId)
+          .then((b) => {
+            if (get().projectId === projectId) set({ sceneBounds: b });
+          })
+          .catch(() => undefined);
         // Switching projects must stop a running live poll from the old one,
         // and the remembered channel-analysis pair belongs to the old scene.
         stopLivePoll();
@@ -708,7 +800,91 @@ export const useAppStore = create<AppState>()((set, get) => {
       await run("Refreshing scene…", refetchSceneInner);
     },
 
-    setMode: (mode) => set({ mode }),
+    setMode: (mode) => {
+      // A mode switch unmounts the panel that armed an in-flight pick; cancel
+      // so the viewport never shows a stuck crosshair with no consumer.
+      get().cancelPick();
+      set({ mode });
+    },
+
+    // ---------------------------------------------------- viewport pick mode
+
+    requestPick: (req) => {
+      const prev = get().pick;
+      if (prev) prev.onCancel?.();
+      const id = ++pickCounter;
+      // Arming a pick puts the viewport in a clean state: an active gizmo
+      // would fight the capture-phase pick click for the same pointer.
+      get().clearSelection();
+      set({ pick: { ...req, id }, pickPoints: [] });
+      return id;
+    },
+
+    addPickPoint: (p) => {
+      const { pick, pickPoints } = get();
+      if (!pick) return;
+      const next = [...pickPoints, p];
+      if (next.length >= pick.count) {
+        // Clear FIRST so the store is idle when the consumer's setState runs
+        // (onComplete must not observe a still-active pick).
+        set({ pick: null, pickPoints: [] });
+        pick.onComplete(next.slice(0, pick.count));
+      } else {
+        set({ pickPoints: next });
+      }
+    },
+
+    cancelPick: (id) => {
+      const { pick } = get();
+      if (!pick || (id !== undefined && pick.id !== id)) return;
+      set({ pick: null, pickPoints: [] });
+      pick.onCancel?.();
+    },
+
+    setTrajPreview: (seg) => set({ trajPreview: seg }),
+
+    armPlacement: (kind) => {
+      // Placement and pick both own viewport clicks; arming one cancels the other.
+      if (kind) get().cancelPick();
+      set({ placeArm: kind });
+    },
+
+    // ------------------------------------------------------- dockable panels
+
+    setPanelDock: (id, dock) => {
+      const layout = { ...get().panelLayout };
+      if (!layout[id]) return;
+      layout[id] = { ...layout[id], dock };
+      const panelZ = [...get().panelZ.filter((p) => p !== id), id];
+      set({ panelLayout: layout, panelZ });
+      savePanelLayout({ layout, z: panelZ });
+    },
+
+    setPanelFloatRect: (id, rect) => {
+      const layout = { ...get().panelLayout };
+      if (!layout[id]) return;
+      layout[id] = { ...layout[id], float: clampRect(rect) };
+      set({ panelLayout: layout });
+      savePanelLayout({ layout, z: get().panelZ });
+    },
+
+    raisePanel: (id) => {
+      const z = get().panelZ;
+      if (z[z.length - 1] === id) return;
+      const panelZ = [...z.filter((p) => p !== id), id];
+      set({ panelZ });
+      savePanelLayout({ layout: get().panelLayout, z: panelZ });
+    },
+
+    resetPanelLayout: () => {
+      try {
+        localStorage.removeItem("stw.panelLayout.v1");
+      } catch {
+        // best-effort
+      }
+      const fresh = loadPanelLayout();
+      set({ panelLayout: fresh.layout, panelZ: fresh.z });
+    },
 
     selectPrim: (primId, additive = false) => {
       const { selection } = get();
@@ -1188,7 +1364,7 @@ export const useAppStore = create<AppState>()((set, get) => {
 
     // ---------------------------------------------------- trajectory
 
-    simulateTrajectory: async ({ start_m, end_m, num_points, dt_s, ue_id }) => {
+    simulateTrajectory: async ({ start_m, end_m, num_points, dt_s, ue_id, follow_terrain }) => {
       const pid = get().projectId;
       if (!pid) return;
       await run("Simulating trajectory…", async () => {
@@ -1199,6 +1375,7 @@ export const useAppStore = create<AppState>()((set, get) => {
           end_m,
           num_points,
           dt_s,
+          follow_terrain: follow_terrain ?? false,
           // Request per-waypoint ray paths so the viewer can render live rays
           // during playback/scrub (feature: trajectory live rays).
           include_paths: true,
@@ -1311,3 +1488,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     dismissNotice: () => set({ notice: null }),
   };
 });
+
+if (import.meta.env.DEV) {
+  window.__stwStore = useAppStore;
+}

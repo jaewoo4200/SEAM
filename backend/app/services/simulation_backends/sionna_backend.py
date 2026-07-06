@@ -1179,4 +1179,9 @@ class SionnaBackend(RayTracingBackend):
             xs = [d.position[0] for d in txs]
             ys = [d.position[1] for d in txs]
             cx, cy = sum(xs) / len(xs), sum(ys) / len(ys)
-            return cx, cy, 60.0, 60.0
+            # Size-relative pad around the tx spread (the old flat 60x60 m
+            # plane missed small indoor rooms entirely — audit F5).
+            span_x = max(xs) - min(xs)
+            span_y = max(ys) - min(ys)
+            pad = min(15.0, max(3.0, 0.15 * max(span_x, span_y, 10.0)))
+            return cx, cy, span_x + 2 * pad, span_y + 2 * pad

@@ -195,6 +195,30 @@ class Actor(StrictModel):
         return self
 
 
+class SceneBounds(StrictModel):
+    """World-space AABB of the visual scene (Z-up meters).
+
+    Served by GET /projects/{id}/scene/bounds so the UI can seed sampling
+    regions, trajectory endpoints, and camera framing from real geometry
+    instead of guessed constants.
+    """
+
+    min: Vec3
+    max: Vec3
+
+    @model_validator(mode="after")
+    def _ordered(self) -> "SceneBounds":
+        if any(self.min[i] > self.max[i] for i in range(3)):
+            raise ValueError("bounds min must be <= max on every axis")
+        return self
+
+    def center(self) -> list[float]:
+        return [(self.min[i] + self.max[i]) / 2.0 for i in range(3)]
+
+    def size(self) -> list[float]:
+        return [self.max[i] - self.min[i] for i in range(3)]
+
+
 class ResultSetRef(StrictModel):
     """Pointer from the scene to a stored result artifact."""
 

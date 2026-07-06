@@ -42,8 +42,18 @@ def main() -> int:
         los = z["los"]
     n, k = H.shape
     keep = np.abs(H).sum(axis=1) > 0
+    total = n
     H = H[keep]
     n = len(H)
+    if n == 0:
+        print(
+            f"ERROR: dataset has 0 usable (non-zero) channel samples of {total} total.\n"
+            "Every sampled UE position produced zero ray paths — the sampling\n"
+            "region was almost certainly outside the scene geometry. Regenerate\n"
+            "the dataset with the region fit to the scene bounds (use the UI's\n"
+            "'Fit to scene' / 'Pick region in viewport' buttons)."
+        )
+        return 1
     print(f"dataset: {npz.name} | {n} usable samples x {k} subcarriers "
           f"| LOS ratio {los[keep].mean():.2f}")
 

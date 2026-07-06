@@ -201,6 +201,13 @@ export interface Scene {
   result_sets: ResultSetRef[];
 }
 
+/** World-space AABB of the visual scene (GET /scene/bounds, Z-up meters).
+ *  Seeds sampling regions, trajectory endpoints, and placement defaults. */
+export interface SceneBounds {
+  min: Vec3;
+  max: Vec3;
+}
+
 // ------------------------------------------------------------- materials
 
 export interface RFMaterial {
@@ -401,6 +408,8 @@ export interface TrajectorySimulateRequest {
   num_points?: number;
   dt_s?: number;
   include_paths?: boolean;
+  follow_terrain?: boolean;
+  follow_height_m?: number;
 }
 
 export interface RFDataExportSummary {
@@ -597,6 +606,8 @@ export interface DatasetSampling {
   start_m?: Vec3 | null;
   end_m?: Vec3 | null;
   seed: number;
+  // Snap sampled z to the scene surface underneath + height_m (outdoor terrain).
+  follow_terrain?: boolean;
 }
 
 export interface DatasetGenerateRequest {

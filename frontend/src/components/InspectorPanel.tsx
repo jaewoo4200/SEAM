@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAppStore } from "../store/appStore";
 import {
   MaterialSelect,
@@ -20,6 +20,49 @@ import type {
 
 const ANTENNA_PATTERNS = ["iso", "dipole", "hw_dipole", "tr38901"];
 const POLARIZATIONS: Antenna["polarization"][] = ["V", "H", "VH", "cross"];
+
+/** Two-step inline delete: first click arms ("Confirm delete?"), the second
+ *  runs the action. Auto-reverts after ~4s or on blur (matches the inline-form
+ *  confirm style used elsewhere instead of a blocking window.confirm). */
+function DeleteConfirmButton({
+  label,
+  disabled,
+  onConfirm,
+}: {
+  label: string;
+  disabled: boolean;
+  onConfirm: () => void;
+}) {
+  const [armed, setArmed] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const disarm = () => {
+    if (timer.current) {
+      clearTimeout(timer.current);
+      timer.current = null;
+    }
+    setArmed(false);
+  };
+  useEffect(() => disarm, []);
+  return (
+    <button
+      className={armed ? "danger" : "on-reject"}
+      disabled={disabled}
+      title={armed ? `Click again to ${label}` : label}
+      onClick={() => {
+        if (armed) {
+          disarm();
+          onConfirm();
+        } else {
+          setArmed(true);
+          timer.current = setTimeout(() => setArmed(false), 4000);
+        }
+      }}
+      onBlur={disarm}
+    >
+      {armed ? "Confirm?" : "Delete"}
+    </button>
+  );
+}
 
 interface DeviceDraft {
   name: string;
@@ -108,8 +151,8 @@ function DeviceCard({ device }: { device: Device }) {
     }
   };
 
-  const numInput = (key: keyof DeviceDraft, label: string, step = 0.1) => (
-    <label>
+  const numInput = (key: keyof DeviceDraft, label: string, step = 0.1, title?: string) => (
+    <label title={title}>
       {label}
       <input
         type="number"
@@ -120,6 +163,13 @@ function DeviceCard({ device }: { device: Device }) {
       />
     </label>
   );
+
+  // Shared unit/axis hint strings (F8): keep the terse field labels while
+  // documenting the frame + units on hover.
+  const POS_HINT = "Z-up ENU meters (X east · Y north · Z up)";
+  const VEL_HINT = "Z-up ENU m/s — drives per-path Doppler in the solver";
+  const SPACING_HINT =
+    "in wavelengths (λ) at the carrier frequency (set in Simulation > GLOBAL)";
 
   return (
     <div className="panel">
@@ -145,9 +195,9 @@ function DeviceCard({ device }: { device: Device }) {
               onChange={(e) => setDraft({ ...draft, name: e.target.value })}
             />
           </label>
-          {numInput("x", "X (m)")}
-          {numInput("y", "Y (m)")}
-          {numInput("z", "Z (m)")}
+          {numInput("x", "X (m)", 0.1, POS_HINT)}
+          {numInput("y", "Y (m)", 0.1, POS_HINT)}
+          {numInput("z", "Z (m)", 0.1, POS_HINT)}
           {device.kind === "tx" && numInput("power_dbm", "Power (dBm)", 1)}
           <label>
             Antenna pattern
@@ -181,24 +231,26 @@ function DeviceCard({ device }: { device: Device }) {
           </label>
           {numInput("num_rows", "Array rows", 1)}
           {numInput("num_cols", "Array cols", 1)}
-          {numInput("v_spacing", "V spacing (λ)", 0.05)}
-          {numInput("h_spacing", "H spacing (λ)", 0.05)}
-          {numInput("vx", "Vel X (m/s)", 0.5)}
-          {numInput("vy", "Vel Y (m/s)", 0.5)}
-          {numInput("vz", "Vel Z (m/s)", 0.5)}
+          {numInput("v_spacing", "V spacing (λ)", 0.05, SPACING_HINT)}
+          {numInput("h_spacing", "H spacing (λ)", 0.05, SPACING_HINT)}
+          {numInput("vx", "Vel X (m/s)", 0.5, VEL_HINT)}
+          {numInput("vy", "Vel Y (m/s)", 0.5, VEL_HINT)}
+          {numInput("vz", "Vel Z (m/s)", 0.5, VEL_HINT)}
         </div>
+        <p className="hint">
+          Positions &amp; velocity are Z-up ENU (X east · Y north · Z up). Velocity drives
+          per-path Doppler; V/H spacing is in wavelengths at the carrier frequency (Simulation &gt;
+          GLOBAL).
+        </p>
         <div className="editor-actions">
           <button className="primary" onClick={apply} disabled={disabled}>
             Apply
           </button>
-          <button
-            className="on-reject"
-            onClick={() => void deleteDevice(device.id)}
+          <DeleteConfirmButton
+            label="delete this radio device"
             disabled={disabled}
-            title="Delete this radio device"
-          >
-            Delete
-          </button>
+            onConfirm={() => void deleteDevice(device.id)}
+          />
           {err && <span className="field-error">{err}</span>}
         </div>
       </div>
@@ -310,8 +362,8 @@ function ActorCard({ actor }: { actor: Actor }) {
     }
   };
 
-  const numInput = (key: keyof ActorDraft, label: string, step = 0.1) => (
-    <label>
+  const numInput = (key: keyof ActorDraft, label: string, step = 0.1, title?: string) => (
+    <label title={title}>
       {label}
       <input
         type="number"
@@ -322,6 +374,8 @@ function ActorCard({ actor }: { actor: Actor }) {
       />
     </label>
   );
+
+  const POS_HINT = "Z-up ENU meters (X east · Y north · Z up)";
 
   const toggleDevice = (deviceId: string) => {
     const cur = actor.attached_device_ids;
@@ -357,26 +411,24 @@ function ActorCard({ actor }: { actor: Actor }) {
           />
         </label>
         <div className="field-grid">
-          {numInput("x", "X (m)")}
-          {numInput("y", "Y (m)")}
-          {numInput("z", "Z (m)")}
-          {numInput("yaw", "Yaw (°)", 5)}
+          {numInput("x", "X (m)", 0.1, POS_HINT)}
+          {numInput("y", "Y (m)", 0.1, POS_HINT)}
+          {numInput("z", "Z (m)", 0.1, POS_HINT)}
+          {numInput("yaw", "Yaw (°)", 5, "Rotation about +Z (Z-up ENU)")}
           {numInput("l", "Length (m)")}
           {numInput("w", "Width (m)")}
           {numInput("h", "Height (m)")}
         </div>
+        <p className="hint">Position is Z-up ENU meters (X east · Y north · Z up); yaw about +Z.</p>
         <div className="editor-actions">
           <button className="primary" onClick={applyPose} disabled={disabled}>
             Apply
           </button>
-          <button
-            className="on-reject"
-            onClick={() => void deleteActor(actor.id)}
+          <DeleteConfirmButton
+            label="delete this actor"
             disabled={disabled}
-            title="Delete this actor"
-          >
-            Delete
-          </button>
+            onConfirm={() => void deleteActor(actor.id)}
+          />
           {err && <span className="field-error">{err}</span>}
         </div>
       </div>
@@ -430,6 +482,7 @@ function ActorCard({ actor }: { actor: Actor }) {
  *  "Record current pos" that appends the actor's current position. */
 function ActorTrajectoryEditor({ actor }: { actor: Actor }) {
   const updateActor = useAppStore((s) => s.updateActor);
+  const requestPick = useAppStore((s) => s.requestPick);
   const busy = useAppStore((s) => s.busy);
   const disabled = busy !== null;
 
@@ -466,6 +519,22 @@ function ActorTrajectoryEditor({ actor }: { actor: Actor }) {
     commit({ ...traj, waypoints: traj.waypoints.filter((_, j) => j !== i) });
   const recordCurrent = () =>
     commit({ ...traj, waypoints: [...traj.waypoints, [...actor.position]] });
+
+  // Click one point in the viewport and append it as a waypoint. A pick
+  // resolves asynchronously, so read the live trajectory from the store on
+  // completion rather than the (possibly stale) render-time `traj` closure.
+  const pickWaypoint = () =>
+    requestPick({
+      label: "Actor waypoint",
+      count: 1,
+      target: "surface",
+      heightOffset: 0,
+      onComplete: ([p]) => {
+        const cur = useAppStore.getState().scene?.actors.find((a) => a.id === actor.id);
+        const base: ActorTrajectory = cur?.trajectory ?? { waypoints: [], dt_s: 0.1, loop: false, mode: "once" };
+        void updateActor(actor.id, { trajectory: { ...base, waypoints: [...base.waypoints, p] } });
+      },
+    });
 
   return (
     <div style={{ marginTop: 12 }}>
@@ -518,10 +587,20 @@ function ActorTrajectoryEditor({ actor }: { actor: Actor }) {
             <button disabled={disabled} onClick={addWaypoint}>
               + Waypoint
             </button>
+            <button
+              disabled={disabled}
+              onClick={pickWaypoint}
+              title="Click a point in the viewport to append it as a waypoint"
+            >
+              🎯 Pick waypoint
+            </button>
             <button disabled={disabled} onClick={recordCurrent} title="Append the actor's current position">
               Record current pos
             </button>
           </div>
+          <p className="hint" style={{ marginTop: 6 }}>
+            Animates in Results → Scenario playback.
+          </p>
           <label className="solver-field" style={{ marginTop: 6 }}>
             <span className="solver-field-label">dt</span>
             <span className="solver-field-input">
