@@ -53,8 +53,8 @@ bash scripts/start.sh     # 2. 백엔드+프론트 실행
 | RF 재질 **지정 + 검증 + AI/규칙 제안** | ❌ | ✅ |
 | **Mock 백엔드** (GPU/Sionna 없이 동작) | ❌ | ✅ |
 | **MIMO 빔포밍** 이득 (코드북 스윕 / TX-MRT / SVD) | ❌ | ✅ |
-| **채널 분석** (링크버짓, CIR/CFR, PL 모델 vs RT) | ❌ | ✅ |
-| **궤적 RF 지표** (RSS / path gain / RMS delay) | ❌ | ✅ |
+| **채널 분석** (링크버짓, CIR/CFR, PL 모델 vs RT, 다중 TX **SINR**) | ❌ | ✅ |
+| **궤적 RF 지표** (RSS / path gain / RMS delay / interference·SINR) | ❌ | ✅ |
 | **RFData 내보내기** (AODT 뷰어 컨트랙트) | ❌ | ✅ |
 | **ML 데이터셋** 생성 (npz + metadata) | ❌ | ✅ |
 | **Sionna 엔진 버전 교체** (별도 venv) | ❌ | ✅ |
@@ -87,6 +87,11 @@ bash scripts/start.sh     # 2. 백엔드+프론트 실행
   에서 주파수/대역폭/TX 파워/잡음지수/SCS(부반송파 간격)를 즉시 조정하면 자동
   재분석되고, **TS 38.215 스타일 RSRP/RSSI/RSRQ**(요청 SCS의 OFDM 자원격자 기준)
   가 함께 산출됩니다.
+- **다중 TX 동일채널 간섭(SINR)** — 씬에 TX가 여럿이면 서빙 TX 이외 모든 TX가
+  RX에 만드는 레이트레이싱 수신전력을 동일채널 간섭으로 합산해 **SINR = S/(I+N)**,
+  간섭 전력, RSSI/RSRQ, Shannon 용량에 반영합니다(풀버퍼 최악조건 가정, 스케줄러
+  없음). 채널 분석과 궤적 모두 지원하며 서빙 셀은 선택 가능하고, 간섭 TX가 없으면
+  `SINR = SNR`로 되돌아갑니다.
 - **결정론적 Mock 백엔드** — GPU/Sionna 없이 Friis + 이미지법 반사로 예제
   경로/라디오맵을 계산. 프론트엔드·테스트가 하드웨어 없이 돌아갑니다.
 - **실제 Sionna RT 경로** — `sionna-rt`(검증 2.0.x) 설치 시 컴파일된

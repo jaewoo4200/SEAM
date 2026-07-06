@@ -179,6 +179,8 @@ interface AppState {
   /** Arms the viewer's ghost device placement from UI buttons (mouse
    *  discoverability for the K/L hotkey flow); the viewer clears it. */
   placeArm: "tx" | "rx" | null;
+  /** True while a gizmo axis is actively dragged (live-poll merge pauses). */
+  gizmoDragging: boolean;
 
   // --- scene bounds (fetched per project; seeds sane coordinate defaults) ---
   sceneBounds: SceneBounds | null;
@@ -230,6 +232,7 @@ interface AppState {
   cancelPick: (id?: number) => void;
   setTrajPreview: (seg: [Vec3, Vec3] | null) => void;
   armPlacement: (kind: "tx" | "rx" | null) => void;
+  setGizmoDragging: (on: boolean) => void;
 
   // dockable panels
   setPanelDock: (id: string, dock: DockTarget) => void;
@@ -407,23 +410,41 @@ export const useAppStore = create<AppState>()((set, get) => {
     }
   }
 
+  // True while a debounced auto-recompute is running: those refresh result
+  // DATA but must never yank the user into Results mode mid-edit (audit B1).
+  let autoInFlight = false;
+
   function autoRun(target: AutoTarget): void {
+    const done = () => {
+      autoInFlight = false;
+    };
+    autoInFlight = true;
     switch (target) {
       case "paths":
-        void get().simulatePaths();
+        void get().simulatePaths().finally(done);
         return;
       case "radioMap":
-        void get().simulateRadioMap();
+        void get().simulateRadioMap().finally(done);
         return;
       case "beamforming":
-        void get().runBeamforming();
+        void get().runBeamforming().finally(done);
         return;
       case "channel": {
         const a = lastChannelArgs;
-        if (a) void get().analyzeChannel(a.txId, a.rxId, a.numCfrPoints, a.scsKhz);
+        if (a) {
+          void get().analyzeChannel(a.txId, a.rxId, a.numCfrPoints, a.scsKhz).finally(done);
+        } else {
+          done();
+        }
         return;
       }
     }
+  }
+
+  /** Mode patch for result-producing actions: user-initiated runs jump to
+   *  Results; auto reruns leave the current mode alone. */
+  function resultsMode(): { mode?: Mode } {
+    return autoInFlight ? {} : { mode: "results" };
   }
 
   function scheduleAuto(target: AutoTarget): void {
@@ -562,6 +583,9 @@ export const useAppStore = create<AppState>()((set, get) => {
           const fresh = normalizeScene(raw);
           const cur = get().scene;
           if (!cur || !get().liveMode) return;
+          // Never merge positions while the user is dragging a gizmo: the
+          // poll would snap the marker back mid-drag (audit finding).
+          if (get().gizmoDragging) return;
           const devPos = new Map(fresh.devices.map((d) => [d.id, d.position]));
           const actPos = new Map(
             fresh.actors.map((a) => [a.id, { position: a.position, orientation_deg: a.orientation_deg }]),
@@ -670,6 +694,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     pickPoints: [],
     trajPreview: null,
     placeArm: null,
+    gizmoDragging: false,
     sceneBounds: null,
     panelLayout: initialPanelLayout.layout,
     panelZ: initialPanelLayout.z,
@@ -811,10 +836,11 @@ export const useAppStore = create<AppState>()((set, get) => {
     },
 
     setMode: (mode) => {
-      // A mode switch unmounts the panel that armed an in-flight pick; cancel
-      // so the viewport never shows a stuck crosshair with no consumer.
+      // A mode switch may unmount the panel that armed an in-flight pick;
+      // cancel and SAY so - a silently vanished crosshair reads as a bug.
+      const hadPick = get().pick;
       get().cancelPick();
-      set({ mode });
+      set({ mode, ...(hadPick ? { notice: `Pick cancelled (${hadPick.label})` } : {}) });
     },
 
     // ---------------------------------------------------- viewport pick mode
@@ -857,6 +883,10 @@ export const useAppStore = create<AppState>()((set, get) => {
       // Placement and pick both own viewport clicks; arming one cancels the other.
       if (kind) get().cancelPick();
       set({ placeArm: kind });
+    },
+
+    setGizmoDragging: (on) => {
+      if (get().gizmoDragging !== on) set({ gizmoDragging: on });
     },
 
     // ------------------------------------------------------- dockable panels
@@ -966,7 +996,7 @@ export const useAppStore = create<AppState>()((set, get) => {
         set({
           pathResults: result,
           selectedPathId: null,
-          mode: "results",
+          ...resultsMode(),
           notice: `Simulated ${result.paths.length} path(s) via ${result.backend} backend`,
         });
         await refetchSceneInner(); // a ResultSetRef was appended to the scene
@@ -980,7 +1010,7 @@ export const useAppStore = create<AppState>()((set, get) => {
         const result = await api.simulateRadioMap(pid, { config: get().radioMapConfig });
         set({
           radioMap: result,
-          mode: "results",
+          ...resultsMode(),
           notice: `Radio map computed via ${result.backend} backend`,
         });
         await refetchSceneInner();
@@ -1044,7 +1074,7 @@ export const useAppStore = create<AppState>()((set, get) => {
           parts.push(`TX-MRT ${fmt(r.tx_mrt_gain_db)}`);
         }
         if (r.warnings.length) parts.push(r.warnings[0]);
-        set({ beamforming: r, showBeamforming: true, mode: "results", notice: parts.join(" · ") });
+        set({ beamforming: r, showBeamforming: true, ...resultsMode(), notice: parts.join(" · ") });
       });
     },
 
@@ -1394,7 +1424,7 @@ export const useAppStore = create<AppState>()((set, get) => {
           trajectory: result,
           trajFrame: 0,
           trajPlaying: false,
-          mode: "results",
+          ...resultsMode(),
           notice: `Trajectory: ${result.samples.length} sample(s) via ${result.backend} backend`,
         });
         await refetchSceneInner();
@@ -1426,7 +1456,7 @@ export const useAppStore = create<AppState>()((set, get) => {
           scenario: result,
           scenarioFrame: 0,
           scenarioPlaying: false,
-          mode: "results",
+          ...resultsMode(),
           notice: `Scenario: ${result.frames.length} frame(s) via ${result.backend} backend`,
         });
         await refetchSceneInner(); // a ResultSetRef (kind 'scenario') was appended
@@ -1460,6 +1490,9 @@ export const useAppStore = create<AppState>()((set, get) => {
           // Likewise the SCS: omit to let the backend default (30 kHz) hold.
           ...(scsKhz !== undefined ? { subcarrier_spacing_khz: scsKhz } : {}),
         });
+        // A debounced/auto analysis can land AFTER a project switch; writing
+        // it would show the old scene's channel in the new project (audit B4).
+        if (get().projectId !== pid) return;
         set({
           channelResult: result,
           notice:

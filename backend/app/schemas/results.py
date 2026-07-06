@@ -102,6 +102,10 @@ class TrajectorySample(StrictModel):
     position: Vec3
     rss_dbm: Optional[float] = None
     path_gain_db: Optional[float] = None
+    # Co-channel interference (sum of every non-serving TX's power at the UE);
+    # None when the scene has a single TX or nothing interferes here.
+    interference_dbm: Optional[float] = None
+    # True SINR = S / (I + N); equals the SNR when interference_dbm is None.
     sinr_db: Optional[float] = None
     rms_delay_spread_ns: Optional[float] = None
     path_count: int = 0

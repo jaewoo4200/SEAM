@@ -531,15 +531,43 @@ def analyze_channel(
     )
     noise_floor = noise_floor_dbm(config)
     snr_db: Optional[float] = (rss_dbm - noise_floor) if rss_dbm is not None else None
+
+    # ---- Co-channel interference: every OTHER TX's ray-traced power at this
+    # RX (full-buffer: all TXs transmit simultaneously on the same resources).
+    # One extra solve covers all interferers; the scene cache makes it cheap.
+    interference_dbm: Optional[float] = None
+    other_tx_ids = [d.id for d in txs if d.id != tx.id]
+    if other_tx_ids:
+        intf_cfg = config.model_copy(
+            update={"tx_ids": other_tx_ids, "rx_ids": [rx.id]}
+        )
+        intf_result = backend.simulate_paths(project_dir, scene, library, intf_cfg)
+        intf_lin = sum(
+            _lin_from_dbm(p.power_dbm)
+            for p in intf_result.paths
+            if p.rx_id == rx.id and p.tx_id != tx.id
+        )
+        if intf_lin > 0.0:
+            interference_dbm = 10.0 * math.log10(intf_lin)
+
+    # SINR over interference + noise; equals SNR when nothing interferes.
+    intf_plus_noise = _lin_from_dbm(noise_floor) + (
+        _lin_from_dbm(interference_dbm) if interference_dbm is not None else 0.0
+    )
+    sinr_db: Optional[float] = (
+        rss_dbm - 10.0 * math.log10(intf_plus_noise) if rss_dbm is not None else None
+    )
+
+    # Capacity uses the SINR (interference-aware Shannon bound).
     shannon_capacity_mbps: Optional[float] = None
-    if snr_db is not None:
-        snr_lin = 10.0 ** (snr_db / 10.0)
-        shannon_capacity_mbps = config.bandwidth_hz * math.log2(1.0 + snr_lin) / 1e6
+    if sinr_db is not None:
+        sinr_lin = 10.0 ** (sinr_db / 10.0)
+        shannon_capacity_mbps = config.bandwidth_hz * math.log2(1.0 + sinr_lin) / 1e6
 
     # ---- 3GPP measurement quantities (TS 38.215-style) over an OFDM grid at
     # the requested subcarrier spacing. RSRP is the per-resource-element power
     # (wideband RSS spread evenly across occupied subcarriers), RSSI includes
-    # the thermal+NF noise, RSRQ = N_RB * RSRP / RSSI.
+    # co-channel interference + thermal noise, RSRQ = N_RB * RSRP / RSSI.
     scs_khz = request.subcarrier_spacing_khz
     n_rb = max(1, int(config.bandwidth_hz / (12.0 * scs_khz * 1e3)))
     n_sc = n_rb * 12
@@ -548,7 +576,7 @@ def analyze_channel(
     rsrq_db: Optional[float] = None
     if rss_dbm is not None:
         rsrp_dbm = rss_dbm - 10.0 * math.log10(n_sc)
-        rssi_lin = _lin_from_dbm(rss_dbm) + _lin_from_dbm(noise_floor)
+        rssi_lin = _lin_from_dbm(rss_dbm) + intf_plus_noise
         rssi_dbm = 10.0 * math.log10(rssi_lin)
         rsrq_db = 10.0 * math.log10(n_rb * _lin_from_dbm(rsrp_dbm) / rssi_lin)
 
@@ -601,6 +629,9 @@ def analyze_channel(
         rss_dbm=rss_dbm,
         rt_path_loss_db=rt_path_loss_db,
         snr_db=snr_db,
+        interference_dbm=interference_dbm,
+        num_interferers=len(other_tx_ids),
+        sinr_db=sinr_db,
         shannon_capacity_mbps=shannon_capacity_mbps,
         rsrp_dbm=rsrp_dbm,
         rssi_dbm=rssi_dbm,

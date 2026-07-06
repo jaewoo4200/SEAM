@@ -360,3 +360,106 @@ def test_api_rsrp_scs15_doubles_resource_blocks(api_client):
     exp_delta = -10.0 * math.log10(n_sc15 / n_sc30)
     assert b15["rsrp_dbm"] - b30["rsrp_dbm"] == pytest.approx(exp_delta, abs=1e-6)
     assert exp_delta == pytest.approx(-3.01, abs=0.02)
+
+
+def test_api_single_tx_reports_no_interference(api_client):
+    # The single-TX fixture scene has nothing to interfere: interference_dbm
+    # stays None, num_interferers is 0, and SINR collapses to SNR exactly.
+    resp = api_client.post("/api/projects/ch_test/analyze/channel", json=MOCK_REQ)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["interference_dbm"] is None
+    assert body["num_interferers"] == 0
+    assert body["sinr_db"] == pytest.approx(body["snr_db"], abs=1e-9)
+
+
+# ------------------------------------------- co-channel interference (multi-TX)
+
+
+def _two_tx_scene() -> Scene:
+    """The single-TX fixture plus a second, more distant transmitter. tx_002 is
+    far enough that its power at the RX is well below the serving tx_001 link, so
+    it acts as a weak co-channel interferer rather than the serving cell."""
+    scene = _scene()
+    scene.devices.insert(
+        1,
+        Device(id="tx_002", name="TX2", kind="tx", position=[80.0, 20.0, 12.0], power_dbm=30.0),
+    )
+    return scene
+
+
+@pytest.fixture()
+def api_client_2tx(tmp_path, monkeypatch):
+    monkeypatch.setenv("SIONNATWIN_PROJECT_ROOTS", str(tmp_path))
+    get_settings.cache_clear()
+    deps.get_store.cache_clear()
+    store = deps.get_store()
+    store.create_project("Channel Test 2TX", project_id="ch_test")
+    store.save_scene("ch_test", _two_tx_scene())
+    app = FastAPI()
+    app.include_router(channel_api.router, prefix="/api")
+    client = TestClient(app)
+    try:
+        yield client
+    finally:
+        get_settings.cache_clear()
+        deps.get_store.cache_clear()
+
+
+def test_api_two_tx_interference_lowers_sinr(api_client_2tx):
+    # tx_001 is the serving link (first TX); tx_002's ray-traced power at the RX
+    # is co-channel interference. SINR = S/(I+N) must fall below the noise-only
+    # SNR, and the definitions must hold exactly.
+    resp = api_client_2tx.post("/api/projects/ch_test/analyze/channel", json=MOCK_REQ)
+    assert resp.status_code == 200
+    body = resp.json()
+
+    assert body["tx_id"] == "tx_001"  # first TX serves
+    assert body["num_interferers"] == 1
+    assert body["interference_dbm"] is not None
+
+    rss = body["rss_dbm"]
+    noise_floor = body["metadata"]["noise_floor_dbm"]
+    intf = body["interference_dbm"]
+
+    # Interference is the weaker link (tx_002 is farther), so it drags SINR down
+    # but not below the noise floor.
+    assert body["snr_db"] == pytest.approx(rss - noise_floor, abs=1e-9)
+    assert body["sinr_db"] < body["snr_db"]
+
+    # SINR = S / (I + N), computed in the linear domain.
+    exp_sinr = rss - 10.0 * math.log10(_lin(noise_floor) + _lin(intf))
+    assert body["sinr_db"] == pytest.approx(exp_sinr, abs=1e-9)
+
+    # RSSI now carries signal + interference + noise (the single-TX case had no
+    # interference term).
+    exp_rssi = 10.0 * math.log10(_lin(rss) + _lin(intf) + _lin(noise_floor))
+    assert body["rssi_dbm"] == pytest.approx(exp_rssi, abs=1e-9)
+
+    # Extra interference in the RSSI denominator pushes RSRQ below the
+    # single-TX, signal-dominated asymptote of 10log10(1/12) ~= -10.79 dB.
+    assert body["rsrq_db"] < 10.0 * math.log10(1.0 / 12.0)
+
+    # Capacity uses the SINR, so it sits below the noise-only Shannon bound.
+    sinr_lin = _lin(body["sinr_db"])
+    exp_cap = body["bandwidth_hz"] * math.log2(1.0 + sinr_lin) / 1e6
+    assert body["shannon_capacity_mbps"] == pytest.approx(exp_cap, abs=1e-6)
+
+
+def test_api_two_tx_serving_tx_002_swaps_signal_and_interferer(api_client_2tx):
+    # Selecting tx_002 as the serving TX makes tx_001 the (now stronger)
+    # interferer: signal drops, interference rises, still one interferer.
+    default = api_client_2tx.post(
+        "/api/projects/ch_test/analyze/channel", json=MOCK_REQ
+    ).json()
+    swapped = api_client_2tx.post(
+        "/api/projects/ch_test/analyze/channel",
+        json={"config": {"backend": "mock"}, "tx_id": "tx_002"},
+    ).json()
+
+    assert swapped["tx_id"] == "tx_002"
+    assert swapped["num_interferers"] == 1
+    # The serving/interferer powers swap: tx_002's signal == tx_001's interferer
+    # power in the default run, and vice-versa.
+    assert swapped["rss_dbm"] == pytest.approx(default["interference_dbm"], abs=1e-9)
+    assert swapped["interference_dbm"] == pytest.approx(default["rss_dbm"], abs=1e-9)

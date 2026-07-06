@@ -63,8 +63,6 @@ export default function App() {
         <>
           <SolverControls key={`sc-${projectId}`} />
           <ResultExplorer key={`re-${projectId}`} />
-          {/* Dockable cards whose current home is the right sidebar. */}
-          <PanelHost side="right" />
         </>
       );
       break;
@@ -103,7 +101,13 @@ export default function App() {
             onStart={panel.startDrag}
             onReset={panel.reset}
           />
-          <aside className="sidebar right">{rightPanel}</aside>
+          <aside className="sidebar right">
+            {rightPanel}
+            {/* Dockable cards docked right render in EVERY mode so playback,
+                trajectory previews, and live params survive tab switches
+                (audit B2: they used to die outside Results). */}
+            <PanelHost side="right" />
+          </aside>
         </div>
       ) : (
         <div className="empty-app">

@@ -77,6 +77,13 @@ class ChannelAnalysisResult(StrictModel):
     rss_dbm: Optional[float] = None
     rt_path_loss_db: Optional[float] = None
     snr_db: Optional[float] = None
+    # Co-channel interference from every OTHER TX in the scene (full-buffer
+    # assumption: all transmit simultaneously on the same resources). None
+    # when the scene has one TX or no interferer path reaches this RX.
+    interference_dbm: Optional[float] = None
+    num_interferers: int = 0
+    # SINR = S / (I + N). Equals snr_db when there is no interference.
+    sinr_db: Optional[float] = None
     shannon_capacity_mbps: Optional[float] = None
     # 3GPP measurement quantities (TS 38.215-style, derived from the
     # ray-traced wideband RSS over an OFDM grid at subcarrier_spacing_khz):

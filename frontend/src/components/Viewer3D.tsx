@@ -265,8 +265,17 @@ function FallbackPrims() {
   const selection = useAppStore((s) => s.selection);
   const validation = useAppStore((s) => s.validation);
   const selectPrim = useAppStore((s) => s.selectPrim);
+  const showSlice = useAppStore((s) => s.viewport.showSlice);
+  const sliceZ = useAppStore((s) => s.viewport.sliceZ);
 
   const sevMap = useMemo(() => severityByPrim(validation), [validation]);
+
+  // Horizontal slice plane (RT GUI parity), mirroring GLBScene: clip placeholder
+  // boxes to z <= sliceZ so slice-mode works even when the GLB failed to load.
+  const clippingPlanes = useMemo(
+    () => (showSlice ? [new THREE.Plane(new THREE.Vector3(0, 0, -1), sliceZ)] : null),
+    [showSlice, sliceZ],
+  );
 
   if (!scene) return null;
   // In visual/results mode the boxes still color by RF status so they stay
@@ -294,6 +303,7 @@ function FallbackPrims() {
                 color={color}
                 emissive={selected ? ACCENT : "#000000"}
                 emissiveIntensity={selected ? 0.6 : 0}
+                clippingPlanes={clippingPlanes}
               />
             </mesh>
           );
@@ -390,6 +400,9 @@ function GizmoWrapped({
     if (!tc) return;
     const onAxis = (e: { value?: unknown }) => {
       gizmoBusy = e.value != null;
+      // Mirror into the store so the live-sync poll pauses position merges
+      // while an axis is dragged (audit: poll snapped markers back mid-drag).
+      useAppStore.getState().setGizmoDragging(gizmoBusy);
       setEvents({ enabled: e.value == null });
     };
     tc.addEventListener("axis-changed", onAxis);
@@ -400,6 +413,7 @@ function GizmoWrapped({
     return () => {
       tc.removeEventListener("axis-changed", onAxis);
       gizmoBusy = false;
+      useAppStore.getState().setGizmoDragging(false);
       setEvents({ enabled: true });
       if (controls) controls.enabled = true;
     };
@@ -891,7 +905,7 @@ function RadioMapPlane({ radioMap }: { radioMap: RadioMapResultSet }) {
   const z = grid.origin[2] !== 0 ? grid.origin[2] : grid.height_m;
   return (
     // PlaneGeometry lies in XY facing +Z, which is exactly our ground plane.
-    <mesh position={[grid.origin[0] + w / 2, grid.origin[1] + h / 2, z]}>
+    <mesh position={[grid.origin[0] + w / 2, grid.origin[1] + h / 2, z]} userData={{ __noFit: true }}>
       <planeGeometry args={[w, h]} />
       <meshBasicMaterial
         map={texture}
@@ -964,7 +978,7 @@ function OverlayScene({ url }: { url: string }) {
   // scene. Composed via a parent group so a root transform inside the GLB
   // is preserved rather than overwritten.
   return (
-    <group ref={group} rotation={[Math.PI / 2, 0, 0]}>
+    <group ref={group} rotation={[Math.PI / 2, 0, 0]} userData={{ __noFit: true }}>
       <primitive object={object} />
     </group>
   );
@@ -1029,6 +1043,15 @@ function ViewerHotkeys() {
       useAppStore.getState().armPlacement(null);
     }
   }, [placeArm]);
+  // A panel pick and the ghost placement must never be active together (both
+  // own viewport clicks and Esc); arming a pick clears any live ghost.
+  const pickActiveForGhost = useAppStore((s) => s.pick !== null);
+  useEffect(() => {
+    if (pickActiveForGhost) {
+      setPlacing(null);
+      setGhost(null);
+    }
+  }, [pickActiveForGhost]);
 
   useEffect(() => {
     cameraPoseGetter = () => ({
@@ -1101,6 +1124,17 @@ function ViewerHotkeys() {
       if (!kind || e.button !== 0) return;
       // An active panel pick owns viewport clicks; ghost placement yields.
       if (useAppStore.getState().pick) return;
+      // Scenario playback replaces the static device layer: a device placed
+      // now would be invisible until playback ends (audit finding).
+      const st = useAppStore.getState();
+      if (st.mode === "results" && st.scenario !== null && st.scenario.frames.length > 0) {
+        useAppStore.setState({
+          notice: "Placement blocked during scenario playback - clear the scenario first",
+        });
+        setPlacing(null);
+        setGhost(null);
+        return;
+      }
       e.stopImmediatePropagation();
       e.preventDefault();
       const pos = ghostRef.current ?? surfacePos();
@@ -1125,9 +1159,19 @@ function ViewerHotkeys() {
           break;
         case "f": {
           const box = new THREE.Box3();
+          // Skip overlays/helpers (radio-map plane, textured backdrop, pick
+          // dots, ghosts, trajectory preview): fitting to them flies the
+          // camera far past the actual scene (audit finding). Anything tagged
+          // __noFit - or inside a tagged ancestor - is excluded.
+          const noFit = (o: THREE.Object3D | null): boolean => {
+            for (let cur = o; cur; cur = cur.parent) {
+              if (cur.userData.__noFit) return true;
+            }
+            return false;
+          };
           three.traverse((obj) => {
             const mesh = obj as THREE.Mesh;
-            if (mesh.isMesh && mesh.visible) box.expandByObject(mesh);
+            if (mesh.isMesh && mesh.visible && !noFit(mesh)) box.expandByObject(mesh);
           });
           if (box.isEmpty()) return;
           const center = box.getCenter(new THREE.Vector3());
@@ -1141,15 +1185,19 @@ function ViewerHotkeys() {
           break;
         }
         case "k":
-          if (useAppStore.getState().pick) return; // pick owns the viewport
-          setPlacing("tx");
+        case "l": {
+          const st = useAppStore.getState();
+          if (st.pick) return; // pick owns the viewport
+          if (st.mode === "results" && st.scenario !== null && st.scenario.frames.length > 0) {
+            useAppStore.setState({
+              notice: "Placement blocked during scenario playback - clear the scenario first",
+            });
+            return;
+          }
+          setPlacing(e.key.toLowerCase() === "k" ? "tx" : "rx");
           setGhost(surfacePos());
           break;
-        case "l":
-          if (useAppStore.getState().pick) return;
-          setPlacing("rx");
-          setGhost(surfacePos());
-          break;
+        }
         case "escape":
           setPlacing(null);
           setGhost(null);
@@ -1158,6 +1206,13 @@ function ViewerHotkeys() {
           setViewport({ showSlice: !viewport.showSlice });
           break;
         case "m":
+          // Keep the hotkey honest: with no computed radio map the checkbox
+          // is disabled, so the hotkey explains instead of silently flipping
+          // an invisible flag (audit finding).
+          if (!useAppStore.getState().radioMap) {
+            useAppStore.setState({ notice: "No radio map yet - run Simulate radio map first" });
+            break;
+          }
           toggleOverlay("radioMap");
           break;
         default:
@@ -1177,7 +1232,7 @@ function ViewerHotkeys() {
   if (!placing || !ghost) return null;
   return (
     // Translucent ghost marker following the cursor (always on top).
-    <mesh position={ghost} renderOrder={999}>
+    <mesh position={ghost} renderOrder={999} userData={{ __noFit: true }}>
       <sphereGeometry args={[0.6, 20, 14]} />
       <meshBasicMaterial
         color={placing === "tx" ? "#ff5252" : "#2e9bff"}
@@ -1301,7 +1356,7 @@ function PickController() {
 
   if (!pick) return null;
   const dot = (p: Vec3, key: string, ghost = false) => (
-    <mesh key={key} position={p} renderOrder={999}>
+    <mesh key={key} position={p} renderOrder={999} userData={{ __noFit: true }}>
       <sphereGeometry args={[0.45, 18, 12]} />
       <meshBasicMaterial color={PICK_COLOR} transparent opacity={ghost ? 0.45 : 0.9} depthTest={false} />
     </mesh>
@@ -1332,7 +1387,7 @@ function TrajPreviewLine() {
   const picking = useAppStore((s) => s.pick !== null);
   if (!seg || picking) return null;
   return (
-    <>
+    <group userData={{ __noFit: true }}>
       <Line points={[seg[0], seg[1]]} color={PICK_COLOR} lineWidth={2} dashed dashSize={0.6} gapSize={0.4} />
       {seg.map((p, i) => (
         <mesh key={i} position={p} renderOrder={998}>
@@ -1340,7 +1395,7 @@ function TrajPreviewLine() {
           <meshBasicMaterial color={PICK_COLOR} transparent opacity={0.7} depthTest={false} />
         </mesh>
       ))}
-    </>
+    </group>
   );
 }
 
@@ -1445,7 +1500,9 @@ export default function Viewer3D() {
         // JPEG data URL (AI/VLM) after the frame has been presented.
         gl={{ preserveDrawingBuffer: true }}
         onPointerMissed={() => {
-          if (!gizmoBusy) clearSelection();
+          // Ignore while a gizmo axis is grabbed OR a panel pick is active:
+          // a pick tap on empty ground must not clear the user's selection.
+          if (!gizmoBusy && !useAppStore.getState().pick) clearSelection();
         }}
       >
         {/* AODT-style dark viewer; lighting/background driven by viewport settings. */}

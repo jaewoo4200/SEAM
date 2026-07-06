@@ -100,6 +100,9 @@ class TrajectorySimulateRequest(StrictModel):
     config: Optional[SimulationConfig] = None
     # RX device to move; None = the first rx in the scene.
     ue_id: Optional[str] = None
+    # Serving TX for the per-waypoint link budget; None = the first tx. Other
+    # TXs count as co-channel interference in the per-sample SINR.
+    serving_tx_id: Optional[str] = None
     # Explicit waypoints (meters, Z-up)...
     waypoints: Optional[list[list[float]]] = None
     # ...or a straight line: start -> end sampled at num_points.

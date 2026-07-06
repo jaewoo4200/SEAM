@@ -91,7 +91,15 @@ def run_trajectory(
 
     waypoints = resolve_waypoints(request)
     txs = [d for d in scene.devices if d.kind == "tx"]
-    tx_power = txs[0].power_dbm if txs else 0.0
+    # Serving TX: explicit id or the first TX. Every OTHER TX's power at the
+    # UE counts as co-channel interference in the per-sample SINR.
+    serving_tx = next(
+        (d for d in txs if d.id == request.serving_tx_id),
+        txs[0] if txs else None,
+    )
+    if request.serving_tx_id and (serving_tx is None or serving_tx.id != request.serving_tx_id):
+        raise ValueError(f"unknown tx device: {request.serving_tx_id}")
+    tx_power = serving_tx.power_dbm if serving_tx else 0.0
 
     # SNR reference floor (thermal + NF). No interference model yet, so the
     # reported sinr_db is really an SNR = rss_dbm - noise_floor.
@@ -121,19 +129,34 @@ def run_trajectory(
         result = backend.simulate_paths(project_dir, step_scene, library, step_cfg)
         if i == 0:
             warnings.extend(result.warnings)
-        powers = [p.power_dbm for p in result.paths]
-        delays = [p.delay_ns for p in result.paths]
+        # Serving-link metrics come from the serving TX's paths only; the
+        # other TXs' received power is co-channel interference (full-buffer).
+        serving_paths = (
+            [p for p in result.paths if serving_tx is None or p.tx_id == serving_tx.id]
+        )
+        intf_lin = sum(
+            10.0 ** (p.power_dbm / 10.0)
+            for p in result.paths
+            if serving_tx is not None and p.tx_id != serving_tx.id
+        )
+        interference = 10.0 * math.log10(intf_lin) if intf_lin > 0.0 else None
+        powers = [p.power_dbm for p in serving_paths]
+        delays = [p.delay_ns for p in serving_paths]
         rss, gain, rms, strongest = _aggregate(powers, delays, tx_power)
         # Per-waypoint Doppler spread (power-weighted std of per-path Doppler),
         # from the backend's per-path doppler_hz (aligned to result.paths).
         raw_doppler = result.metadata.get("doppler_hz")
         spread = (
-            _doppler_spread_hz(powers, raw_doppler)
+            _doppler_spread_hz([p.power_dbm for p in result.paths], raw_doppler)
             if isinstance(raw_doppler, list)
             else None
         )
         doppler_spreads.append(spread)
-        sinr = (rss - noise_floor) if rss is not None else None
+        # SINR over interference + noise; equals SNR when nothing interferes.
+        intf_plus_noise = 10.0 ** (noise_floor / 10.0) + intf_lin
+        sinr = (
+            rss - 10.0 * math.log10(intf_plus_noise) if rss is not None else None
+        )
         frame_paths = None
         if request.include_paths:
             # Strongest-first, capped so playback payloads stay bounded even
@@ -148,9 +171,12 @@ def run_trajectory(
                 position=[float(c) for c in wp],
                 rss_dbm=rss,
                 path_gain_db=gain,
-                sinr_db=sinr,  # SNR (no interference model); rss - noise_floor
+                interference_dbm=interference,
+                sinr_db=sinr,  # S/(I+N); equals SNR when nothing interferes
                 rms_delay_spread_ns=rms,
-                path_count=len(result.paths),
+                # Serving-link path count (interferer paths still render via
+                # frame_paths, which keeps every TX's rays for playback).
+                path_count=len(serving_paths),
                 strongest_delay_ns=strongest,
                 paths=frame_paths,
             )

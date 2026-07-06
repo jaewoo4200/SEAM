@@ -531,6 +531,9 @@ function PlaybackTrajectory({
   const frame = Math.min(trajFrame, last);
   const atEnd = frame >= last;
   const hasFramePaths = (sample?.paths?.length ?? 0) > 0;
+  // "SINR" once any sample carries co-channel interference from another TX;
+  // otherwise the metric is plain SNR (interference-free link).
+  const hasInterference = trajectory.samples.some((s) => s.interference_dbm != null);
 
   return (
     <div className="traj-playback">
@@ -586,10 +589,14 @@ function PlaybackTrajectory({
           {kpi("RSS", fmt(sample.rss_dbm, "dBm"))}
           {kpi("Path gain", fmt(sample.path_gain_db, "dB"))}
           {kpi(
-            "SNR",
+            hasInterference ? "SINR" : "SNR",
             fmt(sample.sinr_db, "dB"),
-            "SNR (no interference model — SINR equals SNR here)",
+            hasInterference
+              ? "S/(I+N) incl. co-channel interference from other TXs"
+              : "SNR (no interference model — SINR equals SNR here)",
           )}
+          {hasInterference &&
+            kpi("Interference", fmt(sample.interference_dbm ?? null, "dBm"))}
           {kpi("RMS delay", fmt(sample.rms_delay_spread_ns, "ns", 2))}
           {kpi("Paths", String(sample.path_count))}
         </div>
@@ -603,6 +610,13 @@ function PlaybackTrajectory({
 function LinkMetricsTable({ links }: { links: LinkMetrics[] }) {
   const fmt = (v: number | null, digits = 1) => (v === null ? "—" : v.toFixed(digits));
   if (links.length === 0) return <p className="hint">No links this frame.</p>;
+  // Show "SINR" once any link carries co-channel interference from another TX,
+  // otherwise the metric collapses to plain SNR. (Scenario LinkMetrics don't
+  // carry interference today; read it defensively so this stays correct if the
+  // backend adds it.)
+  const hasInterference = links.some(
+    (l) => (l as { interference_dbm?: number | null }).interference_dbm != null,
+  );
   return (
     <table className="results-table">
       <thead>
@@ -610,7 +624,11 @@ function LinkMetricsTable({ links }: { links: LinkMetrics[] }) {
           <th>tx</th>
           <th>rx</th>
           <th>RSS</th>
-          <th title="SNR (no interference model — SINR equals SNR here)">SNR</th>
+          {hasInterference ? (
+            <th title="S/(I+N) incl. co-channel interference from other TXs">SINR</th>
+          ) : (
+            <th title="SNR (no interference model — SINR equals SNR here)">SNR</th>
+          )}
           <th>#p</th>
         </tr>
       </thead>

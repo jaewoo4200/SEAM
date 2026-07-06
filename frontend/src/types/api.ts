@@ -380,6 +380,7 @@ export interface TrajectorySample {
   rss_dbm: number | null;
   path_gain_db: number | null;
   sinr_db: number | null;
+  interference_dbm?: number | null;
   rms_delay_spread_ns: number | null;
   path_count: number;
   strongest_delay_ns: number | null;
@@ -402,6 +403,7 @@ export interface TrajectorySimulateRequest {
   config_id?: string | null;
   config?: SimulationConfig | null;
   ue_id?: string | null;
+  serving_tx_id?: string | null;
   waypoints?: number[][] | null;
   start_m?: number[] | null;
   end_m?: number[] | null;
@@ -543,6 +545,11 @@ export interface ChannelAnalysisResult {
   rss_dbm: number | null;
   rt_path_loss_db: number | null;
   snr_db: number | null;
+  // Co-channel interference: summed ray-traced power of every OTHER TX at the
+  // RX (null when single TX / nothing else reaches). sinr_db == snr_db then.
+  interference_dbm?: number | null;
+  num_interferers?: number;
+  sinr_db?: number | null;
   shannon_capacity_mbps: number | null;
   // 3GPP measurement quantities (TS 38.215-style) over an OFDM grid.
   rsrp_dbm?: number | null;

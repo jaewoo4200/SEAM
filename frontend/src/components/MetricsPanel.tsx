@@ -51,6 +51,7 @@ interface Kpi {
 function kpiRows(r: ChannelAnalysisResult): Kpi[] {
   const nrb = r.num_resource_blocks ?? null;
   const scs = r.subcarrier_spacing_khz ?? null;
+  const numInterferers = r.num_interferers ?? 0;
   const rbDisplay =
     nrb === null && scs === null
       ? "–"
@@ -68,6 +69,11 @@ function kpiRows(r: ChannelAnalysisResult): Kpi[] {
       title: "Ray-traced path loss — free-space-referenced attenuation from the solved paths." },
     { label: "SNR", unit: "dB", csv: r.snr_db ?? null,
       title: "Signal-to-noise ratio — received power over thermal noise in the analysis bandwidth." },
+    { label: "SINR", unit: "dB", csv: r.sinr_db ?? null,
+      title: "S/(I+N) — equals SNR when no other TX transmits." },
+    { label: numInterferers > 0 ? `INTERFERENCE (${numInterferers} TX)` : "Interference", unit: "dBm",
+      csv: r.interference_dbm ?? null,
+      title: "Co-channel power from all other TXs, full-buffer." },
     { label: "Shannon capacity", unit: "Mbps", csv: r.shannon_capacity_mbps ?? null,
       title: "Shannon capacity B·log2(1+SNR) for the analysis bandwidth." },
     { label: "K-factor", unit: "dB", csv: r.k_factor_db ?? null,
@@ -169,6 +175,8 @@ export default function MetricsPanel() {
     const sinr = samples.map((s) => s.sinr_db);
     const rms = samples.map((s) => s.rms_delay_spread_ns);
     const pc = samples.map((s) => s.path_count);
+    // "SINR" once any sample carries interference from another TX, else "SNR".
+    const hasInterference = samples.some((s) => s.interference_dbm != null);
     // Derived RSRP = RSS - 10·log10(12·N_RB) when N_RB is known from the
     // last channel analysis (12 subcarriers per resource block).
     const nrb = r?.num_resource_blocks ?? null;
@@ -176,14 +184,14 @@ export default function MetricsPanel() {
       nrb && nrb > 0
         ? rss.map((v) => (v === null ? null : v - 10 * Math.log10(12 * nrb)))
         : null;
-    return { t, rss, sinr, rms, pc, rsrp };
+    return { t, rss, sinr, rms, pc, rsrp, hasInterference };
   }, [trajectory, r]);
 
   const trajPower = useMemo<Series[]>(() => {
     if (!traj) return [];
     const out: Series[] = [
       { label: "RSS (dBm)", x: traj.t, y: traj.rss, color: CHART_COLORS[0] },
-      { label: "SNR (dB)", x: traj.t, y: traj.sinr, color: CHART_COLORS[1] },
+      { label: (traj.hasInterference ? "SINR" : "SNR") + " (dB)", x: traj.t, y: traj.sinr, color: CHART_COLORS[1] },
     ];
     if (traj.rsrp) out.push({ label: "RSRP (derived)", x: traj.t, y: traj.rsrp, color: CHART_COLORS[3] });
     return out;

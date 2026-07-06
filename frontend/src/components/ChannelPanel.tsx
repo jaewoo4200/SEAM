@@ -284,8 +284,12 @@ export default function ChannelPanel() {
     const next = { ...live, ...patch };
     setLive(next);
     if (applyTimer.current) clearTimeout(applyTimer.current);
+    const armedPid = useAppStore.getState().projectId;
     applyTimer.current = setTimeout(() => {
       applyTimer.current = null;
+      // Bail if the project changed while the debounce was pending: the
+      // staged values belong to the old scene (audit B4).
+      if (useAppStore.getState().projectId !== armedPid) return;
       const ctx = applyCtx.current;
       // (a) push frequency/bandwidth/noise-figure into the solver config.
       setPathsConfig({
@@ -532,6 +536,11 @@ export default function ChannelPanel() {
             <div className="traj-kpis">
               {budget("RSS", fmt(r.rss_dbm, "dBm"))}
               {budget("SNR", fmt(r.snr_db, "dB"))}
+              {budget("SINR", fmt(r.sinr_db ?? null, "dB"))}
+              {budget(
+                (r.num_interferers ?? 0) > 0 ? `Interference (${r.num_interferers} TX)` : "Interference",
+                fmt(r.interference_dbm ?? null, "dBm"),
+              )}
               {budget("Shannon", fmt(r.shannon_capacity_mbps, "Mbps"))}
               {budget("K-factor", fmt(r.k_factor_db, "dB"))}
               {budget("RMS DS", fmt(r.rms_delay_spread_ns, "ns", 2))}

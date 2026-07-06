@@ -144,6 +144,81 @@ def test_trajectory_sinr_equals_rss_minus_noise_floor():
     assert filled == len(result.samples)  # every waypoint has paths -> sinr set
 
 
+def _two_tx_scene() -> Scene:
+    """The single-TX control scene plus a second, more distant transmitter that
+    acts as a co-channel interferer along the trajectory."""
+    scene = _mock_scene()
+    scene.devices.insert(
+        1,
+        Device(id="tx_002", name="TX2", kind="tx", position=[80.0, 20.0, 12.0], power_dbm=30.0),
+    )
+    return scene
+
+
+def test_trajectory_two_tx_interference_lowers_sinr_below_snr():
+    # With a second TX in the scene every waypoint carries co-channel
+    # interference, so the reported SINR = S/(I+N) is strictly below the
+    # noise-only SNR (rss - noise_floor). Serving link is the first TX.
+    scene = _two_tx_scene()
+    library = load_default_library()
+    cfg = SimulationConfig(id="default", backend="mock")
+    req = TrajectorySimulateRequest(
+        start_m=[5.0, 0.0, 1.5], end_m=[40.0, 0.0, 1.5], num_points=5, dt_s=0.1
+    )
+    result = run_trajectory(MockBackend(), Path("."), scene, library, cfg, req)
+
+    nf = noise_floor_dbm(cfg)
+    for s in result.samples:
+        assert s.rss_dbm is not None
+        assert s.interference_dbm is not None  # tx_002 reaches every waypoint
+        # SINR is the true S/(I+N) and sits below the noise-only SNR.
+        assert s.sinr_db < s.rss_dbm - nf
+        # It matches the S/(I+N) definition exactly.
+        intf_lin = 10.0 ** (s.interference_dbm / 10.0)
+        exp = s.rss_dbm - 10.0 * math.log10(10.0 ** (nf / 10.0) + intf_lin)
+        assert s.sinr_db == pytest.approx(exp, abs=1e-9)
+
+
+def test_trajectory_serving_tx_002_changes_rss():
+    # serving_tx_id selects which TX is the serving link; picking the far tx_002
+    # yields a weaker RSS than the default (first-TX) serving link, and swaps the
+    # signal/interference roles.
+    scene = _two_tx_scene()
+    library = load_default_library()
+    cfg = SimulationConfig(id="default", backend="mock")
+    kwargs = dict(start_m=[5.0, 0.0, 1.5], end_m=[40.0, 0.0, 1.5], num_points=5, dt_s=0.1)
+
+    default = run_trajectory(
+        MockBackend(), Path("."), scene, library, cfg, TrajectorySimulateRequest(**kwargs)
+    )
+    swapped = run_trajectory(
+        MockBackend(), Path("."), scene, library, cfg,
+        TrajectorySimulateRequest(serving_tx_id="tx_002", **kwargs),
+    )
+
+    d0, s0 = default.samples[0], swapped.samples[0]
+    assert s0.rss_dbm != d0.rss_dbm
+    # tx_002 is farther, so its serving RSS is the weaker of the two links.
+    assert s0.rss_dbm < d0.rss_dbm
+    # The serving/interferer powers swap between the two runs.
+    assert s0.rss_dbm == pytest.approx(d0.interference_dbm, abs=1e-9)
+    assert s0.interference_dbm == pytest.approx(d0.rss_dbm, abs=1e-9)
+
+
+def test_trajectory_unknown_serving_tx_raises_value_error():
+    # An unknown serving_tx_id is a client error: run_trajectory raises
+    # ValueError (the route maps it to a 400).
+    scene = _two_tx_scene()
+    library = load_default_library()
+    cfg = SimulationConfig(id="default", backend="mock")
+    req = TrajectorySimulateRequest(
+        start_m=[5.0, 0.0, 1.5], end_m=[40.0, 0.0, 1.5], num_points=3,
+        serving_tx_id="tx_does_not_exist",
+    )
+    with pytest.raises(ValueError):
+        run_trajectory(MockBackend(), Path("."), scene, library, cfg, req)
+
+
 def test_trajectory_sinr_none_when_no_rss(tmp_path: Path):
     """An empty scene (no tx) yields no paths -> rss None -> sinr None."""
     scene = _mock_scene()

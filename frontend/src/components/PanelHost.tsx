@@ -76,7 +76,11 @@ function PanelCard({ def }: { def: PanelDef }) {
           </button>
         </span>
       </div>
-      {!collapsed && <div key={projectId ?? "none"}>{def.render()}</div>}
+      {/* display:none (not unmount): collapsing must not kill playback
+          timers or the trajectory preview publisher (audit B3). */}
+      <div key={projectId ?? "none"} style={collapsed ? { display: "none" } : undefined}>
+        {def.render()}
+      </div>
     </div>
   );
 }
