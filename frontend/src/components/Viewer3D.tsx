@@ -1,6 +1,7 @@
 import { Component, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactElement, ReactNode } from "react";
 import * as THREE from "three";
+import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from "three-mesh-bvh";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import type { ThreeEvent } from "@react-three/fiber";
 import { Html, Line, OrbitControls, PerspectiveCamera, TransformControls, useGLTF } from "@react-three/drei";
@@ -9,6 +10,7 @@ import type { ResolvedEnvironment } from "../envPresets";
 import type { Mode } from "../store/appStore";
 import { SELECTED_PATH_COLOR } from "./common";
 import { filterPaths, pathColor, powerRange, powerWidth } from "../pathFilter";
+import { samplesAtStep, samplesForUe, trajectoryUeIds } from "../trajectoryUtils";
 import { api } from "../api/client";
 import { directionalPosition } from "../viewportSettings";
 import type { RadioMapColormap } from "../viewportSettings";
@@ -27,6 +29,17 @@ import type {
 
 // All backend coordinates are Z-up ENU meters. The world is NOT rotated;
 // instead the camera uses up=[0,0,1] and the grid is rotated into the XY plane.
+
+// BVH-accelerated raycasting (three-mesh-bvh): imported city-scale meshes
+// (e.g. a 106k-triangle terrain) make three.js' O(n) per-mesh raycast freeze
+// pointer picking. Geometries above _BVH_MIN_FACES get a bounds tree after
+// load; the accelerated raycast uses it when present and falls back otherwise.
+// (three-mesh-bvh ships the matching "three" module augmentation, so the
+// prototype assignments below type-check without local declarations.)
+THREE.BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
+THREE.BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
+THREE.Mesh.prototype.raycast = acceleratedRaycast;
+const _BVH_MIN_FACES = 5_000;
 
 const ACCENT = "#4fc3f7";
 const UNASSIGNED_COLOR = "#ff9800";
@@ -195,6 +208,13 @@ function GLBScene({ url }: { url: string }) {
       // Imported GLBs (e.g. the FTC bundle terrain) can ship without a normal
       // attribute; lit materials then shade to solid black in Visual mode.
       if (!mesh.geometry.attributes.normal) mesh.geometry.computeVertexNormals();
+      // Dense imported meshes get a BVH so picking stays interactive on
+      // city-scale scenes (built once per geometry; cheap for small ones to
+      // skip entirely).
+      const faceCount = (mesh.geometry.index?.count ?? mesh.geometry.attributes.position.count) / 3;
+      if (!mesh.geometry.boundsTree && faceCount >= _BVH_MIN_FACES) {
+        mesh.geometry.computeBoundsTree?.();
+      }
       const orig = mesh.userData.__origMat as THREE.Material | THREE.Material[];
       const prim = findPrim(mesh);
       // Scene-tree eye toggle (occlusion-blocker helpers seed hidden).
@@ -727,55 +747,74 @@ function RayPaths() {
 
 // ------------------------------------------------------------ trajectory
 
-/** UE marker (pulsing blue sphere) at the current sample + yellow visited trail.
- *  When the current sample carries per-waypoint ray paths (include_paths), those
- *  live rays are drawn (respecting the store filters) via the shared PathLines. */
-function TrajectoryOverlay({ trajectory }: { trajectory: TrajectoryResultSet }) {
-  const trajFrame = useAppStore((s) => s.trajFrame);
-  const showTrajectoryRays = useAppStore((s) => s.showTrajectoryRays);
+// Per-UE marker/trail colors (cycled when several UEs are routed together).
+const UE_COLORS = ["#2e9bff", "#ab47bc", "#26a69a", "#ef6c00", "#ec407a"];
+
+/** One UE's pulsing marker + visited trail at the current step. */
+function UeMarker({
+  ueId,
+  samples,
+  step,
+  color,
+}: {
+  ueId: string;
+  samples: TrajectoryResultSet["samples"];
+  step: number;
+  color: string;
+}) {
   const markerRef = useRef<THREE.Mesh>(null);
-
-  const samples = trajectory.samples;
-  const frame = Math.max(0, Math.min(samples.length - 1, trajFrame));
-  const current = samples[frame];
-
-  // Trail = visited sample positions up to and including the current frame.
+  const s = Math.max(0, Math.min(samples.length - 1, step));
+  const current = samples[s];
   const trail = useMemo(
-    () => samples.slice(0, frame + 1).map((s) => s.position),
-    [samples, frame],
+    () => samples.slice(0, s + 1).map((x) => x.position),
+    [samples, s],
   );
-
-  // Pulse the emissive intensity of the UE marker.
   useFrame((state) => {
     const mat = markerRef.current?.material as THREE.MeshStandardMaterial | undefined;
     if (mat) mat.emissiveIntensity = 0.5 + 0.4 * Math.sin(state.clock.elapsedTime * 4);
   });
-
   if (!current) return null;
-
-  // Live per-frame rays (only present when the trajectory was simulated with
-  // include_paths), gated by their own overlay toggle - independent of the
-  // static Rays toggle so both can be shown or hidden separately.
-  const framePaths = current.paths ?? null;
-
   return (
     <group>
-      {trail.length > 1 && (
-        // Yellow trail (AODT legend convention).
-        <Line points={trail} color="#ffee58" lineWidth={2} />
-      )}
-      {showTrajectoryRays && framePaths && framePaths.length > 0 && (
-        <PathLines paths={framePaths} showInteractions={false} />
-      )}
+      {trail.length > 1 && <Line points={trail} color="#ffee58" lineWidth={2} />}
       <group position={current.position}>
         <mesh ref={markerRef}>
           <sphereGeometry args={[0.5, 24, 16]} />
-          <meshStandardMaterial color="#2e9bff" emissive="#2e9bff" emissiveIntensity={0.6} />
+          <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.6} />
         </mesh>
         <Html position={[0, 0, 1.4]} center zIndexRange={[10, 0]}>
-          <div className="device-label selected">{trajectory.ue_id}</div>
+          <div className="device-label selected">{ueId}</div>
         </Html>
       </group>
+    </group>
+  );
+}
+
+/** Trajectory playback overlay: every routed UE's marker + trail at the
+ *  current step, plus the step's live rays (all UEs merged) when the result
+ *  carries include_paths and the Trajectory-rays toggle is on. */
+function TrajectoryOverlay({ trajectory }: { trajectory: TrajectoryResultSet }) {
+  const trajFrame = useAppStore((s) => s.trajFrame);
+  const showTrajectoryRays = useAppStore((s) => s.showTrajectoryRays);
+
+  const ueIds = trajectoryUeIds(trajectory);
+  const stepSamples = samplesAtStep(trajectory, trajFrame);
+  const framePaths = stepSamples.flatMap((s) => s.paths ?? []);
+
+  return (
+    <group>
+      {showTrajectoryRays && framePaths.length > 0 && (
+        <PathLines paths={framePaths} showInteractions={false} />
+      )}
+      {ueIds.map((ueId, i) => (
+        <UeMarker
+          key={ueId}
+          ueId={ueId}
+          samples={samplesForUe(trajectory, ueId)}
+          step={trajFrame}
+          color={UE_COLORS[i % UE_COLORS.length]}
+        />
+      ))}
     </group>
   );
 }
@@ -1464,6 +1503,18 @@ function PickController() {
     }
     const canvas = gl.domElement;
 
+    // Overlays (pick dots themselves, radio-map planes, trajectory markers,
+    // mesh-RM discs...) are tagged __noFit; picking must only see the actual
+    // scene geometry or the ghost dot occludes its own next raycast.
+    const isOverlay = (obj: THREE.Object3D): boolean => {
+      for (let cur: THREE.Object3D | null = obj; cur; cur = cur.parent) {
+        if (cur.userData.__noFit) return true;
+      }
+      return false;
+    };
+
+    // Returns the SURFACE hit (what the dot shows, matching the crosshair) -
+    // the committed point adds heightOffset along +Z at commit time.
     const resolve = (clientX: number, clientY: number): Vec3 | null => {
       const req = pickRef.current;
       if (!req) return null;
@@ -1473,25 +1524,44 @@ function PickController() {
         -((clientY - r.top) / r.height) * 2 + 1,
       );
       const ray = new THREE.Raycaster();
+      // BVH fast path only tracks the first hit; that is all picking needs.
+      ray.firstHitOnly = true;
       ray.setFromCamera(ndc, camera);
       if (req.target === "surface") {
         const hits = ray
           .intersectObjects(three.children, true)
-          .filter((h) => (h.object as THREE.Mesh).isMesh && h.object.visible);
+          .filter(
+            (h) =>
+              (h.object as THREE.Mesh).isMesh &&
+              h.object.visible &&
+              !isOverlay(h.object),
+          );
         if (hits[0]) {
           const p = hits[0].point;
-          return [p.x, p.y, p.z + req.heightOffset];
+          return [p.x, p.y, p.z];
         }
       }
       const t = new THREE.Vector3();
       if (ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 0, 1), 0), t)) {
-        return [t.x, t.y, req.heightOffset];
+        return [t.x, t.y, 0];
       }
       return null;
     };
 
+    // rAF-throttled hover resolve: at most one full raycast per frame, so a
+    // fast pointer on a dense scene never queues a raycast backlog.
+    let hoverPending: { x: number; y: number } | null = null;
+    let hoverRaf = 0;
+    const flushHover = () => {
+      hoverRaf = 0;
+      if (!hoverPending) return;
+      const { x, y } = hoverPending;
+      hoverPending = null;
+      setHover(resolve(x, y));
+    };
     const onMove = (e: PointerEvent) => {
-      setHover(resolve(e.clientX, e.clientY));
+      hoverPending = { x: e.clientX, y: e.clientY };
+      if (!hoverRaf) hoverRaf = requestAnimationFrame(flushHover);
       const d = downRef.current;
       if (d && Math.hypot(e.clientX - d.x, e.clientY - d.y) > PICK_MAX_MOVE_PX) {
         d.moved = true;
@@ -1527,7 +1597,9 @@ function PickController() {
       downRef.current = null;
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") useAppStore.getState().cancelPick();
+      // Esc completes a "multi" pick with the points placed so far (>=2) and
+      // cancels anything else - see finishPick.
+      if (e.key === "Escape") useAppStore.getState().finishPick();
     };
 
     canvas.addEventListener("pointermove", onMove);
@@ -1537,6 +1609,7 @@ function PickController() {
     window.addEventListener("pointercancel", onCancel);
     window.addEventListener("keydown", onKey);
     return () => {
+      if (hoverRaf) cancelAnimationFrame(hoverRaf);
       canvas.removeEventListener("pointermove", onMove);
       canvas.removeEventListener("pointerdown", onDown, { capture: true });
       window.removeEventListener("pointerup", onUp, { capture: true });
@@ -1545,26 +1618,34 @@ function PickController() {
     };
   }, [pick, gl, camera, three]);
 
+  // Dot size scales with the scene (a fixed 0.45 m sphere vanishes on a
+  // city-scale terrain); clamped so indoor rooms are not drowned either.
+  const bounds = useAppStore((s) => s.sceneBounds);
   if (!pick) return null;
+  const extent = bounds
+    ? Math.max(bounds.max[0] - bounds.min[0], bounds.max[1] - bounds.min[1])
+    : 40;
+  const dotR = Math.min(3.0, Math.max(0.35, extent * 0.006));
   const dot = (p: Vec3, key: string, ghost = false) => (
     <mesh key={key} position={p} renderOrder={999} userData={{ __noFit: true }}>
-      <sphereGeometry args={[0.45, 18, 12]} />
-      <meshBasicMaterial color={PICK_COLOR} transparent opacity={ghost ? 0.45 : 0.9} depthTest={false} />
+      <sphereGeometry args={[dotR, 18, 12]} />
+      <meshBasicMaterial color={PICK_COLOR} transparent opacity={ghost ? 0.5 : 0.95} depthTest={false} />
     </mesh>
   );
+  const wantMore = pick.count === "multi" || pickPoints.length < pick.count;
   return (
     <>
       {pickPoints.map((p, i) => dot(p, `p${i}`))}
       {hover && dot(hover, "ghost", true)}
-      {/* Rubber-band from the last placed point to the cursor for multi-point picks. */}
-      {hover && pickPoints.length > 0 && pickPoints.length < pick.count && (
+      {/* Rubber-band from the last placed point to the cursor. */}
+      {hover && pickPoints.length > 0 && wantMore && (
         <Line
           points={[pickPoints[pickPoints.length - 1], hover]}
           color={PICK_COLOR}
           lineWidth={2}
           dashed
-          dashSize={0.5}
-          gapSize={0.3}
+          dashSize={dotR}
+          gapSize={dotR * 0.6}
         />
       )}
     </>

@@ -118,8 +118,24 @@ class BeamformingRequest(StrictModel):
     sweep_step_deg: float = Field(default=5.0, gt=0.0)
 
 
+class UERoute(StrictModel):
+    """One routed UE for a multi-UE trajectory: an rx device id and the
+    waypoint polyline it walks. The polyline is resampled to the request's
+    num_points steps by arc length at solve time."""
+
+    ue_id: str
+    waypoints: list[list[float]] = Field(min_length=2)
+
+
 class TrajectorySimulateRequest(StrictModel):
-    """Body for POST /simulate/trajectory: move one RX along waypoints."""
+    """Body for POST /simulate/trajectory: move one RX along waypoints.
+
+    Multi-UE: when ``routes`` is set, the legacy single-UE fields
+    (ue_id/waypoints/start_m/end_m) are ignored; every route is resampled to
+    ``num_points`` steps along its polyline by arc length, all routed UEs move
+    together per step, and one solve per step yields the per-UE metrics.
+    ``dt_s`` and ``follow_terrain`` apply to all routes.
+    """
 
     config_id: Optional[str] = None
     config: Optional[SimulationConfig] = None
@@ -133,6 +149,11 @@ class TrajectorySimulateRequest(StrictModel):
     # ...or a straight line: start -> end sampled at num_points.
     start_m: Optional[list[float]] = None
     end_m: Optional[list[float]] = None
+    # Multi-UE routes. When set, the legacy single-UE fields above
+    # (ue_id/waypoints/start_m/end_m) are ignored; every route is resampled to
+    # num_points steps along its polyline by arc length, all routed UEs move
+    # together per step, and dt_s/follow_terrain apply to all.
+    routes: Optional[list[UERoute]] = None
     num_points: int = Field(default=8, ge=2, le=200)
     dt_s: float = Field(default=0.1, gt=0.0)
     # Include the full ray paths per waypoint so playback redraws rays live.

@@ -472,6 +472,13 @@ export interface TrajectoryResultSet {
   metadata: Record<string, unknown>;
 }
 
+/** One routed UE for a multi-UE trajectory: resampled to num_points steps
+ *  along its polyline by arc length at solve time. */
+export interface UERoute {
+  ue_id: string;
+  waypoints: number[][];
+}
+
 export interface TrajectorySimulateRequest {
   config_id?: string | null;
   config?: SimulationConfig | null;
@@ -480,6 +487,9 @@ export interface TrajectorySimulateRequest {
   waypoints?: number[][] | null;
   start_m?: number[] | null;
   end_m?: number[] | null;
+  // Multi-UE: when set, the legacy single-UE fields above are ignored; all
+  // routed UEs move together per step (one solve per step, per-UE metrics).
+  routes?: UERoute[] | null;
   num_points?: number;
   dt_s?: number;
   include_paths?: boolean;

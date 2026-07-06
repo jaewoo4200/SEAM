@@ -34,9 +34,11 @@ import type {
   SimulationConfig,
   SuggestionDecision,
   TrajectoryResultSet,
+  UERoute,
   ValidationReport,
   Vec3,
 } from "../types/api";
+import { trajectorySteps } from "../trajectoryUtils";
 import { ACTOR_DEFAULTS } from "../actorDefaults";
 import {
   defaultViewportSettings,
@@ -76,8 +78,10 @@ export interface PickRequest {
   id: number;
   /** Shown in the viewport banner, e.g. "Trajectory start → end". */
   label: string;
-  /** Number of points to collect before completing (1, 2, or more). */
-  count: number;
+  /** Number of points to collect before completing (1, 2, or more), or
+   *  "multi": collect indefinitely until Esc, which COMPLETES with the points
+   *  placed so far (>= 2) instead of cancelling. */
+  count: number | "multi";
   /** Meters added along world +Z to the raycast hit (terrain snap height). */
   heightOffset: number;
   /** 'surface' = mesh-first with z=0 ground fallback; 'ground' = force z=0 plane. */
@@ -202,7 +206,7 @@ interface AppState {
   /** Points collected so far for the active pick (drives live markers). */
   pickPoints: Vec3[];
   /** Planned trajectory segment previewed in the viewer (dashed line). */
-  trajPreview: [Vec3, Vec3] | null;
+  trajPreview: Vec3[] | null;
   /** Arms the viewer's ghost device placement from UI buttons (mouse
    *  discoverability for the K/L hotkey flow); the viewer clears it. */
   placeArm: "tx" | "rx" | null;
@@ -280,7 +284,10 @@ interface AppState {
   requestPick: (req: Omit<PickRequest, "id">) => number;
   addPickPoint: (p: Vec3) => void;
   cancelPick: (id?: number) => void;
-  setTrajPreview: (seg: [Vec3, Vec3] | null) => void;
+  /** Esc handler: a "multi" pick with >=2 points COMPLETES with them;
+   *  anything else cancels (finite picks keep their all-or-nothing UX). */
+  finishPick: () => void;
+  setTrajPreview: (seg: Vec3[] | null) => void;
   armPlacement: (kind: "tx" | "rx" | null) => void;
   setGizmoDragging: (on: boolean) => void;
 
@@ -338,12 +345,14 @@ interface AppState {
 
   // trajectory
   simulateTrajectory: (params: {
-    start_m: Vec3;
-    end_m: Vec3;
+    start_m?: Vec3;
+    end_m?: Vec3;
     num_points: number;
     dt_s: number;
     ue_id?: string | null;
     follow_terrain?: boolean;
+    /** Multi-UE routes; when set the start/end/ue_id fields are ignored. */
+    routes?: UERoute[];
   }) => Promise<void>;
   setTrajFrame: (frame: number) => void;
   setTrajPlaying: (playing: boolean) => void;
@@ -1088,11 +1097,17 @@ export const useAppStore = create<AppState>()((set, get) => {
       const { pick, pickPoints } = get();
       if (!pick) return;
       const next = [...pickPoints, p];
-      if (next.length >= pick.count) {
+      if (pick.count !== "multi" && next.length >= pick.count) {
         // Clear FIRST so the store is idle when the consumer's setState runs
         // (onComplete must not observe a still-active pick).
         set({ pick: null, pickPoints: [] });
-        pick.onComplete(next.slice(0, pick.count));
+        // Picked points are SURFACE hits (they match the crosshair on screen);
+        // the height offset is applied here, at commit time.
+        pick.onComplete(
+          next
+            .slice(0, pick.count)
+            .map((pt): Vec3 => [pt[0], pt[1], pt[2] + pick.heightOffset]),
+        );
       } else {
         set({ pickPoints: next });
       }
@@ -1103,6 +1118,19 @@ export const useAppStore = create<AppState>()((set, get) => {
       if (!pick || (id !== undefined && pick.id !== id)) return;
       set({ pick: null, pickPoints: [] });
       pick.onCancel?.();
+    },
+
+    finishPick: () => {
+      const { pick, pickPoints } = get();
+      if (!pick) return;
+      if (pick.count === "multi" && pickPoints.length >= 2) {
+        set({ pick: null, pickPoints: [] });
+        pick.onComplete(
+          pickPoints.map((pt): Vec3 => [pt[0], pt[1], pt[2] + pick.heightOffset]),
+        );
+      } else {
+        get().cancelPick();
+      }
     },
 
     setTrajPreview: (seg) => set({ trajPreview: seg }),
@@ -1728,15 +1756,16 @@ export const useAppStore = create<AppState>()((set, get) => {
 
     // ---------------------------------------------------- trajectory
 
-    simulateTrajectory: async ({ start_m, end_m, num_points, dt_s, ue_id, follow_terrain }) => {
+    simulateTrajectory: async ({ start_m, end_m, num_points, dt_s, ue_id, follow_terrain, routes }) => {
       const pid = get().projectId;
       if (!pid) return;
       await run("Simulating trajectory…", async () => {
         const result = await api.simulateTrajectory(pid, {
           config: get().pathsConfig,
           ue_id: ue_id ?? null,
-          start_m,
-          end_m,
+          start_m: routes ? null : start_m,
+          end_m: routes ? null : end_m,
+          routes: routes ?? null,
           num_points,
           dt_s,
           follow_terrain: follow_terrain ?? false,
@@ -1760,7 +1789,7 @@ export const useAppStore = create<AppState>()((set, get) => {
 
     setTrajFrame: (frame) => {
       const traj = get().trajectory;
-      const max = traj ? traj.samples.length - 1 : 0;
+      const max = traj ? Math.max(0, trajectorySteps(traj) - 1) : 0;
       set({ trajFrame: Math.max(0, Math.min(max, frame)) });
     },
     setTrajPlaying: (playing) => set({ trajPlaying: playing }),

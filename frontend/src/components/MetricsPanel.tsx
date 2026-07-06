@@ -169,7 +169,11 @@ export default function MetricsPanel() {
 
   // --- trajectory time series ---
   const traj = useMemo(() => {
-    const samples: TrajectorySample[] = trajectory?.samples ?? [];
+    // Multi-UE results interleave samples step-major; the charts follow the
+    // FIRST routed UE (the playback panel's KPI card has a per-UE selector).
+    const all: TrajectorySample[] = trajectory?.samples ?? [];
+    const firstUe = all[0]?.ue_id;
+    const samples = all.filter((s) => s.ue_id === firstUe);
     if (samples.length === 0) return null;
     const t = samples.map((s) => s.time_s);
     const rss = samples.map((s) => s.rss_dbm);

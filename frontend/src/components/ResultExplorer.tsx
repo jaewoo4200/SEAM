@@ -7,6 +7,7 @@ import { PATH_COLORS, SELECTED_PATH_COLOR, formatVec, materialById } from "./com
 import { exportCsv } from "../charts";
 import { filterPaths, pathColor, pathDepth, powerRange } from "../pathFilter";
 import { meshRadioMapRange } from "./MeshRadioMapOverlay";
+import { samplesAtStep, trajectorySteps, trajectoryUeIds } from "../trajectoryUtils";
 import type { ColorBy } from "../store/appStore";
 import type {
   BeamformingResult,
@@ -19,6 +20,7 @@ import type {
   RFMaterialLibrary,
   ScenarioResultSet,
   TrajectoryResultSet,
+  UERoute,
   Vec3,
 } from "../types/api";
 
@@ -339,6 +341,33 @@ export function TrajectorySection() {
   const [numPoints, setNumPoints] = useState(8);
   const [dt, setDt] = useState(0.1);
   const [followTerrain, setFollowTerrain] = useState(false);
+  // Multi-UE routes drawn freehand in the viewport. Non-empty routes replace
+  // the straight start->end line entirely (each polyline is resampled to
+  // num_points steps server-side; all UEs move together per step).
+  const scene = useAppStore((s) => s.scene);
+  const rxIds = useMemo(
+    () => (scene?.devices ?? []).filter((d) => d.kind === "rx").map((d) => d.id),
+    [scene],
+  );
+  const [routes, setRoutes] = useState<UERoute[]>([]);
+  const [routeUe, setRouteUe] = useState<string>("");
+  const drawUe = routeUe || rxIds.find((id) => !routes.some((r) => r.ue_id === id)) || rxIds[0] || "";
+
+  const drawRoute = () => {
+    if (!drawUe) return;
+    requestPick({
+      label: `Route for ${drawUe}`,
+      count: "multi",
+      target: "surface",
+      heightOffset: firstRxPosition()[2],
+      onComplete: (pts) => {
+        setRoutes((rs) => [
+          ...rs.filter((r) => r.ue_id !== drawUe),
+          { ue_id: drawUe, waypoints: pts },
+        ]);
+      },
+    });
+  };
   // Bounds usually arrive async right after project open; re-seed the
   // defaults once when they land unless the user already edited the fields.
   const touched = useRef(false);
@@ -350,12 +379,14 @@ export function TrajectorySection() {
     }
   }, [sceneBounds]);
 
-  // Live preview of the planned segment in the 3D viewer (cleared on unmount).
+  // Live preview of the planned path in the 3D viewer (cleared on unmount):
+  // the last drawn route's polyline, or the straight start->end segment.
   const setTrajPreview = useAppStore((s) => s.setTrajPreview);
   useEffect(() => {
-    setTrajPreview([start, end]);
+    const lastRoute = routes[routes.length - 1];
+    setTrajPreview(lastRoute ? (lastRoute.waypoints as Vec3[]) : [start, end]);
     return () => setTrajPreview(null);
-  }, [start, end, setTrajPreview]);
+  }, [start, end, routes, setTrajPreview]);
 
   const pickBoth = () => {
     requestPick({
@@ -379,7 +410,7 @@ export function TrajectorySection() {
     const period = Math.max(30, (dtRef.current * 1000) / trajSpeed);
     const timer = setInterval(() => {
       const st = useAppStore.getState();
-      const last = (st.trajectory?.samples.length ?? 1) - 1;
+      const last = Math.max(0, trajectorySteps(st.trajectory) - 1);
       if (st.trajFrame >= last) {
         // Loop: wrap back to the start and keep playing; otherwise stop.
         if (st.trajLoop) {
@@ -395,7 +426,12 @@ export function TrajectorySection() {
   }, [trajPlaying, trajSpeed, trajectory]);
 
   const disabled = busy !== null;
-  const sample = trajectory?.samples[Math.min(trajFrame, trajectory.samples.length - 1)] ?? null;
+  // Per-step samples (one per routed UE); the KPI card follows kpiUe.
+  const ueIds = trajectoryUeIds(trajectory);
+  const [kpiUe, setKpiUe] = useState<string>("");
+  const stepSamples = samplesAtStep(trajectory, trajFrame);
+  const sample =
+    stepSamples.find((s) => s.ue_id === (kpiUe || ueIds[0])) ?? stepSamples[0] ?? null;
 
   const vecField = (label: string, v: Vec3, onChange: (v: Vec3) => void) => (
     <label className="solver-field">
@@ -430,42 +466,95 @@ export function TrajectorySection() {
     v === null ? "n/a" : `${v.toFixed(digits)} ${unit}`;
 
   const picking = pickLabel === "Trajectory start → end";
+  const drawing = pickLabel?.startsWith("Route for ") ?? false;
   return (
     <div className="traj-section">
-      <div className="panel-actions">
-        <button
-          className={"primary" + (picking ? " picking" : "")}
-          disabled={disabled}
-          title="Click two points in the 3D view: first the start, then the end (Esc cancels)"
-          onClick={pickBoth}
-        >
-          {picking ? "Click start, then end… (Esc)" : "🎯 Pick start → end in viewport"}
-        </button>
-        <button
-          disabled={disabled}
-          title="Seed the Start/End fields: start at the current first RX position, walking toward the scene center"
-          onClick={() => {
+      {routes.length === 0 && (
+        <>
+          <div className="panel-actions">
+            <button
+              className={"primary" + (picking ? " picking" : "")}
+              disabled={disabled}
+              title="Click two points in the 3D view: first the start, then the end (Esc cancels)"
+              onClick={pickBoth}
+            >
+              {picking ? "Click start, then end… (Esc)" : "🎯 Pick start → end in viewport"}
+            </button>
+            <button
+              disabled={disabled}
+              title="Seed the Start/End fields: start at the current first RX position, walking toward the scene center"
+              onClick={() => {
+                touched.current = true;
+                const seeded = seededEndpoints();
+                setStart(seeded.start);
+                setEnd(seeded.end);
+              }}
+            >
+              Start at RX
+            </button>
+          </div>
+          {vecField("Start", start, (v) => {
             touched.current = true;
-            const seeded = seededEndpoints();
-            setStart(seeded.start);
-            setEnd(seeded.end);
-          }}
+            setStart(v);
+          })}
+          {vecField("End", end, (v) => {
+            touched.current = true;
+            setEnd(v);
+          })}
+          <p className="hint">
+            X east · Y north · Z up (m). The dashed yellow line in the viewer
+            previews this path.
+          </p>
+        </>
+      )}
+      <div className="panel-actions">
+        {rxIds.length > 1 && (
+          <select
+            value={drawUe}
+            disabled={disabled || drawing}
+            title="RX device the drawn route belongs to"
+            onChange={(e) => setRouteUe(e.target.value)}
+          >
+            {rxIds.map((id) => (
+              <option key={id} value={id}>
+                {id}
+                {routes.some((r) => r.ue_id === id) ? " ✓" : ""}
+              </option>
+            ))}
+          </select>
+        )}
+        <button
+          className={drawing ? "picking" : ""}
+          disabled={disabled || !drawUe}
+          title="Click waypoints one by one in the 3D view; Esc finishes the route (>= 2 points)"
+          onClick={drawRoute}
         >
-          Start at RX
+          {drawing ? "Click points… Esc finishes" : "✏️ Draw route (Esc finishes)"}
         </button>
       </div>
-      {vecField("Start", start, (v) => {
-        touched.current = true;
-        setStart(v);
-      })}
-      {vecField("End", end, (v) => {
-        touched.current = true;
-        setEnd(v);
-      })}
-      <p className="hint">
-        X east · Y north · Z up (m). The dashed yellow line in the viewer
-        previews this path.
-      </p>
+      {routes.length > 0 && (
+        <div className="traj-routes">
+          {routes.map((r) => (
+            <div key={r.ue_id} className="traj-route-row">
+              <span className="mono">{r.ue_id}</span>
+              <span className="hint">{r.waypoints.length} pts</span>
+              <button
+                className="row-del"
+                title="Remove this route"
+                disabled={disabled}
+                onClick={() => setRoutes((rs) => rs.filter((x) => x.ue_id !== r.ue_id))}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+          <p className="hint">
+            Each route is resampled to Num points steps; all UEs move together
+            per step (one solve per step). Remove every route to go back to the
+            straight start → end line.
+          </p>
+        </div>
+      )}
       <label className="solver-check">
         <input
           type="checkbox"
@@ -511,10 +600,14 @@ export function TrajectorySection() {
           className="primary"
           disabled={!projectId || disabled}
           onClick={() =>
-            void simulateTrajectory({ start_m: start, end_m: end, num_points: numPoints, dt_s: dt, follow_terrain: followTerrain })
+            void simulateTrajectory(
+              routes.length > 0
+                ? { routes, num_points: numPoints, dt_s: dt, follow_terrain: followTerrain }
+                : { start_m: start, end_m: end, num_points: numPoints, dt_s: dt, follow_terrain: followTerrain },
+            )
           }
         >
-          Simulate trajectory
+          Simulate trajectory{routes.length > 1 ? ` (${routes.length} UEs)` : ""}
         </button>
       </div>
 
@@ -530,6 +623,9 @@ export function TrajectorySection() {
           setTrajSpeed={setTrajSpeed}
           setTrajLoop={setTrajLoop}
           sample={sample}
+          ueIds={ueIds}
+          kpiUe={kpiUe || ueIds[0] || ""}
+          setKpiUe={setKpiUe}
           kpi={kpi}
           fmt={fmt}
         />
@@ -549,6 +645,9 @@ function PlaybackTrajectory({
   setTrajSpeed,
   setTrajLoop,
   sample,
+  ueIds,
+  kpiUe,
+  setKpiUe,
   kpi,
   fmt,
 }: {
@@ -562,10 +661,13 @@ function PlaybackTrajectory({
   setTrajSpeed: (s: number) => void;
   setTrajLoop: (l: boolean) => void;
   sample: TrajectoryResultSet["samples"][number] | null;
+  ueIds: string[];
+  kpiUe: string;
+  setKpiUe: (ue: string) => void;
   kpi: (label: string, value: string, title?: string) => JSX.Element;
   fmt: (v: number | null, unit: string, digits?: number) => string;
 }) {
-  const last = trajectory.samples.length - 1;
+  const last = Math.max(0, trajectorySteps(trajectory) - 1);
   const frame = Math.min(trajFrame, last);
   const atEnd = frame >= last;
   const hasFramePaths = (sample?.paths?.length ?? 0) > 0;
@@ -583,10 +685,23 @@ function PlaybackTrajectory({
         >
           moving UE
         </span>{" "}
-        <StaleChip kind="trajectory" /> · {trajectory.samples.length} sample(s) ·
-        backend <span className="mono">{trajectory.backend}</span>
+        <StaleChip kind="trajectory" /> · {trajectory.samples.length} sample(s)
+        {ueIds.length > 1 && <> · {ueIds.length} UEs</>} · backend{" "}
+        <span className="mono">{trajectory.backend}</span>
         {hasFramePaths && <> · live rays</>}
       </div>
+      {ueIds.length > 1 && (
+        <label className="solver-field">
+          <span className="solver-field-label">KPI UE</span>
+          <select value={kpiUe} onChange={(e) => setKpiUe(e.target.value)}>
+            {ueIds.map((id) => (
+              <option key={id} value={id}>
+                {id}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <div className="traj-transport">
         <button
           onClick={() => {
