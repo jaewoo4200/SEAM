@@ -82,6 +82,24 @@ bash scripts/start.sh
 각 카드에서 **Approve / Reject / Edit** 후 **Apply decisions (N)** 을 눌러야
 비로소 적용됩니다. 아무것도 자동 적용되지 않습니다.
 
+**(선택) RF 판별 — 측정으로 시각적으로 같은 재질 구분하기.** 유리처럼 눈으로는
+똑같아 보여도 RF 관통손실이 크게(mmWave 에서 약 2.5–23.6 dB) 갈리는 재질은
+카메라·텍스처 이름만으로 못 가립니다. 후보 재질 몇 개와 측정된 링크별 path gain 을
+넣어 `POST /api/projects/{id}/calibrate/disambiguate` 를 호출하면, 각 후보를 해당
+프림에 바인딩·재시뮬레이션해 측정과의 RMSE 가 가장 낮은 후보(`best_material_id`)를
+돌려줍니다. 후보들의 RMSE 차가 0.05 dB 미만이면 그 위치에서는 구분 불가로 판단해
+`best_material_id` 를 비우고 "indistinguishable" 경고를 반환합니다(프림에 더 가까운
+측정을 추가하세요). 실제 재질 분리는 Sionna 백엔드에서 이뤄지며, mock 은 흐름
+테스트용입니다.
+
+**(선택) 임팩트 평가 — 이 재질이 링크에 얼마나 중요한가.**
+`POST /api/projects/{id}/analyze/material-impact` 는 같은 TX→RX 를 지정재질 씬과
+단일 기준재질 씬(`baseline_material_id`, 기본 `itu_concrete`)에서 각각 풀어
+위치별 **NMSE / 코사인 유사도 / dRSS / 용량(Mbps)** 을 돌려줍니다(KICS 2026). NMSE 가
+0 dB 에 가깝고 dRSS 가 크면 그 위치는 재질을 제대로 지정하는 것이 중요하다는 뜻이고,
+NMSE 가 매우 낮고 코사인≈1·dRSS≈0 이면 기하/LoS 가 링크를 지배해 재질 영향이 작다는
+뜻입니다(`sensitive_nmse_db`, 기본 −60 dB 초과 위치는 material-sensitive 로 표시).
+
 ---
 
 ## 3. 경로 시뮬레이션 (Simulate Paths) (2분)

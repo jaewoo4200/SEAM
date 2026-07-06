@@ -100,7 +100,13 @@ bash scripts/start.sh     # 2. 백엔드+프론트 실행
 - **AODT 정렬** — 28 GHz 기본 + ITU-R P.2040 재질 세트(+`human_body`), AODT 스타일
   다크 뷰어(LOS 시안 / 반사 마젠타 / 회절 주황), RFData 내보내기 컨트랙트.
 - **선택적 로컬 AI** — 강제 제공자 → Ollama → 규칙 기반 폴백 체인. 엄격한 JSON
-  스키마 검증, 제안은 절대 자동 적용되지 않고 provenance가 남습니다.
+  스키마 검증, 제안은 절대 자동 적용되지 않고 provenance가 남습니다. 멀티뷰 캡처와
+  프림별 텍스처 크롭으로 제안 정확도를 높입니다.
+- **RF 판별 + 재질 임팩트 평가** — 시각적으로 같은 재질(예: 유리)을 측정된 링크
+  path gain 으로 구분하고(`/calibrate/disambiguate`, RMSE 최저 후보 선택·구분 불가
+  시 경고), 지정 재질 대 단일 기준재질을 위치별 NMSE/코사인 유사도/dRSS/용량으로
+  비교(`/analyze/material-impact`, KICS 2026)해 "이 재질이 링크에 얼마나 중요한지"를
+  정량화합니다.
 
 전체 데모 흐름은 [TUTORIAL.md](TUTORIAL.md) 참조.
 

@@ -47,6 +47,13 @@ class SuggestMaterialsRequest(StrictModel):
     # Optional viewport capture (data:image/jpeg;base64,...) passed to
     # vision-capable providers as visual evidence. Never RF truth.
     screenshot_data_url: Optional[str] = None
+    # Multiple camera angles of the SAME scene (Qualcomm multi-view). Capped at
+    # 6. Back-compat: when only screenshot_data_url is set it is treated as a
+    # one-item list.
+    screenshot_data_urls: Optional[list[str]] = Field(default=None, max_length=6)
+    # When true and the provider is multimodal-capable, attach per-prim texture
+    # crops (extracted from the visual GLB) as extra evidence images.
+    attach_texture_crops: bool = False
 
 
 class SuggestionDecision(StrictModel):

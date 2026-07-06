@@ -52,10 +52,18 @@ def suggest_materials(
     store = get_store()
     scene = load_scene_or_404(store, project_id)
     library = store.load_materials(project_id)
+    project_dir = store.resolve(project_id)
     try:
-        response = ai_provider.suggest_materials(scene, library, request)
+        response = ai_provider.suggest_materials(
+            scene, library, request, project_dir=project_dir
+        )
     except ValueError as exc:  # unknown forced provider
         raise HTTPException(status_code=400, detail=str(exc))
+    screenshot_count = len(
+        ai_provider._effective_images(
+            request.screenshot_data_urls, request.screenshot_data_url
+        )
+    )
     store.append_jsonl(
         project_id,
         SUGGESTIONS_LOG,
@@ -66,9 +74,12 @@ def suggest_materials(
             "model": response.model,
             "prompt_version": response.prompt_version,
             "input_prim_ids": ai_provider.resolve_target_prim_ids(scene, request),
-            # Provenance only: whether a viewport image was attached. The image
-            # itself is EVIDENCE, transient, and never persisted here.
-            "screenshot_attached": bool(request.screenshot_data_url),
+            # Provenance only: how many viewport images were attached (0 = none)
+            # and whether texture crops were requested. The images themselves are
+            # EVIDENCE, transient, and never persisted here.
+            "screenshot_attached": screenshot_count > 0,
+            "screenshot_count": screenshot_count,
+            "texture_crops_requested": bool(request.attach_texture_crops),
             "suggestions": [s.model_dump(mode="json") for s in response.suggestions],
         },
     )

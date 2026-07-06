@@ -1173,6 +1173,179 @@ h4 {
   border-top: 1px solid var(--border);
 }
 
+/* ----------------------------------------- RF disambiguation (paper #1) */
+
+.disambig-toggle {
+  margin-top: 8px;
+  padding: 2px 6px;
+  font-size: 11px;
+  background: transparent;
+  border-color: var(--border);
+  color: var(--muted);
+}
+.disambig-toggle.open {
+  color: var(--accent);
+  border-color: var(--accent-dim);
+}
+.disambig {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+.disambig-head {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+.meas-table,
+.cand-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+.meas-table th,
+.cand-table th {
+  text-align: left;
+  color: var(--muted);
+  font-weight: 500;
+  padding: 2px 4px;
+}
+.meas-table td,
+.cand-table td {
+  padding: 2px 4px;
+}
+.meas-table input {
+  width: 100%;
+  min-width: 42px;
+  padding: 2px 4px;
+  font-size: 11px;
+}
+.meas-table .row-del {
+  padding: 0 6px;
+  line-height: 1.4;
+  background: transparent;
+  border-color: var(--border);
+  color: var(--muted);
+}
+.disambig-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+.disambig-cands {
+  display: flex;
+  gap: 4px;
+  margin: 4px 0 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.disambig-cands select {
+  font-size: 11px;
+  max-width: 130px;
+}
+.cand-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 11px;
+}
+.cand-chip .row-del {
+  padding: 0 3px;
+  line-height: 1.2;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+}
+.disambig-error {
+  color: var(--err);
+  font-size: 11px;
+  margin-top: 6px;
+}
+.disambig-report {
+  margin-top: 8px;
+}
+.disambig-backend {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.cand-table tr.cand-best td {
+  background: rgba(102, 187, 106, 0.12);
+}
+.cand-table .best-tag {
+  margin-left: 6px;
+  font-size: 10px;
+  color: var(--ok);
+  border: 1px solid var(--ok);
+  border-radius: 8px;
+  padding: 0 5px;
+}
+.cand-table .swatch {
+  margin-right: 5px;
+  vertical-align: middle;
+}
+.disambig-warnings {
+  margin: 6px 0;
+  padding-left: 16px;
+  color: var(--amber);
+  font-size: 11px;
+}
+.disambig-report .primary {
+  margin-top: 6px;
+}
+
+/* ------------------------------------ assignment impact (paper #5) */
+
+.impact-section {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.impact-controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 6px 0;
+}
+.impact-controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.impact-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+  margin: 8px 0;
+}
+.impact-kpis .kpi {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.impact-kpis .kpi-label {
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.impact-kpis .kpi-val {
+  font-size: 13px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
 /* ------------------------------------------------------------ results */
 
 .results-meta {

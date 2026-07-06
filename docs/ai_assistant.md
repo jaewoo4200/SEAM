@@ -128,3 +128,90 @@ Every suggestion batch and every user decision is appended to
 The log is append-only (`ProjectStore.append_jsonl`) and ships with the
 project folder, so the full history of who/what suggested each material —
 and what the user did about it — survives sharing and re-opening.
+
+## RF disambiguation
+
+Vision alone cannot tell two RF-different materials apart when they *look*
+the same. Glass is the canonical case: Dai et al. (Qualcomm, JSTEAP 2025)
+report that visually indistinguishable glass panes span roughly **2.5–23.6 dB**
+of penetration loss at mmWave — a difference that dominates the link budget yet
+leaves no visual trace a camera or a texture name could pick up. A rule- or
+vision-based suggester will happily label them all `itu_glass`.
+
+RF disambiguation resolves the tie with *measurements* instead of pixels. Given
+a prim, a shortlist of candidate materials (the suggestion plus its
+alternatives), and a few measured per-link path gains, the service binds each
+candidate to the prim in turn, recompiles the scene, re-simulates the measured
+links, and scores the level-aligned RMSE — the same metric as parameter
+calibration (`services/calibration.py::disambiguate_materials`). The lowest-RMSE
+candidate wins.
+
+```
+POST /projects/{id}/calibrate/disambiguate
+{ "config": {"backend": "sionna"},
+  "prim_ids": ["/buildings/b01/window_12"],
+  "candidate_material_ids": ["itu_glass", "itu_glass_thick", "metal"],
+  "measurements": [ {"rx_position": [10,5,1.5], "measured_path_gain_db": -92.0}, ... ] }
+->
+{ "prim_ids": [...],
+  "candidates": [ {"material_id": "itu_glass", "rmse_db": 1.8, "n_links": 6}, ... ],
+  "best_material_id": "itu_glass_thick",
+  "backend": "sionna", "warnings": [] }
+```
+
+**Indistinguishable warning.** When the candidates' RMSE spread is below
+0.05 dB the measurements cannot separate them at those positions — the service
+returns `best_material_id: null` and warns
+`candidates are indistinguishable at these positions (RMSE spread … dB); add
+measurements nearer the prims` rather than picking noise. This is exactly what
+the deterministic mock backend does for any two ITU frequency-dependent
+candidates (its reflection loss only carries the scattering term, so equal-`S`
+materials predict identically) — disambiguation is a **Sionna-backend accuracy
+feature**; the mock exists to make the flow testable, not to separate materials.
+
+## Assignment impact evaluation
+
+Once materials are assigned, *how much do they actually matter for this link?*
+The impact evaluation implements the CFR framework of Lee et al. (KICS 2026):
+solve each TX→RX position twice — once with the scene's assigned materials, once
+with **every** prim rebound to a single baseline material (default
+`itu_concrete`) — and compare the two channel frequency responses
+(`services/material_impact.py`). Per position it reports:
+
+- **NMSE (dB)** — `Σ|H_mat − H_base|² / Σ|H_mat|²`. How far the baseline channel
+  is from the material-aware one. More negative = the materials barely move the
+  channel; near 0 dB = they dominate it. A position above `sensitive_nmse_db`
+  (KICS uses −60 dB) is flagged **material-sensitive**.
+- **cosine similarity** — `|H_matᴴ H_base| / (‖H_mat‖‖H_base‖)`, in [0, 1]. Shape
+  agreement of the two CFRs; 1.0 means identical up to scale.
+- **dRSS (dB)** — signed `RSS_mat − RSS_base`. Whether the assigned materials
+  raise or lower received power vs the baseline.
+- **capacity proxy (Mbps)** — a Shannon `B·mean_f log₂(1+SNR(f))` throughput for
+  each variant, so the material effect lands in an end-to-end KPI.
+
+Read it as: **near-zero NMSE + cos-sim ≈ 1 + dRSS ≈ 0 means "materials don't
+matter here"** (the geometry/LoS carries the link); a high per-position NMSE
+with a large dRSS is a location where getting the material right is essential.
+Live on Sionna (`lab_room`) the per-position NMSE runs −6 to −17 dB. On the
+material-blind mock, binding the baseline to the same material already on the
+reflecting prims collapses every metric to its identity (cos-sim 1, dRSS 0,
+global NMSE undefined) — again a **Sionna accuracy feature** with a testable
+mock stub. Endpoint: `POST /projects/{id}/analyze/material-impact`.
+
+## Multi-view capture & texture crops
+
+**Multi-view capture** *(accuracy feature).* A single screenshot sees each
+surface from one angle, under one glare/occlusion condition. `SuggestMaterialsRequest`
+therefore accepts `screenshot_data_urls` (up to 6 views; the legacy single
+`screenshot_data_url` is still honoured as a one-item list). Following Dai et
+al.'s multi-view majority merge, a vision provider aggregates a per-category
+prompt variant across the views and keeps the majority label, so a window that
+reads as "glass" in four of six views is not derailed by the two frames where a
+reflection made it look like metal.
+
+**Texture crops** *(accuracy feature).* Whole-viewport screenshots hand the model
+mostly empty space and force it to guess which pixels belong to the prim under
+question. Passing tight per-prim texture crops (the KICS SAM2.1 + DINOv2
+per-triangle route) instead gives the model the surface's own appearance at full
+resolution, which is what per-triangle voting and the CFR/NMSE eval downstream
+actually consume.

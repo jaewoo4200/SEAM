@@ -4,10 +4,14 @@ from pathlib import Path
 
 import pytest
 
-from app.schemas.calibration import CalibrationRequest, MeasurementSample
+from app.schemas.calibration import (
+    CalibrationRequest,
+    DisambiguationRequest,
+    MeasurementSample,
+)
 from app.schemas.scene import Device, MeshRef, Prim, RFBinding, Scene
 from app.schemas.simulation import SimulationConfig
-from app.services.calibration import calibrate_material
+from app.services.calibration import calibrate_material, disambiguate_materials
 from app.services.project_store import load_default_library
 from app.services.scene_validator import validate_scene
 from app.services.simulation_backends.mock_backend import MockBackend
@@ -253,3 +257,111 @@ def test_api_apply_gate_refuses_without_improvement(api_client):
     scene = store.load_scene("calgate")
     ground_prim = next(p for p in scene.prims if p.rf.material_id == "ground")
     assert ground_prim.rf.assignment_status == "user_confirmed"  # unchanged
+
+
+# ------------------------------------------------------ RF disambiguation
+#
+# The RF-sensing disambiguation step (Dai et al., JSTEAP 2025): rank candidate
+# materials for a prim by how well re-simulating the measured links with each
+# candidate matches the measurements. The MOCK backend is *material-blind* for
+# ITU frequency-dependent entries — its reflection loss only adds the
+# scattering term (10*S) and never the eps/sigma that separate real glass
+# types — so two ITU candidates with equal S produce identical predictions.
+# These tests exercise the service on that mock and therefore assert the
+# indistinguishable-warning path, not a physical winner (the real separation is
+# verified live on the Sionna backend).
+
+
+def _disambig_measurements(tmp_path: Path, config: SimulationConfig,
+                           positions: list[list[float]]) -> list[MeasurementSample]:
+    """Synthetic measurements = the mock's own path gains at `positions` for
+    the scene as-shipped, so every candidate produces comparable links."""
+    scene = _scene(with_wall=True)
+    library = load_default_library()
+    from app.services.calibration import _simulate_path_gains
+
+    req0 = CalibrationRequest(
+        config=config,
+        measurements=[MeasurementSample(rx_position=p, measured_path_gain_db=0.0) for p in positions],
+        target_material_id="ground",
+    )
+    sim = _simulate_path_gains(MockBackend(), tmp_path, scene, library, config, req0)
+    assert all(s is not None for s in sim)
+    return [
+        MeasurementSample(rx_position=p, measured_path_gain_db=s)  # type: ignore[arg-type]
+        for p, s in zip(positions, sim)
+    ]
+
+
+def test_disambiguation_indistinguishable_on_mock(tmp_path: Path):
+    """Two ITU candidates with equal scattering (itu_concrete/itu_wood, both
+    S=0.2) bound to the wall prim: both score with n_links>0 and identical
+    RMSE, so the mock cannot separate them — expect the exact indistinguishable
+    warning and best_material_id None (not an arbitrary pick)."""
+    scene = _scene(with_wall=True)
+    library = load_default_library()
+    config = SimulationConfig(id="default", backend="mock", frequency_hz=28e9)
+    positions = [[12.0, 0.0, 1.5], [30.0, 0.0, 1.5], [45.0, 5.0, 1.5]]
+    measurements = _disambig_measurements(tmp_path, config, positions)
+
+    report = disambiguate_materials(
+        MockBackend(), tmp_path, scene, library, config,
+        DisambiguationRequest(
+            config=config,
+            prim_ids=["/wall"],
+            candidate_material_ids=["itu_concrete", "itu_wood"],
+            measurements=measurements,
+        ),
+    )
+    assert report.backend == "mock"
+    assert {c.material_id for c in report.candidates} == {"itu_concrete", "itu_wood"}
+    assert all(c.n_links > 0 for c in report.candidates)
+    assert all(c.rmse_db is not None for c in report.candidates)
+    # Material-blind mock => identical fit => flat RMSE spread => no winner.
+    assert report.best_material_id is None
+    assert any(
+        "indistinguishable at these positions" in w for w in report.warnings
+    )
+
+
+def test_disambiguation_unknown_prim_raises(tmp_path: Path):
+    scene = _scene(with_wall=True)
+    with pytest.raises(ValueError):
+        disambiguate_materials(
+            MockBackend(), tmp_path, scene, load_default_library(),
+            SimulationConfig(backend="mock"),
+            DisambiguationRequest(
+                prim_ids=["/does_not_exist"],
+                candidate_material_ids=["itu_concrete", "itu_wood"],
+                measurements=[
+                    MeasurementSample(rx_position=[12.0, 0.0, 1.5], measured_path_gain_db=-90.0)
+                ],
+            ),
+        )
+
+
+def test_disambiguation_unknown_candidate_skipped(tmp_path: Path):
+    """An unknown candidate material is skipped with a warning; the remaining
+    (known) candidate is still scored and, being the only scored entry, wins."""
+    scene = _scene(with_wall=True)
+    library = load_default_library()
+    config = SimulationConfig(id="default", backend="mock", frequency_hz=28e9)
+    positions = [[12.0, 0.0, 1.5], [30.0, 0.0, 1.5]]
+    measurements = _disambig_measurements(tmp_path, config, positions)
+
+    report = disambiguate_materials(
+        MockBackend(), tmp_path, scene, library, config,
+        DisambiguationRequest(
+            config=config,
+            prim_ids=["/wall"],
+            candidate_material_ids=["does_not_exist", "itu_concrete"],
+            measurements=measurements,
+        ),
+    )
+    assert any("unknown candidate material skipped: does_not_exist" in w for w in report.warnings)
+    # Only the known candidate is scored (the bogus one never becomes a row).
+    assert [c.material_id for c in report.candidates] == ["itu_concrete"]
+    scored = next(c for c in report.candidates if c.material_id == "itu_concrete")
+    assert scored.n_links > 0 and scored.rmse_db is not None
+    # A single scored candidate skips the flat-spread guard, so it is the best.
+    assert report.best_material_id == "itu_concrete"

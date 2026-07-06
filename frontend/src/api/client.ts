@@ -21,7 +21,11 @@ import type {
   DatasetGenerateRequest,
   DatasetInfo,
   DatasetListResponse,
+  DisambiguationReport,
+  DisambiguationRequest,
   HealthResponse,
+  MaterialImpactReport,
+  MaterialImpactRequest,
   MaterialSuggestionResponse,
   PathResultSet,
   ProjectCreateRequest,
@@ -144,6 +148,14 @@ export const api = {
     request<MaterialSuggestionResponse>("POST", `/projects/${pid}/ai/suggest-materials`, req),
   applySuggestions: (pid: string, req: ApplySuggestionsRequest) =>
     request<AssignResponse>("POST", `/projects/${pid}/ai/apply-suggestions`, req),
+
+  // calibration: RF-sensing disambiguation (rank candidate materials by fit).
+  disambiguate: (pid: string, req: DisambiguationRequest) =>
+    request<DisambiguationReport>("POST", `/projects/${pid}/calibrate/disambiguate`, req),
+
+  // analysis: material-aware vs single-material baseline channel impact.
+  materialImpact: (pid: string, req: MaterialImpactRequest) =>
+    request<MaterialImpactReport>("POST", `/projects/${pid}/analyze/material-impact`, req),
 
   // compile
   compileSionna: (pid: string) => request<CompileResult>("POST", `/projects/${pid}/compile/sionna`),

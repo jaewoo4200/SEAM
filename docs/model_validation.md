@@ -91,6 +91,30 @@
 RSRQ 가 이 −10.79 dB 상한 아래로 내려가고, `SINR = S/(I+N) < SNR`,
 `RSSI = 10log10(lin(S)+lin(I)+lin(N))` 가 정의대로 성립함을 검증한다.
 
+### 2.6 재질 임팩트 평가 — NMSE / 코사인 유사도 / dRSS (`services/material_impact.py`)
+
+동일 TX→RX 링크를 **재질 지정 씬**과 **단일 기준재질 씬**(모든 프림을
+`baseline_material_id`, 기본 `itu_concrete` 로 재바인딩)에서 각각 풀어, 두 채널
+주파수응답 `H(f)` 을 위치별로 비교한다(Lee et al., KICS 2026). `H(f_k)=Σ_l g_l
+exp(−j2πf_k τ_l)`, `|g_l|=sqrt(선형전력)` 은 §2.4 CFR 및 채널분석 패널과 동일한 탭
+모델이다(`:35-46`).
+
+| # | 지표 | 구현 수식 (file:line) | 기준 (KICS eq.) | 판정 | 비고 |
+|---|------|----------------------|-----------------|------|------|
+| 21 | **위치별 NMSE** | `10·log10(Σ_k|H_mat−H_base|² / Σ_k|H_mat|²)` [dB] — `:134-135` | 정규화 평균제곱오차 `NMSE = ‖H_mat−H_base‖² / ‖H_mat‖²` [KICS] | CORRECT | 분자·분모 모두 선형전력합, dB 변환. `err=0`(동일 채널) 시 −300 dB 하한(−∞ 대체). `> sensitive_nmse_db`(기본 −60 dB) 이면 material-sensitive 플래그. |
+| 22 | **글로벌 NMSE** | `10·log10(Σ_pos err / Σ_pos E_mat)` [dB] — `:166-168` | 전 위치 오차·에너지 선형 누적 후 NMSE [KICS] | CORRECT | 위치별 dB 값의 평균이 아니라 **선형 누적비**(에너지 가중). 누적 분자/분모=0 이면 None(정의 불가). |
+| 23 | **코사인 유사도** | `|H_matᴴ·H_base| / (‖H_mat‖·‖H_base‖)` — `:141-143` | CFR 형상 유사도(내적/노름곱), [0,1] [KICS] | CORRECT | `vdot`(켤레내적)의 절댓값. 두 CFR 이 스케일만 다르면 1.0. `E_mat,E_base>0` 일 때만 산출. |
+| 24 | **dRSS** | `RSS_mat − RSS_base`, `RSS=10log10(Σ 선형전력)` [dB] — `:147-157` | 부호 있는 수신전력 차 [KICS] | CORRECT | 재질−기준. 양수=지정재질이 기준보다 수신전력 상승. 양쪽 경로 존재 시에만. |
+| 25 | **용량 프록시** | `B·mean_f log2(1 + P|h(f)|²/N) / 1e6` Mbps — `:49-56` | Shannon 처리량 프록시(주파수 평균) [KICS/8][9] | CORRECT | 재질/기준 각각 산출, dB→선형 SNR. §2.1 #11 Shannon 과 동일 계열(여기선 주파수축 평균). |
+
+**항등식 스팟체크(mock):** mock 백엔드는 ITU 주파수의존 재질에 대해 산란항만
+반영(§rf) 하므로 **material-blind** 이다. 유일한 반사 프림에 이미 붙은 재질을
+`baseline_material_id` 로 그대로 주면 두 씬이 RF-동일해져, 모든 위치에서
+`H_mat≡H_base` → **코사인 유사도 1, dRSS 0, err=0 이라 글로벌 NMSE None** 으로
+수렴한다. `tests/test_material_impact.py::test_material_impact_identity_three_waypoints`
+가 3 웨이포인트에서 이 수학적 항등을 핀한다. 위치별 NMSE 의 실제 분포(−6~−17 dB,
+`lab_room`)는 Sionna 백엔드에서 검증된다.
+
 ---
 
 ## 3. 채택할 수정 (감사가 발견한 편차 → 정확한 코드 변경)

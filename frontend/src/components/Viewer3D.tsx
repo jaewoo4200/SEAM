@@ -832,29 +832,87 @@ const SCREENSHOT_MAX_WIDTH = 800;
 /** Registers a viewport-capture fn with the store (VLM). Reads the WebGL canvas
  *  as a JPEG data URL on demand, downscaled to at most SCREENSHOT_MAX_WIDTH so
  *  the payload stays small; requires preserveDrawingBuffer. */
+/** Downscale a freshly-rendered canvas to a JPEG data URL (<= max width),
+ *  preserving aspect ratio. Returns null on a zero-sized or tainted canvas. */
+function canvasToJpeg(src: HTMLCanvasElement): string | null {
+  try {
+    const w = src.width;
+    const h = src.height;
+    if (w === 0 || h === 0) return null;
+    if (w <= SCREENSHOT_MAX_WIDTH) return src.toDataURL("image/jpeg", 0.6);
+    const scale = SCREENSHOT_MAX_WIDTH / w;
+    const off = document.createElement("canvas");
+    off.width = SCREENSHOT_MAX_WIDTH;
+    off.height = Math.max(1, Math.round(h * scale));
+    const ctx = off.getContext("2d");
+    if (!ctx) return src.toDataURL("image/jpeg", 0.6);
+    ctx.drawImage(src, 0, 0, off.width, off.height);
+    return off.toDataURL("image/jpeg", 0.6);
+  } catch {
+    return null;
+  }
+}
+
 function ScreenshotCapture() {
   const gl = useThree((s) => s.gl);
+  const scene = useThree((s) => s.scene);
+  const camera = useThree((s) => s.camera);
   const registerViewportCapture = useAppStore((s) => s.registerViewportCapture);
+  const registerMultiViewCapture = useAppStore((s) => s.registerMultiViewCapture);
   useEffect(() => {
-    registerViewportCapture(() => {
+    registerViewportCapture(() => canvasToJpeg(gl.domElement));
+    // Multi-view (paper roadmap #3): render 4 azimuth poses around the scene
+    // center with a TEMPORARY camera so the VLM sees the geometry from every
+    // side. The user's camera is never moved; we re-render it after the loop
+    // so the visible frame is untouched. Falls back to a single current-view
+    // capture when scene bounds are unknown.
+    registerMultiViewCapture(() => {
+      const b = useAppStore.getState().sceneBounds;
+      const single = canvasToJpeg(gl.domElement);
+      if (!b) return single ? [single] : [];
       try {
-        const src = gl.domElement;
-        const w = src.width;
-        const h = src.height;
-        if (w === 0 || h === 0) return null;
-        // Full-res if already narrow enough; otherwise downscale via an
-        // offscreen canvas preserving aspect ratio.
-        if (w <= SCREENSHOT_MAX_WIDTH) return src.toDataURL("image/jpeg", 0.6);
-        const scale = SCREENSHOT_MAX_WIDTH / w;
-        const off = document.createElement("canvas");
-        off.width = SCREENSHOT_MAX_WIDTH;
-        off.height = Math.max(1, Math.round(h * scale));
-        const ctx = off.getContext("2d");
-        if (!ctx) return src.toDataURL("image/jpeg", 0.6);
-        ctx.drawImage(src, 0, 0, off.width, off.height);
-        return off.toDataURL("image/jpeg", 0.6);
-      } catch {
-        return null;
+        const center = new THREE.Vector3(
+          (b.min[0] + b.max[0]) / 2,
+          (b.min[1] + b.max[1]) / 2,
+          (b.min[2] + b.max[2]) / 2,
+        );
+        // Match the user camera's distance to the scene center so the framing
+        // is comparable; guard against a degenerate (co-located) distance.
+        const dist = Math.max(1, camera.position.distanceTo(center));
+        // A gentle downward tilt (30% of the radius) so the views look down
+        // onto the scene rather than dead-level.
+        const elev = dist * 0.3;
+        const persp = camera instanceof THREE.PerspectiveCamera ? camera : null;
+        const tmp = new THREE.PerspectiveCamera(
+          persp?.fov ?? 45,
+          persp?.aspect ?? gl.domElement.width / Math.max(1, gl.domElement.height),
+          persp?.near ?? 0.1,
+          persp?.far ?? 5000,
+        );
+        tmp.up.set(0, 0, 1); // Z-up world (same as the real camera)
+        const shots: string[] = [];
+        for (const azDeg of [0, 90, 180, 270]) {
+          const az = (azDeg * Math.PI) / 180;
+          tmp.position.set(
+            center.x + Math.cos(az) * dist,
+            center.y + Math.sin(az) * dist,
+            center.z + elev,
+          );
+          tmp.lookAt(center);
+          tmp.updateMatrixWorld();
+          gl.render(scene, tmp);
+          const shot = canvasToJpeg(gl.domElement);
+          if (shot) shots.push(shot);
+        }
+        return shots.length > 0 ? shots : single ? [single] : [];
+      } finally {
+        // Restore the visible frame: re-render with the real camera so the
+        // temporary poses never flash on screen.
+        try {
+          gl.render(scene, camera);
+        } catch {
+          // best-effort restore; the next rAF frame repaints regardless
+        }
       }
     });
     viewportPngGetter = () => {
@@ -867,9 +925,10 @@ function ScreenshotCapture() {
     };
     return () => {
       registerViewportCapture(null);
+      registerMultiViewCapture(null);
       viewportPngGetter = null;
     };
-  }, [gl, registerViewportCapture]);
+  }, [gl, scene, camera, registerViewportCapture, registerMultiViewCapture]);
   return null;
 }
 

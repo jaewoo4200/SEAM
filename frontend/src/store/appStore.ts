@@ -212,6 +212,9 @@ interface AppState {
   /** When ON, suggest-materials attaches the viewport capture as
    *  screenshot_data_url so vision-capable providers see the scene. */
   sendScreenshot: boolean;
+  /** When ON, the server extracts per-prim texture crops from the visual GLB
+   *  and attaches them as extra image evidence (paper roadmap #4). */
+  sendTextureCrops: boolean;
   // Forced AI provider for suggestions; null = server picks the best available.
   aiProvider: string | null;
 
@@ -338,10 +341,15 @@ interface AppState {
   // live sync + AI screenshot groundwork
   setLiveMode: (on: boolean) => void;
   setSendScreenshot: (on: boolean) => void;
+  setSendTextureCrops: (on: boolean) => void;
   setAiProvider: (name: string | null) => void;
   /** Viewer3D registers a canvas snapshot fn here; store calls it on demand. */
   registerViewportCapture: (fn: (() => string | null) | null) => void;
   captureViewport: () => string | null;
+  /** Multi-view variant: 4 azimuth views around the scene center (paper #3).
+   *  Viewer3D registers it; the store calls it when sendScreenshot is on. */
+  registerMultiViewCapture: (fn: (() => string[]) | null) => void;
+  captureMultiView: () => string[];
 
   dismissError: () => void;
   dismissNotice: () => void;
@@ -650,6 +658,8 @@ export const useAppStore = create<AppState>()((set, get) => {
 
   // Viewport screenshot capture fn, registered by Viewer3D (VLM groundwork).
   let viewportCapture: (() => string | null) | null = null;
+  // Multi-view capture fn (4 azimuth views), registered by Viewer3D.
+  let multiViewCapture: (() => string[]) | null = null;
 
   return {
     projects: [],
@@ -731,6 +741,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     liveMode: false,
     lastViewportShot: null,
     sendScreenshot: false,
+    sendTextureCrops: false,
     aiProvider: null,
 
     busy: null,
@@ -1174,17 +1185,23 @@ export const useAppStore = create<AppState>()((set, get) => {
     suggestMaterials: async () => {
       const pid = get().projectId;
       if (!pid) return;
-      const { selection, sendScreenshot, aiProvider } = get();
-      // VLM: when the user opts in, capture the viewport as a downscaled JPEG
-      // and attach it to the request. The pinned SuggestMaterialsRequest now
-      // carries screenshot_data_url, so the VLM provider can see the scene.
-      const shot = sendScreenshot ? get().captureViewport() : null;
+      const { selection, sendScreenshot, sendTextureCrops, aiProvider } = get();
+      // VLM: when the user opts in, capture 4 azimuth views around the scene
+      // (paper roadmap #3) so the provider sees the geometry from every side.
+      // Falls back to a single current-view capture when multi-view is
+      // unavailable (no scene bounds / capture fn not registered yet). The
+      // pinned SuggestMaterialsRequest carries screenshot_data_urls (multi) and
+      // keeps screenshot_data_url (single) for back-compat.
+      const shots = sendScreenshot ? get().captureMultiView() : [];
+      const single = shots.length > 0 ? null : sendScreenshot ? get().captureViewport() : null;
       await run("Requesting RF material suggestions…", async () => {
         const resp = await api.suggestMaterials(pid, {
           prim_ids: selection.length > 0 ? selection : null,
           // null = server picks the best available provider.
           provider: aiProvider,
-          screenshot_data_url: shot,
+          screenshot_data_url: single,
+          screenshot_data_urls: shots.length > 0 ? shots : null,
+          attach_texture_crops: sendTextureCrops,
         });
         set({ suggestions: resp, decisions: {} });
       });
@@ -1610,6 +1627,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     },
 
     setSendScreenshot: (on) => set({ sendScreenshot: on }),
+    setSendTextureCrops: (on) => set({ sendTextureCrops: on }),
 
     registerViewportCapture: (fn) => {
       viewportCapture = fn;
@@ -1619,6 +1637,18 @@ export const useAppStore = create<AppState>()((set, get) => {
       const shot = viewportCapture ? viewportCapture() : null;
       if (shot) set({ lastViewportShot: shot });
       return shot;
+    },
+
+    registerMultiViewCapture: (fn) => {
+      multiViewCapture = fn;
+    },
+
+    captureMultiView: () => {
+      const shots = multiViewCapture ? multiViewCapture() : [];
+      // Remember the first view as the "last shot" thumbnail (parity with the
+      // single-capture path).
+      if (shots.length > 0) set({ lastViewportShot: shots[0] });
+      return shots;
     },
 
     dismissError: () => set({ error: null }),

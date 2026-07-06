@@ -67,3 +67,39 @@ class CalibrationReport(StrictModel):
     applied: bool = False
     backend: str = ""
     warnings: list[str] = Field(default_factory=list)
+
+
+class DisambiguationRequest(StrictModel):
+    """Which candidate RF material best explains the measurements?
+
+    The RF-sensing disambiguation step from Dai et al. (JSTEAP 2025):
+    visually identical materials (e.g. glass types spanning 2.5-23.6 dB
+    penetration loss) are separated by re-simulating the measured links with
+    each candidate bound to the target prims and ranking the level-aligned
+    RMSE - the same error metric as parameter calibration.
+    """
+
+    config_id: Optional[str] = None
+    config: Optional[SimulationConfig] = None
+    # Prims whose RF binding is being decided (usually one suggestion's prim).
+    prim_ids: list[str] = Field(min_length=1)
+    # Candidate library material ids to try (the suggestion + alternatives).
+    candidate_material_ids: list[str] = Field(min_length=2)
+    measurements: list[MeasurementSample] = Field(min_length=1)
+
+
+class DisambiguationCandidate(StrictModel):
+    material_id: str
+    rmse_db: Optional[float] = None
+    mean_abs_error_db: Optional[float] = None
+    level_offset_db: Optional[float] = None
+    n_links: int = 0
+
+
+class DisambiguationReport(StrictModel):
+    prim_ids: list[str]
+    candidates: list[DisambiguationCandidate] = Field(default_factory=list)
+    # Lowest-RMSE candidate; None when nothing produced comparable links.
+    best_material_id: Optional[str] = None
+    backend: str
+    warnings: list[str] = Field(default_factory=list)

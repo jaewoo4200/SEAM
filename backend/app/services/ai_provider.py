@@ -12,10 +12,12 @@ with no Ollama server, no GPU, no network.
 """
 
 import abc
+import base64
+import io
 import json
 import re
 import time
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Optional
 
 from pydantic import ValidationError
@@ -31,11 +33,14 @@ from app.schemas.ai import (
 from app.schemas.materials import RFMaterialLibrary
 from app.schemas.scene import Prim, Scene
 
-PROMPT_VERSION = "v1"
+PROMPT_VERSION = "v2"
 
 FALLBACK_MATERIAL_ID = "unknown_rf"
 FALLBACK_CONFIDENCE = 0.2
 ALTERNATIVE_CONFIDENCE_FACTOR = 0.5
+# Floor for the category-score normalizer so a degenerate all-zero score object
+# cannot divide by zero when deriving confidence.
+_CATEGORY_SCORE_EPS = 1e-6
 
 # Keyword table (HANDOFF 9.3). Order matters: earlier rules win confidence
 # ties (e.g. "brick_wall" recommends itu_brick with itu_concrete alternative).
@@ -68,6 +73,20 @@ def _strip_data_url_prefix(data_url: str | None) -> str | None:
     if data_url.startswith("data:") and idx != -1:
         return data_url[idx + len(marker):]
     return data_url
+
+
+def _effective_images(
+    screenshots: list[str] | None, screenshot: str | None
+) -> list[str]:
+    """Normalize the two screenshot inputs into one ordered list.
+
+    ``screenshots`` (the multi-view list) wins when present; otherwise the
+    single ``screenshot`` becomes a one-item list. Falsy entries are dropped so
+    an empty string never masquerades as an attached image.
+    """
+    if screenshots:
+        return [img for img in screenshots if img]
+    return [screenshot] if screenshot else []
 
 
 def _is_vision_rejection(exc: Exception) -> bool:
@@ -139,10 +158,167 @@ def _evidence_fields(evidence: dict) -> list[tuple[str, str, float]]:
     return fields
 
 
+# Qualcomm-style per-category prompt variants: 2-3 descriptive phrasings that
+# help an LLM recognize each category from visual/name evidence. Categories not
+# listed here fall back to a single generic phrasing built from the name.
+_CATEGORY_VARIANT_PHRASES: dict[str, tuple[str, ...]] = {
+    "glass": ("a glazed window pane", "a transparent glass facade"),
+    "concrete": ("a poured concrete wall", "a bare cement surface"),
+    "brick": ("a red brick wall", "a masonry brick facade"),
+    "metal": ("a bare metal panel", "a brushed steel or aluminum surface"),
+    "wood": ("a wooden plank or timber beam", "a natural tree trunk / bark"),
+    "vegetation": ("dense green foliage or leaves", "a grassy or canopy surface"),
+    "road": ("a dark asphalt road surface", "a paved street"),
+    "ground": ("bare soil or terrain", "a dirt / earth ground surface"),
+}
+
+
+def _category_variant_lines(library: RFMaterialLibrary) -> str:
+    """Prompt block listing each library category with descriptive variants.
+
+    One line per distinct ``RFMaterial.category`` present in the library, in
+    first-seen order. Known categories use the curated phrasings above; unknown
+    ones get a single generic phrasing so the model still has something to
+    reason over.
+    """
+    lines: list[str] = []
+    seen: set[str] = set()
+    for mat in library.materials:
+        category = mat.category
+        if category in seen:
+            continue
+        seen.add(category)
+        variants = _CATEGORY_VARIANT_PHRASES.get(category)
+        if variants:
+            phrases = "; ".join(f'"{v}"' for v in variants)
+        else:
+            phrases = f'"a {category.replace("_", " ")} surface"'
+        lines.append(f"- {category}: {phrases}")
+    return "\n".join(lines)
+
+
+def _texture_image_for_geometry(geometry) -> object | None:
+    """Return the baseColor PIL image of a trimesh geometry, or None.
+
+    Handles both PBR materials (``material.baseColorTexture``) and simple
+    textured materials (``material.image`` / ``visual.image``). Anything without
+    a usable image (untextured meshes, vertex colors) yields None.
+    """
+    visual = getattr(geometry, "visual", None)
+    if visual is None:
+        return None
+    material = getattr(visual, "material", None)
+    if material is not None:
+        image = getattr(material, "baseColorTexture", None)
+        if image is not None:
+            return image
+        image = getattr(material, "image", None)
+        if image is not None:
+            return image
+    return getattr(visual, "image", None)
+
+
+def extract_prim_texture_crops(
+    project_dir: Path,
+    scene: Scene,
+    prim_ids: list[str],
+    max_crops: int = 6,
+    size: int = 128,
+) -> list[dict]:
+    """Extract per-prim baseColor texture crops from the project's visual GLB.
+
+    For each target prim, resolve its geometry through ``mesh_ref.mesh_name``
+    against the loaded visual scene; if the geometry's material carries a
+    baseColor texture image, downscale it to ``size`` px (longest side) and
+    encode a JPEG data URL. Prims without a texture (or without geometry) are
+    skipped silently. Returns at most ``max_crops`` entries, in prim order,
+    shaped ``[{"prim_id", "data_url"}]``. Best-effort: any failure (missing
+    GLB, trimesh/PIL error) yields an empty list rather than raising, so the
+    suggest flow degrades to text/screenshots only.
+    """
+    if max_crops <= 0 or not prim_ids:
+        return []
+    try:
+        from PIL import Image  # lazy: optional runtime dependency path
+
+        from app.services import mesh_tools
+    except Exception:  # pragma: no cover - import guard
+        return []
+
+    # Group target prims by the visual asset they reference so each GLB is
+    # loaded once. Most scenes share a single asset_uri.
+    crops: list[dict] = []
+    scene_cache: dict[str, object] = {}
+    for prim_id in prim_ids:
+        if len(crops) >= max_crops:
+            break
+        prim = scene.prim_by_id(prim_id)
+        if prim is None or prim.mesh_ref is None:
+            continue
+        asset_uri = prim.mesh_ref.asset_uri
+        if asset_uri not in scene_cache:
+            try:
+                scene_cache[asset_uri] = mesh_tools.load_visual_scene(
+                    project_dir, asset_uri
+                )
+            except Exception:
+                scene_cache[asset_uri] = None
+        tm_scene = scene_cache[asset_uri]
+        if tm_scene is None:
+            continue
+        try:
+            geometry = _resolve_prim_geometry(tm_scene, prim.mesh_ref.mesh_name)
+            if geometry is None:
+                continue
+            image = _texture_image_for_geometry(geometry)
+            if image is None:
+                continue
+            data_url = _encode_crop(Image, image, size)
+        except Exception:
+            # One bad prim must not sink the whole batch.
+            continue
+        if data_url is not None:
+            crops.append({"prim_id": prim_id, "data_url": data_url})
+    return crops
+
+
+def _resolve_prim_geometry(tm_scene, mesh_name: str):
+    """Resolve the trimesh geometry named ``mesh_name`` (geometry or node name).
+
+    Mirrors the resolution order in ``mesh_tools.extract_prim_mesh`` but returns
+    the geometry object itself (untransformed) so its visual/material survives -
+    ``extract_prim_mesh`` copies and world-transforms, which is unnecessary here
+    and can drop the texture visual.
+    """
+    if mesh_name in tm_scene.geometry:
+        return tm_scene.geometry.get(mesh_name)
+    for node in sorted(tm_scene.graph.nodes_geometry):
+        if node == mesh_name:
+            _, geometry_name = tm_scene.graph[node]
+            return tm_scene.geometry.get(geometry_name)
+    return None
+
+
+def _encode_crop(image_module, image, size: int) -> Optional[str]:
+    """Downscale a PIL image to ``size`` px and return a JPEG data URL."""
+    img = image
+    if getattr(img, "mode", None) not in ("RGB", "L"):
+        img = img.convert("RGB")
+    img = img.copy()
+    img.thumbnail((size, size), image_module.Resampling.LANCZOS)
+    buffer = io.BytesIO()
+    img.save(buffer, format="JPEG", quality=80)
+    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+    return f"data:image/jpeg;base64,{encoded}"
+
+
 class MaterialSuggestionProvider(abc.ABC):
     """Provider abstraction (HANDOFF 9.2)."""
 
     name: str = "abstract"
+    # True for providers that can consume image evidence (viewport screenshots
+    # and texture crops). False providers ignore all image inputs.
+    multimodal: bool = False
 
     @abc.abstractmethod
     def is_available(self) -> bool: ...
@@ -154,13 +330,15 @@ class MaterialSuggestionProvider(abc.ABC):
         library: RFMaterialLibrary,
         prim_ids: list[str],
         screenshot: str | None = None,
+        screenshots: list[str] | None = None,
+        texture_crops: list[dict] | None = None,
     ) -> MaterialSuggestionResponse: ...
 
 
 class RuleBasedProvider(MaterialSuggestionProvider):
     """Keyword rules over visual evidence. Always available, never networked.
 
-    Ignores ``screenshot``: rules operate on textual evidence only.
+    Ignores images: rules operate on textual evidence only.
     """
 
     name = "rule_based"
@@ -174,6 +352,8 @@ class RuleBasedProvider(MaterialSuggestionProvider):
         library: RFMaterialLibrary,
         prim_ids: list[str],
         screenshot: str | None = None,
+        screenshots: list[str] | None = None,
+        texture_crops: list[dict] | None = None,
     ) -> MaterialSuggestionResponse:
         suggestions: list[MaterialSuggestion] = []
         warnings: list[str] = []
@@ -315,6 +495,7 @@ class OllamaTextProvider(MaterialSuggestionProvider):
     """
 
     name = "ollama_text"
+    multimodal = True
 
     def is_available(self) -> bool:
         settings = get_settings().ai
@@ -329,6 +510,8 @@ class OllamaTextProvider(MaterialSuggestionProvider):
         library: RFMaterialLibrary,
         prim_ids: list[str],
         screenshot: str | None = None,
+        screenshots: list[str] | None = None,
+        texture_crops: list[dict] | None = None,
     ) -> MaterialSuggestionResponse:
         settings = get_settings().ai
         warnings: list[str] = []
@@ -347,13 +530,20 @@ class OllamaTextProvider(MaterialSuggestionProvider):
                 prompt_version=PROMPT_VERSION,
                 warnings=warnings,
             )
-        # A screenshot upgrades this call to the vision model; the ollama chat
-        # API takes images as base64 (no data: prefix) on the user message.
-        has_image = bool(screenshot)
-        image_b64 = _strip_data_url_prefix(screenshot) if has_image else None
+        # Any image (viewport screenshots and/or per-prim texture crops)
+        # upgrades this call to the vision model; the ollama chat API takes
+        # images as base64 (no data: prefix) on the user message. Viewport
+        # screenshots come first, then texture crops in prim order.
+        view_images = _effective_images(screenshots, screenshot)
+        crops = texture_crops or []
+        image_urls = view_images + [c["data_url"] for c in crops]
+        has_image = bool(image_urls)
+        images_b64 = [
+            b64 for img in image_urls if (b64 := _strip_data_url_prefix(img))
+        ]
         model = settings.vision_model if has_image else settings.text_model
         if has_image and settings.vision_model != settings.text_model:
-            # Honesty over silence: attaching a screenshot swaps to the vision
+            # Honesty over silence: attaching an image swaps to the vision
             # model, which may be smaller/weaker than the configured text one.
             warnings.append(
                 f"screenshot attached: using vision model '{settings.vision_model}' "
@@ -363,11 +553,14 @@ class OllamaTextProvider(MaterialSuggestionProvider):
             import httpx  # lazy: never required at import time
 
             messages = self._build_messages(
-                evidence_list, library, with_image=has_image
+                evidence_list,
+                library,
+                num_views=len(view_images),
+                crop_prim_ids=[c["prim_id"] for c in crops],
             )
-            if has_image and image_b64:
+            if has_image and images_b64:
                 # Ollama attaches images to the user message via an 'images' list.
-                messages[-1] = {**messages[-1], "images": [image_b64]}
+                messages[-1] = {**messages[-1], "images": images_b64}
             response = httpx.post(
                 f"{settings.base_url}/api/chat",
                 json={
@@ -399,7 +592,7 @@ class OllamaTextProvider(MaterialSuggestionProvider):
             # before dropping all the way to rules.
             if has_image:
                 try:
-                    return self.suggest(scene, library, prim_ids, screenshot=None)
+                    return self.suggest(scene, library, prim_ids)
                 except Exception:  # noqa: BLE001 - fall through to rules below
                     pass
             fallback = RuleBasedProvider().suggest(scene, library, prim_ids)
@@ -413,18 +606,28 @@ class OllamaTextProvider(MaterialSuggestionProvider):
     def _build_messages(
         evidence_list: list[dict],
         library: RFMaterialLibrary,
-        with_image: bool = False,
+        num_views: int = 0,
+        crop_prim_ids: list[str] | None = None,
     ) -> list[dict]:
+        """Build the v2 (category-score) chat prompt.
+
+        ``num_views`` is how many viewport screenshots are attached (0 = none);
+        ``crop_prim_ids`` names the prims whose texture crops are appended after
+        the screenshots, in image order. Both feed prompt lines that map image
+        order to meaning; the actual image bytes are attached by the caller.
+        """
+        crop_prim_ids = crop_prim_ids or []
         library_lines = "\n".join(
             f"- {mat.id} (category: {mat.category}){': ' + mat.notes if mat.notes else ''}"
             for mat in library.materials
         )
+        category_lines = _category_variant_lines(library)
         schema_example = {
             "suggestions": [
                 {
                     "prim_id": "/buildings/b07/window_12",
                     "recommended_rf_material_id": "itu_glass",
-                    "confidence": 0.86,
+                    "category_scores": {"glass": 0.82, "concrete": 0.12, "metal": 0.06},
                     "evidence": [
                         "prim name contains 'window'",
                         "visual material name contains 'glass'",
@@ -439,29 +642,57 @@ class OllamaTextProvider(MaterialSuggestionProvider):
         system = (
             "You assign RF (radio-frequency) materials to 3D scene objects for "
             "wireless ray-tracing simulation. The visual evidence you receive "
-            "(names, tags, texture filenames) is a hint, never ground truth. "
+            "(names, tags, texture filenames, images) is a hint, never ground "
+            "truth. For each object, think of every material CATEGORY through "
+            "its descriptive variants below and score how well the object "
+            "matches each category, then pick the best-fitting rf material id. "
             "Respond ONLY with JSON."
         )
-        image_note = (
-            "An image of the current 3D viewport is attached. It is EVIDENCE "
-            "only (visual appearance), never RF ground truth; weigh it exactly "
-            "like the textual hints below.\n\n"
-            if with_image
-            else ""
-        )
+        # Image-mapping prompt lines: viewport screenshots first, then crops.
+        image_note = ""
+        image_index = 1
+        if num_views:
+            if num_views == 1:
+                image_note += (
+                    "An image of the current 3D viewport is attached. It is "
+                    "EVIDENCE only (visual appearance), never RF ground truth; "
+                    "weigh it exactly like the textual hints below.\n\n"
+                )
+            else:
+                image_note += (
+                    f"The first {num_views} attached images are different "
+                    "camera angles of the SAME scene. They are EVIDENCE only "
+                    "(visual appearance), never RF ground truth; weigh them "
+                    "exactly like the textual hints below.\n\n"
+                )
+            image_index += num_views
+        if crop_prim_ids:
+            crop_lines = "\n".join(
+                f"- image {image_index + offset}: texture crop of prim {pid}"
+                for offset, pid in enumerate(crop_prim_ids)
+            )
+            image_note += (
+                "The following attached images are close-up texture crops of "
+                "specific prims (EVIDENCE only, in this order):\n"
+                f"{crop_lines}\n\n"
+            )
         user = (
             f"{image_note}"
             "Allowed rf material ids (use ONLY these for "
             "recommended_rf_material_id and alternatives):\n"
             f"{library_lines}\n\n"
+            "Material categories and descriptive variants to reason over:\n"
+            f"{category_lines}\n\n"
             "Objects to classify, one suggestion per object "
             "(visual evidence only):\n"
             f"{json.dumps(evidence_list, indent=2)}\n\n"
             "Respond ONLY with JSON exactly matching this schema example "
             "(no prose, no markdown):\n"
             f"{json.dumps(schema_example, indent=2)}\n\n"
-            "Rules: confidence is a number in [0, 1]; evidence entries are "
-            "short human-readable strings citing the input evidence; "
+            "Rules: category_scores maps each plausible category to a number in "
+            "[0, 1] (higher = better match); recommended_rf_material_id must be "
+            "an allowed id whose category is your top-scoring category; evidence "
+            "entries are short human-readable strings citing the input evidence; "
             "needs_user_confirmation must be true."
         )
         return [
@@ -487,6 +718,7 @@ class LocalOpenAIProvider(MaterialSuggestionProvider):
     """
 
     name = "local_openai"
+    multimodal = True
 
     def is_available(self) -> bool:
         settings = get_settings().ai
@@ -501,6 +733,8 @@ class LocalOpenAIProvider(MaterialSuggestionProvider):
         library: RFMaterialLibrary,
         prim_ids: list[str],
         screenshot: str | None = None,
+        screenshots: list[str] | None = None,
+        texture_crops: list[dict] | None = None,
     ) -> MaterialSuggestionResponse:
         settings = get_settings().ai
         warnings: list[str] = []
@@ -519,24 +753,36 @@ class LocalOpenAIProvider(MaterialSuggestionProvider):
                 prompt_version=PROMPT_VERSION,
                 warnings=warnings,
             )
+        # Viewport screenshots first, then per-prim texture crops, in one
+        # ordered image list; the prompt maps image order to meaning.
+        view_images = _effective_images(screenshots, screenshot)
+        crops = texture_crops or []
+        image_urls = view_images + [c["data_url"] for c in crops]
+        num_views = len(view_images)
+        crop_prim_ids = [c["prim_id"] for c in crops]
         try:
             import httpx  # lazy: never required at import time
 
-            has_image = bool(screenshot)
+            has_image = bool(image_urls)
             try:
                 raw_text = self._call(
-                    evidence_list, library, settings, screenshot if has_image else None
+                    evidence_list,
+                    library,
+                    settings,
+                    image_urls if has_image else [],
+                    num_views=num_views if has_image else 0,
+                    crop_prim_ids=crop_prim_ids if has_image else [],
                 )
             except Exception as img_exc:
                 # Graceful degradation: some servers reject image input for a
-                # text-only model (typically HTTP 400). Retry WITHOUT the image
+                # text-only model (typically HTTP 400). Retry WITHOUT the images
                 # and record the downgrade rather than failing to rules.
                 if has_image and _is_vision_rejection(img_exc):
                     warnings.append(
                         f"vision input rejected by {settings.openai_model}; "
                         "used text only"
                     )
-                    raw_text = self._call(evidence_list, library, settings, None)
+                    raw_text = self._call(evidence_list, library, settings, [])
                 else:
                     raise
             suggestions, parse_warnings = parse_ai_response(raw_text, scene, library)
@@ -561,7 +807,9 @@ class LocalOpenAIProvider(MaterialSuggestionProvider):
         evidence_list: list[dict],
         library: RFMaterialLibrary,
         settings,
-        screenshot: str | None,
+        image_urls: list[str],
+        num_views: int = 0,
+        crop_prim_ids: list[str] | None = None,
     ) -> str:
         """One chat-completions round-trip; returns the raw answer text.
 
@@ -571,13 +819,20 @@ class LocalOpenAIProvider(MaterialSuggestionProvider):
         import httpx  # lazy: never required at import time
 
         messages = OllamaTextProvider._build_messages(
-            evidence_list, library, with_image=bool(screenshot)
+            evidence_list,
+            library,
+            num_views=num_views if image_urls else 0,
+            crop_prim_ids=crop_prim_ids if image_urls else [],
         )
-        if screenshot:
-            # OpenAI multimodal content: the text prompt plus an image_url part.
+        if image_urls:
+            # OpenAI multimodal content: the text prompt plus one image_url
+            # part per image (viewport screenshots then texture crops).
             text_part = {"type": "text", "text": messages[-1]["content"]}
-            image_part = {"type": "image_url", "image_url": {"url": screenshot}}
-            messages[-1] = {**messages[-1], "content": [text_part, image_part]}
+            image_parts = [
+                {"type": "image_url", "image_url": {"url": url}}
+                for url in image_urls
+            ]
+            messages[-1] = {**messages[-1], "content": [text_part, *image_parts]}
         response = httpx.post(
             f"{settings.openai_url}/chat/completions",
             json={
@@ -632,6 +887,8 @@ class DisabledProvider(MaterialSuggestionProvider):
         library: RFMaterialLibrary,
         prim_ids: list[str],
         screenshot: str | None = None,
+        screenshots: list[str] | None = None,
+        texture_crops: list[dict] | None = None,
     ) -> MaterialSuggestionResponse:
         return MaterialSuggestionResponse(
             suggestions=[],
@@ -686,6 +943,37 @@ def _clamp_confidence(value: object) -> object:
     return min(1.0, max(0.0, float(value)))
 
 
+def _derive_from_category_scores(
+    scores: object,
+) -> Optional[tuple[float, str]]:
+    """(confidence, evidence line) from a valid ``category_scores`` object.
+
+    Returns None when ``scores`` is not a usable mapping of category ->
+    non-negative number, so the caller can fall back to the model's
+    self-reported confidence. Confidence is the normalized margin
+    ``top_score / max(sum(scores), eps)`` (Qualcomm-style category-score
+    aggregation, adapted to an LLM), clamped to [0, 1].
+    """
+    if not isinstance(scores, dict) or not scores:
+        return None
+    clean: dict[str, float] = {}
+    for category, value in scores.items():
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None  # malformed -> fall back to self-reported confidence
+        numeric = float(value)
+        if numeric < 0:
+            return None
+        clean[str(category)] = numeric
+    if not clean:
+        return None
+    total = sum(clean.values())
+    top_category, top_score = max(clean.items(), key=lambda kv: kv[1])
+    confidence = min(1.0, max(0.0, top_score / max(total, _CATEGORY_SCORE_EPS)))
+    ranked = sorted(clean.items(), key=lambda kv: -kv[1])
+    detail = ", ".join(f"{cat} {score:g}" for cat, score in ranked)
+    return confidence, f"category scores: {detail}"
+
+
 def parse_ai_response(
     raw_text: str, scene: Scene, library: RFMaterialLibrary
 ) -> tuple[list[MaterialSuggestion], list[str]]:
@@ -724,6 +1012,21 @@ def parse_ai_response(
             warnings.append(f"dropped suggestion #{index}: not a JSON object")
             continue
         data = {k: v for k, v in item.items() if k in allowed_keys}
+        # v2 (Qualcomm category-score aggregation): when the model returns a
+        # valid category_scores object, DERIVE confidence from it and record the
+        # scores as evidence. Malformed scores fall back to the self-reported
+        # confidence path unchanged.
+        derived = _derive_from_category_scores(item.get("category_scores"))
+        if derived is not None:
+            confidence, evidence_line = derived
+            data["confidence"] = confidence
+            existing_evidence = data.get("evidence")
+            evidence_lines = (
+                list(existing_evidence)
+                if isinstance(existing_evidence, list)
+                else []
+            )
+            data["evidence"] = [evidence_line, *evidence_lines]
         if "confidence" in data:
             data["confidence"] = _clamp_confidence(data["confidence"])
         if isinstance(data.get("alternatives"), list):
@@ -889,11 +1192,16 @@ def _select_provider(request: SuggestMaterialsRequest) -> MaterialSuggestionProv
 
 
 def suggest_materials(
-    scene: Scene, library: RFMaterialLibrary, request: SuggestMaterialsRequest
+    scene: Scene,
+    library: RFMaterialLibrary,
+    request: SuggestMaterialsRequest,
+    project_dir: Optional[Path] = None,
 ) -> MaterialSuggestionResponse:
     """Entry point used by the /ai/suggest-materials endpoint.
 
-    Raises ValueError for an unknown forced provider (API maps it to 400).
+    ``project_dir`` (the resolved project directory) is required only to extract
+    texture crops; when None the crop feature is off. Raises ValueError for an
+    unknown forced provider (API maps it to 400).
     """
     provider = _select_provider(request)
     targets = resolve_target_prim_ids(scene, request)
@@ -905,8 +1213,22 @@ def suggest_materials(
             prompt_version=PROMPT_VERSION,
             warnings=["no target prims: every mesh prim already has an RF material"],
         )
+    # Multi-view screenshots: the plural list wins; the legacy single field is
+    # treated as a one-item list for back-compat.
+    screenshots = _effective_images(
+        request.screenshot_data_urls, request.screenshot_data_url
+    )
+    # Texture crops only apply to a multimodal-capable provider and require a
+    # project_dir; otherwise the feature stays off (back-compat default).
+    texture_crops: list[dict] = []
+    if request.attach_texture_crops and provider.multimodal and project_dir is not None:
+        texture_crops = extract_prim_texture_crops(project_dir, scene, targets)
     response = provider.suggest(
-        scene, library, targets, screenshot=request.screenshot_data_url
+        scene,
+        library,
+        targets,
+        screenshots=screenshots or None,
+        texture_crops=texture_crops or None,
     )
     if response.prompt_version is None:
         response.prompt_version = PROMPT_VERSION

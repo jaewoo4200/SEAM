@@ -681,12 +681,92 @@ export interface SuggestMaterialsRequest {
   prim_ids?: string[] | null;
   provider?: string | null;
   screenshot_data_url?: string | null;
+  // Multi-view capture (up to 6): the old single-image field stays for
+  // back-compat and is treated by the backend as a one-item list.
+  screenshot_data_urls?: string[] | null;
+  attach_texture_crops?: boolean;
 }
 
 export interface SuggestionDecision {
   prim_id: string;
   action: "approve" | "reject" | "edit";
   rf_material_id?: string | null;
+}
+
+// -------------------------------------------------- calibration (RF disambig)
+
+/** One measured link: RX position + measured path gain (dB). */
+export interface MeasurementSample {
+  rx_position: Vec3;
+  tx_id?: string | null;
+  measured_path_gain_db: number;
+  measured_rms_delay_spread_ns?: number | null;
+}
+
+/** RF-sensing disambiguation (Dai et al., JSTEAP 2025): which candidate
+ *  material best explains the measurements for these prims? */
+export interface DisambiguationRequest {
+  config_id?: string | null;
+  config?: SimulationConfig | null;
+  prim_ids: string[];
+  candidate_material_ids: string[];
+  measurements: MeasurementSample[];
+}
+
+export interface DisambiguationCandidate {
+  material_id: string;
+  rmse_db?: number | null;
+  mean_abs_error_db?: number | null;
+  level_offset_db?: number | null;
+  n_links: number;
+}
+
+export interface DisambiguationReport {
+  prim_ids: string[];
+  candidates: DisambiguationCandidate[];
+  best_material_id?: string | null;
+  backend: string;
+  warnings: string[];
+}
+
+// ------------------------------------------------ material-impact analysis
+
+/** Material-aware vs single-material-baseline channel impact (Lee et al.,
+ *  KICS 2026): NMSE / cosine / dRSS / capacity along a set of positions. */
+export interface MaterialImpactRequest {
+  config_id?: string | null;
+  config?: SimulationConfig | null;
+  tx_id?: string | null;
+  rx_id?: string | null;
+  waypoints?: Vec3[] | null;
+  baseline_material_id?: string;
+  num_cfr_points?: number;
+  sensitive_nmse_db?: number;
+}
+
+export interface PositionImpact {
+  position: Vec3;
+  nmse_db?: number | null;
+  cosine_similarity?: number | null;
+  delta_rss_db?: number | null;
+  rss_material_dbm?: number | null;
+  rss_baseline_dbm?: number | null;
+  material_sensitive: boolean;
+}
+
+export interface MaterialImpactReport {
+  baseline_material_id: string;
+  tx_id: string;
+  rx_id: string;
+  global_nmse_db?: number | null;
+  mean_cosine_similarity?: number | null;
+  mean_delta_rss_db?: number | null;
+  mean_capacity_material_mbps?: number | null;
+  mean_capacity_baseline_mbps?: number | null;
+  material_sensitive_count: number;
+  positions: PositionImpact[];
+  backend: string;
+  warnings: string[];
 }
 
 export interface ApplySuggestionsRequest {

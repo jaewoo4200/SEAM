@@ -11,6 +11,7 @@ import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from app.api import ai as ai_api
 from app.api import deps
@@ -246,7 +247,7 @@ def test_suggest_materials_defaults_to_unassigned_mesh_prims(scene, library):
     request = SuggestMaterialsRequest(provider="rule_based")
     response = suggest_materials(scene, library, request)
     assert {s.prim_id for s in response.suggestions} == {WINDOW_ID, WALLS_ID, BLOB_ID}
-    assert response.prompt_version == "v1"
+    assert response.prompt_version == "v2"
 
 
 # ---------------------------------------------- reasoning-preamble extraction
@@ -451,7 +452,7 @@ def test_api_suggest_materials_writes_jsonl(client):
     suggested = [r for r in records if r["event"] == "suggested"]
     assert len(suggested) == 1
     assert suggested[0]["provider"] == "rule_based"
-    assert suggested[0]["prompt_version"] == "v1"
+    assert suggested[0]["prompt_version"] == "v2"
     assert suggested[0]["input_prim_ids"] == [WINDOW_ID]
     assert suggested[0]["suggestions"][0]["prim_id"] == WINDOW_ID
 
@@ -718,3 +719,271 @@ def test_api_suggest_screenshot_attached_false_without_image(client):
     )
     suggested = [r for r in _read_log(project_dir) if r["event"] == "suggested"]
     assert suggested[0]["screenshot_attached"] is False
+
+
+# --------------------------------------- v2 category-score aggregation (parser)
+
+
+def _category_payload(scores: object) -> dict:
+    # A v2-style item: category_scores present, self-reported confidence absent.
+    return {
+        "suggestions": [
+            {
+                "prim_id": WINDOW_ID,
+                "recommended_rf_material_id": "itu_glass",
+                "category_scores": scores,
+                "evidence": ["prim name contains 'window'"],
+                "needs_user_confirmation": True,
+            }
+        ]
+    }
+
+
+def test_parse_derives_confidence_from_category_scores(scene, library):
+    # confidence = top_score / sum(scores) = 0.8 / (0.8+0.15+0.05) = 0.8.
+    payload = _category_payload({"glass": 0.8, "concrete": 0.15, "metal": 0.05})
+    suggestions, warnings = parse_ai_response(json.dumps(payload), scene, library)
+    assert warnings == []
+    assert len(suggestions) == 1
+    suggestion = suggestions[0]
+    assert suggestion.recommended_rf_material_id == "itu_glass"
+    assert suggestion.confidence == pytest.approx(0.8)
+    # The scores are recorded as the first evidence line, top-ranked first.
+    assert suggestion.evidence[0].startswith("category scores:")
+    assert "glass 0.8" in suggestion.evidence[0]
+    assert "concrete 0.15" in suggestion.evidence[0]
+    # Existing evidence is preserved after the derived line.
+    assert "prim name contains 'window'" in suggestion.evidence
+
+
+def test_parse_category_scores_confidence_is_clamped(scene, library):
+    # A single dominant category yields margin 1.0 (still a valid UnitFloat).
+    payload = _category_payload({"glass": 5.0})
+    suggestions, _ = parse_ai_response(json.dumps(payload), scene, library)
+    assert suggestions[0].confidence == pytest.approx(1.0)
+
+
+def test_parse_malformed_category_scores_falls_back_to_self_reported(scene, library):
+    # Non-numeric score -> ignore category_scores, use self-reported confidence.
+    payload = _category_payload({"glass": "very high", "concrete": 0.1})
+    payload["suggestions"][0]["confidence"] = 0.42
+    suggestions, _ = parse_ai_response(json.dumps(payload), scene, library)
+    assert len(suggestions) == 1
+    assert suggestions[0].confidence == pytest.approx(0.42)
+    # No derived category-scores evidence line was prepended.
+    assert not suggestions[0].evidence[0].startswith("category scores:")
+
+
+def test_parse_empty_category_scores_falls_back_to_self_reported(scene, library):
+    payload = _category_payload({})
+    payload["suggestions"][0]["confidence"] = 0.33
+    suggestions, _ = parse_ai_response(json.dumps(payload), scene, library)
+    assert suggestions[0].confidence == pytest.approx(0.33)
+
+
+def test_parse_negative_category_score_falls_back_to_self_reported(scene, library):
+    payload = _category_payload({"glass": -0.2, "concrete": 0.1})
+    payload["suggestions"][0]["confidence"] = 0.25
+    suggestions, _ = parse_ai_response(json.dumps(payload), scene, library)
+    assert suggestions[0].confidence == pytest.approx(0.25)
+
+
+def test_parse_self_reported_confidence_still_works_without_category_scores(
+    scene, library
+):
+    # v1-style payload (no category_scores) is unchanged.
+    suggestions, warnings = parse_ai_response(
+        json.dumps(_valid_payload()), scene, library
+    )
+    assert warnings == []
+    assert suggestions[0].confidence == pytest.approx(0.86)
+    assert not suggestions[0].evidence[0].startswith("category scores:")
+
+
+def test_build_messages_v2_prompt_mentions_category_scores(library):
+    messages = OllamaTextProvider._build_messages([{"prim_id": WINDOW_ID}], library)
+    user = messages[-1]["content"]
+    system = messages[0]["content"]
+    assert "category_scores" in user
+    assert "CATEGORY" in system
+    # Curated per-category descriptive variants are present.
+    assert "a glazed window pane" in user
+    assert "descriptive variants" in user
+
+
+# ------------------------------------------------ multi-image (multi-view)
+
+
+def test_local_openai_multiple_screenshots_one_image_part_each(scene, library, monkeypatch):
+    capture = _CapturingPost(_openai_payload(json.dumps(_valid_payload())))
+    monkeypatch.setattr(httpx, "post", capture)
+    imgs = [_TINY_PNG_DATA_URL, _TINY_PNG_DATA_URL, _TINY_PNG_DATA_URL]
+    response = LocalOpenAIProvider().suggest(
+        scene, library, [WINDOW_ID], screenshots=imgs
+    )
+    assert response.provider == "local_openai"
+    content = capture.calls[0]["json"]["messages"][-1]["content"]
+    kinds = [part["type"] for part in content]
+    # One text part, then one image_url part per screenshot.
+    assert kinds == ["text", "image_url", "image_url", "image_url"]
+    assert "different camera angles of the SAME scene" in content[0]["text"]
+
+
+def test_ollama_multiple_screenshots_all_attached_as_base64(scene, library, monkeypatch):
+    capture = _CapturingPost({"message": {"content": json.dumps(_valid_payload())}})
+    monkeypatch.setattr(httpx, "post", capture)
+    imgs = [_TINY_PNG_DATA_URL, _TINY_PNG_DATA_URL]
+    OllamaTextProvider().suggest(scene, library, [WINDOW_ID], screenshots=imgs)
+    user_msg = capture.calls[0]["json"]["messages"][-1]
+    assert len(user_msg["images"]) == 2
+    assert all(not img.startswith("data:") for img in user_msg["images"])
+    assert "different camera angles of the SAME scene" in user_msg["content"]
+
+
+def test_single_screenshot_behaviour_unchanged_via_screenshots_list(
+    scene, library, monkeypatch
+):
+    # A one-item screenshots list must behave exactly like the legacy single
+    # screenshot: singular "current 3D viewport" phrasing, one image_url part.
+    capture = _CapturingPost(_openai_payload(json.dumps(_valid_payload())))
+    monkeypatch.setattr(httpx, "post", capture)
+    LocalOpenAIProvider().suggest(
+        scene, library, [WINDOW_ID], screenshots=[_TINY_PNG_DATA_URL]
+    )
+    content = capture.calls[0]["json"]["messages"][-1]["content"]
+    kinds = [part["type"] for part in content]
+    assert kinds == ["text", "image_url"]
+    assert "current 3D viewport" in content[0]["text"]
+    assert "different camera angles" not in content[0]["text"]
+
+
+def test_suggest_materials_prefers_plural_screenshots_over_single(
+    scene, library, monkeypatch
+):
+    # Both fields set: the plural list wins.
+    def _get(url, *a, **k):
+        if "/models" in url:
+            return _FakeResponse({"data": []})
+        raise httpx.ConnectError("ollama down")
+
+    capture = _CapturingPost(_openai_payload(json.dumps(_valid_payload())))
+    monkeypatch.setattr(httpx, "get", _get)
+    monkeypatch.setattr(httpx, "post", capture)
+    request = SuggestMaterialsRequest(
+        prim_ids=[WINDOW_ID],
+        screenshot_data_url=_TINY_PNG_DATA_URL,
+        screenshot_data_urls=[_TINY_PNG_DATA_URL, _TINY_PNG_DATA_URL],
+    )
+    response = suggest_materials(scene, library, request)
+    assert response.provider == "local_openai"
+    content = capture.calls[0]["json"]["messages"][-1]["content"]
+    image_parts = [p for p in content if p["type"] == "image_url"]
+    assert len(image_parts) == 2  # plural list of 2, not the single field
+
+
+def test_suggest_materials_screenshots_cap_is_six():
+    with pytest.raises(ValidationError):
+        SuggestMaterialsRequest(screenshot_data_urls=[_TINY_PNG_DATA_URL] * 7)
+
+
+# ------------------------------------------------ texture crops (task #4)
+
+
+def _build_textured_glb(path: Path, mesh_name: str, color=(200, 30, 30)) -> None:
+    """Write a GLB whose named geometry carries a baseColor texture."""
+    import numpy as np
+    import trimesh
+    from PIL import Image
+    from trimesh.visual import TextureVisuals
+    from trimesh.visual.material import PBRMaterial
+
+    box = trimesh.creation.box(extents=(1, 1, 1))
+    uv = np.zeros((len(box.vertices), 2))
+    box.visual = TextureVisuals(
+        uv=uv, material=PBRMaterial(baseColorTexture=Image.new("RGB", (64, 64), color))
+    )
+    scene = trimesh.Scene(geometry={mesh_name: box})
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(scene.export(file_type="glb"))
+
+
+def _build_untextured_glb(path: Path, mesh_name: str) -> None:
+    import trimesh
+
+    box = trimesh.creation.box(extents=(1, 1, 1))
+    scene = trimesh.Scene(geometry={mesh_name: box})
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(scene.export(file_type="glb"))
+
+
+def test_extract_prim_texture_crops_returns_data_url(tmp_path, scene):
+    from app.services.ai_provider import extract_prim_texture_crops
+
+    _build_textured_glb(tmp_path / "visual" / "scene.glb", "building_01")
+    crops = extract_prim_texture_crops(tmp_path, scene, [WINDOW_ID])
+    assert len(crops) == 1
+    assert crops[0]["prim_id"] == WINDOW_ID
+    assert crops[0]["data_url"].startswith("data:image/jpeg;base64,")
+
+
+def test_extract_prim_texture_crops_skips_untextured(tmp_path, scene):
+    from app.services.ai_provider import extract_prim_texture_crops
+
+    _build_untextured_glb(tmp_path / "visual" / "scene.glb", "building_01")
+    crops = extract_prim_texture_crops(tmp_path, scene, [WINDOW_ID])
+    assert crops == []
+
+
+def test_extract_prim_texture_crops_missing_glb_is_empty(tmp_path, scene):
+    from app.services.ai_provider import extract_prim_texture_crops
+
+    # No GLB written -> best-effort empty, no exception.
+    crops = extract_prim_texture_crops(tmp_path, scene, [WINDOW_ID])
+    assert crops == []
+
+
+def test_extract_prim_texture_crops_respects_max(tmp_path, scene):
+    from app.services.ai_provider import extract_prim_texture_crops
+
+    _build_textured_glb(tmp_path / "visual" / "scene.glb", "building_01")
+    crops = extract_prim_texture_crops(tmp_path, scene, [WINDOW_ID], max_crops=0)
+    assert crops == []
+
+
+def test_suggest_materials_attaches_texture_crops_for_multimodal(
+    tmp_path, scene, library, monkeypatch
+):
+    _build_textured_glb(tmp_path / "visual" / "scene.glb", "building_01")
+
+    def _get(url, *a, **k):
+        if "/models" in url:
+            return _FakeResponse({"data": []})
+        raise httpx.ConnectError("ollama down")
+
+    capture = _CapturingPost(_openai_payload(json.dumps(_valid_payload())))
+    monkeypatch.setattr(httpx, "get", _get)
+    monkeypatch.setattr(httpx, "post", capture)
+    request = SuggestMaterialsRequest(
+        prim_ids=[WINDOW_ID], attach_texture_crops=True
+    )
+    response = suggest_materials(scene, library, request, project_dir=tmp_path)
+    assert response.provider == "local_openai"
+    content = capture.calls[0]["json"]["messages"][-1]["content"]
+    image_parts = [p for p in content if p["type"] == "image_url"]
+    # One texture crop attached; the prompt maps image order to the prim id.
+    assert len(image_parts) == 1
+    assert "texture crop of prim " + WINDOW_ID in content[0]["text"]
+
+
+def test_suggest_materials_texture_crops_off_for_rule_based(
+    tmp_path, scene, library
+):
+    # rule_based is not multimodal: attach_texture_crops is a no-op and the
+    # provider still answers from text evidence.
+    _build_textured_glb(tmp_path / "visual" / "scene.glb", "building_01")
+    request = SuggestMaterialsRequest(
+        prim_ids=[WINDOW_ID], provider="rule_based", attach_texture_crops=True
+    )
+    response = suggest_materials(scene, library, request, project_dir=tmp_path)
+    assert response.provider == "rule_based"
+    assert response.suggestions[0].recommended_rf_material_id == "itu_glass"

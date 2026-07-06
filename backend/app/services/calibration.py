@@ -21,6 +21,9 @@ from app.schemas.calibration import (
     CalibrationReport,
     CalibrationRequest,
     CalibrationStats,
+    DisambiguationCandidate,
+    DisambiguationReport,
+    DisambiguationRequest,
     LinkError,
 )
 from app.schemas.materials import RFMaterialLibrary
@@ -199,6 +202,89 @@ def calibrate_material(
         grid_rmse_db=grid_rmse,
         per_link_after=per_link,
         applied=applied,
+        backend=backend.name,
+        warnings=warnings,
+    )
+
+
+def disambiguate_materials(
+    backend: RayTracingBackend,
+    project_dir: Path,
+    scene: Scene,
+    library: RFMaterialLibrary,
+    config: SimulationConfig,
+    request: DisambiguationRequest,
+) -> DisambiguationReport:
+    """Rank candidate materials for the target prims by measurement fit.
+
+    For each candidate: bind it to the prims, recompile, re-simulate the
+    measured links, and score the level-aligned RMSE (same metric as the
+    parameter calibration). The lowest RMSE wins - the RF-sensing
+    disambiguation step of Dai et al. for visually identical materials.
+    """
+    warnings: list[str] = []
+    prim_set = set(request.prim_ids)
+    known_prims = {p.id for p in scene.prims}
+    for pid in request.prim_ids:
+        if pid not in known_prims:
+            raise ValueError(f"unknown prim: {pid}")
+    measured = [m.measured_path_gain_db for m in request.measurements]
+
+    candidates: list[DisambiguationCandidate] = []
+    try:
+        for mid in request.candidate_material_ids:
+            if library.get(mid) is None:
+                warnings.append(f"unknown candidate material skipped: {mid}")
+                continue
+            trial = scene.model_copy(deep=True)
+            for prim in trial.prims:
+                if prim.id in prim_set:
+                    prim.rf.material_id = mid
+            compile_result = backend.compile(project_dir, trial, library)
+            if not compile_result.ok:
+                warnings.append(
+                    f"candidate {mid}: compile failed "
+                    f"({'; '.join(compile_result.errors) or 'unknown'}); skipped"
+                )
+                continue
+            sim = _simulate_path_gains(
+                backend, project_dir, trial, library, config, request  # type: ignore[arg-type]
+            )
+            stats, _, _ = _stats(measured, sim)
+            candidates.append(
+                DisambiguationCandidate(
+                    material_id=mid,
+                    rmse_db=stats.rmse_db if stats.n_links else None,
+                    mean_abs_error_db=stats.mean_abs_error_db if stats.n_links else None,
+                    level_offset_db=stats.level_offset_db if stats.n_links else None,
+                    n_links=stats.n_links,
+                )
+            )
+    finally:
+        # Restore the on-disk projection to the ORIGINAL bindings.
+        backend.compile(project_dir, scene, library)
+
+    scored = [c for c in candidates if c.rmse_db is not None]
+    best = min(scored, key=lambda c: c.rmse_db).material_id if scored else None
+    if not scored:
+        warnings.append(
+            "no candidate produced comparable links; check that the measured "
+            "positions see the target prims"
+        )
+    # Flat RMSE across candidates means the measurements cannot separate them
+    # at this geometry/frequency - say so instead of picking noise.
+    if len(scored) >= 2:
+        spread = max(c.rmse_db for c in scored) - min(c.rmse_db for c in scored)
+        if spread < 0.05:
+            warnings.append(
+                f"candidates are indistinguishable at these positions "
+                f"(RMSE spread {spread:.3f} dB); add measurements nearer the prims"
+            )
+            best = None
+    return DisambiguationReport(
+        prim_ids=request.prim_ids,
+        candidates=candidates,
+        best_material_id=best,
         backend=backend.name,
         warnings=warnings,
     )

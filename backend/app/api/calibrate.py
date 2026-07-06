@@ -12,7 +12,12 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 
 from app.api.deps import get_store, load_scene_or_404
-from app.schemas.calibration import CalibrationReport, CalibrationRequest
+from app.schemas.calibration import (
+    CalibrationReport,
+    CalibrationRequest,
+    DisambiguationReport,
+    DisambiguationRequest,
+)
 from app.schemas.scene import RFBinding, Scene
 from app.schemas.simulation import SimulateRequest, SimulationConfig
 from app.services.simulation_backends import BackendUnavailableError, resolve_backend
@@ -86,3 +91,28 @@ def calibrate_materials(project_id: str, request: CalibrationRequest) -> Calibra
             },
         )
     return report
+
+
+@router.post(
+    "/projects/{project_id}/calibrate/disambiguate",
+    response_model=DisambiguationReport,
+)
+def disambiguate(project_id: str, request: DisambiguationRequest) -> DisambiguationReport:
+    """Rank candidate RF materials for a prim by measurement fit (the
+    RF-sensing disambiguation companion to the AI suggestion flow)."""
+    from app.services.calibration import disambiguate_materials
+
+    store = get_store()
+    scene = load_scene_or_404(store, project_id)
+    library = store.load_materials(project_id)
+    config = _resolve_config(scene, request)
+    try:
+        backend = resolve_backend(config)
+    except BackendUnavailableError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    try:
+        return disambiguate_materials(
+            backend, store.resolve(project_id), scene, library, config, request
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
