@@ -15,7 +15,7 @@ Job (written by app.services.engines.run_paths_job):
       "num_samples": int, "synthetic_array": bool,
       "flags": {"los": bool, "reflection": bool, "scattering": bool,
                  "refraction": bool, "diffraction": bool,
-                 "edge_diffraction": bool},
+                 "edge_diffraction": bool, "diffraction_lit_region": bool},
       "txs": [{"id", "position", "orientation_deg", "power_dbm",
                 "antenna": {"pattern", "polarization", "num_rows", "num_cols"}}],
       "rxs": [...same shape...],
@@ -183,10 +183,11 @@ def run(job: dict) -> dict:
     else:
         a = to_np(a_raw)
     if a.ndim == 5:
-        if a.shape[1] == 1 and a.shape[3] == 1:
-            a = a[:, 0, :, 0, :]
-        else:
-            a = np.sqrt((np.abs(a) ** 2).sum(axis=(1, 3))).astype(complex)
+        # Reference-element (port 0/0) reduction - same convention as the
+        # builtin backend. Summing raw power over all rx_ant x tx_ant port
+        # pairs inflated multi-array links by 10*log10(N_rx*N_tx) dB and
+        # erased the per-path phase (audit B2).
+        a = a[:, 0, :, 0, :]
     else:
         while a.ndim > 3:
             squeeze = tuple(i for i, s in enumerate(a.shape) if s == 1)

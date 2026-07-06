@@ -256,6 +256,16 @@ def simulate_beamforming(
     request = request or BeamformingRequest()
     store = get_store()
     scene = load_scene_or_404(store, project_id)
+    # Explicit ids must resolve (audit M3): silently falling back to the first
+    # device returned plausible-but-wrong numbers for a typo. Matches the
+    # 400 contract of analyze/channel and simulate/trajectory.
+    for wanted, kind in ((request.tx_id, "tx"), (request.rx_id, "rx")):
+        if wanted is not None and not any(
+            d.id == wanted and d.kind == kind for d in scene.devices
+        ):
+            raise HTTPException(
+                status_code=400, detail=f"{kind} device not found: {wanted}"
+            )
     library = store.load_materials(project_id)
     config = _resolve_config(
         scene, SimulateRequest(config_id=request.config_id, config=request.config)

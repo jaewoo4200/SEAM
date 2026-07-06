@@ -46,10 +46,12 @@ ground truth를 내보낸다.
 채널 추정 태스크를 구성하고, LS 베이스라인(numpy)과 소형 MLP(PyTorch 설치
 시)를 비교한다:
 
+```powershell
+backend\.venv\Scripts\python.exe examples/ml/train_channel_estimator.py examples/demo_project/kaist_demo.sionnatwin/export/datasets/<dataset_id>/dataset.npz
 ```
-backend\.venv\Scripts\python.exe examples/ml/train_channel_estimator.py ^
-    examples/demo_project/kaist_demo.sionnatwin/export/datasets/<id>/dataset.npz
-```
+
+`<dataset_id>` 는 UI(Results 모드의 ML dataset 목록) 또는 생성된
+`metadata.json` 에 표시된 실제 데이터셋 id 로 바꿔서 실행한다.
 
 PyTorch가 없으면 LS/LMMSE 베이스라인만 실행된다(`pip install torch`로 활성화).
 스크립트 상단의 `PILOT_SPACING`, `SNR_DB` 를 바꿔 실험 조건을 조정한다.

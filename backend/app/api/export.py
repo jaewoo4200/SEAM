@@ -11,7 +11,12 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 
 from app.api.deps import get_store, load_scene_or_404
-from app.schemas.results import PathResultSet, RadioMapResultSet, TrajectoryResultSet
+from app.schemas.results import (
+    PathResultSet,
+    RadioMapResultSet,
+    RFDataExportSummary,
+    TrajectoryResultSet,
+)
 from app.schemas.scene import Scene
 from app.schemas.simulation import SimulateRequest, SimulationConfig
 
@@ -39,8 +44,12 @@ def _latest(store, project_id: str, scene: Scene, kind: str):
         return None
 
 
-@router.post("/projects/{project_id}/export/rfdata")
-def export_rfdata_endpoint(project_id: str, request: Optional[SimulateRequest] = None) -> dict:
+@router.post(
+    "/projects/{project_id}/export/rfdata", response_model=RFDataExportSummary
+)
+def export_rfdata_endpoint(
+    project_id: str, request: Optional[SimulateRequest] = None
+) -> RFDataExportSummary:
     from app.services.rfdata_export import export_rfdata
 
     store = get_store()
@@ -71,4 +80,4 @@ def export_rfdata_endpoint(project_id: str, request: Optional[SimulateRequest] =
         project_id,
         {"type": "export_rfdata", "files": summary["files"]},
     )
-    return summary
+    return RFDataExportSummary(**summary)

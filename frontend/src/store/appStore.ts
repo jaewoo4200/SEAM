@@ -135,11 +135,10 @@ interface AppState {
 
   // --- live sync + AI screenshot groundwork ---
   liveMode: boolean;
-  /** Latest viewport JPEG data URL (captured on demand from Viewer3D). Kept in
-   *  the store as VLM groundwork; not yet wired to a request (contract gap). */
+  /** Latest viewport JPEG data URL (captured on demand from Viewer3D). */
   lastViewportShot: string | null;
-  /** When ON, the AI suggest-materials request *would* attach the viewport;
-   *  currently blocked by the StrictModel contract (see reported gap). */
+  /** When ON, suggest-materials attaches the viewport capture as
+   *  screenshot_data_url so vision-capable providers see the scene. */
   sendScreenshot: boolean;
   // Forced AI provider for suggestions; null = server picks the best available.
   aiProvider: string | null;
@@ -950,9 +949,8 @@ export const useAppStore = create<AppState>()((set, get) => {
       const { projectId, scene } = get();
       if (!projectId || !scene) return;
       if (scene.environment === environment) {
-        // No-op PUT avoided, but still (re)apply the preset so the user gets the
-        // solver defaults for the current mode, and refresh the resolved value.
-        applyEnvPreset(environment);
+        // Re-selecting the active environment is a no-op: silently re-applying
+        // the preset here wiped hand-tuned solver knobs (audit M5).
         refreshResolvedEnv();
         return;
       }
@@ -963,7 +961,11 @@ export const useAppStore = create<AppState>()((set, get) => {
         applyEnvPreset(environment);
         refreshResolvedEnv();
         await revalidateIfOpen();
-        set({ notice: `Environment set to ${environment}` });
+        set({
+          notice:
+            `Environment set to ${environment} - solver defaults for this ` +
+            "mode were applied to Paths/Radio map",
+        });
       });
     },
 
@@ -1031,6 +1033,9 @@ export const useAppStore = create<AppState>()((set, get) => {
           ...preset.config,
           radio_map: { ...radioMapConfig.radio_map, ...preset.radioMap },
         },
+        // The overwrite must be visible (audit M5): both solver configs were
+        // just replaced by the preset's fields.
+        notice: `Applied preset "${preset.label}" to Paths + Radio map configs`,
       });
     },
 

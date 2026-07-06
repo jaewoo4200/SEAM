@@ -68,8 +68,11 @@ def fspl_db(freq_hz: float, dist_m: float) -> float:
 
 
 def _fspl(freq_hz: float, dist_m: float) -> _ModelOutput:
-    note = _freq_note(freq_hz, 0.0, math.inf)  # FSPL is valid at any frequency
-    return _ModelOutput(fspl_db(freq_hz, dist_m), True, note or "")
+    # FSPL is frequency-unbounded but assumes far-field, isotropic antennas -
+    # worth stating at mmWave where near-field/pattern effects are common.
+    return _ModelOutput(
+        fspl_db(freq_hz, dist_m), True, "far-field, isotropic antennas assumed"
+    )
 
 
 def _ci_model(freq_hz: float, dist_m: float, n: float) -> _ModelOutput:
@@ -79,7 +82,7 @@ def _ci_model(freq_hz: float, dist_m: float, n: float) -> _ModelOutput:
     pl0 = fspl_db(freq_hz, 1.0)  # FSPL at the 1 m reference distance
     d = max(dist_m, 1.0)
     pl = pl0 + 10.0 * n * math.log10(d)
-    notes = f"close-in model, d0=1 m, PLE n={n:g}"
+    notes = f"close-in model, d0=1 m, PLE n={n:g}; far-field, isotropic antennas assumed"
     return _ModelOutput(pl, True, notes)
 
 

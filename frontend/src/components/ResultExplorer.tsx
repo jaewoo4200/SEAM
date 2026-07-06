@@ -163,23 +163,38 @@ function ViewerControls({ range }: { range: { min: number; max: number } }) {
   const setLineWidthByPower = useAppStore((s) => s.setLineWidthByPower);
 
   const minEnabled = minPowerDbm !== null;
+  // Store sentinel 0 = unlimited ("All"). The slider (min 5) can't express it,
+  // so an "All" checkbox toggles the sentinel and disables the slider; any
+  // slider change re-enables it with a concrete value.
+  const showAll = strongestN === 0;
 
   return (
     <div className="viewer-controls">
-      <label className="solver-slider">
-        <span className="solver-slider-head">
-          <span>Strongest N</span>
-          <span className="mono solver-slider-value">{strongestN}</span>
-        </span>
-        <input
-          type="range"
-          min={5}
-          max={200}
-          step={5}
-          value={strongestN}
-          onChange={(e) => setStrongestN(Number(e.target.value))}
-        />
-      </label>
+      <div className="strongest-n-row">
+        <label className="solver-slider">
+          <span className="solver-slider-head">
+            <span>Strongest N</span>
+            <span className="mono solver-slider-value">{showAll ? "all" : strongestN}</span>
+          </span>
+          <input
+            type="range"
+            min={5}
+            max={200}
+            step={5}
+            value={showAll ? 5 : strongestN}
+            disabled={showAll}
+            onChange={(e) => setStrongestN(Number(e.target.value))}
+          />
+        </label>
+        <label className="solver-check strongest-n-all">
+          <input
+            type="checkbox"
+            checked={showAll}
+            onChange={(e) => setStrongestN(e.target.checked ? 0 : 5)}
+          />
+          All
+        </label>
+      </div>
 
       <label className="solver-check">
         <input
@@ -196,7 +211,14 @@ function ViewerControls({ range }: { range: { min: number; max: number } }) {
           value={minEnabled ? minPowerDbm : ""}
           step={1}
           disabled={!minEnabled}
-          onChange={(e) => setMinPowerDbm(Number(e.target.value))}
+          onChange={(e) => {
+            // Clearing the field must not snap to 0 dBm (which would hide rays).
+            // Ignore empty input and keep the current threshold until a real
+            // number is entered.
+            const raw = e.target.value;
+            if (raw === "") return;
+            setMinPowerDbm(Number(raw));
+          }}
         />
         <span className="solver-unit">dBm</span>
       </label>
@@ -301,8 +323,8 @@ function TrajectorySection() {
     </label>
   );
 
-  const kpi = (label: string, value: string) => (
-    <div className="traj-kpi">
+  const kpi = (label: string, value: string, title?: string) => (
+    <div className="traj-kpi" title={title}>
       <span className="traj-kpi-label">{label}</span>
       <span className="traj-kpi-value mono">{value}</span>
     </div>
@@ -315,6 +337,21 @@ function TrajectorySection() {
     <div className="traj-section">
       <h4>Trajectory</h4>
       {vecField("Start", start, setStart)}
+      <div className="panel-actions">
+        <button
+          disabled={disabled}
+          title="Re-seed Start from the current first RX position (and End = Start + 30 m in X)"
+          onClick={() => {
+            // Re-seed from the CURRENT first RX position (mirrors the mount
+            // default: start = firstRx, end = start + [30, 0, 0]).
+            const rx = firstRxPosition();
+            setStart(rx);
+            setEnd([rx[0] + 30, rx[1], rx[2]]);
+          }}
+        >
+          Use RX
+        </button>
+      </div>
       {vecField("End", end, setEnd)}
       <label className="solver-field">
         <span className="solver-field-label">Num points</span>
@@ -400,7 +437,7 @@ function PlaybackTrajectory({
   setTrajSpeed: (s: number) => void;
   setTrajLoop: (l: boolean) => void;
   sample: TrajectoryResultSet["samples"][number] | null;
-  kpi: (label: string, value: string) => JSX.Element;
+  kpi: (label: string, value: string, title?: string) => JSX.Element;
   fmt: (v: number | null, unit: string, digits?: number) => string;
 }) {
   const last = trajectory.samples.length - 1;
@@ -461,7 +498,11 @@ function PlaybackTrajectory({
           {kpi("pos", formatVec(sample.position, 1))}
           {kpi("RSS", fmt(sample.rss_dbm, "dBm"))}
           {kpi("Path gain", fmt(sample.path_gain_db, "dB"))}
-          {kpi("SINR", fmt(sample.sinr_db, "dB"))}
+          {kpi(
+            "SNR",
+            fmt(sample.sinr_db, "dB"),
+            "SNR (no interference model — SINR equals SNR here)",
+          )}
           {kpi("RMS delay", fmt(sample.rms_delay_spread_ns, "ns", 2))}
           {kpi("Paths", String(sample.path_count))}
         </div>
@@ -482,7 +523,7 @@ function LinkMetricsTable({ links }: { links: LinkMetrics[] }) {
           <th>tx</th>
           <th>rx</th>
           <th>RSS</th>
-          <th>SINR</th>
+          <th title="SNR (no interference model — SINR equals SNR here)">SNR</th>
           <th>#p</th>
         </tr>
       </thead>

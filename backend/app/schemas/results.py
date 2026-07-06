@@ -137,3 +137,14 @@ class RadioMapResultSet(StrictModel):
     values: list[list[Optional[float]]]
     warnings: list[str] = Field(default_factory=list)
     metadata: dict = Field(default_factory=dict)
+
+
+class RFDataExportSummary(StrictModel):
+    """POST /export/rfdata response - enforced contract for the FE's
+    RFDataExportSummary type (audit polish: was a bare dict, silent drift)."""
+
+    export_dir: str
+    files: list[str] = Field(default_factory=list)
+    has_paths: bool = False
+    has_radio_map: bool = False
+    has_trajectory: bool = False

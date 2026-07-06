@@ -614,6 +614,19 @@ h4 {
   width: 64px;
   text-align: right;
 }
+.strongest-n-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+.strongest-n-row .solver-slider {
+  flex: 1;
+}
+.strongest-n-all {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  padding-bottom: 2px;
+}
 
 /* -------------------------------------------------------- trajectory */
 

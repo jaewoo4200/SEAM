@@ -902,22 +902,25 @@ class SionnaBackend(RayTracingBackend):
         else:
             a = to_np(a_raw)
         # a is [num_rx, num_rx_ant, num_tx, num_tx_ant, num_paths]; collapse the
-        # antenna axes (1 and 3) to [num_rx, num_tx, num_paths]. Singleton axes
-        # (synthetic_array / 1x1 arrays) squeeze cleanly; multi-antenna arrays
-        # (per-device tr38901 etc.) are reduced to a per-link amplitude by
-        # summing element power, so a real array still yields one entry per path.
+        # antenna axes (1 and 3) to [num_rx, num_tx, num_paths] by taking the
+        # REFERENCE ELEMENT pair (port 0/0) - the same convention beamforming
+        # uses for h00. This keeps the per-path value a physical single-element
+        # channel gain WITH its phase.
+        #
+        # (Audit fix: the previous reduction summed raw power over every
+        # rx_ant x tx_ant port pair, inflating multi-array links by
+        # 10*log10(N_rx_ant*N_tx_ant) dB - lab_room's 16x32 ports made the LOS
+        # path 27 dB STRONGER than free space - and sqrt(power) erased the
+        # phase, so every CIR tap came out at 0 rad. Array gain is a
+        # beamforming/combining result, not a raw path property.)
         if a.ndim == 5:
-            if a.shape[1] == 1 and a.shape[3] == 1:
-                a = a[:, 0, :, 0, :]
-            else:
-                power = (np.abs(a) ** 2).sum(axis=(1, 3))  # [num_rx, num_tx, num_paths]
-                a = np.sqrt(power).astype(complex)
+            a = a[:, 0, :, 0, :]
         else:
             while a.ndim > 3:
                 axes = tuple(i for i, s in enumerate(a.shape) if s == 1)
                 if not axes:
                     warnings.append(f"unexpected path-coefficient shape {a.shape}")
-                    return []
+                    return [], None
                 a = a.squeeze(axis=axes[0])
 
         vertices = to_np(solved.vertices) if hasattr(solved, "vertices") else None

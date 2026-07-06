@@ -74,7 +74,8 @@ backend/.venv/bin/python -m pip install -e "backend[dev]"
 ```
 
 기본 의존성: `fastapi`, `uvicorn[standard]`, `pydantic`, `numpy`, `trimesh`,
-`pyyaml`, `httpx`, `pillow`, `networkx`.
+`pyyaml`, `httpx`, `pillow`, `networkx`, `python-multipart`(씬 임포트의 멀티파트
+업로드에 필요).
 
 ### 2. 프론트엔드 설치
 
@@ -93,6 +94,7 @@ npm install
 ```powershell
 backend\.venv\Scripts\python.exe examples\scripts\create_demo_project.py
 backend\.venv\Scripts\python.exe examples\scripts\import_bundle_scene.py
+backend\.venv\Scripts\python.exe examples\scripts\import_bundle_scene.py --xml "sionna-rt-gui-jaewoo-examples/outdoor_material_assigned_cv_28ghz_safe.xml" --scene-id ftc_outdoor --name "FTC Outdoor (28 GHz)" --environment outdoor --visual-overlay "sionna-rt-gui-jaewoo-examples/outdoor_visual/FTC_OSM_ReconstructedMap_ZUp_v2.glb"
 ```
 
 **Linux / macOS:**
@@ -100,12 +102,20 @@ backend\.venv\Scripts\python.exe examples\scripts\import_bundle_scene.py
 ```bash
 backend/.venv/bin/python examples/scripts/create_demo_project.py
 backend/.venv/bin/python examples/scripts/import_bundle_scene.py
+backend/.venv/bin/python examples/scripts/import_bundle_scene.py --xml "sionna-rt-gui-jaewoo-examples/outdoor_material_assigned_cv_28ghz_safe.xml" --scene-id ftc_outdoor --name "FTC Outdoor (28 GHz)" --environment outdoor --visual-overlay "sionna-rt-gui-jaewoo-examples/outdoor_visual/FTC_OSM_ReconstructedMap_ZUp_v2.glb"
 ```
 
 - `create_demo_project.py` → **kaist_demo** (야외 캠퍼스 코너 씬: 지면/도로/건물
   2동+창문/나무, TX/RX, 차량·보행자 액터). `examples/demo_project/` 아래에 씁니다.
-- `import_bundle_scene.py` → **lab_room** (참조 번들의 실내 28 GHz 랩룸 씬을
-  로드 가능한 프로젝트로 임포트).
+- `import_bundle_scene.py` (인자 없음) → **lab_room** (참조 번들의 실내 28 GHz 랩룸
+  씬을 로드 가능한 프로젝트로 임포트).
+- `import_bundle_scene.py --scene-id ftc_outdoor …` → **ftc_outdoor** (참조 번들의
+  야외 28 GHz FTC 씬 + 재구성 맵 오버레이). 프로젝트 셀렉트에서 `FTC Outdoor`로
+  전환할 수 있습니다.
+
+> **참고:** FTC 오버레이 GLB(`FTC_OSM_ReconstructedMap_ZUp_v2.glb`)는 용량이
+> 큽니다(약 120 MB). 임포트 시 프로젝트의 `visual/overlay.glb`로 복사되므로
+> 디스크 여유가 필요하며, 이 한 줄만 다른 두 명령보다 다소 오래 걸립니다.
 
 두 스크립트 모두 결과 요약(프림/디바이스 수, 재질 목록, GLB 메시명)을 출력하며,
 같은 씬을 다시 생성하면 동일 출력이 나옵니다.

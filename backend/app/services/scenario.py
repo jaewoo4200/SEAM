@@ -162,7 +162,9 @@ def _velocities_at(
     device_velocities: dict[str, list[float]] = {}
     for actor in scene.actors:
         v = actor_velocity_at(actor, time_s)
-        if v == [0.0, 0.0, 0.0]:
+        # Epsilon, not exact-float: a pingpong turnaround frame's central
+        # difference can be ~0 without being bitwise zero (audit polish).
+        if all(abs(c) < 1e-9 for c in v):
             continue
         actor_velocities[actor.id] = v
         for dev_id in actor.attached_device_ids:

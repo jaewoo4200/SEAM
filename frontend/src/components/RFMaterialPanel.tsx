@@ -6,6 +6,10 @@ import type { RFMaterial } from "../types/api";
 
 const ID_PATTERN = /^[a-z0-9_]+$/;
 
+function slugifyId(name: string): string {
+  return name.trim().toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "");
+}
+
 interface DraftFields {
   display_name: string;
   relative_permittivity: string;
@@ -155,6 +159,10 @@ export default function RFMaterialPanel() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [unassignError, setUnassignError] = useState<string | null>(null);
   const [unassigning, setUnassigning] = useState(false);
+  // Inline "new material" mini-form (replaces window.prompt/alert).
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [createError, setCreateError] = useState<string | null>(null);
 
   const list = materials?.materials ?? [];
   const active = list.find((m) => m.id === activeId) ?? null;
@@ -190,15 +198,33 @@ export default function RFMaterialPanel() {
     }
   };
 
+  // Auto-slug the id from the typed name (mirrors the old prompt default) and
+  // surface duplicate / invalid errors inline instead of via window.alert.
+  const newId = slugifyId(newName);
+
+  const openCreate = () => {
+    setNewName("");
+    setCreateError(null);
+    setCreating(true);
+  };
+  const cancelCreate = () => {
+    setCreating(false);
+    setNewName("");
+    setCreateError(null);
+  };
+
   const createCustom = () => {
-    const id = window.prompt("New material id (lowercase a-z, 0-9, _):", "custom_material");
-    if (!id) return;
+    const id = newId;
+    if (!id) {
+      setCreateError("Enter a name for the new material.");
+      return;
+    }
     if (!ID_PATTERN.test(id)) {
-      window.alert("Invalid id: use only lowercase letters, digits, and underscores.");
+      setCreateError("Invalid id: use only lowercase letters, digits, and underscores.");
       return;
     }
     if (list.some((m) => m.id === id)) {
-      window.alert(`Material "${id}" already exists.`);
+      setCreateError(`Material "${id}" already exists.`);
       return;
     }
     const base: RFMaterial = active ?? {
@@ -220,12 +246,17 @@ export default function RFMaterialPanel() {
     const created: RFMaterial = {
       ...base,
       id,
-      display_name: id,
+      display_name: newName.trim() || id,
       itu_name: null,
       builtin: false,
       notes: active ? `Custom material cloned from ${active.id}.` : "Custom material.",
     };
-    void saveMaterial(created).then(() => setActiveId(id));
+    setCreateError(null);
+    void saveMaterial(created).then(() => {
+      setActiveId(id);
+      setCreating(false);
+      setNewName("");
+    });
   };
 
   return (
@@ -301,11 +332,54 @@ export default function RFMaterialPanel() {
         >
           {unassigning ? "Unassigning…" : `Unassign selection (${selection.length})`}
         </button>
-        <button onClick={createCustom} disabled={busy !== null}>
+        <button
+          onClick={() => (creating ? cancelCreate() : openCreate())}
+          disabled={busy !== null}
+        >
           New custom material
         </button>
       </div>
       {unassignError && <div className="field-error">{unassignError}</div>}
+
+      {creating && (
+        <div className="mat-editor">
+          <h4>New custom material{active ? ` (cloned from ${active.id})` : ""}</h4>
+          <label className="solver-field">
+            <span className="solver-field-label">Name</span>
+            <span className="solver-field-input">
+              <input
+                type="text"
+                autoFocus
+                value={newName}
+                placeholder="Custom material"
+                disabled={busy !== null}
+                onChange={(e) => {
+                  setNewName(e.target.value);
+                  if (createError) setCreateError(null);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") createCustom();
+                  else if (e.key === "Escape") cancelCreate();
+                }}
+              />
+            </span>
+          </label>
+          {newId && !createError && (
+            <p className="hint">
+              id: <span className="mono">{newId}</span>
+            </p>
+          )}
+          {createError && <span className="field-error">{createError}</span>}
+          <div className="panel-actions">
+            <button className="primary" onClick={createCustom} disabled={busy !== null}>
+              Create
+            </button>
+            <button onClick={cancelCreate} disabled={busy !== null}>
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {active && (
         <MaterialEditor

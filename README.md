@@ -86,6 +86,37 @@ bash scripts/start.sh     # 2. 백엔드+프론트 실행
 
 ---
 
+## 프로그래매틱 API (UI 없는 엔드포인트)
+
+대부분의 기능은 웹 UI로 쓰지만, 다음 두 엔드포인트는 **전용 UI 버튼이 없고
+curl/스크립트로 프로그래매틱하게** 호출한다(백엔드는 기본 `http://127.0.0.1:8000`).
+
+- **`POST /api/projects/{id}/live/state`** — **외부 실세계 위치 주입.**
+  GPS/모캡/로그의 디바이스·액터 위치를 로드된 씬에 밀어 넣는다. UI의 *Live sync*
+  폴링이 이 상태를 그대로 반영하므로, 외부 소스가 이 엔드포인트로 계속 밀면 뷰어가
+  실시간으로 따라 움직인다. `persist=true` 로 씬에 저장, `resimulate=true` 로 즉시
+  경로를 다시 풀어 최신 링크 지표를 돌려받아 measure → sync → predict 루프를 돌릴 수
+  있다.
+
+  ```bash
+  curl -X POST http://127.0.0.1:8000/api/projects/kaist_demo/live/state \
+    -H "Content-Type: application/json" \
+    -d '{"devices":[{"id":"rx_001","position":[10.0,5.0,1.5]}],"actors":[{"id":"veh_001","position":[20.0,0.0,0.0],"orientation_deg":[0.0,0.0,90.0]}],"resimulate":true,"persist":false}'
+  ```
+
+- **`POST /api/projects/{id}/calibrate/materials`** — **측정 기반 재질 캘리브레이션.**
+  측정된 링크별 path gain 을 넣으면 한 개의 RF 재질 파라미터를 그리드 서치로 피팅해
+  RT-측정 오차를 줄이고 before/after 리포트를 돌려준다. `apply=true` 면 피팅값을
+  재질 라이브러리에 쓰고 해당 프림을 `measurement_calibrated` 로 승격한다.
+
+  ```bash
+  curl -X POST http://127.0.0.1:8000/api/projects/kaist_demo/calibrate/materials \
+    -H "Content-Type: application/json" \
+    -d '{"measurements":[{"rx_position":[10.0,5.0,1.5],"measured_path_gain_db":-92.0}],"target_material_id":"concrete","param":"scattering_coefficient","apply":false}'
+  ```
+
+---
+
 ## Docs index
 
 | 문서 | 내용 |

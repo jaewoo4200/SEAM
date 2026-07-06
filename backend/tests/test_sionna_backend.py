@@ -124,3 +124,55 @@ def test_sionna_radio_map_populates_grid(project: Path):
     populated = [v for row in result.values for v in row if v is not None]
     assert populated, f"expected some covered cells; warnings={result.warnings}"
     RadioMapResultSet.model_validate(result.model_dump())
+
+def test_multi_antenna_los_matches_fspl(project: Path):
+    """Audit regression (B2): multi-port arrays must NOT inflate per-path power.
+
+    The old reduction summed raw power over every rx_ant x tx_ant port pair,
+    making a 4x4->4x4 cross-pol link (16x32 = 512 ports) report a LOS path
+    10*log10(512) ~= 27 dB STRONGER than free space. With the reference-element
+    convention the LOS path power must equal FSPL + tx power within a small
+    tolerance, and the complex amplitude must keep a real phase.
+    """
+    import math
+
+    library = load_default_library()
+    cfg = SimulationConfig(id="default", frequency_hz=3.5e9, max_depth=1, num_samples=200_000)
+
+    def solve(rx_pol: str):
+        scene = _demo_scene()
+        for dev, pol in ((scene.devices[0], "V"), (scene.devices[1], rx_pol)):
+            dev.antenna.pattern = "iso"
+            dev.antenna.polarization = pol
+            dev.antenna.num_rows = 4
+            dev.antenna.num_cols = 4
+        result = SionnaBackend().simulate_paths(project, scene, library, cfg)
+        los = [p for p in result.paths if p.path_type == "los"]
+        assert los, f"expected LoS ({rx_pol}); warnings={result.warnings}"
+        return los[0], result
+
+    base = _demo_scene()
+    dist = math.dist(base.devices[0].position, base.devices[1].position)
+    fspl_db = 20.0 * math.log10(4.0 * math.pi * dist * cfg.frequency_hz / 299_792_458.0)
+    expected_dbm = 30.0 - fspl_db
+
+    # V->V 4x4 arrays (256 port pairs): reference-element LOS gain == exact
+    # FSPL. The old port-power summing would sit ~24 dB above this.
+    los_vv, result_vv = solve("V")
+    assert abs(los_vv.power_dbm - expected_dbm) < 2.0, (
+        f"LOS {los_vv.power_dbm:.2f} dBm vs FSPL-expected {expected_dbm:.2f} dBm "
+        f"(a ~24 dB gap means port-power summing regressed)"
+    )
+    # Phase must be preserved (the old sqrt(sum(power)) collapsed it to 0).
+    assert any(abs(p.phase_rad) > 1e-6 for p in result_vv.paths), (
+        "all path phases are exactly 0 - complex amplitude was lost"
+    )
+
+    # V->cross (lab_room's shape, 512 port pairs): the +/-45deg reference port
+    # sees half the V-polarized power -> exactly a 3 dB polarization split
+    # below FSPL, and nothing like the old +27 dB inflation.
+    los_vx, _ = solve("cross")
+    assert abs(los_vx.power_dbm - (expected_dbm - 3.01)) < 2.0, (
+        f"cross-pol LOS {los_vx.power_dbm:.2f} dBm vs expected "
+        f"{expected_dbm - 3.01:.2f} dBm (FSPL - 3 dB pol split)"
+    )

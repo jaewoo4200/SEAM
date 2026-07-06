@@ -266,14 +266,32 @@ function ActorCard({ actor }: { actor: Actor }) {
       if (!(n > 0)) throw new Error(`${name} must be > 0`);
       return n;
     };
+    // Pose (name/position/yaw) commits independently of size. If the size
+    // fields are invalid we still apply the pose and surface the size error
+    // inline, so pose edits are never silently discarded.
+    let position: Vec3;
+    let orientation_deg: Vec3;
     try {
-      const position: Vec3 = [num(draft.x, "X"), num(draft.y, "Y"), num(draft.z, "Z")];
-      const orientation_deg: Vec3 = [
+      position = [num(draft.x, "X"), num(draft.y, "Y"), num(draft.z, "Z")];
+      orientation_deg = [
         num(draft.yaw, "Yaw"),
         actor.orientation_deg[1],
         actor.orientation_deg[2],
       ];
-      const size_m: Vec3 = [pos(draft.l, "L"), pos(draft.w, "W"), pos(draft.h, "H")];
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+      return;
+    }
+
+    let size_m: Vec3 | null = null;
+    let sizeErr: string | null = null;
+    try {
+      size_m = [pos(draft.l, "Length"), pos(draft.w, "Width"), pos(draft.h, "Height")];
+    } catch (e) {
+      sizeErr = e instanceof Error ? e.message : String(e);
+    }
+
+    if (size_m) {
       setErr(null);
       void updateActor(actor.id, {
         name: draft.name,
@@ -281,8 +299,14 @@ function ActorCard({ actor }: { actor: Actor }) {
         orientation_deg,
         shape: { ...actor.shape, size_m },
       });
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
+    } else {
+      // Sizes invalid: commit pose + name only, keep the existing shape.
+      setErr(`sizes not applied: ${sizeErr}`);
+      void updateActor(actor.id, {
+        name: draft.name,
+        position,
+        orientation_deg,
+      });
     }
   };
 

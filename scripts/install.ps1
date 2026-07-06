@@ -80,11 +80,16 @@ try {
 }
 
 # ------------------------------------------------------------ demo projects
-Step "Generating demo projects (kaist_demo + lab_room)"
+Step "Generating demo projects (kaist_demo + lab_room + ftc_outdoor)"
 & $VenvPython (Join-Path $RepoRoot "examples\scripts\create_demo_project.py")
 if ($LASTEXITCODE -ne 0) { Fail "create_demo_project.py failed." }
 & $VenvPython (Join-Path $RepoRoot "examples\scripts\import_bundle_scene.py")
 if ($LASTEXITCODE -ne 0) { Fail "import_bundle_scene.py failed." }
+& $VenvPython (Join-Path $RepoRoot "examples\scripts\import_bundle_scene.py") `
+    --xml "sionna-rt-gui-jaewoo-examples/outdoor_material_assigned_cv_28ghz_safe.xml" `
+    --scene-id ftc_outdoor --name "FTC Outdoor (28 GHz)" --environment outdoor `
+    --visual-overlay "sionna-rt-gui-jaewoo-examples/outdoor_visual/FTC_OSM_ReconstructedMap_ZUp_v2.glb"
+if ($LASTEXITCODE -ne 0) { Fail "import_bundle_scene.py (ftc_outdoor) failed." }
 
 # ------------------------------------------------------------ done
 Write-Host ""

@@ -1,5 +1,5 @@
 import { Component, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type { ReactElement, ReactNode } from "react";
 import * as THREE from "three";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import type { ThreeEvent } from "@react-three/fiber";
@@ -11,6 +11,7 @@ import { SELECTED_PATH_COLOR } from "./common";
 import { filterPaths, pathColor, powerRange, powerWidth } from "../pathFilter";
 import { api } from "../api/client";
 import { directionalPosition } from "../viewportSettings";
+import type { RadioMapColormap } from "../viewportSettings";
 import ViewportPanel from "./ViewportPanel";
 import type {
   Prim,
@@ -333,11 +334,14 @@ export function envScale(env: ResolvedEnvironment): number {
   return env === "indoor" ? 0.35 : 1.0;
 }
 
-/** Marker radius scaled to scene size AND environment: small indoor rooms
- *  need ~0.08 m markers, outdoor campuses ~0.5 m. */
+/** Marker radius from device spread, with the user's marker-size slider as
+ *  the dominant multiplier. envScale is intentionally NOT applied here (audit
+ *  M2: indoor 0.35x cancelled the 2x default and pinned lab-room markers to
+ *  the 0.06 m floor; the outdoor 0.6 m cap kept campus markers tiny). The
+ *  environment still scales path-interaction dots, which have no user knob. */
 function deviceMarkerRadius(
   scene: Scene,
-  env: ResolvedEnvironment = "outdoor",
+  _env: ResolvedEnvironment = "outdoor",
   markerScale = 1.0,
 ): number {
   const pos = scene.devices.map((d) => d.position);
@@ -348,9 +352,9 @@ function deviceMarkerRadius(
       const vals = pos.map((p) => p[axis]);
       maxSpan = Math.max(maxSpan, Math.max(...vals) - Math.min(...vals));
     }
-    return Math.min(0.6, Math.max(0.08, maxSpan * 0.02));
+    return Math.min(1.0, Math.max(0.15, maxSpan * 0.02));
   })();
-  return Math.max(0.06, base * envScale(env) * markerScale);
+  return base * markerScale;
 }
 
 /** X/Y/Z translate gizmo WRAPPING the selected marker (deterministic - no
@@ -367,7 +371,7 @@ function GizmoWrapped({
   position: Vec3;
   rotation?: [number, number, number];
   onCommit: (pos: Vec3) => void;
-  children: ReactNode;
+  children: ReactElement;
 }) {
   const controls = useThree((s) => s.controls) as { enabled?: boolean } | null;
   const setEvents = useThree((s) => s.setEvents);
@@ -384,12 +388,18 @@ function GizmoWrapped({
   useEffect(() => {
     const tc = tcRef.current;
     if (!tc) return;
-    const onAxis = (e: { value?: unknown }) => setEvents({ enabled: e.value == null });
+    const onAxis = (e: { value?: unknown }) => {
+      gizmoBusy = e.value != null;
+      setEvents({ enabled: e.value == null });
+    };
     tc.addEventListener("axis-changed", onAxis);
-    // Debug handle for interaction tests (same spirit as __stwScene).
-    (window as unknown as { __stwGizmo?: unknown }).__stwGizmo = tc;
+    // Debug handle for interaction tests (dev builds only).
+    if (import.meta.env.DEV) {
+      (window as unknown as { __stwGizmo?: unknown }).__stwGizmo = tc;
+    }
     return () => {
       tc.removeEventListener("axis-changed", onAxis);
+      gizmoBusy = false;
       setEvents({ enabled: true });
       if (controls) controls.enabled = true;
     };
@@ -926,12 +936,14 @@ function OverlayScene({ url }: { url: string }) {
     if (group.current) {
       group.current.updateMatrixWorld(true);
       const box = new THREE.Box3().setFromObject(group.current);
-      console.debug(
-        "[overlay] world bounds",
-        box.min.toArray().map((v) => Number(v.toFixed(1))),
-        box.max.toArray().map((v) => Number(v.toFixed(1))),
-        `| unlit textured mats: ${unlit}`,
-      );
+      if (import.meta.env.DEV) {
+        console.debug(
+          "[overlay] world bounds",
+          box.min.toArray().map((v) => Number(v.toFixed(1))),
+          box.max.toArray().map((v) => Number(v.toFixed(1))),
+          `| unlit textured mats: ${unlit}`,
+        );
+      }
     }
   }, [object, gl]);
   // Overlay GLBs follow the glTF spec (+Y up); the app world is Z-up ENU
@@ -962,6 +974,12 @@ function OverlayBackdrop({ url }: { url: string }) {
   );
 }
 
+// True while the cursor hovers/drags a gizmo axis. onPointerMissed consults
+// this so grabbing an arrow that overlays empty space can never be
+// misread as a background click (which would clear the selection and
+// unmount the gizmo mid-drag) - robust regardless of event ordering.
+let gizmoBusy = false;
+
 // Camera pose getter registered by ViewerHotkeys for the render button.
 let cameraPoseGetter: (() => { position: Vec3; target: Vec3 }) | null = null;
 
@@ -978,7 +996,7 @@ function ViewerHotkeys() {
   const controls = useThree((s) => s.controls) as { target?: THREE.Vector3; update?: () => void } | null;
   const addDevice = useAppStore((s) => s.addDevice);
   const setViewport = useAppStore((s) => s.setViewport);
-  const setShowRadioMap = useAppStore((s) => s.setShowRadioMap);
+  const toggleOverlay = useAppStore((s) => s.toggleOverlay);
   const pointer = useRef<{ x: number; y: number } | null>(null);
   // Ghost-preview placement (AODT style): K/L arm a translucent marker that
   // follows the cursor's surface hit; click places, Esc cancels.
@@ -1004,10 +1022,13 @@ function ViewerHotkeys() {
   // Local clipping must be on for the slice plane to work at all.
   useEffect(() => {
     gl.localClippingEnabled = true;
-    // Dev/debug handle: lets tooling (and bug reports) inspect the live
-    // three.js graph without a React devtools round-trip.
-    (window as unknown as { __stwScene?: THREE.Scene }).__stwScene = three;
-    (window as unknown as { __stwCamera?: THREE.Camera }).__stwCamera = camera;
+    // Dev/debug handles: let tooling (and bug reports) inspect the live
+    // three.js graph without a React devtools round-trip. Dev builds only -
+    // production stays clean (audit polish).
+    if (import.meta.env.DEV) {
+      (window as unknown as { __stwScene?: THREE.Scene }).__stwScene = three;
+      (window as unknown as { __stwCamera?: THREE.Camera }).__stwCamera = camera;
+    }
   }, [gl, three]);
 
   useEffect(() => {
@@ -1070,7 +1091,7 @@ function ViewerHotkeys() {
         return;
       }
       if (e.ctrlKey || e.metaKey || e.altKey) return;
-      const { viewport, showRadioMap } = useAppStore.getState();
+      const { viewport } = useAppStore.getState();
       switch (e.key.toLowerCase()) {
         case "r":
           camera.position.set(35, -35, 25);
@@ -1110,7 +1131,7 @@ function ViewerHotkeys() {
           setViewport({ showSlice: !viewport.showSlice });
           break;
         case "m":
-          setShowRadioMap(!showRadioMap);
+          toggleOverlay("radioMap");
           break;
         default:
           return;
@@ -1124,7 +1145,7 @@ function ViewerHotkeys() {
       canvas.removeEventListener("pointerdown", onPlaceClick, { capture: true });
       window.removeEventListener("keydown", onKey);
     };
-  }, [gl, camera, three, controls, addDevice, setViewport, setShowRadioMap]);
+  }, [gl, camera, three, controls, addDevice, setViewport, toggleOverlay]);
 
   if (!placing || !ghost) return null;
   return (
@@ -1217,7 +1238,9 @@ export default function Viewer3D() {
         // preserveDrawingBuffer lets captureViewport() read the canvas as a
         // JPEG data URL (AI/VLM) after the frame has been presented.
         gl={{ preserveDrawingBuffer: true }}
-        onPointerMissed={() => clearSelection()}
+        onPointerMissed={() => {
+          if (!gizmoBusy) clearSelection();
+        }}
       >
         {/* AODT-style dark viewer; lighting/background driven by viewport settings. */}
         <color attach="background" args={[viewport.backgroundColor]} />

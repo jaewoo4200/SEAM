@@ -12,7 +12,7 @@ Array layout (documented for consumers in docs/ml_datasets.md):
     cfr_freq_offset_hz   float64 [K]      offsets across [-B/2, +B/2]
     cir_gain             complex64 [N, P] per-path complex gain (0-padded)
     cir_delay_ns         float32 [N, P]   per-path delay (NaN-padded)
-    num_paths            int16 [N]
+    num_paths            int32 [N]
     los                  bool [N]         any line-of-sight path present
     rss_dbm              float32 [N]      total received power
     mean_delay_ns        float32 [N]      power-weighted mean delay (NaN if none)
@@ -133,7 +133,7 @@ def generate_dataset(
     )
 
     cfr = np.zeros((n, k), dtype=np.complex64)
-    num_paths = np.zeros(n, dtype=np.int16)
+    num_paths = np.zeros(n, dtype=np.int32)
     los = np.zeros(n, dtype=bool)
     rss_dbm = np.full(n, np.nan, dtype=np.float32)
     mean_delay = np.full(n, np.nan, dtype=np.float32)
@@ -294,6 +294,8 @@ def dataset_file(project_dir: Path, dataset_id: str, filename: str) -> Optional[
     """Resolve a dataset file for download, refusing path escapes."""
     root = (project_dir / DATASETS_SUBDIR).resolve()
     target = (root / dataset_id / filename).resolve()
-    if not str(target).startswith(str(root)) or not target.is_file():
+    # is_relative_to (not startswith) so a sibling dir sharing the prefix
+    # (e.g. export/datasets_evil) can never be reached (audit minor).
+    if not target.is_relative_to(root) or not target.is_file():
         return None
     return target
