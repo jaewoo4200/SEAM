@@ -199,6 +199,21 @@ export default function ViewportPanel({ onClose }: { onClose: () => void }) {
           </select>
         </label>
         <Toggle
+          label="Zoom to cursor"
+          checked={viewport.zoomToCursor}
+          onChange={(v) => patch({ zoomToCursor: v })}
+        />
+        <Toggle
+          label="Orbit around selection"
+          checked={viewport.orbitSelection}
+          onChange={(v) => patch({ orbitSelection: v })}
+        />
+        <Toggle
+          label="Distance fog"
+          checked={viewport.fogEnabled}
+          onChange={(v) => patch({ fogEnabled: v })}
+        />
+        <Toggle
           label="Slice plane (S)"
           checked={viewport.showSlice}
           onChange={(v) => patch({ showSlice: v })}

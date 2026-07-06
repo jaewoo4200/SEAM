@@ -357,6 +357,10 @@ interface AppState {
   }) => Promise<void>;
   /** Drop the loaded trajectory result (overlay clears immediately). */
   removeTrajectory: () => void;
+  /** Per-UE frame overrides for multi-UE playback (individual scrub bars).
+   *  Missing key = follow the master trajFrame; master controls reset these. */
+  trajUeFrames: Record<string, number>;
+  setTrajUeFrame: (ueId: string, frame: number) => void;
   setTrajFrame: (frame: number) => void;
   setTrajPlaying: (playing: boolean) => void;
   setTrajSpeed: (speed: number) => void;
@@ -833,6 +837,7 @@ export const useAppStore = create<AppState>()((set, get) => {
 
     trajectory: null,
     trajFrame: 0,
+    trajUeFrames: {},
     trajPlaying: false,
     trajSpeed: 1,
     trajLoop: false,
@@ -1011,7 +1016,7 @@ export const useAppStore = create<AppState>()((set, get) => {
         }
         // Latest stored trajectory (404-tolerant, guide item 4).
         try {
-          set({ trajectory: await api.getTrajectory(projectId), trajFrame: 0 });
+          set({ trajectory: await api.getTrajectory(projectId), trajFrame: 0, trajUeFrames: {} });
         } catch {
           // no trajectory yet; ignore silently
         }
@@ -1336,7 +1341,18 @@ export const useAppStore = create<AppState>()((set, get) => {
     removeRadioMap: () => set({ radioMap: null }),
     removeMeshRadioMap: () => set({ meshRadioMap: null }),
     removeTrajectory: () =>
-      set({ trajectory: null, trajFrame: 0, trajPlaying: false }),
+      set({ trajectory: null, trajFrame: 0, trajPlaying: false, trajUeFrames: {} }),
+
+    setTrajUeFrame: (ueId, frame) => {
+      const traj = get().trajectory;
+      const max = traj ? Math.max(0, trajectorySteps(traj) - 1) : 0;
+      set({
+        trajUeFrames: {
+          ...get().trajUeFrames,
+          [ueId]: Math.max(0, Math.min(max, frame)),
+        },
+      });
+    },
 
     exportRfdata: async () => {
       const pid = get().projectId;
@@ -1782,6 +1798,7 @@ export const useAppStore = create<AppState>()((set, get) => {
         set({
           trajectory: result,
           trajFrame: 0,
+          trajUeFrames: {},
           trajPlaying: false,
           // Latest computation wins: show the fresh per-frame rays.
           showTrajectoryRays: true,
@@ -1794,6 +1811,9 @@ export const useAppStore = create<AppState>()((set, get) => {
     },
 
     setTrajFrame: (frame) => {
+      // Master control: individual UE scrub offsets reset so "play all" /
+      // the master slider always moves every UE together.
+      if (Object.keys(get().trajUeFrames).length > 0) set({ trajUeFrames: {} });
       const traj = get().trajectory;
       const max = traj ? Math.max(0, trajectorySteps(traj) - 1) : 0;
       set({ trajFrame: Math.max(0, Math.min(max, frame)) });

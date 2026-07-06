@@ -141,6 +141,15 @@ def generate_dataset(
     if tx is None:
         raise ValueError("scene has no transmitter")
     rx_proto = next((d for d in rxs if d.id == request.rx_id), rxs[0] if rxs else None)
+    # Each dataset is ONE UE's sequence: a single synthetic receiver
+    # ("ue_dataset") swept over positions_m. The dataset sampler is single-UE
+    # by construction — it does not consume multi-UE TrajectoryResultSets — so
+    # there is no per-sample ue_id to group by; every row of every array
+    # belongs to this one UE. We record which scene RX its antenna/identity was
+    # cloned from (source_rx_id) so a consumer can associate the sequence with
+    # a device; None when the scene has no RX and we fall back to a default
+    # isotropic antenna.
+    source_rx_id = rx_proto.id if rx_proto else None
     ue = Device(
         id="ue_dataset",
         name="Dataset UE",
@@ -250,6 +259,11 @@ def generate_dataset(
         "name": request.name,
         "scene_id": scene.scene_id,
         "tx_id": tx.id,
+        # Single-UE dataset: the whole .npz is one UE's sequence (id below).
+        # source_rx_id is the scene RX whose antenna/identity was cloned into
+        # it (None when the scene had no RX -> default isotropic antenna).
+        "ue_id": ue.id,
+        "source_rx_id": source_rx_id,
         "ue_antenna": ue.antenna.model_dump(),
         "frequency_hz": config.frequency_hz,
         "bandwidth_hz": config.bandwidth_hz,
@@ -273,7 +287,9 @@ def generate_dataset(
         "aodt_field_map": {
             "sample index": "time_idx",
             "tx": "ru_id",
-            "ue (per positions_m row)": "ue_id",
+            # Single UE per dataset: every positions_m row is the same UE
+            # (metadata ue_id); AODT's ue_id is constant across the sequence.
+            "ue (constant, = metadata ue_id)": "ue_id",
             "cfr (complex64)": "cfr_re + j*cfr_im",
             "cir_gain (complex64)": "cir_re + j*cir_im",
             "cir_delay_ns": "cir_delay",

@@ -127,6 +127,15 @@ def _trajectory_csv(
     paths: Optional[PathResultSet],
     config: SimulationConfig,
 ) -> str:
+    """Per-waypoint UE metrics, one row per trajectory sample.
+
+    Multi-UE contract: the ``ue_id`` column is ALWAYS present (a fixed column
+    in the AODT-viewer trajectory schema, not a conditional one), and rows are
+    emitted in the result's native order — STEP-MAJOR for multi-UE routes
+    (all UEs at step 0, then all UEs at step 1, ...), so the viewer can split
+    the file by ``ue_id`` into per-UE sequences. A single-UE run is just the
+    degenerate case: every row shares one ue_id, order == waypoint order.
+    """
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(["time_s", "ue_id", "x_m", "y_m", "z_m", "rss_dbm", "sinr_db", "path_gain_db"])

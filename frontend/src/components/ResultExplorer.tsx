@@ -7,7 +7,7 @@ import { PATH_COLORS, SELECTED_PATH_COLOR, formatVec, materialById } from "./com
 import { exportCsv } from "../charts";
 import { filterPaths, pathColor, pathDepth, powerRange } from "../pathFilter";
 import { meshRadioMapRange } from "./MeshRadioMapOverlay";
-import { samplesAtStep, trajectorySteps, trajectoryUeIds } from "../trajectoryUtils";
+import { UE_COLORS, samplesForUe, trajectorySteps, trajectoryUeIds } from "../trajectoryUtils";
 import type { ColorBy } from "../store/appStore";
 import type {
   BeamformingResult,
@@ -432,12 +432,18 @@ export function TrajectorySection() {
   }, [trajPlaying, trajSpeed, trajectory]);
 
   const disabled = busy !== null;
-  // Per-step samples (one per routed UE); the KPI card follows kpiUe.
+  // KPI card follows kpiUe AT ITS OWN frame (per-UE scrub bars can diverge
+  // from the master frame).
   const ueIds = trajectoryUeIds(trajectory);
+  const trajUeFrames = useAppStore((s) => s.trajUeFrames);
   const [kpiUe, setKpiUe] = useState<string>("");
-  const stepSamples = samplesAtStep(trajectory, trajFrame);
-  const sample =
-    stepSamples.find((s) => s.ue_id === (kpiUe || ueIds[0])) ?? stepSamples[0] ?? null;
+  const kpiUeId = kpiUe || ueIds[0] || "";
+  const kpiSamples = samplesForUe(trajectory, kpiUeId);
+  const kpiFrame = Math.max(
+    0,
+    Math.min(kpiSamples.length - 1, trajUeFrames[kpiUeId] ?? trajFrame),
+  );
+  const sample = kpiSamples[kpiFrame] ?? null;
 
   const vecField = (label: string, v: Vec3, onChange: (v: Vec3) => void) => (
     <label className="solver-field">
@@ -722,16 +728,25 @@ function PlaybackTrajectory({
         </button>
       </div>
       {ueIds.length > 1 && (
-        <label className="solver-field">
-          <span className="solver-field-label">KPI UE</span>
-          <select value={kpiUe} onChange={(e) => setKpiUe(e.target.value)}>
-            {ueIds.map((id) => (
-              <option key={id} value={id}>
-                {id}
-              </option>
+        <>
+          {/* Per-UE scrub bars: each UE can be positioned independently; the
+              master ▶ all / slider resets them and moves everyone together. */}
+          <div className="traj-ue-bars">
+            {ueIds.map((id, i) => (
+              <UeScrubBar key={id} ueId={id} color={UE_COLORS[i % UE_COLORS.length]} />
             ))}
-          </select>
-        </label>
+          </div>
+          <label className="solver-field">
+            <span className="solver-field-label">KPI UE</span>
+            <select value={kpiUe} onChange={(e) => setKpiUe(e.target.value)}>
+              {ueIds.map((id) => (
+                <option key={id} value={id}>
+                  {id}
+                </option>
+              ))}
+            </select>
+          </label>
+        </>
       )}
       <div className="traj-transport">
         <button
@@ -739,9 +754,17 @@ function PlaybackTrajectory({
             if (atEnd && !trajPlaying) setTrajFrame(0);
             setTrajPlaying(!trajPlaying);
           }}
-          title={trajPlaying ? "Pause" : "Play"}
+          title={
+            ueIds.length > 1
+              ? trajPlaying
+                ? "Pause all UEs"
+                : "Play ALL UEs together (resets individual scrubs)"
+              : trajPlaying
+                ? "Pause"
+                : "Play"
+          }
         >
-          {trajPlaying ? "⏸" : "▶"}
+          {trajPlaying ? "⏸" : ueIds.length > 1 ? "▶ all" : "▶"}
         </button>
         <input
           type="range"
@@ -930,6 +953,34 @@ function ScenarioPlayback({ scenario }: { scenario: ScenarioResultSet }) {
       </div>
       <h4 style={{ marginTop: 8 }}>Link metrics</h4>
       <LinkMetricsTable links={frame.links} />
+    </div>
+  );
+}
+
+/** One UE's independent scrub bar (multi-UE playback): missing override =
+ *  follows the master frame; sliding sets only this UE's frame. */
+function UeScrubBar({ ueId, color }: { ueId: string; color: string }) {
+  const trajectory = useAppStore((s) => s.trajectory);
+  const trajFrame = useAppStore((s) => s.trajFrame);
+  const frameOverride = useAppStore((s) => s.trajUeFrames[ueId]);
+  const setTrajUeFrame = useAppStore((s) => s.setTrajUeFrame);
+  const last = Math.max(0, trajectorySteps(trajectory) - 1);
+  const frame = Math.min(frameOverride ?? trajFrame, last);
+  return (
+    <div className="traj-ue-bar" title={`Scrub ${ueId} independently`}>
+      <span className="traj-ue-dot" style={{ background: color }} />
+      <span className="mono traj-ue-name">{ueId}</span>
+      <input
+        type="range"
+        min={0}
+        max={last}
+        step={1}
+        value={frame}
+        onChange={(e) => setTrajUeFrame(ueId, Number(e.target.value))}
+      />
+      <span className="mono traj-frame-num">
+        {frame + 1}/{last + 1}
+      </span>
     </div>
   );
 }

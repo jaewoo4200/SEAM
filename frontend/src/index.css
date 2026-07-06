@@ -2395,3 +2395,113 @@ button.picking {
 .osm-map .leaflet-control-attribution {
   font-size: 9px;
 }
+
+/* OSM search (agent S) */
+.osm-search {
+  position: relative;
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.osm-search-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text);
+  background: var(--panel-3);
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 12px;
+}
+.osm-search-input::placeholder {
+  color: var(--muted);
+}
+.osm-search-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.osm-search-btn {
+  flex: 0 0 auto;
+  color: var(--text);
+  background: var(--panel-3);
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  padding: 6px 10px;
+  cursor: pointer;
+  line-height: 1;
+}
+.osm-search-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+.osm-search-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.osm-search-results {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  background: var(--panel-2);
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.osm-search-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  color: var(--text);
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  padding: 7px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.osm-search-item:last-child {
+  border-bottom: none;
+}
+.osm-search-item:hover {
+  background: var(--panel-3);
+  color: var(--accent);
+}
+.osm-search-msg {
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.osm-search-err {
+  color: var(--err);
+}
+
+/* Per-UE trajectory scrub bars (multi-UE playback) */
+.traj-ue-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 6px 0;
+}
+.traj-ue-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.traj-ue-bar input[type="range"] {
+  flex: 1;
+  min-width: 60px;
+}
+.traj-ue-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: none;
+}
+.traj-ue-name {
+  font-size: 11px;
+  min-width: 52px;
+}

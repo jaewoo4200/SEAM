@@ -10,7 +10,7 @@ import type { ResolvedEnvironment } from "../envPresets";
 import type { Mode } from "../store/appStore";
 import { SELECTED_PATH_COLOR } from "./common";
 import { filterPaths, pathColor, powerRange, powerWidth } from "../pathFilter";
-import { samplesAtStep, samplesForUe, trajectoryUeIds } from "../trajectoryUtils";
+import { UE_COLORS, samplesForUe, trajectoryUeIds } from "../trajectoryUtils";
 import { api } from "../api/client";
 import { directionalPosition, renderQualityDpr } from "../viewportSettings";
 import type { RadioMapColormap } from "../viewportSettings";
@@ -747,9 +747,6 @@ function RayPaths() {
 
 // ------------------------------------------------------------ trajectory
 
-// Per-UE marker/trail colors (cycled when several UEs are routed together).
-const UE_COLORS = ["#2e9bff", "#ab47bc", "#26a69a", "#ef6c00", "#ec407a"];
-
 /** One UE's pulsing marker + visited trail at the current step. */
 function UeMarker({
   ueId,
@@ -795,11 +792,17 @@ function UeMarker({
  *  carries include_paths and the Trajectory-rays toggle is on. */
 function TrajectoryOverlay({ trajectory }: { trajectory: TrajectoryResultSet }) {
   const trajFrame = useAppStore((s) => s.trajFrame);
+  const trajUeFrames = useAppStore((s) => s.trajUeFrames);
   const showTrajectoryRays = useAppStore((s) => s.showTrajectoryRays);
 
   const ueIds = trajectoryUeIds(trajectory);
-  const stepSamples = samplesAtStep(trajectory, trajFrame);
-  const framePaths = stepSamples.flatMap((s) => s.paths ?? []);
+  // Each UE follows its own scrub bar when set, else the master frame.
+  const frameFor = (ueId: string) => trajUeFrames[ueId] ?? trajFrame;
+  const framePaths = ueIds.flatMap((ueId) => {
+    const samples = samplesForUe(trajectory, ueId);
+    const s = Math.max(0, Math.min(samples.length - 1, frameFor(ueId)));
+    return samples[s]?.paths ?? [];
+  });
 
   return (
     <group>
@@ -811,7 +814,7 @@ function TrajectoryOverlay({ trajectory }: { trajectory: TrajectoryResultSet }) 
           key={ueId}
           ueId={ueId}
           samples={samplesForUe(trajectory, ueId)}
-          step={trajFrame}
+          step={frameFor(ueId)}
           color={UE_COLORS[i % UE_COLORS.length]}
         />
       ))}
@@ -1163,11 +1166,87 @@ let viewportPngGetter: (() => string | null) | null = null;
  *  R reset camera · F fit scene · K add TX at cursor · L add RX at cursor
  *  (placed at the surface hit + 1.5 m along its normal) · S slice plane ·
  *  M radio-map overlay. Ignored while typing in form fields. */
+/** AABB of the current selection (prim meshes by mesh name, device/actor
+ *  markers by position), or null when nothing is selected. Point-only boxes
+ *  get a small pad so framing math never degenerates. */
+function selectionBox(
+  three: THREE.Scene,
+  st: {
+    selection: string[];
+    selectedDeviceId: string | null;
+    selectedActorId: string | null;
+    scene: Scene | null;
+  },
+): THREE.Box3 | null {
+  const box = new THREE.Box3();
+  let any = false;
+  for (const primId of st.selection) {
+    const prim = st.scene?.prims.find((p) => p.id === primId);
+    const meshName = prim?.mesh_ref?.mesh_name;
+    const obj = meshName ? three.getObjectByName(meshName) : null;
+    if (obj) {
+      box.expandByObject(obj);
+      any = true;
+    }
+  }
+  if (st.selectedDeviceId && st.scene) {
+    const d = st.scene.devices.find((x) => x.id === st.selectedDeviceId);
+    if (d) {
+      box.expandByPoint(new THREE.Vector3(d.position[0], d.position[1], d.position[2]));
+      any = true;
+    }
+  }
+  if (st.selectedActorId && st.scene) {
+    const a = st.scene.actors.find((x) => x.id === st.selectedActorId);
+    if (a) {
+      box.expandByPoint(new THREE.Vector3(a.position[0], a.position[1], a.position[2]));
+      any = true;
+    }
+  }
+  if (!any) return null;
+  if (box.getSize(new THREE.Vector3()).length() < 1) box.expandByScalar(2);
+  return box;
+}
+
+/** Blender's "orbit around selection": while enabled, selecting an object
+ *  re-pivots the orbit target to it (camera position untouched, so the view
+ *  direction eases onto the new pivot without a jump-cut). */
+function OrbitSelectionPivot() {
+  const controls = useThree((s) => s.controls) as {
+    target?: THREE.Vector3;
+    update?: () => void;
+  } | null;
+  const three = useThree((s) => s.scene);
+  // Subscribed for effect scheduling only; the gate below re-reads the store
+  // at effect time. The toggle must NOT come in as a prop: props cross the
+  // r3f reconciler boundary later than this component's own store
+  // subscription, so a selection made right after switching the toggle off
+  // still re-pivoted using the stale prop (live-verified).
+  const enabled = useAppStore((s) => s.viewport.orbitSelection);
+  const selection = useAppStore((s) => s.selection);
+  const selectedDeviceId = useAppStore((s) => s.selectedDeviceId);
+  const selectedActorId = useAppStore((s) => s.selectedActorId);
+  useEffect(() => {
+    const st = useAppStore.getState();
+    if (!st.viewport.orbitSelection || !controls?.target) return;
+    const box = selectionBox(three, st);
+    if (!box) return;
+    controls.target.copy(box.getCenter(new THREE.Vector3()));
+    controls.update?.();
+  }, [enabled, selection, selectedDeviceId, selectedActorId, controls, three]);
+  return null;
+}
+
 function ViewerHotkeys() {
   const camera = useThree((s) => s.camera);
   const gl = useThree((s) => s.gl);
   const three = useThree((s) => s.scene);
   const controls = useThree((s) => s.controls) as { target?: THREE.Vector3; update?: () => void } | null;
+  // The key handler resolves camera/controls AT KEYPRESS TIME via this
+  // getter: its effect otherwise captures drei's pre-makeDefault placeholder
+  // camera, and every camera hotkey (R/F/view snaps) silently moves the
+  // wrong instance (live-verified: R left the real camera untouched).
+  const getThree = useThree((s) => s.get);
   const addDevice = useAppStore((s) => s.addDevice);
   const setViewport = useAppStore((s) => s.setViewport);
   const toggleOverlay = useAppStore((s) => s.toggleOverlay);
@@ -1271,8 +1350,12 @@ function ViewerHotkeys() {
     if (import.meta.env.DEV) {
       (window as unknown as { __stwScene?: THREE.Scene }).__stwScene = three;
       (window as unknown as { __stwCamera?: THREE.Camera }).__stwCamera = camera;
+      (window as unknown as { __stwControls?: unknown }).__stwControls = controls;
     }
-  }, [gl, three]);
+    // `camera`/`controls` in deps: drei's makeDefault swaps both in after
+    // mount — without them __stwCamera/__stwControls keep pointing at dead
+    // placeholders and every probe reads objects that aren't rendering.
+  }, [gl, three, camera, controls]);
 
   useEffect(() => {
     const canvas = gl.domElement;
@@ -1288,7 +1371,8 @@ function ViewerHotkeys() {
     const surfacePos = (): Vec3 | null => {
       if (!pointer.current) return null;
       const ray = new THREE.Raycaster();
-      ray.setFromCamera(new THREE.Vector2(pointer.current.x, pointer.current.y), camera);
+      // Fresh camera (not the effect closure) — see the getThree note above.
+      ray.setFromCamera(new THREE.Vector2(pointer.current.x, pointer.current.y), getThree().camera);
       const hits = ray
         .intersectObjects(three.children, true)
         .filter((h) => (h.object as THREE.Mesh).isMesh && h.object.visible);
@@ -1349,7 +1433,36 @@ function ViewerHotkeys() {
         return;
       }
       if (e.ctrlKey || e.metaKey || e.altKey) return;
+      // Shadow the effect-closure camera/controls with keypress-time values:
+      // the closure can hold drei's pre-makeDefault placeholder, making every
+      // camera hotkey silently move a camera that isn't rendering.
+      const camera = getThree().camera;
+      const controls = getThree().controls as {
+        target?: THREE.Vector3;
+        update?: () => void;
+      } | null;
       const { viewport } = useAppStore.getState();
+      // Blender numpad-style view snaps (e.code so Shift works): 1 front,
+      // 3 right, 7 top; Shift = the opposite side. Keeps the orbit target
+      // and distance - only the viewing direction snaps.
+      if (["Digit1", "Digit3", "Digit7", "Numpad1", "Numpad3", "Numpad7"].includes(e.code)) {
+        const tgt = (controls?.target ?? new THREE.Vector3(0, 0, 0)) as THREE.Vector3;
+        const dist = Math.max(1, camera.position.distanceTo(tgt));
+        const s = e.shiftKey ? -1 : 1;
+        const dir = e.code.endsWith("1")
+          ? new THREE.Vector3(0, -s, 0) // front: camera on -Y looking +Y
+          : e.code.endsWith("3")
+            ? new THREE.Vector3(s, 0, 0) // right: camera on +X looking -X
+            : new THREE.Vector3(0, 0, s); // top: camera on +Z looking down
+        camera.position.copy(tgt.clone().addScaledVector(dir, dist));
+        // Top/bottom need a non-parallel up hint (+Y); Z-up otherwise.
+        const topLike = e.code.endsWith("7");
+        camera.up.set(0, topLike ? 1 : 0, topLike ? 0 : 1);
+        camera.lookAt(tgt);
+        controls?.update?.();
+        e.preventDefault();
+        return;
+      }
       switch (e.key.toLowerCase()) {
         case "r": {
           // Reset = the same env-aware framing as project open, not a fixed
@@ -1388,20 +1501,26 @@ function ViewerHotkeys() {
         }
         case "f": {
           const box = new THREE.Box3();
-          // Skip overlays/helpers (radio-map plane, textured backdrop, pick
-          // dots, ghosts, trajectory preview): fitting to them flies the
-          // camera far past the actual scene (audit finding). Anything tagged
-          // __noFit - or inside a tagged ancestor - is excluded.
+          // With a selection, F frames THAT (Blender's numpad-period);
+          // without one it frames the whole scene. Overlays/helpers tagged
+          // __noFit are always excluded (fitting to them flies the camera
+          // far past the actual scene - audit finding).
           const noFit = (o: THREE.Object3D | null): boolean => {
             for (let cur = o; cur; cur = cur.parent) {
               if (cur.userData.__noFit) return true;
             }
             return false;
           };
-          three.traverse((obj) => {
-            const mesh = obj as THREE.Mesh;
-            if (mesh.isMesh && mesh.visible && !noFit(mesh)) box.expandByObject(mesh);
-          });
+          const st = useAppStore.getState();
+          const selBox = selectionBox(three, st);
+          if (selBox) {
+            box.copy(selBox);
+          } else {
+            three.traverse((obj) => {
+              const mesh = obj as THREE.Mesh;
+              if (mesh.isMesh && mesh.visible && !noFit(mesh)) box.expandByObject(mesh);
+            });
+          }
           if (box.isEmpty()) return;
           const center = box.getCenter(new THREE.Vector3());
           const radius = box.getSize(new THREE.Vector3()).length() / 2;
@@ -1839,7 +1958,14 @@ export default function Viewer3D() {
           near={resolvedEnv === "indoor" ? 0.1 : 1}
           far={5000}
         />
-        <OrbitControls makeDefault target={[0, 0, 0]} />
+        {/* zoomToCursor = Blender-style wheel zoom toward the pointer. */}
+        <OrbitControls makeDefault target={[0, 0, 0]} zoomToCursor={viewport.zoomToCursor} />
+        <OrbitSelectionPivot />
+        {/* Distance fog (Blender mist): far geometry fades into the background;
+            range scales with the scene so it works in a room and on a campus. */}
+        {viewport.fogEnabled && (
+          <fog attach="fog" args={[viewport.backgroundColor, gridSize * 0.8, gridSize * 3]} />
+        )}
         <ambientLight intensity={viewport.ambientIntensity} />
         {/* position defines the hemisphere axis: +Z sky in our Z-up world
             (three's default +Y axis put the "sky" color on the horizon). */}
@@ -1952,7 +2078,8 @@ export default function Viewer3D() {
           <div className="hotkey-legend-title">Shortcuts</div>
           <ul>
             <li><kbd>R</kbd> reset view</li>
-            <li><kbd>F</kbd> fit scene</li>
+            <li><kbd>F</kbd> fit scene / frame selection</li>
+            <li><kbd>1</kbd>/<kbd>3</kbd>/<kbd>7</kbd> front/right/top view (+<kbd>Shift</kbd> opposite)</li>
             <li><kbd>K</kbd> place TX</li>
             <li><kbd>L</kbd> place RX</li>
             <li><kbd>S</kbd> slice</li>

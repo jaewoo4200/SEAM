@@ -9,7 +9,11 @@ import pytest
 
 from app.schemas.devices import Device
 from app.schemas.scene import MeshRef, Prim, RFBinding, Scene
-from app.schemas.simulation import SimulationConfig, TrajectorySimulateRequest
+from app.schemas.simulation import (
+    SimulationConfig,
+    TrajectorySimulateRequest,
+    UERoute,
+)
 from app.services.project_store import load_default_library
 from app.services.rfdata_export import export_rfdata
 from app.services.simulation_backends.mock_backend import MockBackend
@@ -165,6 +169,75 @@ def test_export_rfdata_writes_full_contract(tmp_path: Path):
     rm_rows = list(csv.reader(io.StringIO((base / "radio_map.csv").read_text())))
     assert rm_rows[0] == ["x_m", "y_m", "z_m", "rss_dbm", "sinr_db", "path_gain_db"]
     assert len(rm_rows) > 1
+
+
+def _multi_ue_scene() -> Scene:
+    s = _scene()
+    s.devices.append(
+        Device(id="rx_002", name="RX2", kind="rx", position=[0.0, 20.0, 1.5])
+    )
+    return s
+
+
+def test_trajectory_csv_multi_ue_has_ue_id_column_and_step_major_rows(tmp_path: Path):
+    """Multi-UE trajectory export writes one row per STEP-MAJOR sample, tagged
+    with its ue_id (B1). The ue_id column lets the AODT viewer split the file
+    into per-UE sequences."""
+    scene = _multi_ue_scene()
+    library = load_default_library()
+    cfg = SimulationConfig(id="default", backend="mock")
+    backend = MockBackend()
+    trajectory = run_trajectory(
+        backend, tmp_path, scene, library, cfg,
+        TrajectorySimulateRequest(
+            routes=[
+                UERoute(ue_id="rx_001", waypoints=[[5.0, 0.0, 1.5], [40.0, 0.0, 1.5]]),
+                UERoute(ue_id="rx_002", waypoints=[[2.0, 2.0, 1.5], [8.0, 8.0, 1.5]]),
+            ],
+            num_points=3, dt_s=0.1,
+        ),
+    )
+    export_rfdata(
+        tmp_path, scene, cfg, created_at="2026-07-02T00:00:00+00:00",
+        trajectory=trajectory,
+    )
+    rows = list(csv.reader(io.StringIO(
+        (tmp_path / "export" / "rfdata" / "trajectory.csv").read_text()
+    )))
+    assert rows[0] == ["time_s", "ue_id", "x_m", "y_m", "z_m", "rss_dbm", "sinr_db", "path_gain_db"]
+    # 2 UEs x 3 steps = 6 data rows, STEP-MAJOR (both UEs at each step).
+    assert len(rows) == 1 + 6
+    ue_col = [r[1] for r in rows[1:]]
+    assert ue_col == ["rx_001", "rx_002", "rx_001", "rx_002", "rx_001", "rx_002"]
+    # time_s repeats per step (shared across the step's UEs).
+    time_col = [float(r[0]) for r in rows[1:]]
+    assert time_col == pytest.approx([0.0, 0.0, 0.1, 0.1, 0.2, 0.2])
+    # Each row's position matches its sample (rx_001 walks +x, rx_002 walks +xy).
+    for row, sample in zip(rows[1:], trajectory.samples):
+        assert row[1] == sample.ue_id
+        assert [float(c) for c in row[2:5]] == pytest.approx(sample.position)
+
+
+def test_trajectory_csv_single_ue_still_carries_ue_id_column(tmp_path: Path):
+    """Single-UE export is the degenerate case: the ue_id column is still
+    present and every row shares one ue_id (fixed AODT schema column)."""
+    scene = _scene()
+    library = load_default_library()
+    cfg = SimulationConfig(id="default", backend="mock")
+    trajectory = run_trajectory(
+        MockBackend(), tmp_path, scene, library, cfg,
+        TrajectorySimulateRequest(start_m=[5, 0, 1.5], end_m=[40, 0, 1.5], num_points=4),
+    )
+    export_rfdata(
+        tmp_path, scene, cfg, created_at="2026-07-02T00:00:00+00:00",
+        trajectory=trajectory,
+    )
+    rows = list(csv.reader(io.StringIO(
+        (tmp_path / "export" / "rfdata" / "trajectory.csv").read_text()
+    )))
+    assert rows[0][1] == "ue_id"
+    assert len(rows) == 1 + 4
+    assert {r[1] for r in rows[1:]} == {"rx_001"}
 
 
 def test_export_tolerates_missing_results(tmp_path: Path):

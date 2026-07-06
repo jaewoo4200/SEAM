@@ -9,6 +9,9 @@
 
 import type { TrajectoryResultSet, TrajectorySample } from "./types/api";
 
+/** Per-UE marker/trail/scrubbar colors (cycled), shared by viewer + panel. */
+export const UE_COLORS = ["#2e9bff", "#ab47bc", "#26a69a", "#ef6c00", "#ec407a"];
+
 /** Distinct UE ids in first-appearance order (routes order). */
 export function trajectoryUeIds(t: TrajectoryResultSet | null): string[] {
   if (!t) return [];

@@ -4,14 +4,22 @@ Covers the ``routes`` branch of run_trajectory: N routes x M steps yield N*M
 STEP-MAJOR samples, per-UE metrics come from one solve per step, metadata
 carries ue_ids/num_steps, include_paths filters per UE, bad routes raise
 ValueError, and the legacy single-UE path is unchanged.
+
+Also pins PARAMETER INHERITANCE (the step scenes move the SAME device, so each
+routed UE keeps its antenna/power/name/orientation; only position+velocity
+change, and velocity is a finite difference along the route) and the multi-UE
+antenna caveat (sionna's scene-level rx_array honors only the first UE's
+antenna -> a warning), plus the ue_ids-through-save/load round trip.
 """
 
+import json
 import math
 from pathlib import Path
 
 import pytest
 
-from app.schemas.devices import Device
+from app.schemas.devices import Antenna, Device
+from app.schemas.results import TrajectoryResultSet
 from app.schemas.scene import MeshRef, Prim, RFBinding, Scene
 from app.schemas.simulation import (
     SimulationConfig,
@@ -21,6 +29,18 @@ from app.schemas.simulation import (
 from app.services.project_store import load_default_library
 from app.services.simulation_backends.mock_backend import MockBackend
 from app.services.trajectory import resample_polyline, run_trajectory
+
+
+class _CapturingBackend(MockBackend):
+    """MockBackend that records the (scene, config) it was solved with per step,
+    so a test can inspect the step scenes' moved devices and the rx_ids passed."""
+
+    def __init__(self):
+        self.calls: list[tuple[Scene, SimulationConfig]] = []
+
+    def simulate_paths(self, project_dir, scene, library, config):
+        self.calls.append((scene, config))
+        return super().simulate_paths(project_dir, scene, library, config)
 
 
 # --------------------------------------------------------------- fixtures
@@ -265,3 +285,158 @@ def test_legacy_single_ue_result_matches_pinned_expectation():
         assert s.rss_dbm is not None
         assert s.path_gain_db == pytest.approx(s.rss_dbm - 30.0)  # tx power 30 dBm
         assert s.path_count >= 1
+
+
+# -------------------------------------------- A. parameter inheritance
+
+
+def _distinctive_antenna_scene() -> Scene:
+    """rx_001 carries a distinctive tr38901 4x2 VH array (non-default power,
+    orientation, name); rx_002 keeps the default isotropic antenna. Used to
+    prove the step scenes preserve every non-position field of the moved UE."""
+    scene = _multi_ue_scene()
+    for d in scene.devices:
+        if d.id == "rx_001":
+            d.antenna = Antenna(
+                pattern="tr38901", polarization="VH", num_rows=4, num_cols=2,
+                vertical_spacing=0.7, horizontal_spacing=0.5,
+            )
+            d.name = "Distinctive UE"
+            d.orientation_deg = [30.0, 0.0, 0.0]
+            d.power_dbm = 12.0
+    return scene
+
+
+def test_routes_step_scene_preserves_moved_device_identity():
+    """Every step scene deep-copies the scene and moves the SAME rx device, so
+    the moved UE keeps its antenna/power/name/orientation across all steps —
+    only position and velocity change. Pins parameter inheritance (A1)."""
+    scene = _distinctive_antenna_scene()
+    orig = {d.id: d for d in scene.devices}
+    lib = load_default_library()
+    backend = _CapturingBackend()
+    req = TrajectorySimulateRequest(routes=_two_routes(), num_points=3, dt_s=0.2)
+    run_trajectory(backend, Path("."), scene, lib, _cfg(), req)
+
+    assert len(backend.calls) == 3  # one solve per step
+    for step_scene, step_cfg in backend.calls:
+        # The solve is scoped to exactly the routed UEs.
+        assert step_cfg.rx_ids == ["rx_001", "rx_002"]
+        moved = {d.id: d for d in step_scene.devices if d.kind == "rx"}
+        for uid in ("rx_001", "rx_002"):
+            got, want = moved[uid], orig[uid]
+            # Identity of every field EXCEPT position/velocity is preserved.
+            assert got.antenna == want.antenna
+            assert got.antenna.pattern == want.antenna.pattern
+            assert got.antenna.num_rows == want.antenna.num_rows
+            assert got.antenna.num_cols == want.antenna.num_cols
+            assert got.antenna.polarization == want.antenna.polarization
+            assert got.antenna.vertical_spacing == want.antenna.vertical_spacing
+            assert got.name == want.name
+            assert got.power_dbm == want.power_dbm
+            assert got.orientation_deg == want.orientation_deg
+            assert got.kind == want.kind
+    # And the original scene's devices are untouched (deep copy, not in place).
+    r1 = orig["rx_001"]
+    assert r1.position == [20.0, 0.0, 1.5] and r1.velocity_m_s is None
+    assert r1.antenna.pattern == "tr38901" and r1.antenna.num_rows == 4
+
+
+def test_routes_step_scene_velocity_is_finite_difference_along_route():
+    """Each moved UE's velocity in a step scene is the finite difference of its
+    resampled route positions over dt (forward in the interior, backward at the
+    last step); pins the moving-UE Doppler input (A1)."""
+    scene = _distinctive_antenna_scene()
+    lib = load_default_library()
+    backend = _CapturingBackend()
+    dt = 0.2
+    # rx_001 walks a straight 35 m line over 3 steps => 17.5 m per step in +x,
+    # so speed = 17.5 / dt on x, 0 on y/z, at every step (uniform spacing).
+    req = TrajectorySimulateRequest(routes=_two_routes(), num_points=3, dt_s=dt)
+    run_trajectory(backend, Path("."), scene, lib, _cfg(), req)
+
+    per_step_dx = (40.0 - 5.0) / 2  # 3 points => 2 gaps of 17.5 m
+    expected_vx = per_step_dx / dt
+    for step_scene, _ in backend.calls:
+        rx1 = next(d for d in step_scene.devices if d.id == "rx_001")
+        assert rx1.velocity_m_s is not None
+        vx, vy, vz = rx1.velocity_m_s
+        assert vx == pytest.approx(expected_vx)
+        assert vy == pytest.approx(0.0) and vz == pytest.approx(0.0)
+        # Velocity is finite (never NaN/inf) — the finite-difference guard.
+        assert all(math.isfinite(c) for c in rx1.velocity_m_s)
+
+
+def test_routes_differing_antennas_emit_scene_level_array_warning():
+    """When routed UEs carry non-identical antenna configs, the routes path
+    warns that sionna's scene-level rx_array only honors the first UE (A2)."""
+    scene = _distinctive_antenna_scene()  # rx_001 tr38901 4x2, rx_002 default
+    lib = load_default_library()
+    req = TrajectorySimulateRequest(routes=_two_routes(), num_points=2, dt_s=0.1)
+    result = run_trajectory(MockBackend(), Path("."), scene, lib, _cfg(), req)
+
+    warned = [w for w in result.warnings if "scene-level array" in w]
+    assert len(warned) == 1, result.warnings
+    msg = warned[0]
+    assert "'rx_001'" in msg  # first UE's antenna is the one applied
+    assert "rx_002" in msg  # the differing UE is named
+    assert "not individually honored" in msg
+
+
+def test_routes_antenna_warning_names_scene_first_ue_not_routes_first():
+    """Sionna's scene-level rx_array comes from the first SELECTED rx in SCENE
+    device order (not routes order). With routes listed rx_002-then-rx_001 but
+    rx_001 first in the scene, the warning must name rx_001 as the applied UE
+    and rx_002 as the ignored one — matching what sionna actually does."""
+    scene = _distinctive_antenna_scene()  # scene order: rx_001, then rx_002
+    lib = load_default_library()
+    reversed_routes = [
+        UERoute(ue_id="rx_002", waypoints=[[2.0, 2.0, 1.5], [8.0, 8.0, 1.5]]),
+        UERoute(ue_id="rx_001", waypoints=[[5.0, 0.0, 1.5], [40.0, 0.0, 1.5]]),
+    ]
+    req = TrajectorySimulateRequest(routes=reversed_routes, num_points=2, dt_s=0.1)
+    result = run_trajectory(MockBackend(), Path("."), scene, lib, _cfg(), req)
+
+    warned = [w for w in result.warnings if "scene-level array" in w]
+    assert len(warned) == 1, result.warnings
+    assert "'rx_001'" in warned[0]  # scene-first UE is the applied antenna
+    assert "rx_002" in warned[0]  # not the routes-first UE
+
+
+def test_routes_identical_antennas_emit_no_antenna_warning():
+    """Identical antenna configs across routed UEs -> no scene-level-array
+    warning (the sionna solve honors them all equally)."""
+    scene = _multi_ue_scene()  # both RX keep the default isotropic antenna
+    assert scene.device_by_id("rx_001").antenna == scene.device_by_id("rx_002").antenna
+    lib = load_default_library()
+    req = TrajectorySimulateRequest(routes=_two_routes(), num_points=2, dt_s=0.1)
+    result = run_trajectory(MockBackend(), Path("."), scene, lib, _cfg(), req)
+
+    assert not any("scene-level array" in w for w in result.warnings), result.warnings
+
+
+# --------------------------------------- B3. persistence round-trip
+
+
+def test_routes_result_roundtrips_through_save_load_with_ue_ids():
+    """A routes result persists via the normal results/*.json flow (model_dump
+    -> JSON -> model_validate) with ue_ids and step-major samples intact (B3)."""
+    scene = _multi_ue_scene()
+    lib = load_default_library()
+    req = TrajectorySimulateRequest(routes=_two_routes(), num_points=3, dt_s=0.1)
+    result = run_trajectory(MockBackend(), Path("."), scene, lib, _cfg(), req)
+
+    # Mirror _persist_result's store.save_json(..., result.model_dump(mode="json"))
+    # and get_trajectory_result's TrajectoryResultSet.model_validate(loaded).
+    on_disk = json.loads(result.model_dump_json())
+    loaded = TrajectoryResultSet.model_validate(on_disk)
+
+    assert loaded.metadata["ue_ids"] == ["rx_001", "rx_002"]
+    assert loaded.metadata["num_steps"] == 3
+    assert loaded.ue_id == "rx_001"
+    # Step-major sample order survives the round trip.
+    assert [s.ue_id for s in loaded.samples] == [
+        "rx_001", "rx_002", "rx_001", "rx_002", "rx_001", "rx_002",
+    ]
+    # And a numeric metric survives unchanged (sanity that samples aren't lost).
+    assert loaded.samples[0].rss_dbm == pytest.approx(result.samples[0].rss_dbm)

@@ -88,14 +88,19 @@ function PanelCard({ def }: { def: PanelDef }) {
 /** Renders the registry panels docked to one sidebar side, in registry order. */
 export function PanelHost({ side }: { side: "left" | "right" }) {
   const layout = useAppStore((s) => s.panelLayout);
+  const mode = useAppStore((s) => s.mode);
   const panels = PANEL_REGISTRY.filter((d) => (layout[d.id]?.dock ?? "right") === side);
   if (panels.length === 0) return null;
+  // Docked result panels (Channel Analysis, UE Trajectory, ...) belong to the
+  // Results workflow; other tabs hide them with CSS so their internal state
+  // (live params, playback position) still survives tab switches (audit B2).
+  // Panels the user explicitly FLOATED stay visible everywhere (FloatingLayer).
   return (
-    <>
+    <div style={mode === "results" ? undefined : { display: "none" }}>
       {panels.map((def) => (
         <PanelCard key={def.id} def={def} />
       ))}
-    </>
+    </div>
   );
 }
 

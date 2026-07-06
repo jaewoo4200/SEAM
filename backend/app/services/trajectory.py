@@ -215,6 +215,31 @@ def _run_trajectory_routes(
         resample_polyline(r.waypoints, n) for r in routes
     ]
     warnings: list[str] = []
+    # Sionna applies ONE scene-level rx_array, taken from the FIRST selected RX
+    # device's antenna (sionna_backend._apply_arrays: rt_scene.rx_array =
+    # rxs[0].antenna, where rxs is filtered from scene.devices in SCENE order,
+    # not routes order). So when routed UEs carry non-identical antenna configs,
+    # only that first UE's antenna is honored for every UE. The mock backend is
+    # per-device isotropic and unaffected; warn regardless so the result is
+    # honest about the sionna solve it stands in for. Name the applied UE by
+    # scene order so the message matches what sionna actually does.
+    routed = set(ue_ids)
+    ue_devices = {d.id: d for d in rxs}  # rxs preserves scene device order
+    applied_uid = next(d.id for d in rxs if d.id in routed)
+    applied_antenna = ue_devices[applied_uid].antenna
+    differing = [
+        d.id
+        for d in rxs
+        if d.id in routed
+        and d.id != applied_uid
+        and d.antenna != applied_antenna
+    ]
+    if differing:
+        warnings.append(
+            f"sionna applies rx antenna of '{applied_uid}' to all routed UEs "
+            f"(scene-level array); differing antennas on "
+            f"{', '.join(differing)} are not individually honored"
+        )
     if request.follow_terrain:
         from app.services.terrain import snap_to_terrain
 

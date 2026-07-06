@@ -39,6 +39,14 @@ export interface ViewportSettings {
   /** Render speed <-> quality preset (GPU-settings style). Only affects the
    *  RENDER (canvas resolution); picking/solves/BVH are exact regardless. */
   renderQuality: RenderQuality;
+  /** Blender-style navigation: wheel zoom moves toward the cursor. */
+  zoomToCursor: boolean;
+  /** Blender-style "orbit around selection": selecting an object re-pivots
+   *  the orbit target to it (F always frames the selection regardless). */
+  orbitSelection: boolean;
+  /** Distance fog (Blender viewport mist): far geometry fades into the
+   *  background color. Range auto-scales with the scene. */
+  fogEnabled: boolean;
 }
 
 export type RadioMapColormap = "jet" | "viridis" | "plasma" | "turbo";
@@ -91,6 +99,9 @@ export function defaultViewportSettings(): ViewportSettings {
     rmVmin: null,
     rmVmax: null,
     renderQuality: "quality",
+    zoomToCursor: true,
+    orbitSelection: false,
+    fogEnabled: false,
   };
 }
 
@@ -160,6 +171,9 @@ export function normalizeViewportSettings(
     renderQuality: RENDER_QUALITIES.includes(raw.renderQuality as RenderQuality)
       ? (raw.renderQuality as RenderQuality)
       : d.renderQuality,
+    zoomToCursor: bool(raw.zoomToCursor, d.zoomToCursor),
+    orbitSelection: bool(raw.orbitSelection, d.orbitSelection),
+    fogEnabled: bool(raw.fogEnabled, d.fogEnabled),
   };
 }
 

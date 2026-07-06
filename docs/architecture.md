@@ -309,6 +309,24 @@ available_backends() -> list[HealthBackendStatus]                # feeds /api/he
   immutable `results/<result_id>.json`; the scene keeps an ordered
   `result_sets` list and "latest" is simply the last ref of a kind. History
   is never overwritten.
+- **Moving-RX (UE) trajectories move the existing device.** Each waypoint/step
+  deep-copies the scene and mutates only the routed UE's `position` and
+  finite-difference `velocity_m_s`; every other field (antenna
+  pattern/rows/cols/polarization/spacing, power, name, orientation) is
+  inherited unchanged, so a trajectory for `rx_001` solves with `rx_001`'s
+  configured array. Multi-UE runs (`routes`) are **step-major**: one solve per
+  step over all routed UEs, samples ordered all-UEs-at-step-0, then step-1,
+  ...; each `TrajectorySample` carries its `ue_id` and metadata lists
+  `ue_ids`/`num_steps`. Caveat: Sionna applies ONE scene-level `rx_array`
+  (from the first selected RX device), so when routed UEs carry non-identical
+  antenna configs only the first is honored — the routes path emits a warning
+  naming the ignored UEs. The RFData `trajectory.csv` always carries a `ue_id`
+  column (a fixed AODT-viewer schema column) with rows in the result's
+  step-major order, so the viewer splits it into per-UE sequences; single-UE
+  is the degenerate case (one ue_id). The ML dataset generator is a separate,
+  single-UE sweep (it does not consume `TrajectoryResultSet`): each `.npz` is
+  one UE's sequence, with the swept UE recorded as `ue_id`/`source_rx_id` in
+  `metadata.json`.
 - **`mat-` BSDF prefix for Sionna.** Generated Mitsuba XML names each BSDF
   `mat-<rf_material_id>`, the convention Sionna RT uses to bind shapes to
   `RadioMaterial` instances.
