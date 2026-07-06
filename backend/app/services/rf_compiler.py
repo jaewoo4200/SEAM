@@ -38,6 +38,100 @@ OBJECT_MAP_REL = "mapping/object_map.json"
 FACE_GROUP_MAP_REL = "mapping/face_group_map.json"
 
 
+def rf_fingerprint(scene: Scene, library: RFMaterialLibrary) -> str:
+    """Content hash of everything that shapes the compiled RF projection.
+
+    Covers mesh-prim material bindings (incl. per-prim overrides and face
+    groups) and the RF parameters of every referenced material, plus actor
+    material/shape. Cheap to compute (no mesh loading), so backends can detect
+    a stale rf/generated_scene.xml before solving - editing a material in the
+    UI otherwise never reaches Sionna, which reads the on-disk projection.
+
+    Deliberately EXCLUDES device placement (devices are added at solve time,
+    never baked into the XML) and actor pose (scenario/live flows move the
+    cached Sionna actor objects per frame without recompiling).
+    """
+    import hashlib
+
+    used: set[str] = set()
+    prim_rows = []
+    for prim in scene.prims:
+        if prim.mesh_ref is None:
+            continue
+        if prim.rf.material_id:
+            used.add(prim.rf.material_id)
+        prim_rows.append(
+            [
+                prim.id,
+                prim.mesh_ref.asset_uri,
+                prim.mesh_ref.mesh_name,
+                prim.mesh_ref.face_group or "",
+                prim.rf.material_id or "",
+                prim.rf.thickness_m,
+                prim.rf.scattering_coefficient,
+                prim.rf.xpd_coefficient,
+            ]
+        )
+    actor_rows = []
+    for actor in scene.actors:
+        if actor.rf_material_id:
+            used.add(actor.rf_material_id)
+        actor_rows.append(
+            [
+                actor.id,
+                actor.rf_material_id or "",
+                actor.shape.type,
+                list(actor.shape.size_m),
+                actor.shape.mesh_ref.mesh_name if actor.shape.mesh_ref else "",
+            ]
+        )
+    material_rows = []
+    for mat in library.materials:
+        if mat.id not in used:
+            continue
+        material_rows.append(
+            [
+                mat.id,
+                mat.model,
+                mat.itu_name or "",
+                mat.relative_permittivity,
+                mat.conductivity_s_per_m,
+                mat.thickness_m,
+                mat.scattering_coefficient,
+                mat.xpd_coefficient,
+                mat.transmissive,
+            ]
+        )
+    payload = {
+        "prims": sorted(json.dumps(r, default=str) for r in prim_rows),
+        "actors": sorted(json.dumps(r, default=str) for r in actor_rows),
+        "materials": sorted(json.dumps(r, default=str) for r in material_rows),
+    }
+    blob = json.dumps(payload, sort_keys=True)
+    return "sha256:" + hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def projection_is_stale(
+    project_dir: Path, scene: Scene, library: RFMaterialLibrary
+) -> bool:
+    """True when rf/generated_scene.xml no longer matches the scene's RF state.
+
+    Compares the manifest's recorded fingerprint against the current scene;
+    a missing/unreadable manifest (older compiles predate the field) counts
+    as stale so one recompile upgrades it.
+    """
+    try:
+        manifest = json.loads(
+            (project_dir / MANIFEST_REL).read_text(encoding="utf-8")
+        )
+    except (OSError, ValueError):
+        return True
+    recorded = manifest.get("rf_fingerprint")
+    if not recorded:
+        return True
+    return recorded != rf_fingerprint(scene, library)
+
+
 def compile_project(
     project_dir: Path, scene: Scene, library: RFMaterialLibrary
 ) -> CompileResult:
@@ -568,6 +662,9 @@ def _manifest(
     return {
         "schema_version": SCHEMA_VERSION,
         "scene_id": scene.scene_id,
+        # Staleness stamp: backends recompile when this no longer matches the
+        # scene (see rf_fingerprint / projection_is_stale).
+        "rf_fingerprint": rf_fingerprint(scene, library),
         "groups": groups,
         "actors": actors,
         "skipped_prim_ids": skipped,

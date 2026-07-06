@@ -355,6 +355,41 @@ class SionnaBackend(RayTracingBackend):
 
         return sionna_available()
 
+    def _ensure_projection(
+        self,
+        project_dir: Path,
+        scene: Scene,
+        library: RFMaterialLibrary,
+        warnings: list[str],
+    ) -> Path:
+        """Return rf/generated_scene.xml, (re)compiling when missing OR stale.
+
+        Sionna reads materials from the on-disk projection, so a material
+        edited in the UI never reaches the solver until a recompile - the
+        manifest's rf_fingerprint detects that and recompiles here (the mtime
+        change then invalidates the scene cache automatically).
+        """
+        from app.services.rf_compiler import projection_is_stale
+
+        xml_path = project_dir / "rf" / "generated_scene.xml"
+        missing = not xml_path.is_file()
+        stale = False if missing else projection_is_stale(project_dir, scene, library)
+        if missing or stale:
+            compile_result = self.compile(project_dir, scene, library)
+            if not compile_result.ok or not xml_path.is_file():
+                raise RuntimeError(
+                    "rf/generated_scene.xml "
+                    + ("missing" if missing else "stale")
+                    + " and compile did not produce it: "
+                    + "; ".join(compile_result.errors or ["unknown compile error"])
+                )
+            warnings.append(
+                "rf projection was missing; compiled on demand"
+                if missing
+                else "rf projection was stale (material assignments changed); recompiled"
+            )
+        return xml_path
+
     def capabilities(self) -> dict:
         caps = {
             **super().capabilities(),
@@ -427,12 +462,7 @@ class SionnaBackend(RayTracingBackend):
             detail = engine.detail if engine else "unknown engine id"
             raise RuntimeError(f"engine '{config.engine}' unavailable: {detail}")
 
-        xml_path = project_dir / "rf" / "generated_scene.xml"
-        if not xml_path.is_file():
-            compile_result = self.compile(project_dir, scene, library)
-            if not compile_result.ok or not xml_path.is_file():
-                raise RuntimeError("rf projection missing and compile failed")
-            warnings.append("rf projection was missing; compiled on demand")
+        xml_path = self._ensure_projection(project_dir, scene, library, warnings)
 
         if actor_states:
             # Actor states mutate the in-process cached scene; the subprocess
@@ -536,16 +566,8 @@ class SionnaBackend(RayTracingBackend):
 
         warnings: list[str] = self._frequency_warnings(scene, library, config)
 
-        # Ensure the compiled RF projection exists; compile on demand.
-        xml_path = project_dir / "rf" / "generated_scene.xml"
-        if not xml_path.is_file():
-            compile_result = self.compile(project_dir, scene, library)
-            if not compile_result.ok or not xml_path.is_file():
-                raise RuntimeError(
-                    "rf/generated_scene.xml missing and compile did not produce it: "
-                    + "; ".join(compile_result.errors or ["unknown compile error"])
-                )
-            warnings.append("rf projection was missing; compiled on demand")
+        # Compiled RF projection: compile when missing or stale (material edit).
+        xml_path = self._ensure_projection(project_dir, scene, library, warnings)
 
         # Cached scene load: reuse across waypoints/grid solves keyed by mtime.
         rt_scene = _load_scene_cached(xml_path, warnings)
@@ -726,9 +748,7 @@ class SionnaBackend(RayTracingBackend):
         )
 
         base.warnings.extend(self._frequency_warnings(scene, library, config))
-        xml_path = project_dir / "rf" / "generated_scene.xml"
-        if not xml_path.is_file():
-            self.compile(project_dir, scene, library)
+        xml_path = self._ensure_projection(project_dir, scene, library, base.warnings)
         rt_scene = _load_scene_cached(xml_path, base.warnings)
         _reset_scene_devices(rt_scene)
         rt_scene.frequency = config.frequency_hz
@@ -1145,15 +1165,7 @@ class SionnaBackend(RayTracingBackend):
         )
 
         warnings: list[str] = self._frequency_warnings(scene, library, config)
-        xml_path = project_dir / "rf" / "generated_scene.xml"
-        if not xml_path.is_file():
-            compile_result = self.compile(project_dir, scene, library)
-            if not compile_result.ok or not xml_path.is_file():
-                raise RuntimeError(
-                    "rf/generated_scene.xml missing and compile did not produce it: "
-                    + "; ".join(compile_result.errors or ["unknown compile error"])
-                )
-            warnings.append("rf projection was missing; compiled on demand")
+        xml_path = self._ensure_projection(project_dir, scene, library, warnings)
 
         txs = [d for d in scene.devices if d.kind == "tx"]
         if not txs:
