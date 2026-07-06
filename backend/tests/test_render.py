@@ -1,11 +1,11 @@
 """Mitsuba render-to-file endpoint tests.
 
 Skipped when Mitsuba is not importable (the render path is optional, like the
-Sionna backend). When Mitsuba is present these render the real ``kaist_demo``
+Sionna backend). When Mitsuba is present these render the real ``sample_demo``
 projection at low spp / small resolution through the API and assert a valid PNG
 comes back.
 
-kaist_demo already carries a compiled ``rf/generated_scene.xml`` (bbox roughly
+sample_demo already carries a compiled ``rf/generated_scene.xml`` (bbox roughly
 [-40,-40,0] .. [40,40,1.7]), so the camera below frames the whole scene.
 """
 
@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 
 from app.core.paths import REPO_ROOT
 
-KAIST_SRC = REPO_ROOT / "examples" / "demo_project" / "kaist_demo.sionnatwin"
+DEMO_SRC = REPO_ROOT / "examples" / "demo_project" / "sample_demo.sionnatwin"
 
 
 def _mitsuba_available() -> bool:
@@ -29,14 +29,14 @@ def _mitsuba_available() -> bool:
 
 
 pytestmark = pytest.mark.skipif(
-    not _mitsuba_available() or not KAIST_SRC.is_dir(),
-    reason="mitsuba not installed or kaist_demo example not present",
+    not _mitsuba_available() or not DEMO_SRC.is_dir(),
+    reason="mitsuba not installed or sample_demo example not present",
 )
 
 
 @pytest.fixture()
 def render_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-    """TestClient whose project root holds a private copy of kaist_demo.
+    """TestClient whose project root holds a private copy of sample_demo.
 
     Copying keeps the render output (export/renders/*.png and any transient
     rewritten XML) out of the real example folder.
@@ -46,7 +46,7 @@ def render_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
     root = tmp_path / "render_projects"
     root.mkdir()
-    shutil.copytree(KAIST_SRC, root / "kaist_demo.sionnatwin")
+    shutil.copytree(DEMO_SRC, root / "sample_demo.sionnatwin")
 
     monkeypatch.setenv("SIONNATWIN_PROJECT_ROOTS", str(root))
     config.get_settings.cache_clear()
@@ -61,7 +61,7 @@ def render_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     deps.get_store.cache_clear()
 
 
-def test_render_kaist_demo_returns_png(render_client: TestClient, tmp_path: Path):
+def test_render_sample_demo_returns_png(render_client: TestClient, tmp_path: Path):
     body = {
         "camera_position": [80.0, -80.0, 50.0],
         "look_at": [0.0, 0.0, 1.0],
@@ -70,7 +70,7 @@ def test_render_kaist_demo_returns_png(render_client: TestClient, tmp_path: Path
         "height": 180,
         "spp": 16,
     }
-    resp = render_client.post("/api/projects/kaist_demo/render", json=body)
+    resp = render_client.post("/api/projects/sample_demo/render", json=body)
     assert resp.status_code == 200, resp.text
     assert resp.headers["content-type"] == "image/png"
 
@@ -109,7 +109,7 @@ def test_render_unknown_project_404(render_client: TestClient):
 def test_render_rejects_out_of_range_caps(render_client: TestClient):
     # width > 1920 and spp > 256 must be rejected by request validation (422).
     resp = render_client.post(
-        "/api/projects/kaist_demo/render",
+        "/api/projects/sample_demo/render",
         json={
             "camera_position": [80.0, -80.0, 50.0],
             "look_at": [0.0, 0.0, 1.0],
@@ -123,7 +123,7 @@ def test_render_rejects_out_of_range_caps(render_client: TestClient):
 def test_render_degenerate_camera_400(render_client: TestClient):
     # camera_position == look_at is a bad scene/camera -> 400.
     resp = render_client.post(
-        "/api/projects/kaist_demo/render",
+        "/api/projects/sample_demo/render",
         json={"camera_position": [0.0, 0.0, 1.0], "look_at": [0.0, 0.0, 1.0], "spp": 16},
     )
     assert resp.status_code == 400

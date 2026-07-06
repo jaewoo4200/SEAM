@@ -1,6 +1,6 @@
-"""Generate the kaist_demo example project.
+"""Generate the sample_demo example project.
 
-Builds a small campus-corner scene (ground, road, two buildings with windows,
+Builds a small urban toy scene (ground, road, two buildings with windows,
 one tree), exports it as a GLB with exact per-object mesh names, and writes a
 complete SionnaTwin project folder around it.
 
@@ -49,8 +49,8 @@ from app.services.project_store import (  # noqa: E402
     load_default_library,
 )
 
-PROJECT_ID = "kaist_demo"
-SCENE_NAME = "KAIST Demo"
+PROJECT_ID = "sample_demo"
+SCENE_NAME = "Sample Demo"
 GLB_URI = "visual/scene.glb"
 DEFAULT_OUT = REPO_ROOT / "examples" / "demo_project"
 
@@ -417,7 +417,7 @@ def verify(out_root: Path, project_dir: Path) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Create the kaist_demo example project.")
+    parser = argparse.ArgumentParser(description="Create the sample_demo example project.")
     parser.add_argument(
         "--out",
         type=Path,

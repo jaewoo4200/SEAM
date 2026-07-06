@@ -25,7 +25,7 @@ from app.services.osm_import import (
 )
 from app.services.project_store import ProjectStore, load_default_library
 
-# Center used across the geometry tests (KAIST, Daejeon-ish).
+# Center used across the geometry tests (arbitrary urban point).
 CENTER_LAT = 36.3721
 CENTER_LON = 127.3604
 
@@ -126,19 +126,19 @@ def test_import_creates_ready_project(store, library):
     result = import_osm_project(
         store,
         library,
-        name="KAIST OSM",
+        name="Sample OSM",
         lat=CENTER_LAT,
         lon=CENTER_LON,
         width_m=500.0,
         height_m=500.0,
-        project_id="kaist_osm",
+        project_id="sample_osm",
         overpass_json=canned_overpass(),
     )
-    assert result["project_id"] == "kaist_osm"
+    assert result["project_id"] == "sample_osm"
     assert result["num_buildings"] == 2
     assert result["num_skipped"] == 1  # the degenerate 2-point way
 
-    project_dir = store.resolve("kaist_osm")
+    project_dir = store.resolve("sample_osm")
     assert project_dir.name.endswith(".seam")
 
     # GLB exists and loads with named geometries matching the prims.
@@ -150,7 +150,7 @@ def test_import_creates_ready_project(store, library):
     assert {"building_000", "building_001"} <= names
 
     # Scene: one prim per building + a ground prim, materials + status + tags.
-    scene = store.load_scene("kaist_osm")
+    scene = store.load_scene("sample_osm")
     assert scene.environment == "outdoor"
     assert scene.coordinate_system.origin_lat_lon_alt == [CENTER_LAT, CENTER_LON, 0.0]
     building_prims = [p for p in scene.prims if "building" in p.semantic_tags]
@@ -171,7 +171,7 @@ def test_import_creates_ready_project(store, library):
     assert len(scene.simulation_configs) == 1
 
     # Provenance recorded the import event.
-    prov = store.load_json("kaist_osm", "provenance.json")
+    prov = store.load_json("sample_osm", "provenance.json")
     events = [e for e in prov["events"] if e.get("type") == "import_osm"]
     assert len(events) == 1
     assert events[0]["num_buildings"] == 2

@@ -69,7 +69,7 @@ frontend/src/
   (viewer, scene tree, inspector, RF overlay, AI panel, result explorer)
 
 examples/
-  scripts/create_demo_project.py   generates examples/demo_project/kaist_demo.sionnatwin
+  scripts/create_demo_project.py   generates examples/demo_project/sample_demo.sionnatwin
 ```
 
 ## Request flows

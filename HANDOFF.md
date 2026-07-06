@@ -1068,7 +1068,7 @@ Use snake_case for JSON keys unless frontend conventions strongly require camelC
 
 ## 18. Example user story
 
-A user opens SionnaTwin Studio and loads `kaist_demo.sionnatwin`.
+A user opens SionnaTwin Studio and loads `kaist_demo.sionnatwin` (shipped as sample_demo).
 
 They see a textured campus building. The viewer is in Visual Mode. They click a window. The inspector shows:
 

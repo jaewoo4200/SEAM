@@ -91,7 +91,7 @@ Next steps:
   files stay immutable per the `results/<result_id>.json` convention, with
   refinement writing successive result ids;
 - a time-to-first-result benchmark script under `examples/scripts/` using
-  the kaist_demo project as the fixed workload.
+  the sample_demo project as the fixed workload.
 
 ## Milestone 11 — Measurement calibration
 

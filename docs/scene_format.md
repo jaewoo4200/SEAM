@@ -9,7 +9,7 @@ or generated output.
 ## Project folder layout
 
 ```text
-kaist_demo.sionnatwin/
+sample_demo.sionnatwin/
 ├─ scene.sionnatwin.json      canonical unified scene (source of truth)
 ├─ visual/
 │  ├─ scene.glb               visual projection source (named meshes, PBR)
@@ -201,7 +201,7 @@ Result files are immutable; the list is append-only and ordered, and the
 ## Demo project
 
 `examples/scripts/create_demo_project.py` regenerates
-`examples/demo_project/kaist_demo.sionnatwin` deterministically: 8 named
+`examples/demo_project/sample_demo.sionnatwin` deterministically: 8 named
 meshes in `visual/scene.glb` (world transforms baked into vertices), 13
 prims (5 groups + 8 mesh primitives), 2 devices, and one stored simulation
 config. It doubles as the reference example for every convention on this

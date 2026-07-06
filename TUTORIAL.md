@@ -22,7 +22,7 @@ bash scripts/start.sh
 ## 0. 앱 열기 (1분)
 
 브라우저에서 **http://localhost:5173** 을 엽니다. 상단 툴바 왼쪽에
-**SEAM Studio** 타이틀과 프로젝트 셀렉트가 있고, **KAIST Demo**
+**SEAM Studio** 타이틀과 프로젝트 셀렉트가 있고, **Sample Demo**
 프로젝트가 자동 로드됩니다. (셀렉트에서 `Lab Room`, `FTC Outdoor`로도 전환 가능.)
 
 툴바 오른쪽 상태칩 두 개를 확인하세요:
@@ -283,7 +283,7 @@ fading envelope**, **Path-loss model 비교** 차트가 깔립니다.
 
 ## 8. 액터 + 시나리오 재생 (Simulate scenario) (1분)
 
-KAIST Demo에는 움직이는 **액터**가 있습니다: 도로를 달리는 **차량(car_001)**과
+Sample Demo에는 움직이는 **액터**가 있습니다: 도로를 달리는 **차량(car_001)**과
 건물 앞을 걷는 **보행자(human_001)**. 각 액터는 자체 RF 형상으로 컴파일되어 프레임
 마다 이동합니다.
 
@@ -331,7 +331,7 @@ KAIST Demo에는 움직이는 **액터**가 있습니다: 도로를 달리는 **
 
 ### 파일이 저장되는 위치
 
-프로젝트 폴더 아래에 결과물이 쌓입니다(예: `examples/demo_project/kaist_demo.sionnatwin/`):
+프로젝트 폴더 아래에 결과물이 쌓입니다(예: `examples/demo_project/sample_demo.sionnatwin/`):
 
 | 산출물 | 경로 |
 |---|---|

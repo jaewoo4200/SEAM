@@ -110,7 +110,7 @@ backend/.venv/bin/python examples/scripts/import_bundle_scene.py
 backend/.venv/bin/python examples/scripts/import_bundle_scene.py --xml "reference-bundle/outdoor_material_assigned_cv_28ghz_safe.xml" --scene-id ftc_outdoor --name "FTC Outdoor (28 GHz)" --environment outdoor --visual-overlay "reference-bundle/outdoor_visual/FTC_OSM_ReconstructedMap_ZUp_v2.glb"
 ```
 
-- `create_demo_project.py` → **kaist_demo** (야외 캠퍼스 코너 씬: 지면/도로/건물
+- `create_demo_project.py` → **sample_demo** (작은 야외 도심 씬: 지면/도로/건물
   2동+창문/나무, TX/RX, 차량·보행자 액터). `examples/demo_project/` 아래에 씁니다.
 - `import_bundle_scene.py` (인자 없음) → **lab_room** (참조 번들의 실내 28 GHz 랩룸
   씬을 로드 가능한 프로젝트로 임포트).
@@ -164,7 +164,7 @@ npm run dev
 
 브라우저에서 **http://localhost:5173** 을 엽니다. Vite 개발 서버가 `/api` 요청을
 `http://127.0.0.1:8000`으로 프록시하므로 CORS 설정이 필요 없습니다.
-**KAIST Demo** 프로젝트가 자동으로 로드됩니다.
+**Sample Demo** 프로젝트가 자동으로 로드됩니다.
 
 백엔드 상태는 http://127.0.0.1:8000/api/health 에서 확인할 수 있습니다(Sionna·AI
 제공자 가용성 포함).
