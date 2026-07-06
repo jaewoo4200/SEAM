@@ -214,7 +214,11 @@ function GLBScene({ url }: { url: string }) {
           const matDef = materials?.materials.find((mm) => mm.id === prim.rf.material_id);
           if (matDef) {
             const tinted = new THREE.MeshStandardMaterial({
-              color: new THREE.Color(matDef.preview_color).lerp(new THREE.Color("#9aa4ad"), 0.55),
+              // Keep the RF preview color clearly recognizable: for untextured
+              // scenes this tint is the ONLY material cue in Visual mode, and a
+              // heavy gray lerp made brown ground and blue glass read as the
+              // same gray. Only a light wash so lit shading still reads.
+              color: new THREE.Color(matDef.preview_color).lerp(new THREE.Color("#9aa4ad"), 0.2),
               roughness: 0.85,
               // GLTFLoader flat-shades primitives that ship without normals;
               // the replacement must inherit that or those meshes go black.
