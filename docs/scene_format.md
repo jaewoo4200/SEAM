@@ -1,9 +1,10 @@
 # Scene and project format
 
-A SionnaTwin project is a plain folder (conventionally named
-`<project_id>.sionnatwin`) that can be zipped, shared, and reproduced. The
-canonical scene file inside it is the single source of truth; everything
-else is either an input asset or generated output.
+A SEAM project is a plain folder (conventionally named
+`<project_id>.seam`; legacy `<project_id>.sionnatwin` folders keep loading)
+that can be zipped, shared, and reproduced. The canonical scene file inside
+it is the single source of truth; everything else is either an input asset
+or generated output.
 
 ## Project folder layout
 

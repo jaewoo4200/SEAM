@@ -1,5 +1,5 @@
 {
-  "name": "sionnatwin-studio-frontend",
+  "name": "seam-studio-frontend",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -26,6 +26,6 @@
     "typescript": "~5.6.2",
     "vite": "^5.4.8"
   },
-  "description": "SionnaTwin Studio frontend - RF digital-twin workbench UI",
+  "description": "SEAM Studio frontend - RF digital-twin workbench UI",
   "license": "Apache-2.0"
 }

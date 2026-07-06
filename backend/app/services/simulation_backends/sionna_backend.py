@@ -39,6 +39,27 @@ from .base import (
 # paths.objects sentinel for "no interaction at this depth" (uint32 max).
 _NO_OBJECT = 0xFFFFFFFF
 
+# Substring Sionna RT raises when an ITU material is evaluated outside its
+# ITU-R P.2040 validity band (e.g. the ground family above ~10 GHz at 28 GHz).
+_ITU_OUT_OF_BAND_MARKER = "not defined for this frequency"
+_ITU_OUT_OF_BAND_HINT = (
+    "assign the 28 GHz-safe 'ground_28ghz' (RF Materials tab) or lower the "
+    "frequency into the material's ITU band"
+)
+
+
+def _enrich_solve_failure(message: str) -> str:
+    """Append an actionable ITU-out-of-band fix to a stringified solve failure.
+
+    Pure string helper (no Sionna needed): when a graceful-degradation warning
+    carries Sionna's "not defined for this frequency" error - an ITU material
+    used above its ITU-R P.2040 band, e.g. the ground family at 28 GHz - add
+    one sentence telling the user how to fix it. Returns the message unchanged
+    otherwise, and never double-appends if the hint is already present."""
+    if _ITU_OUT_OF_BAND_MARKER in message and _ITU_OUT_OF_BAND_HINT not in message:
+        return f"{message}; {_ITU_OUT_OF_BAND_HINT}"
+    return message
+
 
 def _steering_from_positions(y_norm, angle_deg: float, np):
     """Azimuth steering vector built from the array's ACTUAL element
@@ -382,7 +403,7 @@ class SionnaBackend(RayTracingBackend):
                 simulation_config_id=config.id,
                 paths=[],
                 warnings=self._frequency_warnings(scene, library, config)
-                + [f"sionna backend failed: {exc}; see logs"],
+                + [_enrich_solve_failure(f"sionna backend failed: {exc}; see logs")],
                 metadata={
                     "frequency_hz": config.frequency_hz,
                     "engine": config.engine or "builtin",
@@ -687,7 +708,9 @@ class SionnaBackend(RayTracingBackend):
             return self._beamforming_impl(project_dir, scene, library, config, request, tx, rx, base)
         except Exception as exc:  # noqa: BLE001 - graceful degradation contract
             clear_scene_cache()
-            base.warnings.append(f"sionna beamforming failed: {exc}; see logs")
+            base.warnings.append(
+                _enrich_solve_failure(f"sionna beamforming failed: {exc}; see logs")
+            )
             return base
 
     def _beamforming_impl(
@@ -1103,7 +1126,7 @@ class SionnaBackend(RayTracingBackend):
                 ),
                 values=[[None]],
                 warnings=self._frequency_warnings(scene, library, config)
-                + [f"sionna radio map failed: {exc}; see logs"],
+                + [_enrich_solve_failure(f"sionna radio map failed: {exc}; see logs")],
                 metadata={"frequency_hz": config.frequency_hz, "engine": "sionna"},
             )
 

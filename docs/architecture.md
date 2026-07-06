@@ -1,6 +1,6 @@
 # Architecture
 
-SionnaTwin Studio is a local-first workbench for authoring RF-aware digital
+SEAM Studio is a local-first workbench for authoring RF-aware digital
 twins on top of Sionna RT. Everything runs on a consumer machine: a FastAPI
 backend over plain project folders, a React/Three.js frontend, and optional
 local extras (Sionna RT, Ollama) that degrade gracefully when absent.

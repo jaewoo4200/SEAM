@@ -235,6 +235,9 @@ interface AppState {
 
   init: () => Promise<void>;
   openProject: (projectId: string) => Promise<void>;
+  /** Permanently delete the currently open project, reload the project list,
+   *  and open the first remaining one (or fall back to the empty state). */
+  deleteCurrentProject: () => Promise<void>;
   refetchScene: () => Promise<void>;
   setMode: (mode: Mode) => void;
   selectPrim: (primId: string, additive?: boolean) => void;
@@ -246,8 +249,10 @@ interface AppState {
   compileRF: () => Promise<void>;
   simulatePaths: () => Promise<void>;
   simulateRadioMap: () => Promise<void>;
-  /** Mesh radio map over the current selection (uses selection as prim_ids). */
-  simulateMeshRadioMap: () => Promise<void>;
+  /** Mesh radio map over the current selection (uses selection as prim_ids).
+   *  `maxTriangles` caps the sampled triangles per surface (denser paint costs
+   *  more; the backend subsamples with a uniform stride to stay under it). */
+  simulateMeshRadioMap: (maxTriangles?: number) => Promise<void>;
   /** Best-effort silent fetch of the latest stored mesh radio map (project open). */
   fetchLatestMeshRadioMap: () => Promise<void>;
   removePaths: () => void;
@@ -1004,6 +1009,48 @@ export const useAppStore = create<AppState>()((set, get) => {
       connectEventSocket(projectId);
     },
 
+    deleteCurrentProject: async () => {
+      const pid = get().projectId;
+      if (!pid) return;
+      await run(`Deleting ${pid}…`, async () => {
+        await api.deleteProject(pid);
+        // Tearing down the deleted project cleanly: stop its live poll/event
+        // socket before we swap in (or clear) the project so a stale socket
+        // can't post into whatever opens next.
+        stopLivePoll();
+        closeEventSocket();
+        // Reload the list, then open the first survivor. openProject resets the
+        // full per-project view state, so no manual scene/result cleanup here.
+        const list = await api.listProjects();
+        set({ projects: list });
+        const next = list.find((p) => p.project_id !== pid) ?? list[0] ?? null;
+        if (next) {
+          await get().openProject(next.project_id);
+          set({ notice: `Deleted project ${pid}` });
+        } else {
+          // No projects left: fall back to the empty state (mirror the fields
+          // openProject would otherwise have refreshed).
+          set({
+            projectId: null,
+            scene: null,
+            materials: null,
+            selection: [],
+            selectedDeviceId: null,
+            selectedActorId: null,
+            pathResults: null,
+            radioMap: null,
+            meshRadioMap: null,
+            beamforming: null,
+            trajectory: null,
+            scenario: null,
+            channelResult: null,
+            sceneBounds: null,
+            notice: `Deleted project ${pid} (no projects remaining)`,
+          });
+        }
+      });
+    },
+
     refetchScene: async () => {
       await run("Refreshing scene…", refetchSceneInner);
     },
@@ -1192,7 +1239,7 @@ export const useAppStore = create<AppState>()((set, get) => {
       });
     },
 
-    simulateMeshRadioMap: async () => {
+    simulateMeshRadioMap: async (maxTriangles) => {
       const pid = get().projectId;
       if (!pid) return;
       const primIds = get().selection;
@@ -1207,6 +1254,8 @@ export const useAppStore = create<AppState>()((set, get) => {
         const result = await api.simulateMeshRadioMap(pid, {
           config: get().radioMapConfig,
           prim_ids: primIds,
+          // Only send max_triangles when provided so the backend default holds.
+          ...(maxTriangles !== undefined ? { max_triangles: maxTriangles } : {}),
         });
         const tris = result.surfaces.reduce((n, s) => n + s.triangle_count, 0);
         set({

@@ -2305,7 +2305,7 @@
             "type": "array"
           },
           "app": {
-            "default": "sionnatwin-studio",
+            "default": "seam-studio",
             "title": "App",
             "type": "string"
           },
@@ -4466,6 +4466,41 @@
         "title": "ResultSetRef",
         "type": "object"
       },
+      "ResultsPruneRequest": {
+        "additionalProperties": false,
+        "description": "Body for POST /projects/{id}/results/prune.\n\n``keep_latest`` newest refs per kind survive (0 = drop every ref of the\nkind); ``kinds`` restricts the operation to the named result kinds, or\nNone to sweep every kind.",
+        "properties": {
+          "keep_latest": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Keep Latest",
+            "type": "integer"
+          },
+          "kinds": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "paths",
+                    "radio_map",
+                    "mesh_radio_map",
+                    "trajectory",
+                    "scenario"
+                  ],
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kinds"
+          }
+        },
+        "title": "ResultsPruneRequest",
+        "type": "object"
+      },
       "RuleGenerationRequest": {
         "additionalProperties": false,
         "properties": {
@@ -5648,7 +5683,7 @@
   },
   "info": {
     "description": "Unified RF-visual scene authoring, RF material assignment, Sionna RT projection compilation, and simulation result APIs.",
-    "title": "SionnaTwin Studio",
+    "title": "SEAM Studio",
     "version": "0.1.0"
   },
   "openapi": "3.1.0",
@@ -5850,6 +5885,49 @@
       }
     },
     "/api/projects/{project_id}": {
+      "delete": {
+        "description": "Permanently remove a project folder from disk.\n\nThe project id is resolved through the store (which only ever yields\ndirectories that live under a configured project root), so a caller can\nnever point deletion at an arbitrary path via id traversal. The sionna\nbackend's scene caches are keyed by generated-XML path + mtime and\nself-heal, so nothing here needs to touch them; the store keeps no\nin-memory project listing cache (``list_projects`` rescans the roots each\ncall), so there is nothing to invalidate beyond the folder itself.",
+        "operationId": "delete_project_api_projects__project_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Delete Project Api Projects  Project Id  Delete",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Project",
+        "tags": [
+          "projects"
+        ]
+      },
       "get": {
         "operationId": "get_project_api_projects__project_id__get",
         "parameters": [
@@ -7068,6 +7146,68 @@
           }
         },
         "summary": "Get Paths Result",
+        "tags": [
+          "simulate"
+        ]
+      }
+    },
+    "/api/projects/{project_id}/results/prune": {
+      "post": {
+        "description": "Delete older result files and their ResultSetRef entries.\n\nFor each result kind in scope (all kinds, or those named in\n``request.kinds``), the newest ``keep_latest`` refs are retained and the\nolder ones dropped: their result files are removed (a file already gone is\nstill dropped from the scene, logged as a warning) and their refs deleted\nfrom ``scene.result_sets``. Surviving refs keep their original order. One\n``results_pruned`` provenance event is appended with the removed count.",
+        "operationId": "prune_results_api_projects__project_id__results_prune_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ResultsPruneRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Request"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Prune Results Api Projects  Project Id  Results Prune Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Prune Results",
         "tags": [
           "simulate"
         ]

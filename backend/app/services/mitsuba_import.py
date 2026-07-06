@@ -26,6 +26,16 @@ import trimesh
 
 from app.schemas.materials import RFMaterialLibrary
 from app.schemas.scene import MeshRef, Prim, RFBinding, Scene, SceneAssets, VisualBinding
+from app.services.scene_validator import (
+    itu_band_max_hz,
+    itu_out_of_band,
+    itu_safe_alternative,
+)
+
+# Default project simulation frequency (matches import_scene.py's default
+# 28 GHz SimulationConfig). Passed to import_mitsuba_scene so out-of-band ITU
+# materials can be remapped to a band-safe alternative at import time.
+_DEFAULT_FREQUENCY_HZ = 28e9
 
 
 # Token fallbacks for material ids that don't carry an ITU class string
@@ -156,9 +166,17 @@ def import_mitsuba_scene(
     scene_id: str,
     library: RFMaterialLibrary,
     scene_name: str = "",
+    default_frequency_hz: float = _DEFAULT_FREQUENCY_HZ,
 ) -> tuple[Scene, "trimesh.Scene", list[str]]:
     """Parse the XML and build (canonical Scene, combined visual trimesh.Scene,
-    warnings). The GLB is exported by the caller."""
+    warnings). The GLB is exported by the caller.
+
+    ``default_frequency_hz`` is the frequency of the project's default
+    SimulationConfig (28 GHz by default). When a mapped ITU material is out of
+    its ITU-R P.2040 band at that frequency, the binding is remapped to a
+    band-safe alternative (when one exists) so the first solve does not fail
+    with "not defined for this frequency"; the original mapping is preserved in
+    assignment_sources and a warning is emitted."""
     warnings: list[str] = []
     root = ET.parse(xml_path).getroot()
     xml_dir = xml_path.parent
@@ -229,6 +247,42 @@ def import_mitsuba_scene(
                 "(no matching library material)"
             )
 
+        # ITU frequency-band guardrail at import time. If the mapped material is
+        # an ITU model that is undefined at the project's default frequency
+        # (e.g. an ITU ground material at 28 GHz), remap to the band-safe
+        # constant alternative when one exists so the first solve does not fail
+        # with "not defined for this frequency". Materials without a safe swap
+        # keep their binding but still warn with the suggested fix. Uses the
+        # single-source band table in scene_validator (no local duplication).
+        assignment_sources = ["imported_xml"]
+        mapped_mat = library.get(rf_id)
+        if itu_out_of_band(mapped_mat, default_frequency_hz):
+            band_max = itu_band_max_hz(mapped_mat.category)
+            safe_id = itu_safe_alternative(mapped_mat.category)
+            freq_ghz = default_frequency_hz / 1e9
+            band_ghz = band_max / 1e9 if band_max is not None else None
+            if safe_id is not None and library.get(safe_id) is not None:
+                original_id = rf_id
+                rf_id = safe_id
+                assignment_sources = [
+                    f"imported_xml:{original_id}->{safe_id} "
+                    f"(out of ITU band at {freq_ghz:.0f} GHz)"
+                ]
+                warnings.append(
+                    f"shape {base}: ITU material {original_id!r} is undefined "
+                    f"above ~{band_ghz:.0f} GHz (ITU-R P.2040); remapped to the "
+                    f"28 GHz-safe {safe_id!r} for the project's {freq_ghz:.0f} GHz "
+                    "default. Reassign in the RF Materials tab if you lower the "
+                    "frequency."
+                )
+            else:
+                warnings.append(
+                    f"shape {base}: ITU material {rf_id!r} is undefined above "
+                    f"~{band_ghz:.0f} GHz (ITU-R P.2040) but is used at the "
+                    f"project's {freq_ghz:.0f} GHz default; lower the frequency "
+                    f"below {band_ghz:.0f} GHz or assign a constant-model material."
+                )
+
         prims.append(
             Prim(
                 id=f"/{base}",
@@ -242,7 +296,7 @@ def import_mitsuba_scene(
                 rf=RFBinding(
                     material_id=rf_id,
                     assignment_status="user_confirmed",
-                    assignment_sources=["imported_xml"],
+                    assignment_sources=assignment_sources,
                     confidence=1.0,
                 ),
             )

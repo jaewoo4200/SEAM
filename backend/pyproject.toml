@@ -3,12 +3,12 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "sionnatwin-backend"
+name = "seam-backend"
 version = "0.1.0"
-description = "SionnaTwin Studio backend - unified RF-visual scene authoring, validation, and Sionna RT compilation"
+description = "SEAM Studio backend - unified RF-visual scene authoring, validation, and Sionna RT compilation"
 requires-python = ">=3.11"
 license = { file = "../LICENSE" }
-authors = [{ name = "SionnaTwin Studio contributors" }]
+authors = [{ name = "SEAM Studio contributors" }]
 dependencies = [
     "fastapi>=0.111",
     "python-multipart>=0.0.9",

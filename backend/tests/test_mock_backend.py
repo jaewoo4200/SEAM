@@ -282,9 +282,8 @@ def test_api_simulate_and_results_roundtrip(api_client):
     assert body["created_at"] is not None
     assert len(body["paths"]) >= 2
 
-    result_file = (
-        Path(root) / "sim_test.sionnatwin" / "results" / "mock_paths_001.json"
-    )
+    # Newly created projects use the new ".seam" folder layout.
+    result_file = Path(root) / "sim_test.seam" / "results" / "mock_paths_001.json"
     assert result_file.is_file()
 
     # Second run increments the sequence number.

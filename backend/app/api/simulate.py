@@ -15,13 +15,16 @@ files, and provenance.
 
 import hashlib
 import json
+import logging
 from datetime import datetime, timezone
 from typing import Literal, Optional, Union
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import Field
 
 from app.api.deps import get_store, load_scene_or_404
 from app.schemas.actors import ScenarioResultSet
+from app.schemas.common import StrictModel
 from app.schemas.results import (
     BeamformingResult,
     MeshRadioMapResultSet,
@@ -41,7 +44,16 @@ from app.services.simulation_backends import BackendUnavailableError, resolve_ba
 
 router = APIRouter(tags=["simulate"])
 
+logger = logging.getLogger(__name__)
+
 ResultKind = Literal["paths", "radio_map", "mesh_radio_map", "trajectory", "scenario"]
+RESULT_KINDS: tuple[str, ...] = (
+    "paths",
+    "radio_map",
+    "mesh_radio_map",
+    "trajectory",
+    "scenario",
+)
 AnyResult = Union[
     PathResultSet,
     RadioMapResultSet,
@@ -49,6 +61,18 @@ AnyResult = Union[
     TrajectoryResultSet,
     ScenarioResultSet,
 ]
+
+
+class ResultsPruneRequest(StrictModel):
+    """Body for POST /projects/{id}/results/prune.
+
+    ``keep_latest`` newest refs per kind survive (0 = drop every ref of the
+    kind); ``kinds`` restricts the operation to the named result kinds, or
+    None to sweep every kind.
+    """
+
+    keep_latest: int = Field(default=0, ge=0)
+    kinds: Optional[list[ResultKind]] = None
 
 
 def _sha256(payload) -> str:
@@ -305,6 +329,73 @@ def get_radio_map_result(
     return RadioMapResultSet.model_validate(
         _load_result(project_id, "radio_map", result_id)
     )
+
+
+@router.post("/projects/{project_id}/results/prune")
+def prune_results(project_id: str, request: Optional[ResultsPruneRequest] = None) -> dict:
+    """Delete older result files and their ResultSetRef entries.
+
+    For each result kind in scope (all kinds, or those named in
+    ``request.kinds``), the newest ``keep_latest`` refs are retained and the
+    older ones dropped: their result files are removed (a file already gone is
+    still dropped from the scene, logged as a warning) and their refs deleted
+    from ``scene.result_sets``. Surviving refs keep their original order. One
+    ``results_pruned`` provenance event is appended with the removed count.
+    """
+    request = request or ResultsPruneRequest()
+    store = get_store()
+    scene = load_scene_or_404(store, project_id)
+    project_dir = store.resolve(project_id)
+
+    scope = set(request.kinds) if request.kinds is not None else set(RESULT_KINDS)
+
+    removed_ids: list[str] = []
+    kept_ids: list[str] = []
+    survivors: list[ResultSetRef] = []
+    # Refs are appended chronologically; the last N of a kind are the newest.
+    kept_per_kind: dict[str, int] = {}
+    for ref in reversed(scene.result_sets):
+        if ref.kind not in scope:
+            survivors.append(ref)
+            continue
+        seen = kept_per_kind.get(ref.kind, 0)
+        if seen < request.keep_latest:
+            kept_per_kind[ref.kind] = seen + 1
+            survivors.append(ref)
+            continue
+        # Older than the keep window -> remove file + ref.
+        try:
+            file_path = store.asset_path(project_id, ref.uri)
+            if file_path.exists():
+                file_path.unlink()
+            else:
+                logger.warning(
+                    "prune: result file already missing for %s: %s",
+                    ref.result_id,
+                    ref.uri,
+                )
+        except (OSError, ValueError) as exc:
+            # Never let a stray/unreadable path block the ref cleanup.
+            logger.warning(
+                "prune: could not delete result file for %s (%s): %s",
+                ref.result_id,
+                ref.uri,
+                exc,
+            )
+        removed_ids.append(ref.result_id)
+
+    survivors.reverse()  # restore chronological order
+    kept_ids = [ref.result_id for ref in survivors]
+    scene.result_sets = survivors
+    store.save_scene(project_id, scene)
+    store.append_provenance(
+        project_id,
+        {"type": "results_pruned", "removed_count": len(removed_ids)},
+    )
+    # removed_ids was built newest-first; present it oldest-first for symmetry
+    # with kept_ids (both chronological).
+    removed_ids.reverse()
+    return {"removed": removed_ids, "kept": kept_ids}
 
 
 @router.post(

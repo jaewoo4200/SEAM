@@ -1,4 +1,6 @@
-# SionnaTwin Studio
+# SEAM Studio
+
+**SEAM** — "Scene-to-Electromagnetic Authoring and Mapping for Wireless Digital Twins" (formerly SionnaTwin Studio).
 
 **Sionna RT 기반 로컬 디지털 트윈 워크벤치** — 하나의 텍스처 3D 씬에서 모든
 메시 프림이 **두 개의 재질 바인딩**(렌더링용 visual/PBR + 전자기 시뮬레이션용
@@ -43,10 +45,10 @@ bash scripts/start.sh     # 2. 백엔드+프론트 실행
 
 공식 NVlabs `sionna-rt-gui`(Polyscope 데스크톱 앱)는 씬을 로드하고 TX/RX를
 배치·애니메이션하며 경로 + 래스터 라디오맵을 보여주지만, **메시 라디오맵·빔포밍·
-재질 편집은 명시적으로 지원하지 않습니다.** SionnaTwin Studio는 같은 Sionna RT
+재질 편집은 명시적으로 지원하지 않습니다.** SEAM Studio는 같은 Sionna RT
 엔진 위에 다음을 더합니다.
 
-| 기능 | `sionna-rt-gui` (공식) | SionnaTwin Studio |
+| 기능 | `sionna-rt-gui` (공식) | SEAM Studio |
 |---|:---:|:---:|
 | 경로 + 래스터 라디오맵 | ✅ | ✅ |
 | 통합 RF-Visual 씬 그래프 (**이중 재질 바인딩**) | ❌ | ✅ |
@@ -224,6 +226,18 @@ cd frontend && npm run build                          # 타입체크 + 빌드
 ```
 
 (Windows: `backend\.venv\Scripts\python.exe -m pytest backend\tests -q`)
+
+---
+
+## Legacy identifiers (SionnaTwin → SEAM)
+
+이 제품은 **SionnaTwin Studio → SEAM Studio**로 이름이 바뀌었지만, 기존
+아티팩트는 영구히 호환됩니다. 기존 `*.sionnatwin` 프로젝트 폴더와
+`scene.sionnatwin.json` 캐노니컬 파일 이름은 그대로 로드되며(새 프로젝트는
+`*.seam` + `scene.seam.json`을 씁니다), `SIONNATWIN_*` 환경 변수는 계속
+동작합니다(`SEAM_*`가 우선하고 없으면 `SIONNATWIN_*`로 폴백). 내부 개발용
+`__stw*` 핸들과 `stw.panelLayout.v1` 같은 localStorage 키도 의도적으로
+유지됩니다(문서화된 레거시 식별자).
 
 ---
 

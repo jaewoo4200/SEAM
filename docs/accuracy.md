@@ -2,7 +2,7 @@
 
 Communication researchers report that ray tracing (Sionna RT included) can be
 5–15 dB off from measurements when uncalibrated. This doc records the main
-error sources and what SionnaTwin Studio does about them.
+error sources and what SEAM Studio does about them.
 
 ## Main error sources (from the literature)
 

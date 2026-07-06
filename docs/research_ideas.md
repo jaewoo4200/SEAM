@@ -1,7 +1,7 @@
-# Research ideas — paper-worthy directions for SionnaTwin Studio
+# Research ideas — paper-worthy directions for SEAM Studio
 
 This document collects concrete, publishable research directions that are
-*grounded in what SionnaTwin Studio already has*, so each one is a short
+*grounded in what SEAM Studio already has*, so each one is a short
 implementation hop from a working prototype rather than a greenfield project.
 
 What the tool already ships (the substrate every idea below builds on):
@@ -53,7 +53,7 @@ differentiable Sionna calibration (Learning Radio Environments; VLM-guided
 diff-RT; RF inverse rendering), automated material assignment (HoRAMA),
 CV/LiDAR-driven RF twins (RFDT-Channel), and uncalibrated-DT uncertainty
 (GP channel-statistics prediction). None of them ship the *authoring +
-provenance + closed-loop UX* that SionnaTwin already has — that gap is the
+provenance + closed-loop UX* that SEAM already has — that gap is the
 paper hook for most ideas below.
 
 ---
@@ -62,7 +62,7 @@ paper hook for most ideas below.
 
 **(a) Pitch.** Ray-tracing accuracy is dominated by material EM parameters
 (see `docs/accuracy.md`: 5–15 dB uncalibrated error), yet every existing tool
-treats material assignment as a *one-shot, untracked* action. SionnaTwin's
+treats material assignment as a *one-shot, untracked* action. SEAM's
 provenance lifecycle
 (`unassigned → rule_suggested → ai_suggested → user_confirmed →
 measurement_calibrated`) makes the *entire assignment history* a first-class,
@@ -480,7 +480,7 @@ differentiable-calibration tool paper on the measured `lab_room`.
 
 ## 한국어 요약 (Korean summary)
 
-SionnaTwin Studio가 **이미 갖고 있는 기능**(프로버넌스 추적 재질 라이프사이클,
+SEAM Studio가 **이미 갖고 있는 기능**(프로버넌스 추적 재질 라이프사이클,
 AI/규칙 재질 제안, CV 재질 분할 씬 임포트, mock+실제 Sionna 백엔드, 그리드
 서치 측정 보정, 빔포밍, RFData/AODT 내보내기, 궤적 지표, 28 GHz 가드레일)을
 토대로 **논문화 가능한 8가지 연구 방향**을 정리했습니다. 각 아이디어마다

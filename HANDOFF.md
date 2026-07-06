@@ -1,5 +1,12 @@
 # HANDOFF.md — SionnaTwin Studio
 
+> **Rename note:** The product has since been renamed **SEAM Studio** (SEAM =
+> "Scene-to-Electromagnetic Authoring and Mapping for Wireless Digital Twins").
+> This specification predates the rename, so it still refers to "SionnaTwin
+> Studio" throughout; the text is kept verbatim as the original spec. Legacy
+> `.sionnatwin` folders, `scene.sionnatwin.json` files, and `SIONNATWIN_*` env
+> vars remain supported.
+
 ## 0. Project summary
 
 **Project name:** SionnaTwin Studio

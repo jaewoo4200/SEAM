@@ -1,6 +1,6 @@
 # 도구 확장하기 (plugins & extension seams)
 
-연구자가 **core 코드를 건드리지 않고** SionnaTwin Studio를 확장하는 방법을
+연구자가 **core 코드를 건드리지 않고** SEAM Studio를 확장하는 방법을
 정리한다. 두 갈래가 있다:
 
 1. **Plugin system** — `plugins/<name>/plugin.py` 파일 하나로 backend / path-loss

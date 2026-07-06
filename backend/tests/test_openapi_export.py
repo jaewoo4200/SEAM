@@ -62,7 +62,7 @@ def test_openapi_import_and_dump_succeeds() -> None:
     assert isinstance(schema, dict)
     # Minimal well-formed OpenAPI: version, info, and a non-empty path table.
     assert schema.get("openapi", "").startswith("3.")
-    assert schema.get("info", {}).get("title") == "SionnaTwin Studio"
+    assert schema.get("info", {}).get("title") == "SEAM Studio"
     assert schema.get("paths"), "OpenAPI schema has no paths"
 
 
@@ -87,7 +87,7 @@ def test_openapi_export_script_writes_sorted_json(tmp_path) -> None:
 
     text = out.read_text(encoding="utf-8")
     data = json.loads(text)
-    assert data["info"]["title"] == "SionnaTwin Studio"
+    assert data["info"]["title"] == "SEAM Studio"
 
     # sort_keys=True was used: top-level keys must already be sorted on disk.
     top_keys = list(data.keys())

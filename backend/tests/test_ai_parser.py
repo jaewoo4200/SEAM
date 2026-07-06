@@ -295,8 +295,9 @@ def test_parse_tolerates_reasoning_preamble(scene, library):
 
 
 class _FakeResponse:
-    def __init__(self, payload: dict):
+    def __init__(self, payload: dict, status_code: int = 200):
         self._payload = payload
+        self.status_code = status_code
 
     def raise_for_status(self):
         return None

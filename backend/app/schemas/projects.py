@@ -34,7 +34,7 @@ class HealthBackendStatus(StrictModel):
 
 class HealthResponse(StrictModel):
     status: Literal["ok"] = "ok"
-    app: str = "sionnatwin-studio"
+    app: str = "seam-studio"
     version: str
     schema_version: str
     sionna_available: bool

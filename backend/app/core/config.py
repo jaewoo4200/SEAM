@@ -2,23 +2,28 @@
 
 Kept dependency-free (no pydantic-settings): a frozen dataclass built once.
 
-Environment variables:
-- SIONNATWIN_PROJECT_ROOTS   os.pathsep-separated list of project root dirs
-- SIONNATWIN_AI_ENABLED      "auto" (default) | "on" | "off"
-- SIONNATWIN_OLLAMA_URL      default http://localhost:11434
-- SIONNATWIN_AI_TEXT_MODEL   default qwen3:8b
-- SIONNATWIN_AI_VISION_MODEL default qwen2.5vl:3b (used when screenshots are sent)
-- SIONNATWIN_OPENAI_URL      default http://localhost:1234/v1 (LM Studio, OpenAI-compatible)
-- SIONNATWIN_OPENAI_MODEL    default google/gemma-4-31b
-- SIONNATWIN_AI_TIMEOUT_S    default 60
-- SIONNATWIN_AI_AUTO_APPLY   "1"/"true" to let high-confidence suggestions
-                             auto-apply (never the default; HANDOFF 9.5)
+Environment variables (SEAM rename): every setting prefers a ``SEAM_*`` name
+and falls back to the legacy ``SIONNATWIN_*`` name via the ``_env`` helper -
+``SEAM_*`` wins when both are set. Names below list the SEAM form; the
+``SIONNATWIN_*`` equivalent is accepted for back-compat.
+
+- SEAM_PROJECT_ROOTS   os.pathsep-separated list of project root dirs
+- SEAM_AI_ENABLED      "auto" (default) | "on" | "off"
+- SEAM_OLLAMA_URL      default http://localhost:11434
+- SEAM_AI_TEXT_MODEL   default qwen3:8b
+- SEAM_AI_VISION_MODEL default qwen2.5vl:3b (used when screenshots are sent)
+- SEAM_OPENAI_URL      default http://localhost:1234/v1 (LM Studio, OpenAI-compatible)
+- SEAM_OPENAI_MODEL    default google/gemma-4-31b
+- SEAM_AI_TIMEOUT_S    default 60
+- SEAM_AI_AUTO_APPLY   "1"/"true" to let high-confidence suggestions
+                       auto-apply (never the default; HANDOFF 9.5)
 """
 
 import os
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
+from typing import Optional
 
 from .paths import DEFAULT_PROJECT_ROOTS
 
@@ -47,8 +52,19 @@ class Settings:
     ai: AISettings = field(default_factory=AISettings)
 
 
+def _env(name: str, default: Optional[str] = None) -> Optional[str]:
+    """Read a setting env var, preferring ``SEAM_<name>`` over the legacy
+    ``SIONNATWIN_<name>``. ``SEAM_*`` wins when both are set; returns
+    ``default`` when neither is present.
+    """
+    value = os.environ.get(f"SEAM_{name}")
+    if value is None:
+        value = os.environ.get(f"SIONNATWIN_{name}")
+    return default if value is None else value
+
+
 def _bool_env(name: str, default: bool = False) -> bool:
-    raw = os.environ.get(name)
+    raw = _env(name)
     if raw is None:
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on"}
@@ -56,22 +72,20 @@ def _bool_env(name: str, default: bool = False) -> bool:
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    roots_raw = os.environ.get("SIONNATWIN_PROJECT_ROOTS")
+    roots_raw = _env("PROJECT_ROOTS")
     if roots_raw:
         roots = tuple(Path(p).expanduser() for p in roots_raw.split(os.pathsep) if p.strip())
     else:
         roots = tuple(DEFAULT_PROJECT_ROOTS)
 
     ai = AISettings(
-        enabled=os.environ.get("SIONNATWIN_AI_ENABLED", "auto").strip().lower(),
-        base_url=os.environ.get("SIONNATWIN_OLLAMA_URL", "http://localhost:11434").rstrip("/"),
-        text_model=os.environ.get("SIONNATWIN_AI_TEXT_MODEL", "qwen3:8b"),
-        vision_model=os.environ.get("SIONNATWIN_AI_VISION_MODEL", "qwen2.5vl:3b"),
-        openai_url=os.environ.get(
-            "SIONNATWIN_OPENAI_URL", "http://localhost:1234/v1"
-        ).rstrip("/"),
-        openai_model=os.environ.get("SIONNATWIN_OPENAI_MODEL", "google/gemma-4-31b"),
-        timeout_s=float(os.environ.get("SIONNATWIN_AI_TIMEOUT_S", "60")),
-        auto_apply=_bool_env("SIONNATWIN_AI_AUTO_APPLY", False),
+        enabled=_env("AI_ENABLED", "auto").strip().lower(),
+        base_url=_env("OLLAMA_URL", "http://localhost:11434").rstrip("/"),
+        text_model=_env("AI_TEXT_MODEL", "qwen3:8b"),
+        vision_model=_env("AI_VISION_MODEL", "qwen2.5vl:3b"),
+        openai_url=_env("OPENAI_URL", "http://localhost:1234/v1").rstrip("/"),
+        openai_model=_env("OPENAI_MODEL", "google/gemma-4-31b"),
+        timeout_s=float(_env("AI_TIMEOUT_S", "60")),
+        auto_apply=_bool_env("AI_AUTO_APPLY", False),
     )
     return Settings(project_roots=roots, ai=ai)

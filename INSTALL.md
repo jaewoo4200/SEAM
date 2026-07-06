@@ -1,6 +1,6 @@
 # 설치 가이드 (INSTALL)
 
-SionnaTwin Studio는 **로컬 우선(local-first)** 워크벤치입니다. GPU도, Sionna
+SEAM Studio는 **로컬 우선(local-first)** 워크벤치입니다. GPU도, Sionna
 설치도, LLM도 **필수가 아닙니다** — 세 가지 모두 선택적 업그레이드일 뿐이고,
 기본 **Mock 백엔드는 CPU만으로 항상 동작**합니다. 먼저 기본 설치로 앱을 띄우고,
 필요할 때 실제 Sionna RT 엔진과 로컬 LLM을 붙이면 됩니다.

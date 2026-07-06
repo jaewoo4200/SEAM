@@ -1,11 +1,10 @@
 """Project folder persistence.
 
-A SionnaTwin project is a plain folder (optionally named ``*.sionnatwin``)
-that contains at minimum ``scene.sionnatwin.json``. Layout (HANDOFF.md
-section 4):
+A SEAM project is a plain folder that contains at minimum a canonical scene
+file. Layout (HANDOFF.md section 4):
 
     <project>/
-      scene.sionnatwin.json      canonical unified scene (source of truth)
+      scene.seam.json            canonical unified scene (source of truth)
       visual/                    GLB + textures (visual projection source)
       rf/materials.yaml          project RF material library
       rf/meshes/                 compiled RF submeshes (generated)
@@ -15,6 +14,15 @@ section 4):
       results/                   normalized simulation results
       provenance.json            project-level event log
 
+Dual format (SionnaTwin -> SEAM rename):
+    NEW projects are created as ``<id>.seam`` folders holding ``scene.seam.json``.
+    LEGACY projects named ``<id>.sionnatwin`` holding ``scene.sionnatwin.json``
+    keep loading forever - they are discovered alongside new ones, and saving
+    a legacy project writes back to its original ``scene.sionnatwin.json``
+    (never silently migrated). Discovery globs both suffixes; on an id
+    collision (both ``<id>.seam`` and ``<id>.sionnatwin`` in one root) the
+    ``.seam`` folder wins and a warning is logged.
+
 All writes are atomic (tmp file + os.replace) so a crash never corrupts the
 canonical scene.
 """
@@ -22,6 +30,7 @@ canonical scene.
 import json
 import os
 import re
+import warnings
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator, Optional
@@ -34,8 +43,18 @@ from app.schemas.materials import RFMaterialLibrary
 from app.schemas.projects import ProjectInfo
 from app.schemas.scene import Scene
 
-SCENE_FILENAME = "scene.sionnatwin.json"
-PROJECT_SUFFIX = ".sionnatwin"
+# New (SEAM) format, written for all newly created projects.
+SCENE_FILENAME = "scene.seam.json"
+PROJECT_SUFFIX = ".seam"
+
+# Legacy (SionnaTwin) format, still discovered and saved back in place.
+LEGACY_SCENE_FILENAME = "scene.sionnatwin.json"
+LEGACY_PROJECT_SUFFIX = ".sionnatwin"
+
+# Every scene filename we recognize, in preference order (new wins).
+SCENE_FILENAMES = (SCENE_FILENAME, LEGACY_SCENE_FILENAME)
+# Every project-folder suffix we recognize, longest/newest first.
+PROJECT_SUFFIXES = (PROJECT_SUFFIX, LEGACY_PROJECT_SUFFIX)
 
 
 class ProjectNotFoundError(KeyError):
@@ -69,9 +88,24 @@ def load_default_library() -> RFMaterialLibrary:
 
 def project_id_from_dir(path: Path) -> str:
     name = path.name
-    if name.endswith(PROJECT_SUFFIX):
-        name = name[: -len(PROJECT_SUFFIX)]
+    for suffix in PROJECT_SUFFIXES:
+        if name.endswith(suffix):
+            return name[: -len(suffix)]
     return name
+
+
+def scene_file_in(project_dir: Path) -> Optional[Path]:
+    """Return the canonical scene file inside ``project_dir``.
+
+    Prefers the new ``scene.seam.json`` and falls back to the legacy
+    ``scene.sionnatwin.json``. Returns ``None`` when the folder is not a
+    project (no recognized scene file present).
+    """
+    for name in SCENE_FILENAMES:
+        candidate = project_dir / name
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 def slugify(name: str) -> str:
@@ -91,13 +125,40 @@ class ProjectStore:
         for root in self.roots:
             if not root.is_dir():
                 continue
-            # A root may itself be a project folder.
-            if (root / SCENE_FILENAME).is_file():
+            # A root may itself be a project folder (new or legacy layout).
+            if scene_file_in(root) is not None:
                 yield root
                 continue
+            # Discover child project folders. Both ``.seam`` and
+            # ``.sionnatwin`` are recognized; iteration is sorted for a
+            # stable order, and on an id collision within this root the
+            # ``.seam`` folder wins (a warning is emitted).
+            best: dict[str, Path] = {}
+            order: list[str] = []
             for child in sorted(root.iterdir()):
-                if child.is_dir() and (child / SCENE_FILENAME).is_file():
-                    yield child
+                if not child.is_dir() or scene_file_in(child) is None:
+                    continue
+                pid = project_id_from_dir(child)
+                existing = best.get(pid)
+                if existing is None:
+                    best[pid] = child
+                    order.append(pid)
+                    continue
+                # Collision: keep the ``.seam`` folder, warn about the other.
+                # ``sorted`` yields ".seam" before ".sionnatwin" for a shared
+                # stem, so ``existing`` is already the preferred one; but guard
+                # explicitly rather than rely on lexical order.
+                if child.name.endswith(PROJECT_SUFFIX) and not existing.name.endswith(
+                    PROJECT_SUFFIX
+                ):
+                    best[pid] = child
+                warnings.warn(
+                    f"project id {pid!r} exists as both {existing.name!r} and "
+                    f"{child.name!r} in {root}; preferring the .seam folder",
+                    stacklevel=2,
+                )
+            for pid in order:
+                yield best[pid]
 
     def resolve(self, project_id: str) -> Path:
         for d in self._iter_project_dirs():
@@ -106,7 +167,7 @@ class ProjectStore:
         raise ProjectNotFoundError(project_id)
 
     def info(self, project_dir: Path) -> ProjectInfo:
-        scene_file = project_dir / SCENE_FILENAME
+        scene_file = scene_file_in(project_dir) or (project_dir / SCENE_FILENAME)
         scene_id = None
         name = project_id_from_dir(project_dir)
         try:
@@ -165,7 +226,7 @@ class ProjectStore:
             json.dumps(
                 {
                     "created_at": _utcnow(),
-                    "created_by": f"sionnatwin-studio/{APP_VERSION}",
+                    "created_by": f"seam-studio/{APP_VERSION}",
                     "events": [],
                 },
                 indent=2,
@@ -176,14 +237,19 @@ class ProjectStore:
     # ------------------------------------------------------------ scene I/O
 
     def load_scene(self, project_id: str) -> Scene:
-        raw = (self.resolve(project_id) / SCENE_FILENAME).read_text(encoding="utf-8")
+        project_dir = self.resolve(project_id)
+        scene_file = scene_file_in(project_dir)
+        if scene_file is None:  # resolve() guaranteed a scene file exists
+            scene_file = project_dir / SCENE_FILENAME
+        raw = scene_file.read_text(encoding="utf-8")
         return Scene.model_validate_json(raw)
 
     def save_scene(self, project_id: str, scene: Scene) -> None:
         project_dir = self.resolve(project_id)
-        _atomic_write_text(
-            project_dir / SCENE_FILENAME, scene.model_dump_json(indent=2)
-        )
+        # Write back to whichever scene file the project already has; a legacy
+        # project keeps its scene.sionnatwin.json (never silently migrated).
+        scene_file = scene_file_in(project_dir) or (project_dir / SCENE_FILENAME)
+        _atomic_write_text(scene_file, scene.model_dump_json(indent=2))
 
     # -------------------------------------------------------- materials I/O
 

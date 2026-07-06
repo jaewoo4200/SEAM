@@ -38,6 +38,11 @@ export default function Toolbar() {
   const simulatePaths = useAppStore((s) => s.simulatePaths);
   const exportRfdata = useAppStore((s) => s.exportRfdata);
   const runBeamforming = useAppStore((s) => s.runBeamforming);
+  const deleteCurrentProject = useAppStore((s) => s.deleteCurrentProject);
+
+  // Destructive delete confirm: the modal is armed from the Actions menu and
+  // requires the user to type the exact project id to enable the red button.
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   const sionnaAvailable =
     health?.backends.some((b) => b.name === "sionna" && b.available) ?? false;
@@ -49,7 +54,7 @@ export default function Toolbar() {
 
   return (
     <header className="toolbar">
-      <span className="app-title">SionnaTwin Studio</span>
+      <span className="app-title">SEAM Studio</span>
 
       <select
         value={projectId ?? ""}
@@ -154,6 +159,12 @@ export default function Toolbar() {
                 "Export the AODT-viewer RFData bundle (scenario_meta, devices, paths, trajectory, radio_map, calibration)",
               onClick: () => void exportRfdata(),
             },
+            {
+              label: "Delete project…",
+              danger: true,
+              title: "Permanently remove this project folder (asks for confirmation)",
+              onClick: () => setDeleteOpen(true),
+            },
           ]}
         />
         <button
@@ -164,7 +175,93 @@ export default function Toolbar() {
           Simulate Paths
         </button>
       </span>
+
+      {deleteOpen && projectId && (
+        <DeleteProjectModal
+          projectId={projectId}
+          busy={busy !== null}
+          onCancel={() => setDeleteOpen(false)}
+          onConfirm={async () => {
+            setDeleteOpen(false);
+            await deleteCurrentProject();
+          }}
+        />
+      )}
     </header>
+  );
+}
+
+/** Destructive delete confirm modal: shows the project id and requires the user
+ *  to type it exactly before the red Delete button enables (guards against an
+ *  accidental irreversible folder removal). Esc / backdrop / Cancel dismiss. */
+function DeleteProjectModal({
+  projectId,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  projectId: string;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const [typed, setTyped] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+  const match = typed === projectId;
+
+  useEffect(() => {
+    inputRef.current?.focus();
+    function onKey(e: KeyboardEvent): void {
+      if (e.key === "Escape") onCancel();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onCancel]);
+
+  return (
+    <div className="modal-backdrop" onPointerDown={onCancel}>
+      <div
+        className="modal-card"
+        role="dialog"
+        aria-label="Delete project"
+        aria-modal="true"
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        <h4>Delete project</h4>
+        <p className="hint">
+          This permanently removes the project folder <span className="mono">{projectId}</span>{" "}
+          and all of its scene, materials, and results. This cannot be undone.
+        </p>
+        <label className="confirm-field">
+          <span>
+            Type <span className="mono">{projectId}</span> to confirm
+          </span>
+          <input
+            ref={inputRef}
+            type="text"
+            value={typed}
+            placeholder={projectId}
+            disabled={busy}
+            onChange={(e) => setTyped(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && match && !busy) onConfirm();
+            }}
+          />
+        </label>
+        <div className="confirm-actions">
+          <button
+            className="danger"
+            disabled={!match || busy}
+            onClick={onConfirm}
+          >
+            {busy ? "Deleting…" : "Delete project"}
+          </button>
+          <button disabled={busy} onClick={onCancel}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -352,6 +449,8 @@ interface ActionItem {
   label: string;
   onClick: () => void;
   title?: string;
+  /** Renders the item with the destructive .danger accent (red). */
+  danger?: boolean;
 }
 
 /** Collapses the secondary toolbar actions into a single dropdown so the bar
@@ -401,6 +500,7 @@ function ActionsMenu({ disabled, items }: { disabled: boolean; items: ActionItem
             <button
               key={item.label}
               role="menuitem"
+              className={item.danger ? "danger" : undefined}
               title={item.title}
               disabled={disabled}
               onClick={() => {

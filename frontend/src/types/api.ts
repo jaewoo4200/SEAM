@@ -866,6 +866,25 @@ export interface ProjectCreateRequest {
   template?: "empty" | "demo";
 }
 
+// DELETE /projects/{pid} — permanently removes the project folder.
+export interface ProjectDeleteResponse {
+  deleted: boolean;
+  project_id: string;
+}
+
+// POST /projects/{pid}/results/prune — remove result files + their
+// ResultSetRef entries, keeping the newest `keep_latest` per kind. `kinds`
+// null = every kind.
+export interface ResultsPruneRequest {
+  keep_latest?: number;
+  kinds?: ResultSetRef["kind"][] | null;
+}
+
+export interface ResultsPruneResponse {
+  removed: string[];
+  kept: string[];
+}
+
 export interface HealthBackendStatus {
   name: string;
   available: boolean;

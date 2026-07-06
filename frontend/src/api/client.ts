@@ -32,8 +32,11 @@ import type {
   MeshRadioMapResultSet,
   PathResultSet,
   ProjectCreateRequest,
+  ProjectDeleteResponse,
   ProjectInfo,
   RadioMapResultSet,
+  ResultsPruneRequest,
+  ResultsPruneResponse,
   RFDataExportSummary,
   RFMaterial,
   RFMaterialLibrary,
@@ -123,6 +126,9 @@ export const api = {
   listProjects: () => request<ProjectInfo[]>("GET", "/projects"),
   createProject: (req: ProjectCreateRequest) => request<ProjectInfo>("POST", "/projects", req),
   getProject: (pid: string) => request<ProjectInfo>("GET", `/projects/${pid}`),
+  // Permanently remove a project folder (404 on unknown id).
+  deleteProject: (pid: string) =>
+    request<ProjectDeleteResponse>("DELETE", `/projects/${pid}`),
   // Import a Mitsuba/Sionna scene XML (+ optional companion mesh files) as a
   // new project. `form` carries: file (the .xml), project_id, name,
   // environment, and zero or more `meshes` file parts.
@@ -174,6 +180,10 @@ export const api = {
   getPathResults: (pid: string) => request<PathResultSet>("GET", `/projects/${pid}/results/paths`),
   getRadioMap: (pid: string) =>
     request<RadioMapResultSet>("GET", `/projects/${pid}/results/radio-map`),
+  // Prune stored result files: keep the newest `keep_latest` per kind (0 = drop
+  // all), `kinds` null = every kind. Returns the removed/kept result uris.
+  pruneResults: (pid: string, req: ResultsPruneRequest = {}) =>
+    request<ResultsPruneResponse>("POST", `/projects/${pid}/results/prune`, req),
 
   // mesh radio map: metric draped onto the triangles of selected surfaces.
   simulateMeshRadioMap: (pid: string, req: MeshRadioMapRequest) =>

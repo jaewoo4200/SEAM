@@ -1,4 +1,6 @@
-"""Project listing, creation, and lookup endpoints."""
+"""Project listing, creation, lookup, and deletion endpoints."""
+
+import shutil
 
 from fastapi import APIRouter, HTTPException
 
@@ -39,3 +41,26 @@ def get_project(project_id: str) -> ProjectInfo:
             status_code=404, detail=f"project not found: {project_id}"
         )
     return store.info(project_dir)
+
+
+@router.delete("/projects/{project_id}")
+def delete_project(project_id: str) -> dict:
+    """Permanently remove a project folder from disk.
+
+    The project id is resolved through the store (which only ever yields
+    directories that live under a configured project root), so a caller can
+    never point deletion at an arbitrary path via id traversal. The sionna
+    backend's scene caches are keyed by generated-XML path + mtime and
+    self-heal, so nothing here needs to touch them; the store keeps no
+    in-memory project listing cache (``list_projects`` rescans the roots each
+    call), so there is nothing to invalidate beyond the folder itself.
+    """
+    store = deps.get_store()
+    try:
+        project_dir = store.resolve(project_id)
+    except ProjectNotFoundError:
+        raise HTTPException(
+            status_code=404, detail=f"project not found: {project_id}"
+        )
+    shutil.rmtree(project_dir)
+    return {"deleted": True, "project_id": project_id}

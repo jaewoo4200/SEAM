@@ -1,6 +1,6 @@
 # 동적 산란 (Dynamic Scattering)
 
-본 문서는 (1) 실제 채널 물리에서 "동적 산란" 이 무엇인지(출처 기반), (2) 상용/연구 도구가 이를 어떻게 모델링하는지, (3) 본 리포지토리(SionnaTwin Studio)에 sionna-rt 2.0.1 정확 API로 구현하는 단계별 계획(효과/비용 순위 포함), 그리고 (4) 실측 검증된 Doppler how-to 스니펫을 담는다.
+본 문서는 (1) 실제 채널 물리에서 "동적 산란" 이 무엇인지(출처 기반), (2) 상용/연구 도구가 이를 어떻게 모델링하는지, (3) 본 리포지토리(SEAM Studio)에 sionna-rt 2.0.1 정확 API로 구현하는 단계별 계획(효과/비용 순위 포함), 그리고 (4) 실측 검증된 Doppler how-to 스니펫을 담는다.
 
 모든 sionna-rt 2.0.1 API 주장은 (a) 설치 소스 `backend/.venv/Lib/site-packages/sionna/rt/` 를 읽어, (b) `backend/.venv/Scripts/python.exe` 로 라이브 프로브를 돌려 검증했다. 패키지 버전 `2.0.1` 확인(`sionna/rt/__init__.py:9`). 공식/피어리뷰 출처로 확인되지 않은 항목은 **(미검증)** 으로 표기한다.
 

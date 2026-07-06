@@ -2289,3 +2289,74 @@ button.picking {
   text-transform: none;
   letter-spacing: 0;
 }
+
+/* ----------------------------------- destructive confirm (delete / prune) */
+
+/* The "Delete project…" item in the Actions dropdown: red label that survives
+   the dropdown's border-stripping rules. */
+.actions-dropdown button.danger {
+  color: var(--err);
+}
+.actions-dropdown button.danger:hover:not(:disabled) {
+  background: rgba(239, 83, 80, 0.14);
+  color: var(--err);
+}
+
+/* Delete-project modal (type-to-confirm). Centered over the app, dimmed
+   backdrop; the card matches the popover theme. */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.55);
+}
+.modal-card {
+  width: 360px;
+  max-width: calc(100vw - 32px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  background: var(--panel-2);
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+}
+.modal-card h4 {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text);
+}
+.confirm-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.confirm-field input {
+  width: 100%;
+}
+.confirm-field input:focus {
+  outline: 1px solid var(--err);
+}
+.confirm-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+/* Inline "Prune results" confirm row (in the results header actions). */
+.confirm-inline {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.confirm-inline-text {
+  color: var(--muted);
+  font-size: 12px;
+}

@@ -1577,6 +1577,11 @@ function MeshRadioMapSection() {
   const disabled = !projectId || busy !== null;
   const noSelection = selection.length === 0;
 
+  // Per-surface triangle cap sent as max_triangles (default 2000). Larger
+  // budgets paint denser but cost more; the backend subsamples with a uniform
+  // stride to stay under it.
+  const [maxTriangles, setMaxTriangles] = useState(2000);
+
   const range = meshRadioMap ? meshRadioMapRange(meshRadioMap) : null;
   const unit = meshRadioMap?.metric === "rss_dbm" ? "dBm" : "dB";
   const totalTris = meshRadioMap
@@ -1589,6 +1594,25 @@ function MeshRadioMapSection() {
         Samples the RF metric on the triangles of the SELECTED surface prims and
         drapes it on the geometry (distinct from the flat radio-map plane).
       </p>
+      <label className="solver-field">
+        <span className="solver-field-label">Triangle budget</span>
+        <span className="solver-field-input">
+          <input
+            type="number"
+            min={1}
+            max={20000}
+            step={100}
+            value={maxTriangles}
+            disabled={disabled}
+            onChange={(e) =>
+              setMaxTriangles(Math.max(1, Math.min(20000, Number(e.target.value))))
+            }
+          />
+        </span>
+      </label>
+      <p className="hint">
+        Large meshes are subsampled; raise the budget for denser paint.
+      </p>
       <div className="panel-actions">
         <button
           className="primary"
@@ -1598,7 +1622,7 @@ function MeshRadioMapSection() {
               ? "Select one or more surface prims first (in Visual/RF mode)"
               : `Run over ${selection.length} selected prim(s)`
           }
-          onClick={() => void simulateMeshRadioMap()}
+          onClick={() => void simulateMeshRadioMap(maxTriangles)}
         >
           Run mesh radio map
         </button>
@@ -1656,6 +1680,66 @@ function MeshRadioMapSection() {
   );
 }
 
+/** "Prune results" button + inline confirm. Keeps the newest result per kind
+ *  (keep_latest: 1) and drops the rest on disk, then refreshes the loaded
+ *  results so any overlay whose result vanished is cleared. */
+function PruneResultsButton({
+  projectId,
+  disabled,
+  onPruned,
+}: {
+  projectId: string | null;
+  disabled: boolean;
+  onPruned: (removed: number) => Promise<void>;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const run = async () => {
+    if (!projectId) return;
+    setRunning(true);
+    setError(null);
+    try {
+      const res = await api.pruneResults(projectId, { keep_latest: 1 });
+      setConfirming(false);
+      await onPruned(res.removed.length);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  if (!confirming) {
+    return (
+      <button
+        disabled={disabled}
+        title="Delete older stored result files, keeping the latest one of each kind"
+        onClick={() => {
+          setError(null);
+          setConfirming(true);
+        }}
+      >
+        Prune results
+      </button>
+    );
+  }
+
+  return (
+    <span className="confirm-inline">
+      <span className="confirm-inline-text">Keep latest 1 per kind, delete the rest?</span>
+      <button className="danger" disabled={running} onClick={() => void run()}>
+        {running ? "Pruning…" : "Prune"}
+      </button>
+      <button disabled={running} onClick={() => setConfirming(false)}>
+        Cancel
+      </button>
+      {error && <span className="field-error">{error}</span>}
+    </span>
+  );
+}
+
 export default function ResultExplorer() {
   const pathResults = useAppStore((s) => s.pathResults);
   const selectedPathId = useAppStore((s) => s.selectedPathId);
@@ -1695,6 +1779,36 @@ export default function ResultExplorer() {
     setMinPowerDbm(null);
     setHiddenLinkDevices([]);
     setMaterialFilter([]);
+  };
+
+  // After a prune, re-pull the latest of each result kind. A kind whose file
+  // was removed now 404s, so we null it out (clearing its overlay) rather than
+  // leaving a stale result — and its "selected path" if the paths set vanished.
+  const refreshAfterPrune = async (removed: number) => {
+    if (!projectId) return;
+    const [paths, rmap, mesh, traj, scen] = await Promise.all([
+      api.getPathResults(projectId).catch(() => null),
+      api.getRadioMap(projectId).catch(() => null),
+      // Fetch mesh directly (not the store's best-effort fetch, which never
+      // nulls) so a pruned-away mesh map clears its overlay too.
+      api.getMeshRadioMapResult(projectId).catch(() => null),
+      api.getTrajectory(projectId).catch(() => null),
+      api.getScenario(projectId).catch(() => null),
+    ]);
+    // Guard against a project switch racing the prune refresh.
+    if (useAppStore.getState().projectId !== projectId) return;
+    useAppStore.setState((st) => ({
+      pathResults: paths,
+      selectedPathId: paths ? st.selectedPathId : null,
+      radioMap: rmap,
+      meshRadioMap: mesh,
+      trajectory: traj,
+      trajFrame: 0,
+      scenario: scen,
+      scenarioFrame: 0,
+      showScenario: scen ? st.showScenario : false,
+      notice: removed > 0 ? `Pruned ${removed} result file(s)` : "No results to prune",
+    }));
   };
 
   const [sortKey, setSortKey] = useState<SortKey>("power_dbm");
@@ -1809,6 +1923,11 @@ export default function ResultExplorer() {
         >
           Beamforming
         </button>
+        <PruneResultsButton
+          projectId={projectId}
+          disabled={!projectId || busy !== null}
+          onPruned={refreshAfterPrune}
+        />
       </div>
 
       {(linkDevices.txs.length > 1 || linkDevices.rxs.length > 1) && (

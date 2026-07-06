@@ -23,6 +23,42 @@ _SCENE_TRIANGLE_WARN = 2_000_000
 _SCALE_MIN_M = 0.5
 _SCALE_MAX_M = 50_000.0
 
+# Authoritative ITU material frequency-band table (single source of truth;
+# both this validator and the Mitsuba importer read it, so it must not be
+# duplicated/drifted elsewhere). ITU-R P.2040 defines the ground family
+# (medium_dry / wet / very_dry ground) only over ~1-10 GHz; above that the
+# frequency-dependent model is undefined and Sionna raises "Properties of ITU
+# material '<name>' are not defined for this frequency". Each entry maps a
+# material *category* whose model is itu_frequency_dependent to its upper band
+# edge (Hz) and a constant-model, band-safe replacement id in the default
+# library. Keyed by category so it covers every ground material at once.
+_ITU_BAND_MAX_HZ: dict[str, float] = {
+    "ground": 10e9,
+}
+_ITU_SAFE_ALTERNATIVE: dict[str, str] = {
+    "ground": "ground_28ghz",
+}
+
+
+def itu_out_of_band(mat, frequency_hz: float) -> bool:
+    """True if ``mat`` is an ITU frequency-dependent material used above its
+    ITU-R P.2040 validity band at ``frequency_hz``. Constant-model materials
+    (including the safe replacements) are always in band."""
+    if mat is None or mat.model != "itu_frequency_dependent":
+        return False
+    band_max = _ITU_BAND_MAX_HZ.get(mat.category)
+    return band_max is not None and frequency_hz > band_max
+
+
+def itu_band_max_hz(category: str) -> Optional[float]:
+    """Upper ITU-R P.2040 band edge (Hz) for a material category, or None."""
+    return _ITU_BAND_MAX_HZ.get(category)
+
+
+def itu_safe_alternative(category: str) -> Optional[str]:
+    """Band-safe constant-model replacement material id for a category, or None."""
+    return _ITU_SAFE_ALTERNATIVE.get(category)
+
 # 1-3 concrete next steps per issue code. The validator attaches these so the
 # frontend can render actionable buttons/hints without duplicating the table.
 _SUGGESTED_ACTIONS: dict[str, list[str]] = {
@@ -456,30 +492,32 @@ def validate_scene(
                 )
 
     # Material frequency-band guardrail: ITU-R P.2040 ground models are only
-    # defined up to ~10 GHz. If the scene's primary simulation frequency is
-    # above that, flag ITU ground materials so the user swaps to a constant
-    # (e.g. ground_28ghz) — an accuracy footgun the RT engine won't catch.
+    # defined up to ~10 GHz (see _ITU_BAND_MAX_HZ). If the scene's primary
+    # simulation frequency is above that, flag ITU ground materials so the user
+    # swaps to a constant (e.g. ground_28ghz) — an accuracy footgun the RT
+    # engine won't catch until the solve fails.
     freq = scene.simulation_configs[0].frequency_hz if scene.simulation_configs else None
-    if freq is not None and freq > 10e9:
+    if freq is not None:
         flagged: set[str] = set()
         for prim in scene.prims:
             mat = library.get(prim.rf.material_id) if prim.rf.material_id else None
-            if (
-                mat
-                and mat.model == "itu_frequency_dependent"
-                and mat.category == "ground"
-                and mat.id not in flagged
-            ):
+            if mat and mat.id not in flagged and itu_out_of_band(mat, freq):
                 flagged.add(mat.id)
+                band_max = itu_band_max_hz(mat.category)
+                safe = itu_safe_alternative(mat.category)
+                fix = (
+                    f"use a constant material such as {safe!r} for mmWave"
+                    if safe
+                    else "use a constant-model material valid at this frequency"
+                )
                 issues.append(
                     _issue(
                         "warning",
                         "MATERIAL_OUT_OF_BAND",
                         (
-                            f"material {mat.id!r} (ITU ground) is used at "
-                            f"{freq / 1e9:.1f} GHz, beyond the ~10 GHz ITU-R "
-                            "P.2040 validity range; use a constant material "
-                            "such as 'ground_28ghz' for mmWave"
+                            f"material {mat.id!r} (ITU {mat.category}) is used at "
+                            f"{freq / 1e9:.1f} GHz, beyond the ~{band_max / 1e9:.0f} GHz "
+                            f"ITU-R P.2040 validity range; {fix}"
                         ),
                         prim_id=prim.id,
                     )

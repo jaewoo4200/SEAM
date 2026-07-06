@@ -48,6 +48,11 @@ router = APIRouter(tags=["projects"])
 
 _PROJECT_ID_RE = re.compile(r"^[a-z0-9_\-]+$")
 
+# Frequency of the default SimulationConfig created for imported projects
+# (28 GHz mmWave ISAC twin). Shared with the importer so out-of-band ITU
+# materials are remapped to a band-safe alternative at import time.
+_DEFAULT_CONFIG_FREQUENCY_HZ = 28e9
+
 
 def _safe_upload_name(name: Optional[str]) -> Optional[str]:
     """Keep only the basename of an uploaded file, refusing traversal.
@@ -123,7 +128,15 @@ async def import_project(
         library = load_default_library()
         try:
             scene, tm_scene, warnings = import_mitsuba_scene(
-                xml_path, project_id, library, scene_name=name or project_id
+                xml_path,
+                project_id,
+                library,
+                scene_name=name or project_id,
+                # Keep in sync with the default SimulationConfig below so ITU
+                # materials out of band at the project frequency (e.g. ITU
+                # ground at 28 GHz) are remapped to a band-safe alternative at
+                # import time.
+                default_frequency_hz=_DEFAULT_CONFIG_FREQUENCY_HZ,
             )
         except Exception as exc:  # malformed XML, unreadable meshes, ...
             raise HTTPException(
@@ -152,7 +165,7 @@ async def import_project(
         scene.simulation_configs = [
             SimulationConfig(
                 id="default", name="Default 28 GHz", backend="auto",
-                frequency_hz=28e9, max_depth=3,
+                frequency_hz=_DEFAULT_CONFIG_FREQUENCY_HZ, max_depth=3,
             )
         ]
 

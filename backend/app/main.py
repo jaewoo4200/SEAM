@@ -1,4 +1,4 @@
-"""SionnaTwin Studio backend entry point.
+"""SEAM Studio backend entry point.
 
 Run locally:
     uvicorn app.main:app --reload --port 8000  (from backend/)
@@ -31,7 +31,7 @@ from app.core.config import APP_VERSION
 
 def create_app() -> FastAPI:
     app = FastAPI(
-        title="SionnaTwin Studio",
+        title="SEAM Studio",
         version=APP_VERSION,
         description=(
             "Unified RF-visual scene authoring, RF material assignment, "

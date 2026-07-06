@@ -1,6 +1,6 @@
 # Roadmap
 
-Where SionnaTwin Studio goes after the MVP vertical slice (unified scene →
+Where SEAM Studio goes after the MVP vertical slice (unified scene →
 material authoring → RF compile → mock/Sionna simulation → result overlay).
 Milestone numbers follow HANDOFF.md section 12. Each item lists concrete
 next steps grounded in the current code so a future contributor can start
