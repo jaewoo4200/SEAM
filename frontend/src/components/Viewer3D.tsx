@@ -4,7 +4,7 @@ import * as THREE from "three";
 import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from "three-mesh-bvh";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import type { ThreeEvent } from "@react-three/fiber";
-import { Html, Line, OrbitControls, PerspectiveCamera, TransformControls, useGLTF } from "@react-three/drei";
+import { Grid, Html, Line, OrbitControls, PerspectiveCamera, TransformControls, useGLTF } from "@react-three/drei";
 import { useAppStore } from "../store/appStore";
 import type { ResolvedEnvironment } from "../envPresets";
 import type { Mode } from "../store/appStore";
@@ -1801,6 +1801,14 @@ export default function Viewer3D() {
       ]
     : [0, 0];
   const axesSize = resolvedEnv === "indoor" ? 4 : Math.max(10, gridSize * 0.08);
+  // Nice 1/2/5×10^k cell size ≈ gridSize/40 (indoor rooms get ~1 m cells,
+  // a 1 km OSM import gets ~25 m cells).
+  const gridCell = (() => {
+    const raw = Math.max(0.5, gridSize / 40);
+    const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    const n = raw / mag;
+    return (n < 1.5 ? 1 : n < 3.5 ? 2 : n < 7.5 ? 5 : 10) * mag;
+  })();
 
   return (
     <div className={"viewer3d" + (pickActive ? " picking" : "")}>
@@ -1844,14 +1852,25 @@ export default function Viewer3D() {
           intensity={viewport.directionalIntensity}
           color={viewport.directionalColor}
         />
-        {/* gridHelper lies in XZ by default; rotate +90° about X into the XY
-            ground plane. Sized/centered from the scene bounds so a 350 m site
-            is actually covered (the fixed 200 m origin grid was not). */}
+        {/* Blender-style infinite ground grid (drei shader Grid, rotated from
+            its default XZ into our Z-up XY plane): follows the camera forever
+            and fades with distance, so no scene ever outruns it. Cell size
+            still scales with the scene so indoor rooms get fine 1 m cells. */}
         {viewport.showGrid && (
-          <gridHelper
-            args={[gridSize, resolvedEnv === "indoor" ? 30 : 50, "#2c3947", "#1b2531"]}
-            rotation={[Math.PI / 2, 0, 0]}
+          <Grid
             position={[gridCenter[0], gridCenter[1], 0]}
+            rotation={[Math.PI / 2, 0, 0]}
+            infiniteGrid
+            followCamera
+            cellSize={gridCell}
+            sectionSize={gridCell * 5}
+            cellColor="#232f3d"
+            sectionColor="#2f3e50"
+            cellThickness={0.6}
+            sectionThickness={1.1}
+            fadeDistance={gridSize * 3}
+            fadeStrength={1.5}
+            userData={{ __noFit: true }}
           />
         )}
         {viewport.showAxes && <axesHelper args={[axesSize]} />}

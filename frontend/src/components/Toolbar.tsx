@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useAppStore } from "../store/appStore";
 import type { Mode } from "../store/appStore";
 import { api, ApiError } from "../api/client";
+import OsmAreaPicker from "./OsmAreaPicker";
 import type { Environment } from "../types/api";
 
 const PROJECT_ID_PATTERN = /^[a-z0-9_-]+$/;
@@ -291,12 +292,14 @@ function ImportSceneButton({
   const [environment, setEnvironment] = useState<Environment>("auto");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  // OSM import fields: center coordinate + rectangle size.
-  const [osmLat, setOsmLat] = useState("36.3721");
-  const [osmLon, setOsmLon] = useState("127.3604");
+  // OSM import fields: center coordinate + rectangle size. Default: Hanyang
+  // University, Seoul (arbitrary sensible urban starting view).
+  const [osmLat, setOsmLat] = useState("37.5576");
+  const [osmLon, setOsmLon] = useState("127.0453");
   const [osmW, setOsmW] = useState(500);
   const [osmH, setOsmH] = useState(500);
   const [osmBldgH, setOsmBldgH] = useState(10);
+  const [osmSelecting, setOsmSelecting] = useState(false);
   const wrapRef = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {
@@ -396,7 +399,11 @@ function ImportSceneButton({
         Import
       </button>
       {open && (
-        <div className="import-popover" role="dialog" aria-label="Import scene">
+        <div
+          className={"import-popover" + (source === "osm" ? " wide" : "")}
+          role="dialog"
+          aria-label="Import scene"
+        >
           <h4>Import scene</h4>
           <div className="mode-tabs import-source-tabs">
             <button
@@ -439,6 +446,29 @@ function ImportSceneButton({
           )}
           {source === "osm" && (
             <>
+              <OsmAreaPicker
+                area={{
+                  lat: Number(osmLat) || 0,
+                  lon: Number(osmLon) || 0,
+                  widthM: osmW,
+                  heightM: osmH,
+                }}
+                selecting={osmSelecting}
+                onArea={(a) => {
+                  setOsmLat(String(a.lat));
+                  setOsmLon(String(a.lon));
+                  setOsmW(Math.max(50, Math.min(3000, a.widthM)));
+                  setOsmH(Math.max(50, Math.min(3000, a.heightM)));
+                  setOsmSelecting(false);
+                }}
+              />
+              <button
+                className={osmSelecting ? "picking" : ""}
+                onClick={() => setOsmSelecting((v) => !v)}
+                title="Arm rectangle selection, then DRAG on the map; the coordinate and size fields fill in automatically"
+              >
+                {osmSelecting ? "Drag a rectangle on the map…" : "▭ Select area on map"}
+              </button>
               <div className="osm-grid">
                 <label>
                   Latitude
