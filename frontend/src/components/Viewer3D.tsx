@@ -783,8 +783,10 @@ function ScenarioDevices({ states }: { states: Map<string, Vec3> }) {
   return (
     <group>
       {scene.devices.map((d) => {
-        const pos = states.get(d.id);
-        if (!pos) return null;
+        // Frame states only carry devices ATTACHED to moving actors; a static
+        // TX/RX stays at its scene position - it must not vanish during
+        // playback (reported: "scenario 켜면 TX가 사라짐").
+        const pos = states.get(d.id) ?? d.position;
         return (
           <group key={d.id} position={pos}>
             <mesh>

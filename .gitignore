@@ -35,3 +35,11 @@ examples/**/export/
 # examples/scripts/import_bundle_scene.py --visual-overlay
 examples/**/visual/overlay.glb
 projects/
+
+# Reference scene bundle (large binary assets; download separately -
+# see INSTALL.md). The old personal-named dir is ignored too.
+reference-bundle/
+sionna-rt-gui-jaewoo-examples/
+
+# Local editor/agent launch config (machine-specific paths).
+.claude/

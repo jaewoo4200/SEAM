@@ -149,6 +149,11 @@ curl/스크립트로 프로그래매틱하게** 호출한다(백엔드는 기본
 | [docs/ai_assistant.md](docs/ai_assistant.md) | AI 제안 제공자, 규칙, provenance |
 | [docs/engines.md](docs/engines.md) | Sionna 엔진 버전 교체(별도 venv, `engines.json`) |
 | [docs/sionna_versions.md](docs/sionna_versions.md) | Sionna 버전별 기능·재질·모델 변천사(검증 문헌) |
+| [docs/rtgui_parity.md](docs/rtgui_parity.md) | NVlabs Sionna RT GUI 기능 패리티 매트릭스 |
+| [docs/model_validation.md](docs/model_validation.md) | 구현된 통신 모델·수식 전수 검증 문서 |
+| [docs/dynamic_scattering.md](docs/dynamic_scattering.md) | 동적 산란/도플러 조사·구현 노트 |
+| [docs/ml_datasets.md](docs/ml_datasets.md) | ML ground-truth 데이터셋 포맷·훈련 예제 |
+| [docs/extending.md](docs/extending.md) | 플러그인 아키텍처·확장 가이드 |
 | [docs/accuracy.md](docs/accuracy.md) | RT-측정 오차와 완화책 |
 | [docs/roadmap.md](docs/roadmap.md) | MVP 이후 로드맵과 확장 포인트 |
 | [docs/research_ideas.md](docs/research_ideas.md) | 논문화 가능한 연구 방향 |
@@ -197,6 +202,6 @@ cd frontend && npm run build                          # 타입체크 + 빌드
 
 ## License / Credits
 
-라이선스는 추후 명시 예정입니다(placeholder). [Sionna RT](https://github.com/NVlabs/sionna-rt)
-(NVlabs) 위에 구축되었으며, AODT 뷰어 정렬은 `sionna-rt-gui-jaewoo-examples/`
+[Apache License 2.0](LICENSE)로 배포됩니다. [Sionna RT](https://github.com/NVlabs/sionna-rt)
+(NVlabs) 위에 구축되었으며, AODT 뷰어 정렬은 `reference-bundle/`
 참조 번들(28 GHz FTC/랩룸 ISAC 디지털 트윈)을 따릅니다.

@@ -192,16 +192,31 @@ def _pair_metrics(
     tx_power_dbm: float,
     noise_floor: float,
 ) -> LinkMetrics:
-    """Aggregate a tx->rx link's paths into one LinkMetrics row (RSS/PG/SINR/
-    RMS delay spread/path count), mirroring the trajectory aggregation."""
+    """Aggregate a tx->rx link's paths into one LinkMetrics row.
+
+    The serving link is (tx_id -> rx_id); every OTHER TX's power arriving at
+    the same RX in this frame counts as co-channel interference (full-buffer),
+    so sinr_db is a true S/(I+N) - same convention as channel analysis and
+    trajectories."""
     pair = [p for p in paths if p.tx_id == tx_id and p.rx_id == rx_id]
+    intf_lin = sum(
+        10.0 ** (p.power_dbm / 10.0)
+        for p in paths
+        if p.rx_id == rx_id and p.tx_id != tx_id
+    )
+    interference = 10.0 * math.log10(intf_lin) if intf_lin > 0.0 else None
     if not pair:
-        return LinkMetrics(tx_id=tx_id, rx_id=rx_id, path_count=0)
+        return LinkMetrics(
+            tx_id=tx_id, rx_id=rx_id, interference_dbm=interference, path_count=0
+        )
     lin = [10.0 ** (p.power_dbm / 10.0) for p in pair]
     total = sum(lin)
     rss = 10.0 * math.log10(total) if total > 0 else None
     pg = (rss - tx_power_dbm) if rss is not None else None
-    sinr = (rss - noise_floor) if rss is not None else None
+    intf_plus_noise = 10.0 ** (noise_floor / 10.0) + intf_lin
+    sinr = (
+        rss - 10.0 * math.log10(intf_plus_noise) if rss is not None else None
+    )
     rms: Optional[float] = None
     if total > 0:
         delays = [p.delay_ns for p in pair]
@@ -213,6 +228,7 @@ def _pair_metrics(
         rx_id=rx_id,
         rss_dbm=rss,
         path_gain_db=pg,
+        interference_dbm=interference,
         sinr_db=sinr,
         rms_delay_spread_ns=rms,
         path_count=len(pair),

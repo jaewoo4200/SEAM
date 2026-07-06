@@ -8,7 +8,7 @@ Run from the repo root:
 
     backend\\.venv\\Scripts\\python.exe examples/scripts/import_bundle_scene.py
     backend\\.venv\\Scripts\\python.exe examples/scripts/import_bundle_scene.py \
-        --xml sionna-rt-gui-jaewoo-examples/outdoor_material_assigned_cv_28ghz_safe.xml \
+        --xml reference-bundle/outdoor_material_assigned_cv_28ghz_safe.xml \
         --scene-id ftc_outdoor --name "FTC Outdoor 28 GHz"
 """
 
@@ -30,7 +30,7 @@ from app.schemas.simulation import SimulationConfig  # noqa: E402
 from app.services.mitsuba_import import import_mitsuba_scene  # noqa: E402
 from app.services.project_store import ProjectStore, load_default_library  # noqa: E402
 
-BUNDLE = REPO_ROOT / "sionna-rt-gui-jaewoo-examples"
+BUNDLE = REPO_ROOT / "reference-bundle"
 
 # Indoor lab-room TX/RX defaults (1124_HANDOFF.md), meters, Z-up.
 LAB_ROOM_DEVICES = [
@@ -114,7 +114,13 @@ def main() -> None:
             {
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "created_by": "import_bundle_scene.py",
-                "source_xml": str(xml_path),
+                "source_xml": (
+                    # Repo-relative when possible: absolute paths leak the
+                    # machine's username into committed demo provenance.
+                    str(xml_path.resolve().relative_to(Path.cwd().resolve()))
+                    if xml_path.resolve().is_relative_to(Path.cwd().resolve())
+                    else xml_path.name
+                ).replace("\\", "/"),
                 "events": [],
             },
             indent=2,

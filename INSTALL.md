@@ -94,7 +94,12 @@ npm install
 ```powershell
 backend\.venv\Scripts\python.exe examples\scripts\create_demo_project.py
 backend\.venv\Scripts\python.exe examples\scripts\import_bundle_scene.py
-backend\.venv\Scripts\python.exe examples\scripts\import_bundle_scene.py --xml "sionna-rt-gui-jaewoo-examples/outdoor_material_assigned_cv_28ghz_safe.xml" --scene-id ftc_outdoor --name "FTC Outdoor (28 GHz)" --environment outdoor --visual-overlay "sionna-rt-gui-jaewoo-examples/outdoor_visual/FTC_OSM_ReconstructedMap_ZUp_v2.glb"
+> **참고**: `reference-bundle/`(대용량 씬 자산, ~450 MB)은 git에 포함되지 않습니다.
+> FTC outdoor 데모는 이미 임포트된 상태로 리포에 포함되어 있으므로 이 단계는
+> 번들을 별도로 내려받아 리포 루트의 `reference-bundle/`에 두었을 때만 필요합니다
+> (재임포트/재생성 용도).
+
+backend\.venv\Scripts\python.exe examples\scripts\import_bundle_scene.py --xml "reference-bundle/outdoor_material_assigned_cv_28ghz_safe.xml" --scene-id ftc_outdoor --name "FTC Outdoor (28 GHz)" --environment outdoor --visual-overlay "reference-bundle/outdoor_visual/FTC_OSM_ReconstructedMap_ZUp_v2.glb"
 ```
 
 **Linux / macOS:**
@@ -102,7 +107,7 @@ backend\.venv\Scripts\python.exe examples\scripts\import_bundle_scene.py --xml "
 ```bash
 backend/.venv/bin/python examples/scripts/create_demo_project.py
 backend/.venv/bin/python examples/scripts/import_bundle_scene.py
-backend/.venv/bin/python examples/scripts/import_bundle_scene.py --xml "sionna-rt-gui-jaewoo-examples/outdoor_material_assigned_cv_28ghz_safe.xml" --scene-id ftc_outdoor --name "FTC Outdoor (28 GHz)" --environment outdoor --visual-overlay "sionna-rt-gui-jaewoo-examples/outdoor_visual/FTC_OSM_ReconstructedMap_ZUp_v2.glb"
+backend/.venv/bin/python examples/scripts/import_bundle_scene.py --xml "reference-bundle/outdoor_material_assigned_cv_28ghz_safe.xml" --scene-id ftc_outdoor --name "FTC Outdoor (28 GHz)" --environment outdoor --visual-overlay "reference-bundle/outdoor_visual/FTC_OSM_ReconstructedMap_ZUp_v2.glb"
 ```
 
 - `create_demo_project.py` → **kaist_demo** (야외 캠퍼스 코너 씬: 지면/도로/건물
@@ -289,7 +294,7 @@ cd frontend && npm run build
 | **`LLVM ... ` 경고 로그** | 무해합니다. Sionna의 Dr.Jit가 CPU(LLVM) 백엔드를 초기화할 때 나오는 정보성 경고이며 동작에 영향 없습니다. |
 | **상태칩이 "Mock only"** | `sionna-rt`가 설치되지 않았거나(→ `backend[sionna]` 설치), CUDA/LLVM 백엔드가 없어서 Sionna가 스스로 비활성화된 상태입니다. Mock으로 전체 워크플로는 그대로 사용 가능합니다. |
 | **상태칩이 "AI off"** | AI 서버(Ollama/LM Studio)에 연결되지 않은 상태. 규칙 기반 제안은 여전히 동작합니다. 로컬 LLM을 켜려면 위 [로컬 LLM/VLM](#선택-로컬-llmvlm--ai-재질-제안) 참조. |
-| **프로젝트 목록이 비어 있음** | 데모 생성 스크립트를 아직 실행하지 않았습니다. [3. 데모 프로젝트 생성](#3-데모-프로젝트-생성)을 실행하세요. |
+| **프로젝트 목록이 비어 있음** | 데모 3종은 리포에 **기본 포함**되어 있어 보통 바로 보입니다. 비어 있다면 백엔드가 `examples/demo_project/`를 찾지 못한 것 — 리포 루트에서 서버를 실행했는지, `SIONNATWIN_PROJECT_ROOTS`를 덮어쓰지 않았는지 확인하세요. [3. 데모 프로젝트 생성](#3-데모-프로젝트-생성) 스크립트는 데모를 *재생성*할 때만 필요합니다. |
 | **`import sionna.rt` 콜드 임포트가 느림** | 대체 엔진 첫 프로브는 수십 초 걸릴 수 있습니다(프로세스당 1회 캐시). 이후는 빨라집니다. |
 | **Windows에서 `localhost` 프록시 실패** | Vite 프록시는 의도적으로 `127.0.0.1:8000`을 사용합니다(Windows에서 `localhost`가 IPv6 `::1`로 먼저 해석되어 uvicorn IPv4 바인딩과 어긋나는 문제 회피). 백엔드가 IPv4 루프백에 바인딩되었는지 확인하세요. |
 
@@ -303,3 +308,5 @@ cd frontend && npm run build
 - RT 정확도와 완화책: [docs/accuracy.md](docs/accuracy.md)
 - 아키텍처 / 씬 포맷: [docs/architecture.md](docs/architecture.md),
   [docs/scene_format.md](docs/scene_format.md)
+
+> 검증된 인터프리터: Python 3.11/3.12 (3.13+는 미검증), Node 20+.

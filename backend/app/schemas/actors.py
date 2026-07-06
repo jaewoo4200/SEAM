@@ -30,6 +30,10 @@ class LinkMetrics(StrictModel):
     rx_id: str
     rss_dbm: Optional[float] = None
     path_gain_db: Optional[float] = None
+    # Co-channel interference at this RX from every OTHER TX in the frame
+    # (full-buffer); None when the scene has a single TX or nothing arrives.
+    interference_dbm: Optional[float] = None
+    # True SINR = S / (I + N); equals the SNR when interference_dbm is None.
     sinr_db: Optional[float] = None
     rms_delay_spread_ns: Optional[float] = None
     path_count: int = 0

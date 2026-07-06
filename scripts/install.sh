@@ -58,9 +58,9 @@ step "Generating demo projects (kaist_demo + lab_room + ftc_outdoor)"
 "$VENV_PYTHON" "$REPO_ROOT/examples/scripts/create_demo_project.py" || fail "create_demo_project.py failed."
 "$VENV_PYTHON" "$REPO_ROOT/examples/scripts/import_bundle_scene.py" || fail "import_bundle_scene.py failed."
 "$VENV_PYTHON" "$REPO_ROOT/examples/scripts/import_bundle_scene.py" \
-    --xml "sionna-rt-gui-jaewoo-examples/outdoor_material_assigned_cv_28ghz_safe.xml" \
+    --xml "reference-bundle/outdoor_material_assigned_cv_28ghz_safe.xml" \
     --scene-id ftc_outdoor --name "FTC Outdoor (28 GHz)" --environment outdoor \
-    --visual-overlay "sionna-rt-gui-jaewoo-examples/outdoor_visual/FTC_OSM_ReconstructedMap_ZUp_v2.glb" \
+    --visual-overlay "reference-bundle/outdoor_visual/FTC_OSM_ReconstructedMap_ZUp_v2.glb" \
     || fail "import_bundle_scene.py (ftc_outdoor) failed."
 
 # ------------------------------------------------------------ done

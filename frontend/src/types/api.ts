@@ -440,6 +440,7 @@ export interface LinkMetrics {
   rx_id: string;
   rss_dbm: number | null;
   path_gain_db: number | null;
+  interference_dbm?: number | null;
   sinr_db: number | null;
   rms_delay_spread_ns: number | null;
   path_count: number;

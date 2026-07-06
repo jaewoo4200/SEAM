@@ -252,6 +252,40 @@ def test_scenario_mock_links_have_sinr(project, library) -> None:
         assert link.rss_dbm is not None
         assert link.path_gain_db is not None
         assert link.sinr_db is not None
+        # Single TX: no interferer, SINR degenerates to SNR semantics.
+        assert link.interference_dbm is None
+
+
+def test_scenario_two_tx_per_link_interference(project, library) -> None:
+    """With two TXs each link's SINR is S/(I+N): the other TX's power at the
+    same RX counts as co-channel interference, and the two links swap the
+    signal/interferer roles symmetrically."""
+    import math
+
+    from app.schemas.devices import Device
+
+    backend = MockBackend()
+    scene = _scene_with_actor()
+    scene.devices.append(
+        Device(id="tx_002", kind="tx", position=[50.0, -20.0, 10.0])
+    )
+    config = SimulationConfig(backend="mock")
+    request = ScenarioSimulateRequest(num_frames=1, dt_s=0.5)
+    result = run_scenario(backend, project, scene, library, config, request)
+
+    links = {l.tx_id: l for l in result.frames[0].links}
+    assert set(links) == {"tx_001", "tx_002"}
+    lin = lambda d: 10.0 ** (d / 10.0)  # noqa: E731
+    noise = -87.0  # 100 MHz + NF 7 dB thermal floor (see noise_floor_dbm)
+    for tx_id, other in (("tx_001", "tx_002"), ("tx_002", "tx_001")):
+        link = links[tx_id]
+        assert link.interference_dbm is not None
+        # The interferer's received power IS the other link's RSS.
+        assert link.interference_dbm == pytest.approx(links[other].rss_dbm, abs=1e-9)
+        expect = link.rss_dbm - 10.0 * math.log10(lin(noise) + lin(link.interference_dbm))
+        assert link.sinr_db == pytest.approx(expect, abs=0.2)
+        # Interference dominates this geometry: SINR well below SNR.
+        assert link.sinr_db < (link.rss_dbm - noise) - 1.0
 
 
 def test_scenario_include_paths_toggle(project, library) -> None:

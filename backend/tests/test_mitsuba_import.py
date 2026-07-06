@@ -8,7 +8,7 @@ from app.core.paths import REPO_ROOT
 from app.services.mitsuba_import import _class_to_library_id, import_mitsuba_scene
 from app.services.project_store import load_default_library
 
-LAB_ROOM_XML = REPO_ROOT / "sionna-rt-gui-jaewoo-examples" / "indoor" / "lab_room.xml"
+LAB_ROOM_XML = REPO_ROOT / "reference-bundle" / "indoor" / "lab_room.xml"
 pytestmark = pytest.mark.skipif(
     not LAB_ROOM_XML.is_file(), reason="reference bundle not present"
 )
@@ -68,7 +68,7 @@ def test_imported_scene_validates_clean():
 
 
 OUTDOOR_XML = (
-    REPO_ROOT / "sionna-rt-gui-jaewoo-examples" / "outdoor_material_assigned_cv_28ghz_safe.xml"
+    REPO_ROOT / "reference-bundle" / "outdoor_material_assigned_cv_28ghz_safe.xml"
 )
 
 

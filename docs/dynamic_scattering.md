@@ -239,11 +239,11 @@ print("a:", a.shape, a.dtype, "| tau:", tau.shape)  # a: (...,16) complex64
 - `reverse_direction=True` 는 `cir`/`taps`/`cfr` 에서 tx/rx 역할 교환(uplink/downlink 재사용).
 
 **관련 파일(절대경로):**
-- `C:/Users/jaewoo/custom-dt-tool/backend/.venv/Lib/site-packages/sionna/rt/radio_devices/radio_device.py`
-- `C:/Users/jaewoo/custom-dt-tool/backend/.venv/Lib/site-packages/sionna/rt/scene_object.py`
-- `C:/Users/jaewoo/custom-dt-tool/backend/.venv/Lib/site-packages/sionna/rt/path_solvers/paths.py`
-- `C:/Users/jaewoo/custom-dt-tool/backend/.venv/Lib/site-packages/sionna/rt/path_solvers/field_calculator.py`
-- `C:/Users/jaewoo/custom-dt-tool/backend/.venv/Lib/site-packages/sionna/rt/scene.py`
+- `backend/.venv/Lib/site-packages/sionna/rt/radio_devices/radio_device.py`
+- `backend/.venv/Lib/site-packages/sionna/rt/scene_object.py`
+- `backend/.venv/Lib/site-packages/sionna/rt/path_solvers/paths.py`
+- `backend/.venv/Lib/site-packages/sionna/rt/path_solvers/field_calculator.py`
+- `backend/.venv/Lib/site-packages/sionna/rt/scene.py`
 
 ---
 

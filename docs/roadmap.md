@@ -8,7 +8,7 @@ without re-deriving the design.
 
 ## FTC / AODT alignment (from the reference bundle)
 
-Alignment with `sionna-rt-gui-jaewoo-examples/` (the FTC 28 GHz ISAC digital
+Alignment with `reference-bundle/` (the FTC 28 GHz ISAC digital
 twin). Status:
 
 - **Done** — AODT-style dark viewer palette (LOS cyan / reflection magenta /
