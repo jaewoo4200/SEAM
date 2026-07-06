@@ -13,6 +13,7 @@ import { api } from "../api/client";
 import { directionalPosition } from "../viewportSettings";
 import type { RadioMapColormap } from "../viewportSettings";
 import ViewportPanel from "./ViewportPanel";
+import MeshRadioMapOverlay from "./MeshRadioMapOverlay";
 import type {
   Prim,
   RadioMapResultSet,
@@ -664,6 +665,7 @@ function PathLines({ paths, showInteractions = true }: { paths: RayPath[]; showI
   const strongestN = useAppStore((s) => s.strongestN);
   const minPowerDbm = useAppStore((s) => s.minPowerDbm);
   const hiddenLinkDevices = useAppStore((s) => s.hiddenLinkDevices);
+  const materialFilter = useAppStore((s) => s.materialFilter);
   const colorBy = useAppStore((s) => s.colorBy);
   const lineWidthByPower = useAppStore((s) => s.lineWidthByPower);
   const env = useAppStore((s) => s.resolvedEnvironment);
@@ -673,8 +675,15 @@ function PathLines({ paths, showInteractions = true }: { paths: RayPath[]; showI
 
   // Same filter pipeline as the results table (single source of truth).
   const visible = useMemo(
-    () => filterPaths(paths, { pathTypeFilter, strongestN, minPowerDbm, hiddenLinkDevices }),
-    [paths, pathTypeFilter, strongestN, minPowerDbm, hiddenLinkDevices],
+    () =>
+      filterPaths(paths, {
+        pathTypeFilter,
+        strongestN,
+        minPowerDbm,
+        hiddenLinkDevices,
+        materialFilter,
+      }),
+    [paths, pathTypeFilter, strongestN, minPowerDbm, hiddenLinkDevices, materialFilter],
   );
   // Color/width ranges are computed over the visible set.
   const range = useMemo(() => powerRange(visible), [visible]);
@@ -1601,6 +1610,8 @@ export default function Viewer3D() {
   const mode = useAppStore((s) => s.mode);
   const pathResults = useAppStore((s) => s.pathResults);
   const radioMap = useAppStore((s) => s.radioMap);
+  const meshRadioMap = useAppStore((s) => s.meshRadioMap);
+  const showMeshRadioMapToggle = useAppStore((s) => s.showMeshRadioMap);
   const trajectory = useAppStore((s) => s.trajectory);
   const trajFrame = useAppStore((s) => s.trajFrame);
   const scenario = useAppStore((s) => s.scenario);
@@ -1673,6 +1684,8 @@ export default function Viewer3D() {
   }, [url]);
 
   const showRadioMap = radioMap && mode === "results" && showRadioMapToggle;
+  const showMeshRadioMap =
+    meshRadioMap && meshRadioMap.surfaces.length > 0 && mode === "results" && showMeshRadioMapToggle;
   // Scenario playback owns the actors/devices when a scenario is loaded in
   // Results mode; otherwise actors render at their static scene poses.
   const showScenario = useAppStore((s) => s.showScenario);
@@ -1794,6 +1807,7 @@ export default function Viewer3D() {
         {/* Static rays yield to live trajectory-frame rays when those are shown. */}
         {pathResults && showPaths && mode === "results" && !scenarioActive && !trajFramePaths && <RayPaths />}
         {showRadioMap && <RadioMapPlane radioMap={radioMap} />}
+        {showMeshRadioMap && <MeshRadioMapOverlay result={meshRadioMap} />}
         {trajActive && <TrajectoryOverlay trajectory={trajectory} />}
       </Canvas>
       {showRadioMap && <RadioMapLegend radioMap={radioMap} />}

@@ -15,13 +15,20 @@ from fastapi import APIRouter, HTTPException
 from app.api.deps import get_store, load_scene_or_404
 from app.schemas.ai import (
     AIProviderStatus,
+    ApplyRulesRequest,
     ApplySuggestionsRequest,
+    ExplainValidationResponse,
     MaterialSuggestionResponse,
+    RuleGenerationRequest,
+    RuleGenerationResponse,
     SuggestMaterialsRequest,
 )
 from app.schemas.materials import AssignRequest, AssignResponse
+from app.schemas.scene import RFBinding
 from app.services import ai_provider
+from app.services.ai_provider import AIParseError, NoTextProviderError
 from app.services.material_assignment import UnknownMaterialError, assign_materials
+from app.services.scene_validator import validate_scene
 
 router = APIRouter(tags=["ai"])
 
@@ -103,11 +110,30 @@ def apply_suggestions(
     warnings: list[str] = []
     records: list[dict] = []
     counts = {"approve": 0, "reject": 0, "edit": 0}
+    # A reject stamps assignment_status="rejected" (material stays None), which
+    # mutates the scene without adding to ``updated``; track it so the scene is
+    # still persisted.
+    mutated = False
 
     for decision in request.decisions:
         suggestion = suggestion_by_prim.get(decision.prim_id)
         final_material: Optional[str] = None
-        if decision.action != "reject":
+        if decision.action == "reject":
+            prim = scene.prim_by_id(decision.prim_id)
+            if prim is None:
+                skipped.append(decision.prim_id)
+                warnings.append(f"prim not found: {decision.prim_id}")
+            else:
+                # Explicit no-material decision: record the rejection on the
+                # binding so validation and re-suggestion can skip it. Material
+                # stays None (NO_MATERIAL_STATUSES invariant).
+                prim.rf = RFBinding(
+                    material_id=None,
+                    assignment_status="rejected",
+                    assignment_sources=[f"ai:{request.provider}", "user"],
+                )
+                mutated = True
+        else:
             if decision.action == "approve":
                 material_id = decision.rf_material_id or (
                     suggestion.recommended_rf_material_id if suggestion else None
@@ -164,7 +190,7 @@ def apply_suggestions(
             }
         )
 
-    if updated:  # persist the mutated scene exactly once
+    if updated or mutated:  # persist the mutated scene exactly once
         store.save_scene(project_id, scene)
     for record in records:
         store.append_jsonl(project_id, SUGGESTIONS_LOG, record)
@@ -179,4 +205,81 @@ def apply_suggestions(
     )
     return AssignResponse(
         updated_prim_ids=updated, skipped_prim_ids=skipped, warnings=warnings
+    )
+
+
+@router.post(
+    "/projects/{project_id}/ai/generate-rules",
+    response_model=RuleGenerationResponse,
+)
+def generate_rules(
+    project_id: str, request: RuleGenerationRequest
+) -> RuleGenerationResponse:
+    store = get_store()
+    load_scene_or_404(store, project_id)  # 404 for unknown project
+    library = store.load_materials(project_id)
+    try:
+        rules, provider, model, warnings = ai_provider.generate_assignment_rules(
+            request.instruction, library
+        )
+    except NoTextProviderError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except AIParseError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    return RuleGenerationResponse(
+        rules=rules, provider=provider, model=model, warnings=warnings
+    )
+
+
+@router.post(
+    "/projects/{project_id}/ai/apply-rules",
+    response_model=MaterialSuggestionResponse,
+)
+def apply_rules(
+    project_id: str, request: ApplyRulesRequest
+) -> MaterialSuggestionResponse:
+    store = get_store()
+    scene = load_scene_or_404(store, project_id)
+    library = store.load_materials(project_id)
+    response = ai_provider.apply_rules(scene, library, request.rules)
+    store.append_jsonl(
+        project_id,
+        SUGGESTIONS_LOG,
+        {
+            "timestamp": _utcnow(),
+            "event": "suggested",
+            "provider": response.provider,
+            "model": response.model,
+            "prompt_version": response.prompt_version,
+            "input_prim_ids": [s.prim_id for s in response.suggestions],
+            "rule_ids": [rule.id for rule in request.rules],
+            "screenshot_attached": False,
+            "screenshot_count": 0,
+            "texture_crops_requested": False,
+            "suggestions": [s.model_dump(mode="json") for s in response.suggestions],
+        },
+    )
+    return response
+
+
+@router.post(
+    "/projects/{project_id}/ai/explain-validation",
+    response_model=ExplainValidationResponse,
+)
+def explain_validation(project_id: str) -> ExplainValidationResponse:
+    store = get_store()
+    scene = load_scene_or_404(store, project_id)
+    project_dir = store.resolve(project_id)
+    library = store.load_materials(project_id)
+    report = validate_scene(scene, library, project_dir=project_dir)
+    try:
+        explanation, provider, model, warnings = (
+            ai_provider.explain_validation_warnings(report.issues, library)
+        )
+    except NoTextProviderError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except AIParseError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    return ExplainValidationResponse(
+        explanation=explanation, provider=provider, model=model, warnings=warnings
     )

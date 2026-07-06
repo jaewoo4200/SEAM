@@ -1346,6 +1346,139 @@ h4 {
   font-variant-numeric: tabular-nums;
 }
 
+/* ---------------------------- assignment rules (natural language) */
+
+.rules-section {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.rules-section h4 {
+  margin: 0 0 4px;
+}
+.rules-instruction {
+  width: 100%;
+  resize: vertical;
+  min-height: 52px;
+  font: inherit;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border-light);
+  border-radius: 4px;
+  padding: 6px 8px;
+  margin: 4px 0 6px;
+}
+.rules-instruction:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.rule-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0;
+}
+.rule-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  flex-wrap: wrap;
+}
+.rule-row .rule-id {
+  font-size: 11px;
+  color: var(--muted);
+  flex: none;
+}
+.rule-row .rule-terms {
+  flex: 1 1 120px;
+  min-width: 90px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--panel-3);
+  border: 1px solid var(--border-light);
+  border-radius: 4px;
+  padding: 3px 6px;
+}
+.rule-row .rule-terms:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.rule-row .row-del {
+  padding: 0 8px;
+  line-height: 1.4;
+  background: transparent;
+  border-color: var(--border);
+  color: var(--muted);
+  flex: none;
+}
+
+/* --------------------------- validation: explain + suggested actions */
+
+.validation-explain {
+  margin: 8px 0;
+}
+.issue-actions {
+  margin: 4px 0 0;
+  padding-left: 16px;
+  list-style: disc;
+  color: var(--muted);
+  font-size: 11px;
+}
+.issue-actions li {
+  margin: 1px 0;
+}
+.explain-block {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--accent-dim);
+  border-radius: 5px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+
+/* ------------------------------ solver accuracy preset (segmented) */
+
+.accuracy-preset {
+  display: inline-flex;
+  gap: 0;
+  border: 1px solid var(--border-light);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.accuracy-btn {
+  padding: 3px 10px;
+  font-size: 12px;
+  background: var(--panel-3);
+  border: none;
+  border-right: 1px solid var(--border-light);
+  border-radius: 0;
+  color: var(--muted);
+}
+.accuracy-btn:last-child {
+  border-right: none;
+}
+.accuracy-btn:hover:not(:disabled):not(.accuracy-custom) {
+  color: var(--accent);
+}
+.accuracy-btn.active {
+  background: var(--accent-dim);
+  color: #e8f7ff;
+}
+.accuracy-btn.accuracy-custom {
+  color: var(--muted);
+  font-style: italic;
+  cursor: default;
+}
+
 /* ------------------------------------------------------------ results */
 
 .results-meta {

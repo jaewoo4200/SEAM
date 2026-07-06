@@ -7,9 +7,80 @@ import type {
   DisambiguationReport,
   MaterialImpactReport,
   MaterialSuggestion,
+  MaterialSuggestionResponse,
   MeasurementSample,
   Vec3,
 } from "../types/api";
+
+// ------------------------------------------------------- ai fetch helper
+//
+// The three AI-rule endpoints are not (yet) on the shared `api` client
+// (api/client.ts is owned by a sibling). Until they land there we call them
+// directly, mirroring the client's base-URL resolution: every URL is the
+// relative "/api/..." path so the Vite dev proxy / prod reverse proxy routes
+// it to FastAPI without CORS (see api/client.ts `const BASE = "/api"`).
+
+const API_BASE = "/api";
+
+/** POST JSON and parse JSON, surfacing the backend `detail` on non-2xx.
+ *  Kept local (not on the shared client) — see note above. */
+async function postJson<T>(path: string, body: unknown): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(API_BASE + path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    const e = new Error(
+      `backend unreachable: ${err instanceof Error ? err.message : String(err)}`,
+    ) as Error & { status: number };
+    e.status = 0;
+    throw e;
+  }
+  if (!res.ok) {
+    let detail = `${res.status} ${res.statusText}`;
+    try {
+      const data: unknown = await res.json();
+      if (data !== null && typeof data === "object" && "detail" in data) {
+        const d = (data as { detail: unknown }).detail;
+        if (typeof d === "string") detail = d;
+        else if (d !== null && typeof d === "object" && "message" in d) {
+          detail = String((d as { message: unknown }).message);
+        } else detail = JSON.stringify(d);
+      }
+    } catch {
+      /* non-JSON error body; keep the status text */
+    }
+    const e = new Error(detail) as Error & { status: number };
+    e.status = res.status;
+    throw e;
+  }
+  return (await res.json()) as T;
+}
+
+// ---------------------------------------------- assignment-rule generation
+//
+// Local mirror of the sibling contract (backend AssignmentRule + the two AI
+// rule routes). Defined here rather than in types/api.ts because that file is
+// owned by another agent this wave; keep in sync with their Pydantic model.
+
+/** One name-match rule: any prim whose name contains one of `match_name_contains`
+ *  gets `rf_material_id`. */
+interface AssignmentRule {
+  id: string;
+  match_name_contains: string[];
+  rf_material_id: string;
+  note?: string | null;
+}
+
+interface GenerateRulesResponse {
+  rules: AssignmentRule[];
+  provider: string;
+  model?: string | null;
+  warnings: string[];
+}
 
 // ------------------------------------------------------- RF disambiguation
 
@@ -518,6 +589,207 @@ function ImpactSection() {
   );
 }
 
+// -------------------------------------------------- assignment-rule section
+
+/** One editable rule row. Match terms are edited as a comma-separated string
+ *  and split on read so the row stays a plain text field. */
+function RuleRow({
+  rule,
+  onChange,
+  onDelete,
+}: {
+  rule: AssignmentRule;
+  onChange: (patch: Partial<AssignmentRule>) => void;
+  onDelete: () => void;
+}) {
+  const materials = useAppStore((s) => s.materials);
+  return (
+    <div className="rule-row">
+      <span className="rule-id mono">{rule.id}</span>
+      <input
+        className="rule-terms"
+        value={rule.match_name_contains.join(", ")}
+        placeholder="match terms (comma-separated)"
+        title="Prim names containing any of these substrings match this rule"
+        onChange={(e) =>
+          onChange({
+            match_name_contains: e.target.value
+              .split(",")
+              .map((t) => t.trim())
+              .filter((t) => t.length > 0),
+          })
+        }
+      />
+      <MaterialSelect
+        library={materials}
+        value={rule.rf_material_id || null}
+        placeholder="material…"
+        onSelect={(id) => onChange({ rf_material_id: id })}
+      />
+      <button className="row-del" title="Delete rule" onClick={onDelete}>
+        ×
+      </button>
+    </div>
+  );
+}
+
+/** Natural-language → assignment-rules flow: describe the mapping, generate
+ *  rules with the LLM, tweak them, then apply (which only *suggests* — the
+ *  result flows into the normal review/Apply-decisions loop). */
+function RuleGenerationSection() {
+  const projectId = useAppStore((s) => s.projectId);
+  const aiProvider = useAppStore((s) => s.aiProvider);
+
+  const [instruction, setInstruction] = useState("");
+  const [rules, setRules] = useState<AssignmentRule[] | null>(null);
+  const [meta, setMeta] = useState<{ provider: string; model?: string | null } | null>(null);
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const [genBusy, setGenBusy] = useState(false);
+  const [applyBusy, setApplyBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const generate = async () => {
+    if (!projectId || !instruction.trim()) return;
+    setGenBusy(true);
+    setError(null);
+    try {
+      const resp = await postJson<GenerateRulesResponse>(
+        `/projects/${projectId}/ai/generate-rules`,
+        { instruction: instruction.trim(), provider: aiProvider },
+      );
+      setRules(resp.rules);
+      setMeta({ provider: resp.provider, model: resp.model });
+      setWarnings(resp.warnings ?? []);
+    } catch (err) {
+      setError(errMessage(err));
+    } finally {
+      setGenBusy(false);
+    }
+  };
+
+  const apply = async () => {
+    if (!projectId || !rules || rules.length === 0) return;
+    setApplyBusy(true);
+    setError(null);
+    try {
+      const resp = await postJson<MaterialSuggestionResponse>(
+        `/projects/${projectId}/ai/apply-rules`,
+        { rules },
+      );
+      // Hand off to the normal suggestion-review flow (resets any decisions);
+      // nothing is committed to the scene until the user clicks Apply decisions.
+      useAppStore.getState().setSuggestions(resp);
+    } catch (err) {
+      setError(errMessage(err));
+    } finally {
+      setApplyBusy(false);
+    }
+  };
+
+  const patchRule = (i: number, patch: Partial<AssignmentRule>) =>
+    setRules((rs) => (rs ? rs.map((r, j) => (j === i ? { ...r, ...patch } : r)) : rs));
+  const deleteRule = (i: number) =>
+    setRules((rs) => (rs ? rs.filter((_, j) => j !== i) : rs));
+
+  const applicable = (rules ?? []).filter(
+    (r) => r.match_name_contains.length > 0 && r.rf_material_id,
+  ).length;
+
+  return (
+    <div className="rules-section">
+      <h4>Assignment rules (natural language)</h4>
+      <p className="hint">
+        Describe how materials should map to prims by name; the LLM drafts
+        rules you can edit before applying.
+      </p>
+      <textarea
+        className="rules-instruction"
+        rows={3}
+        value={instruction}
+        placeholder={
+          "예: 벽(wall)은 콘크리트, 창문(window)은 유리로 배정해줘\n" +
+          "e.g. assign concrete to walls and glass to windows/glazing"
+        }
+        onChange={(e) => setInstruction(e.target.value)}
+      />
+      <div className="panel-actions">
+        <button
+          className="primary"
+          disabled={!projectId || genBusy || !instruction.trim()}
+          onClick={() => void generate()}
+        >
+          {genBusy ? "Generating…" : "Generate rules"}
+        </button>
+      </div>
+
+      {error && <div className="disambig-error">{error}</div>}
+
+      {warnings.length > 0 && (
+        <ul className="disambig-warnings">
+          {warnings.map((w, i) => (
+            <li key={i}>{w}</li>
+          ))}
+        </ul>
+      )}
+
+      {rules && (
+        <>
+          {meta && (
+            <div className="results-meta">
+              Provider: <span className="mono">{meta.provider}</span>
+              {meta.model && (
+                <>
+                  {" "}
+                  · model <span className="mono">{meta.model}</span>
+                </>
+              )}
+            </div>
+          )}
+
+          {rules.length === 0 ? (
+            <div className="empty-state">No rules generated for that instruction.</div>
+          ) : (
+            <div className="rule-list">
+              {rules.map((r, i) => (
+                <RuleRow
+                  key={r.id}
+                  rule={r}
+                  onChange={(patch) => patchRule(i, patch)}
+                  onDelete={() => deleteRule(i)}
+                />
+              ))}
+            </div>
+          )}
+
+          <div className="panel-actions">
+            <button
+              className="primary"
+              disabled={applyBusy || applicable === 0}
+              title={
+                applicable === 0
+                  ? "Each rule needs at least one match term and a material"
+                  : ""
+              }
+              onClick={() => void apply()}
+            >
+              {applyBusy ? "Applying…" : `Apply rules (${applicable})`}
+            </button>
+          </div>
+          <p className="hint">
+            Applying only <em>suggests</em> — the matches populate the review
+            list above; nothing is committed until you click Apply decisions.
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Message from a thrown error (postJson attaches a numeric `status`). */
+function errMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 export default function AISuggestionPanel() {
   const health = useAppStore((s) => s.health);
   const aiStatuses = useAppStore((s) => s.aiStatuses);
@@ -610,6 +882,8 @@ export default function AISuggestionPanel() {
       <p className="hint">
         Suggestions are evidence only — nothing is applied until you approve and click Apply.
       </p>
+
+      <RuleGenerationSection />
 
       {suggestions && (
         <>

@@ -220,11 +220,15 @@ def test_missing_visual_asset_placeholder(
 
 def test_face_group_placeholder_warning(project: Path, library: RFMaterialLibrary) -> None:
     scene = _build_scene()
+    # "wall_box" is a flat leaf mesh with no "wall_south" region under it, so
+    # the Mode-2 split is unresolvable and degrades to the whole mesh with the
+    # spec-aligned NO_FACE_GROUP code (see tests/test_face_group_split.py for
+    # the resolvable split).
     scene.prims[0].mesh_ref = MeshRef(mesh_name="wall_box", face_group="wall_south")
     result = compile_project(project, scene, library)
 
     assert result.ok is True
-    assert any("face_group split not yet implemented" in w for w in result.warnings)
+    assert any(w.startswith("NO_FACE_GROUP: ") and WALL_ID in w for w in result.warnings)
     face_group_map = json.loads(
         (project / "mapping" / "face_group_map.json").read_text(encoding="utf-8")
     )

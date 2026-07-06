@@ -40,7 +40,10 @@ router = APIRouter(tags=["scenario"])
 def simulate_scenario(
     project_id: str, request: Optional[ScenarioSimulateRequest] = None
 ) -> ScenarioResultSet:
+    from app.services.events import publish_event
+
     request = request or ScenarioSimulateRequest()
+    publish_event(project_id, {"type": "simulation_started", "kind": "scenario"})
     store = get_store()
     scene = load_scene_or_404(store, project_id)
     library = store.load_materials(project_id)
@@ -55,7 +58,8 @@ def simulate_scenario(
     project_dir = store.resolve(project_id)
     result = run_scenario(backend, project_dir, scene, library, config, request)
     return _persist_result(
-        project_id, scene, project_dir, "scenario", backend.name, config.id, result
+        project_id, scene, project_dir, "scenario", backend.name, config.id, result,
+        config=config,
     )
 
 

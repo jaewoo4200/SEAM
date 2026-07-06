@@ -129,6 +129,62 @@ The log is append-only (`ProjectStore.append_jsonl`) and ships with the
 project folder, so the full history of who/what suggested each material —
 and what the user did about it — survives sharing and re-opening.
 
+## Natural-language rule generation
+
+Per-prim suggestion is one axis; the other is *bulk* assignment by intent.
+`POST /projects/{id}/ai/generate-rules` turns a plain-language instruction
+("glass windows are `itu_glass`, everything with 'concrete' in the name is
+`itu_concrete`") into a list of deterministic, inspectable **assignment rules**:
+
+```json
+POST /projects/{id}/ai/generate-rules
+{ "instruction": "windows are glass, walls with 'concrete' → itu_concrete" }
+->
+{ "rules": [
+    { "id": "r1", "match_name_contains": ["window", "glass"],
+      "rf_material_id": "itu_glass", "note": "glazing" },
+    { "id": "r2", "match_name_contains": ["concrete"],
+      "rf_material_id": "itu_concrete", "note": null } ],
+  "provider": "local_openai", "model": "…", "warnings": [] }
+```
+
+An `AssignmentRule` is `{id, match_name_contains: string[] (≥1),
+rf_material_id, note?}` — a case-insensitive substring OR-match over prim
+names. The same library-id guard as suggestions applies: a rule naming an
+`rf_material_id` outside the project library is dropped with a warning, so the
+model can never invent a material. Rules are **proposals**, not an assignment.
+
+Applying them is the explicit second step: `POST /projects/{id}/ai/apply-rules`
+takes the (possibly user-edited) rule list, matches it against the current
+scene, and returns a `MaterialSuggestionResponse` — the exact same shape the
+per-prim suggester returns, so the review-and-apply UI is identical. Matched
+prims come back as suggestions with `assignment_status: "rule_assigned"`
+evidence; nothing touches the scene until the user approves them through the
+normal apply-suggestions path. Prims a user has already rejected stay
+`rejected` (material id null) and are not re-proposed.
+
+## Validation explanation
+
+`POST /projects/{id}/ai/explain-validation` runs the scene validator and asks
+the provider to explain the resulting issues in plain language — what each
+`ValidationIssue` means for accuracy and what to do about it:
+
+```json
+POST /projects/{id}/ai/explain-validation
+->
+{ "explanation": "3 prims are unassigned … an ITU ground material is used at
+   28 GHz, which is out of band; switch it to `ground_28ghz` …",
+  "provider": "ollama_text", "model": "qwen3:8b", "warnings": [] }
+```
+
+It is read-only: it never mutates the scene or the assignments, only narrates
+the checklist. Each `ValidationIssue` also now carries
+`suggested_actions: string[]` (the concrete next steps the UI shows as
+one-click fixes), so the natural-language explanation and the structured
+actions stay in sync. As always this degrades gracefully — with no reachable
+AI server the `rule_based` provider returns a templated explanation built from
+the issue codes.
+
 ## RF disambiguation
 
 Vision alone cannot tell two RF-different materials apart when they *look*

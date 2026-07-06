@@ -16,12 +16,16 @@ router = APIRouter(tags=["compile"])
 
 @router.post("/projects/{project_id}/compile/sionna", response_model=CompileResult)
 def compile_sionna(project_id: str) -> CompileResult:
+    from app.services.events import publish_event
+
     store = get_store()
     scene = load_scene_or_404(store, project_id)
     library = store.load_materials(project_id)
     project_dir = store.resolve(project_id)
 
+    publish_event(project_id, {"type": "compile_started"})
     result = compile_project(project_dir, scene, library)
+    publish_event(project_id, {"type": "compile_finished", "ok": result.ok})
 
     store.append_provenance(
         project_id,

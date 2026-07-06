@@ -7,9 +7,12 @@ written into the project material library and prims using that material are
 promoted to assignment_status "measurement_calibrated".
 """
 
+import csv
+import io
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
+from pydantic import Field
 
 from app.api.deps import get_store, load_scene_or_404
 from app.schemas.calibration import (
@@ -17,12 +20,109 @@ from app.schemas.calibration import (
     CalibrationRequest,
     DisambiguationReport,
     DisambiguationRequest,
+    MeasurementSample,
 )
+from app.schemas.common import StrictModel
 from app.schemas.scene import RFBinding, Scene
 from app.schemas.simulation import SimulateRequest, SimulationConfig
+from app.services.project_store import ProjectNotFoundError
 from app.services.simulation_backends import BackendUnavailableError, resolve_backend
 
 router = APIRouter(tags=["calibrate"])
+
+# Where the raw imported measurement CSV is kept verbatim so GET can re-parse it.
+MEASUREMENTS_CSV_URI = "measurements/measurements.csv"
+
+# Accepted CSV column aliases (case-insensitive). Position may use either the
+# bare x/y/z or the rx_-prefixed form; the metric column accepts rsrp_dbm as an
+# alias for measured_path_gain_db.
+_X_KEYS = ("x", "rx_x")
+_Y_KEYS = ("y", "rx_y")
+_Z_KEYS = ("z", "rx_z")
+_GAIN_KEYS = ("measured_path_gain_db", "rsrp_dbm")
+
+
+class MeasurementImportRequest(StrictModel):
+    csv_text: str
+
+
+class MeasurementImportResponse(StrictModel):
+    measurements: list[MeasurementSample] = Field(default_factory=list)
+    skipped: int = 0
+    warnings: list[str] = Field(default_factory=list)
+
+
+def _first(row: dict[str, str], keys: tuple[str, ...]) -> Optional[str]:
+    for k in keys:
+        if k in row and row[k] not in (None, ""):
+            return row[k]
+    return None
+
+
+def _parse_measurement_csv(csv_text: str) -> MeasurementImportResponse:
+    """Parse measurement rows from CSV text (headers required).
+
+    Accepts headers measurement_id, x/y/z (or rx_x/rx_y/rx_z), tx_id, and
+    measured_path_gain_db (alias rsrp_dbm). Rows missing a coordinate or the
+    gain, or with unparseable numbers, are skipped and counted - never fatal.
+    """
+    warnings: list[str] = []
+    reader = csv.DictReader(io.StringIO(csv_text))
+    if reader.fieldnames is None:
+        return MeasurementImportResponse(
+            measurements=[], skipped=0,
+            warnings=["csv had no header row; nothing imported"],
+        )
+    # Normalize header names to lowercase/stripped for tolerant matching.
+    field_map = {(f or "").strip().lower(): f for f in reader.fieldnames}
+    have_x = any(k in field_map for k in _X_KEYS)
+    have_y = any(k in field_map for k in _Y_KEYS)
+    have_z = any(k in field_map for k in _Z_KEYS)
+    have_gain = any(k in field_map for k in _GAIN_KEYS)
+    if not (have_x and have_y and have_z and have_gain):
+        warnings.append(
+            "csv is missing required columns (need x/y/z or rx_x/rx_y/rx_z and "
+            "measured_path_gain_db or rsrp_dbm); rows may be skipped"
+        )
+
+    measurements: list[MeasurementSample] = []
+    skipped = 0
+    for row in reader:
+        # Re-key each row via the normalized header map so lookups are tolerant
+        # of original-case / whitespace in the source headers.
+        norm = {
+            key: row.get(orig)
+            for key, orig in field_map.items()
+        }
+        x = _first(norm, _X_KEYS)
+        y = _first(norm, _Y_KEYS)
+        z = _first(norm, _Z_KEYS)
+        gain = _first(norm, _GAIN_KEYS)
+        if x is None or y is None or z is None or gain is None:
+            skipped += 1
+            continue
+        try:
+            rx = [float(x), float(y), float(z)]
+            gain_db = float(gain)
+        except (TypeError, ValueError):
+            skipped += 1
+            continue
+        mid = _first(norm, ("measurement_id",))
+        tx = _first(norm, ("tx_id",))
+        measurements.append(
+            MeasurementSample(
+                measurement_id=mid,
+                rx_position=rx,
+                tx_id=tx,
+                measured_path_gain_db=gain_db,
+            )
+        )
+
+    if skipped:
+        warnings.append(f"skipped {skipped} malformed row(s)")
+    return MeasurementImportResponse(
+        measurements=measurements, skipped=skipped, warnings=warnings
+    )
 
 
 def _resolve_config(scene: Scene, request: CalibrationRequest) -> SimulationConfig:
@@ -116,3 +216,42 @@ def disambiguate(project_id: str, request: DisambiguationRequest) -> Disambiguat
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post(
+    "/projects/{project_id}/calibrate/measurements/import-csv",
+    response_model=MeasurementImportResponse,
+)
+def import_measurements_csv(
+    project_id: str, request: MeasurementImportRequest
+) -> MeasurementImportResponse:
+    """Import measurement samples from CSV text and persist the raw CSV.
+
+    Bad rows are skipped and counted (never fatal). The uploaded CSV is stored
+    verbatim so a later GET re-parses the exact source the user provided.
+    """
+    store = get_store()
+    # 404 on an unknown project, consistent with the other calibrate routes.
+    load_scene_or_404(store, project_id)
+    result = _parse_measurement_csv(request.csv_text)
+    store.save_text(project_id, MEASUREMENTS_CSV_URI, request.csv_text)
+    return result
+
+
+@router.get(
+    "/projects/{project_id}/calibrate/measurements",
+    response_model=MeasurementImportResponse,
+)
+def get_measurements(project_id: str) -> MeasurementImportResponse:
+    """Re-parse the stored measurement CSV (404 when none was ever imported)."""
+    store = get_store()
+    load_scene_or_404(store, project_id)
+    try:
+        path = store.asset_path(project_id, MEASUREMENTS_CSV_URI)
+    except ProjectNotFoundError:
+        raise HTTPException(status_code=404, detail=f"project not found: {project_id}")
+    if not path.is_file():
+        raise HTTPException(
+            status_code=404, detail="no measurements imported for this project"
+        )
+    return _parse_measurement_csv(path.read_text(encoding="utf-8"))

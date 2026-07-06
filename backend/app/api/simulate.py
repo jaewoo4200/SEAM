@@ -13,6 +13,8 @@ the requested kind. Backends never persist anything - this layer owns ids,
 files, and provenance.
 """
 
+import hashlib
+import json
 from datetime import datetime, timezone
 from typing import Literal, Optional, Union
 
@@ -22,6 +24,7 @@ from app.api.deps import get_store, load_scene_or_404
 from app.schemas.actors import ScenarioResultSet
 from app.schemas.results import (
     BeamformingResult,
+    MeshRadioMapResultSet,
     PathResultSet,
     RadioMapResultSet,
     TrajectoryResultSet,
@@ -29,6 +32,7 @@ from app.schemas.results import (
 from app.schemas.scene import ResultSetRef, Scene
 from app.schemas.simulation import (
     BeamformingRequest,
+    MeshRadioMapRequest,
     SimulateRequest,
     SimulationConfig,
     TrajectorySimulateRequest,
@@ -37,10 +41,42 @@ from app.services.simulation_backends import BackendUnavailableError, resolve_ba
 
 router = APIRouter(tags=["simulate"])
 
-ResultKind = Literal["paths", "radio_map", "trajectory", "scenario"]
+ResultKind = Literal["paths", "radio_map", "mesh_radio_map", "trajectory", "scenario"]
 AnyResult = Union[
-    PathResultSet, RadioMapResultSet, TrajectoryResultSet, ScenarioResultSet
+    PathResultSet,
+    RadioMapResultSet,
+    MeshRadioMapResultSet,
+    TrajectoryResultSet,
+    ScenarioResultSet,
 ]
+
+
+def _sha256(payload) -> str:
+    """Stable content hash of a JSON-serializable payload."""
+    blob = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    return "sha256:" + hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def _provenance_hashes(scene: Scene, config: Optional[SimulationConfig]) -> dict:
+    """Reproducibility hashes stamped into every persisted result's metadata.
+
+    scene_hash covers the canonical scene MINUS result_sets (results must not
+    churn the hash of the scene that produced them); rf_assignment_hash covers
+    just (prim id, material, status) so a pure material edit is detectable on
+    its own; sim_config_hash pins the exact solver knobs.
+    """
+    scene_payload = scene.model_dump(mode="json")
+    scene_payload.pop("result_sets", None)
+    assignment = sorted(
+        (p.id, p.rf.material_id or "", p.rf.assignment_status) for p in scene.prims
+    )
+    hashes = {
+        "scene_hash": _sha256(scene_payload),
+        "rf_assignment_hash": _sha256(assignment),
+    }
+    if config is not None:
+        hashes["sim_config_hash"] = _sha256(config.model_dump(mode="json"))
+    return hashes
 
 
 def _persist_result(
@@ -51,6 +87,7 @@ def _persist_result(
     backend_name: str,
     config_id: str,
     result: AnyResult,
+    config: Optional[SimulationConfig] = None,
 ) -> AnyResult:
     """Allocate a collision-free result id, save it, append a ResultSetRef,
     and log provenance. Shared by every simulate endpoint."""
@@ -75,6 +112,10 @@ def _persist_result(
     result.result_id = f"{prefix}{n:03d}"
     result.backend = backend_name
     result.created_at = datetime.now(timezone.utc).isoformat()
+    # Reproducibility stamp: content hashes + the exact solver knobs used.
+    result.metadata.update(_provenance_hashes(scene, config))
+    if config is not None:
+        result.metadata.setdefault("config_snapshot", config.model_dump(mode="json"))
 
     uri = f"results/{result.result_id}.json"
     store.save_json(project_id, uri, result.model_dump(mode="json"))
@@ -98,6 +139,19 @@ def _persist_result(
             "result_id": result.result_id,
             "simulation_config_id": config_id,
             "uri": uri,
+        },
+    )
+    # Lazy import to avoid an import cycle (events -> nothing here, but keep the
+    # hook self-contained and never fatal to a solve).
+    from app.services.events import publish_event
+
+    publish_event(
+        project_id,
+        {
+            "type": "simulation_finished",
+            "kind": kind,
+            "result_id": result.result_id,
+            "backend": backend_name,
         },
     )
     return result
@@ -124,6 +178,9 @@ def _run_simulation(
     request: Optional[SimulateRequest],
     kind: ResultKind,
 ) -> Union[PathResultSet, RadioMapResultSet]:
+    from app.services.events import publish_event
+
+    publish_event(project_id, {"type": "simulation_started", "kind": kind})
     store = get_store()
     scene = load_scene_or_404(store, project_id)
     library = store.load_materials(project_id)
@@ -141,7 +198,8 @@ def _run_simulation(
         result = backend.simulate_radio_map(project_dir, scene, library, config)
 
     return _persist_result(
-        project_id, scene, project_dir, kind, backend.name, config.id, result
+        project_id, scene, project_dir, kind, backend.name, config.id, result,
+        config=config,
     )
 
 
@@ -186,6 +244,51 @@ def simulate_radio_map(
     return _run_simulation(project_id, request, "radio_map")
 
 
+@router.post(
+    "/projects/{project_id}/simulate/mesh-radio-map",
+    response_model=MeshRadioMapResultSet,
+)
+def simulate_mesh_radio_map(
+    project_id: str, request: MeshRadioMapRequest
+) -> MeshRadioMapResultSet:
+    """Per-triangle coverage on the requested prims' surfaces (facades,
+    roads, floors) - probe receivers at triangle centers, chunk-solved with
+    the active backend."""
+    from app.services.events import publish_event
+    from app.services.mesh_radio_map import mesh_radio_map
+
+    publish_event(project_id, {"type": "simulation_started", "kind": "mesh_radio_map"})
+    store = get_store()
+    scene = load_scene_or_404(store, project_id)
+    library = store.load_materials(project_id)
+    config = _resolve_config(
+        scene, SimulateRequest(config_id=request.config_id, config=request.config)
+    )
+    try:
+        backend = resolve_backend(config)
+    except BackendUnavailableError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    project_dir = store.resolve(project_id)
+    try:
+        result = mesh_radio_map(backend, project_dir, scene, library, config, request)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return _persist_result(
+        project_id, scene, project_dir, "mesh_radio_map", backend.name, config.id,
+        result, config=config,
+    )
+
+
+@router.get(
+    "/projects/{project_id}/results/mesh-radio-map",
+    response_model=MeshRadioMapResultSet,
+)
+def get_mesh_radio_map_result(
+    project_id: str, result_id: Optional[str] = Query(default=None)
+) -> MeshRadioMapResultSet:
+    return MeshRadioMapResultSet(**_load_result(project_id, "mesh_radio_map", result_id))
+
+
 @router.get("/projects/{project_id}/results/paths", response_model=PathResultSet)
 def get_paths_result(
     project_id: str, result_id: Optional[str] = Query(default=None)
@@ -210,8 +313,10 @@ def get_radio_map_result(
 def simulate_trajectory(
     project_id: str, request: TrajectorySimulateRequest
 ) -> TrajectoryResultSet:
+    from app.services.events import publish_event
     from app.services.trajectory import run_trajectory
 
+    publish_event(project_id, {"type": "simulation_started", "kind": "trajectory"})
     store = get_store()
     scene = load_scene_or_404(store, project_id)
     library = store.load_materials(project_id)
@@ -230,7 +335,8 @@ def simulate_trajectory(
         raise HTTPException(status_code=400, detail=str(exc))
 
     return _persist_result(
-        project_id, scene, project_dir, "trajectory", backend.name, config.id, result
+        project_id, scene, project_dir, "trajectory", backend.name, config.id, result,
+        config=config,
     )
 
 

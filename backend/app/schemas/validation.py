@@ -14,6 +14,11 @@ Issue codes (stable identifiers used by tests and the frontend):
 - UNKNOWN_MATERIAL_CATEGORY material category is not recognized
 - MATERIAL_OUT_OF_BAND      ITU material used beyond its valid frequency band
                             (e.g. ITU ground models above ~10 GHz at mmWave)
+- TOO_MANY_TRIANGLES       prim/scene geometry is very dense (RT will be slow)
+- NON_MANIFOLD_OR_OPEN_MESH loaded geometry is not watertight (info; normal for
+                            building shells but transmission behaves differently)
+- SCALE_SUSPICIOUS         loaded geometry AABB is implausibly tiny or huge
+                            (likely a unit/import scale error)
 """
 
 from typing import Literal, Optional
@@ -31,6 +36,10 @@ class ValidationIssue(StrictModel):
     message: str
     prim_id: Optional[str] = None
     device_id: Optional[str] = None
+    # 1-3 concrete, actionable next steps the UI can surface as buttons/hints
+    # (e.g. "Assign an RF material in the RF Materials tab"). Empty is allowed
+    # for codes with no obvious remedy.
+    suggested_actions: list[str] = Field(default_factory=list)
 
 
 class ValidationReport(StrictModel):

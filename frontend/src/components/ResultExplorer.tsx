@@ -2,8 +2,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useAppStore } from "../store/appStore";
 import { api, ApiError } from "../api/client";
 import BeamSweepHeatmap from "./BeamSweepHeatmap";
-import { PATH_COLORS, SELECTED_PATH_COLOR, formatVec } from "./common";
+import AngularPlot from "./AngularPlot";
+import { PATH_COLORS, SELECTED_PATH_COLOR, formatVec, materialById } from "./common";
+import { exportCsv } from "../charts";
 import { filterPaths, pathColor, pathDepth, powerRange } from "../pathFilter";
+import { meshRadioMapRange } from "./MeshRadioMapOverlay";
 import type { ColorBy } from "../store/appStore";
 import type {
   BeamformingResult,
@@ -13,6 +16,7 @@ import type {
   LinkMetrics,
   PathType,
   RayPath,
+  RFMaterialLibrary,
   ScenarioResultSet,
   TrajectoryResultSet,
   Vec3,
@@ -23,7 +27,11 @@ const SELECTED_COLOR = SELECTED_PATH_COLOR;
 /** "Scene changed since this was computed" badge. Results never silently
  *  present outdated numbers: the chip appears as soon as any scene edit
  *  (device/actor/material move, live sync) postdates the computation. */
-export function StaleChip({ kind }: { kind: "paths" | "channel" | "trajectory" | "beamforming" }) {
+export function StaleChip({
+  kind,
+}: {
+  kind: "paths" | "channel" | "trajectory" | "beamforming" | "mesh_radio_map";
+}) {
   const sceneEpoch = useAppStore((st) => st.sceneEpoch);
   const at = useAppStore((st) => st.resultEpochs[kind]);
   if (at === undefined || at === sceneEpoch) return null;
@@ -118,6 +126,11 @@ function DelayPowerScatter({
 
 function PathDetail({ path }: { path: RayPath }) {
   const selectPrim = useAppStore((s) => s.selectPrim);
+  // Em-dash when an angle pair is unavailable (backend could not report it).
+  const deg = (v: number | null | undefined) =>
+    v === null || v === undefined ? "—" : `${v.toFixed(1)}°`;
+  const aod = path.aod_deg;
+  const aoa = path.aoa_deg;
   return (
     <div className="path-detail">
       <h4>
@@ -125,8 +138,16 @@ function PathDetail({ path }: { path: RayPath }) {
       </h4>
       <div className="results-meta">
         <span className="mono">{path.tx_id}</span> → <span className="mono">{path.rx_id}</span> ·{" "}
-        {path.power_dbm.toFixed(1)} dBm · {path.delay_ns.toFixed(1)} ns · phase{" "}
-        {path.phase_rad.toFixed(2)} rad
+        {path.power_dbm.toFixed(1)} dBm
+        {path.path_gain_db !== null && path.path_gain_db !== undefined && (
+          <> · gain {path.path_gain_db.toFixed(1)} dB</>
+        )}{" "}
+        · {path.delay_ns.toFixed(1)} ns · phase {path.phase_rad.toFixed(2)} rad
+      </div>
+      <div className="results-meta">
+        AoD az/el <span className="mono">{deg(aod?.[0])}</span> /{" "}
+        <span className="mono">{deg(aod?.[1])}</span> · AoA az/el{" "}
+        <span className="mono">{deg(aoa?.[0])}</span> / <span className="mono">{deg(aoa?.[1])}</span>
       </div>
       <h4>Vertices ({path.vertices.length})</h4>
       <ol>
@@ -1407,6 +1428,234 @@ function BeamformingCard({ beamforming: b }: { beamforming: BeamformingResult })
   );
 }
 
+// ------------------------------------------------- filtered-paths CSV export
+
+/** Export the CURRENT filtered path set as CSV (same download helper as the
+ *  paper charts). One row per path; interaction materials are joined. */
+function exportFilteredPathsCsv(paths: RayPath[]): void {
+  const num = (v: number | null | undefined) =>
+    v === null || v === undefined ? null : Math.round(v * 1000) / 1000;
+  const rows = paths.map((p) => {
+    const mats = [
+      ...new Set(
+        p.interactions.map((it) => it.rf_material_id).filter((m): m is string => m !== null),
+      ),
+    ].join(" ");
+    return [
+      p.path_id,
+      p.tx_id,
+      p.rx_id,
+      p.path_type,
+      num(p.power_dbm),
+      num(p.path_gain_db),
+      num(p.delay_ns),
+      num(p.aod_deg?.[0] ?? null),
+      num(p.aod_deg?.[1] ?? null),
+      num(p.aoa_deg?.[0] ?? null),
+      num(p.aoa_deg?.[1] ?? null),
+      p.interactions.length,
+      mats,
+    ] as (string | number | null)[];
+  });
+  exportCsv(
+    "filtered_paths",
+    [
+      "path_id",
+      "tx",
+      "rx",
+      "type",
+      "power_dbm",
+      "path_gain_db",
+      "delay_ns",
+      "aod_az",
+      "aod_el",
+      "aoa_az",
+      "aoa_el",
+      "n_interactions",
+      "interaction_materials",
+    ],
+    rows,
+  );
+}
+
+// ----------------------------------------------- material-hit filter chips
+
+/** Toggleable chips of the distinct interaction materials in the current
+ *  result. Empty selection = all (mirrors the pathType "all" chip pattern). */
+function MaterialFilterChips({
+  present,
+  materialFilter,
+  toggle,
+  clearAll,
+  library,
+}: {
+  present: string[];
+  materialFilter: string[];
+  toggle: (id: string) => void;
+  clearAll: () => void;
+  library: RFMaterialLibrary | null;
+}) {
+  if (present.length === 0) return null;
+  const allActive = materialFilter.length === 0;
+  return (
+    <div className="chips">
+      <span className="overlay-toggles-label">Materials:</span>
+      <span
+        className={"chip clickable" + (allActive ? " active" : "")}
+        onClick={clearAll}
+      >
+        all
+      </span>
+      {present.map((id) => {
+        const mat = materialById(library, id);
+        const color = mat?.preview_color ?? "#3a4450";
+        const on = materialFilter.includes(id);
+        return (
+          <span
+            key={id}
+            className={"chip clickable" + (on ? " active" : "")}
+            style={on ? { borderColor: color, color } : {}}
+            title={mat ? `${mat.display_name} (${id})` : id}
+            onClick={() => toggle(id)}
+          >
+            <span className="dot" style={{ background: color }} /> {mat?.display_name ?? id}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+// ----------------------------------------------------- collapsible section
+
+/** Lightweight collapsible wrapper (no index.css dependency): a header row that
+ *  toggles its children. Inline-styled to stay self-contained. */
+function Collapsible({
+  title,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div style={{ marginTop: 10 }}>
+      <div
+        onClick={() => setOpen((o) => !o)}
+        style={{
+          cursor: "pointer",
+          userSelect: "none",
+          fontWeight: 600,
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+        }}
+      >
+        <span style={{ fontSize: "0.8em", opacity: 0.7 }}>{open ? "▾" : "▸"}</span>
+        {title}
+      </div>
+      {open && <div style={{ marginTop: 8 }}>{children}</div>}
+    </div>
+  );
+}
+
+// ------------------------------------------------------- mesh radio map
+
+/** "Mesh radio map" section: run over the current selection, toggle the
+ *  overlay, and show a jet legend with the metric range + tx/backend line. */
+function MeshRadioMapSection() {
+  const meshRadioMap = useAppStore((s) => s.meshRadioMap);
+  const simulateMeshRadioMap = useAppStore((s) => s.simulateMeshRadioMap);
+  const removeMeshRadioMap = useAppStore((s) => s.removeMeshRadioMap);
+  const showMeshRadioMap = useAppStore((s) => s.showMeshRadioMap);
+  const toggleOverlay = useAppStore((s) => s.toggleOverlay);
+  const selection = useAppStore((s) => s.selection);
+  const projectId = useAppStore((s) => s.projectId);
+  const busy = useAppStore((s) => s.busy);
+  const disabled = !projectId || busy !== null;
+  const noSelection = selection.length === 0;
+
+  const range = meshRadioMap ? meshRadioMapRange(meshRadioMap) : null;
+  const unit = meshRadioMap?.metric === "rss_dbm" ? "dBm" : "dB";
+  const totalTris = meshRadioMap
+    ? meshRadioMap.surfaces.reduce((n, s) => n + s.triangle_count, 0)
+    : 0;
+
+  return (
+    <Collapsible title="Mesh radio map">
+      <p className="hint">
+        Samples the RF metric on the triangles of the SELECTED surface prims and
+        drapes it on the geometry (distinct from the flat radio-map plane).
+      </p>
+      <div className="panel-actions">
+        <button
+          className="primary"
+          disabled={disabled || noSelection}
+          title={
+            noSelection
+              ? "Select one or more surface prims first (in Visual/RF mode)"
+              : `Run over ${selection.length} selected prim(s)`
+          }
+          onClick={() => void simulateMeshRadioMap()}
+        >
+          Run mesh radio map
+        </button>
+        {meshRadioMap && meshRadioMap.surfaces.length > 0 && (
+          <button
+            disabled={disabled}
+            title="Discard the mesh radio map result"
+            onClick={removeMeshRadioMap}
+          >
+            Clear
+          </button>
+        )}
+      </div>
+      {noSelection && (
+        <p className="hint">No surfaces selected — the run button is disabled.</p>
+      )}
+      {meshRadioMap && meshRadioMap.surfaces.length > 0 && (
+        <>
+          <div className="overlay-toggles">
+            <span className="overlay-toggles-label">Show:</span>
+            <label>
+              <input
+                type="checkbox"
+                checked={showMeshRadioMap}
+                onChange={() => toggleOverlay("meshRadioMap")}
+              />{" "}
+              Mesh map
+            </label>
+          </div>
+          <div className="results-meta">
+            <StaleChip kind="mesh_radio_map" /> · tx{" "}
+            <span className="mono">{meshRadioMap.tx_id}</span> · backend{" "}
+            <span className="mono">{meshRadioMap.backend}</span> ·{" "}
+            {meshRadioMap.surfaces.length} surface(s) · {totalTris} triangle(s)
+          </div>
+          {range && (
+            <div className="results-meta">
+              {meshRadioMap.metric === "rss_dbm" ? "RSS" : "Path gain"} range{" "}
+              <span className="mono">
+                {range[0].toFixed(1)} … {range[1].toFixed(1)} {unit}
+              </span>{" "}
+              (jet: low → high)
+            </div>
+          )}
+          {meshRadioMap.warnings.length > 0 && (
+            <div className="ai-note">
+              {meshRadioMap.warnings.map((w, i) => (
+                <div key={i}>{w}</div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </Collapsible>
+  );
+}
+
 export default function ResultExplorer() {
   const pathResults = useAppStore((s) => s.pathResults);
   const selectedPathId = useAppStore((s) => s.selectedPathId);
@@ -1416,6 +1665,7 @@ export default function ResultExplorer() {
   const runBeamforming = useAppStore((s) => s.runBeamforming);
   const radioMap = useAppStore((s) => s.radioMap);
   const beamforming = useAppStore((s) => s.beamforming);
+  const materials = useAppStore((s) => s.materials);
   const showPaths = useAppStore((s) => s.showPaths);
   const showRadioMap = useAppStore((s) => s.showRadioMap);
   const showBeamforming = useAppStore((s) => s.showBeamforming);
@@ -1434,6 +1684,9 @@ export default function ResultExplorer() {
   const hiddenLinkDevices = useAppStore((s) => s.hiddenLinkDevices);
   const toggleLinkDevice = useAppStore((s) => s.toggleLinkDevice);
   const setHiddenLinkDevices = useAppStore((s) => s.setHiddenLinkDevices);
+  const materialFilter = useAppStore((s) => s.materialFilter);
+  const toggleMaterialFilter = useAppStore((s) => s.toggleMaterialFilter);
+  const setMaterialFilter = useAppStore((s) => s.setMaterialFilter);
 
   // Reset every path filter to its default so a hidden set becomes visible again.
   const resetFilters = () => {
@@ -1441,6 +1694,7 @@ export default function ResultExplorer() {
     setStrongestN(50);
     setMinPowerDbm(null);
     setHiddenLinkDevices([]);
+    setMaterialFilter([]);
   };
 
   const [sortKey, setSortKey] = useState<SortKey>("power_dbm");
@@ -1463,7 +1717,19 @@ export default function ResultExplorer() {
     return { txs: [...txs].sort(), rxs: [...rxs].sort() };
   }, [pathResults]);
 
-  // The set the viewer draws (type filter + min power + strongest N).
+  // Distinct RF materials hit by any interaction in the current result, for the
+  // material-hit filter chips (mirrors the per-link chips).
+  const presentMaterials = useMemo(() => {
+    const ids = new Set<string>();
+    for (const p of pathResults?.paths ?? []) {
+      for (const it of p.interactions) {
+        if (it.rf_material_id) ids.add(it.rf_material_id);
+      }
+    }
+    return [...ids].sort();
+  }, [pathResults]);
+
+  // The set the viewer draws (type + material + min power + strongest N).
   const visible = useMemo(
     () =>
       filterPaths(pathResults?.paths ?? [], {
@@ -1471,8 +1737,9 @@ export default function ResultExplorer() {
         strongestN,
         minPowerDbm,
         hiddenLinkDevices,
+        materialFilter,
       }),
-    [pathResults, filter, strongestN, minPowerDbm, hiddenLinkDevices],
+    [pathResults, filter, strongestN, minPowerDbm, hiddenLinkDevices, materialFilter],
   );
   const range = useMemo(() => powerRange(visible), [visible]);
 
@@ -1621,9 +1888,20 @@ export default function ResultExplorer() {
               <>
                 {" "}
                 · radio map <span className="mono">{radioMap.result_id}</span>
+                {" · "}
+                {radioMap.metric === "sinr_db"
+                  ? "SINR (dB)"
+                  : radioMap.metric === "rss_dbm"
+                    ? "RSS (dBm)"
+                    : "Path gain (dB)"}
               </>
             )}
           </div>
+          {radioMap && radioMap.serving_tx && (
+            <div className="results-meta">
+              serving-TX association available ({radioMap.tx_ids.length} TX)
+            </div>
+          )}
           {pathResults.warnings.length > 0 && (
             <div className="ai-note">
               {pathResults.warnings.map((w, i) => (
@@ -1653,6 +1931,14 @@ export default function ResultExplorer() {
             ))}
           </div>
 
+          <MaterialFilterChips
+            present={presentMaterials}
+            materialFilter={materialFilter}
+            toggle={toggleMaterialFilter}
+            clearAll={() => setMaterialFilter([])}
+            library={materials}
+          />
+
           {visible.length === 0 && pathResults.paths.length > 0 ? (
             // All paths hidden by the active filters: the table/scatter would
             // silently vanish, so surface a recoverable empty state (F10).
@@ -1664,6 +1950,15 @@ export default function ResultExplorer() {
             </div>
           ) : (
             <>
+              <div className="panel-actions">
+                <button
+                  disabled={visible.length === 0}
+                  title="Download the currently filtered paths as CSV"
+                  onClick={() => exportFilteredPathsCsv(visible)}
+                >
+                  Export filtered CSV ({visible.length})
+                </button>
+              </div>
               <table className="results-table">
                 <thead>
                   <tr>
@@ -1709,10 +2004,16 @@ export default function ResultExplorer() {
                   onSelect={(id) => selectPath(id)}
                 />
               )}
+
+              <Collapsible title="AoA / AoD">
+                <AngularPlot paths={visible} />
+              </Collapsible>
             </>
           )}
         </>
       )}
+
+      <MeshRadioMapSection />
       </div>
     </>
   );

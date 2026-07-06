@@ -15,9 +15,11 @@ export type Vec4 = [number, number, number, number];
 export type AssignmentStatus =
   | "unassigned"
   | "rule_suggested"
+  | "rule_assigned"
   | "ai_suggested"
   | "user_confirmed"
-  | "measurement_calibrated";
+  | "measurement_calibrated"
+  | "rejected";
 
 // ----------------------------------------------------------------- scene
 
@@ -102,7 +104,11 @@ export interface Device {
 export interface RadioMapGridConfig {
   cell_size_m: number;
   height_m: number;
-  metric: "path_gain_db" | "rss_dbm";
+  metric: "path_gain_db" | "rss_dbm" | "sinr_db";
+  // Region refinement: recenter/resize the sampled patch (world XY meters).
+  // null = derive from the scene bounds like before.
+  center_xy?: [number, number] | null;
+  size_xy?: [number, number] | null;
 }
 
 export interface SimulationConfig {
@@ -134,7 +140,7 @@ export interface SimulationConfig {
 
 export interface ResultSetRef {
   result_id: string;
-  kind: "paths" | "radio_map" | "trajectory" | "scenario";
+  kind: "paths" | "radio_map" | "mesh_radio_map" | "trajectory" | "scenario";
   backend: string;
   simulation_config_id: string;
   uri: string;
@@ -271,6 +277,9 @@ export interface ValidationIssue {
   message: string;
   prim_id: string | null;
   device_id: string | null;
+  // Machine-actionable remediation hints (rendered by the validation panel,
+  // owned by a sibling; typed here so the shape is shared).
+  suggested_actions: string[];
 }
 
 export interface ValidationReport {
@@ -328,10 +337,16 @@ export interface RayPath {
   path_type: PathType;
   vertices: Vec3[];
   power_dbm: number;
+  // Free-space-independent channel gain of this path (dB). Null when the
+  // backend cannot report it separately from power.
+  path_gain_db?: number | null;
   delay_ns: number;
   phase_rad: number;
-  aod_deg: number[] | null;
-  aoa_deg: number[] | null;
+  // [azimuth_deg, elevation_deg] | null. AoD points FROM the TX toward the
+  // departing ray; AoA points FROM the RX toward the incoming ray. Elevation
+  // is measured up from the XY plane.
+  aod_deg: [number, number] | null;
+  aoa_deg: [number, number] | null;
   interactions: PathInteraction[];
 }
 
@@ -361,9 +376,14 @@ export interface RadioMapResultSet {
   simulation_config_id: string;
   created_at: string | null;
   tx_id: string;
-  metric: "path_gain_db" | "rss_dbm";
+  // Every TX contributing to the map (single-element for the legacy 1-TX case).
+  tx_ids: string[];
+  metric: "path_gain_db" | "rss_dbm" | "sinr_db";
   grid: RadioMapGrid;
   values: (number | null)[][];
+  // Per-cell serving-TX association: index into tx_ids (null = no serving TX).
+  // Only populated for multi-TX maps; null otherwise.
+  serving_tx?: (number | null)[][] | null;
   warnings: string[];
   metadata: Record<string, unknown>;
 }
@@ -371,6 +391,59 @@ export interface RadioMapResultSet {
 export interface SimulateRequest {
   config_id?: string | null;
   config?: SimulationConfig | null;
+}
+
+// ------------------------------------------------------- mesh radio map
+// Radio-map samples projected ONTO the triangles of specific surfaces
+// (a "material response" heatmap draped on the geometry), rather than on a
+// flat sampling plane.
+
+export interface MeshRadioMapRequest {
+  config_id?: string | null;
+  config?: SimulationConfig | null;
+  // The prims whose surfaces to sample (at least one).
+  prim_ids: string[];
+  tx_id?: string | null;
+  metric?: "path_gain_db" | "rss_dbm";
+  // Cap the sampled triangles per surface (uniform stride to stay under it).
+  max_triangles?: number;
+  // Lift sample points off the surface along the normal (meters) so the source
+  // ray does not start embedded in the wall.
+  offset_m?: number;
+}
+
+export interface MeshRadioMapSurface {
+  prim_id: string;
+  mesh_ref?: string | null;
+  triangle_count: number;
+  // One entry per sampled triangle: face centroid, outward normal, metric value.
+  centers: Vec3[];
+  normals: Vec3[];
+  values: (number | null)[];
+  // Stride used to subsample triangles (1 = every triangle).
+  sample_stride: number;
+}
+
+export interface MeshRadioMapResultSet {
+  result_id: string;
+  kind: "mesh_radio_map";
+  backend: string;
+  simulation_config_id: string;
+  created_at?: string | null;
+  tx_id: string;
+  metric: "path_gain_db" | "rss_dbm";
+  surfaces: MeshRadioMapSurface[];
+  warnings: string[];
+  metadata: Record<string, unknown>;
+}
+
+// GET /api/backends entry: which solver backends exist, whether they can run,
+// and a free-form capability bag (has_radio_map, mesh_radio_map, sinr, ...).
+export interface BackendCapabilities {
+  name: string;
+  available: boolean;
+  detail: string;
+  capabilities: Record<string, unknown>;
 }
 
 export interface TrajectorySample {

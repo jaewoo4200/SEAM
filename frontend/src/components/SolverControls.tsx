@@ -174,6 +174,59 @@ function Mechanisms({
   );
 }
 
+// Accuracy presets: coarse "how hard should the solver work" knob mapping to a
+// (num_samples, max_depth) pair. Highlighted when the live config matches one.
+const ACCURACY_PRESETS: { id: string; label: string; num_samples: number; max_depth: number }[] = [
+  { id: "preview", label: "Preview", num_samples: 1e5, max_depth: 2 },
+  { id: "balanced", label: "Balanced", num_samples: 1e6, max_depth: 3 },
+  { id: "high", label: "High", num_samples: 5e6, max_depth: 5 },
+];
+
+/** Which accuracy preset the live config matches ("custom" if none). */
+function detectAccuracy(config: SimulationConfig): string {
+  const hit = ACCURACY_PRESETS.find(
+    (p) => config.num_samples === p.num_samples && config.max_depth === p.max_depth,
+  );
+  return hit ? hit.id : "custom";
+}
+
+/** [Preview | Balanced | High] segmented control that patches both
+ *  num_samples and max_depth at once. */
+function AccuracyPresets({
+  config,
+  patch,
+  disabled,
+}: {
+  config: SimulationConfig;
+  patch: (p: Partial<SimulationConfig>) => void;
+  disabled: boolean;
+}) {
+  const active = detectAccuracy(config);
+  return (
+    <div className="solver-field">
+      <span className="solver-field-label">Accuracy</span>
+      <div className="accuracy-preset" role="group" aria-label="Accuracy preset">
+        {ACCURACY_PRESETS.map((p) => (
+          <button
+            key={p.id}
+            className={"accuracy-btn" + (active === p.id ? " active" : "")}
+            disabled={disabled}
+            title={`${p.num_samples.toLocaleString()} samples/it · depth ${p.max_depth}`}
+            onClick={() => patch({ num_samples: p.num_samples, max_depth: p.max_depth })}
+          >
+            {p.label}
+          </button>
+        ))}
+        {active === "custom" && (
+          <span className="accuracy-btn accuracy-custom" title="Config does not match a preset">
+            Custom
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /** Max depth + samples-log10 sliders shared by both solver sections. */
 function DepthAndSamples({
   config,
@@ -187,6 +240,7 @@ function DepthAndSamples({
   const log = samplesLog10(config);
   return (
     <>
+      <AccuracyPresets config={config} patch={patch} disabled={disabled} />
       <Slider
         label="Max depth"
         value={config.max_depth}
@@ -567,6 +621,7 @@ function RadioMapSection() {
         >
           <option value="path_gain_db">path_gain_db</option>
           <option value="rss_dbm">rss_dbm</option>
+          <option value="sinr_db">SINR (multi-TX)</option>
         </select>
       </label>
       <DepthAndSamples config={config} patch={patch} disabled={disabled} />

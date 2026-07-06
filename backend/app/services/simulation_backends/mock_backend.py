@@ -24,7 +24,11 @@ from app.schemas.results import (
 from app.schemas.scene import Prim, Scene
 from app.schemas.simulation import BeamformingRequest, SimulationConfig
 
-from .base import UNSAVED_RESULT_ID, RayTracingBackend
+from .base import (
+    UNSAVED_RESULT_ID,
+    RayTracingBackend,
+    geometric_departure_arrival_deg,
+)
 
 SPEED_OF_LIGHT = 299_792_458.0
 ENGINE = "mock-deterministic-v2"
@@ -116,11 +120,25 @@ def _find_wall_prim(scene: Scene) -> Optional[Prim]:
     return fallback
 
 
+def _finish_path(path: RayPath, tx_power_dbm: float) -> RayPath:
+    """Stamp the derived per-path fields every mock path shares."""
+    path.path_gain_db = path.power_dbm - tx_power_dbm
+    path.aod_deg, path.aoa_deg = geometric_departure_arrival_deg(path.vertices)
+    return path
+
+
 class MockBackend(RayTracingBackend):
     name = "mock"
 
     def is_available(self) -> bool:
         return True
+
+    def capabilities(self) -> dict:
+        return {
+            **super().capabilities(),
+            "beamforming": True,  # analytic array-gain stub
+            "deterministic": True,
+        }
 
     # ------------------------------------------------------------- paths
 
@@ -157,17 +175,22 @@ class MockBackend(RayTracingBackend):
         for tx in txs:
             for rx in rxs:
                 if config.los:
-                    paths.append(self._los_path(next_id(), tx, rx, config))
+                    paths.append(
+                        _finish_path(self._los_path(next_id(), tx, rx, config), tx.power_dbm)
+                    )
                 if reflections_on:
                     ground = self._ground_bounce_path(
                         next_id, tx, rx, config, ground_prim, library
                     )
                     if ground is not None:
-                        paths.append(ground)
+                        paths.append(_finish_path(ground, tx.power_dbm))
                     if wall_prim is not None:
                         paths.append(
-                            self._wall_bounce_path(
-                                next_id(), tx, rx, config, wall_prim, wall_anchor_xy, library
+                            _finish_path(
+                                self._wall_bounce_path(
+                                    next_id(), tx, rx, config, wall_prim, wall_anchor_xy, library
+                                ),
+                                tx.power_dbm,
                             )
                         )
 
@@ -332,17 +355,25 @@ class MockBackend(RayTracingBackend):
         txs = _select_devices(scene, "tx", config.tx_ids)
         warnings: list[str] = []
 
-        # Grid extent: union bbox of all device positions and prim anchors,
-        # padded 20 m so coverage extends beyond the built geometry.
-        points = [d.position for d in scene.devices]
-        points += [p.transform.translation for p in scene.prims]
-        if not points:
-            points = [[0.0, 0.0, 0.0]]
-        pad = 20.0
-        xmin = min(p[0] for p in points) - pad
-        xmax = max(p[0] for p in points) + pad
-        ymin = min(p[1] for p in points) - pad
-        ymax = max(p[1] for p in points) + pad
+        # Grid extent: explicit override when the request pins a region
+        # (refinement), otherwise the union bbox of device positions and prim
+        # anchors padded 20 m so coverage extends beyond the built geometry.
+        rm_cfg = config.radio_map
+        if rm_cfg.center_xy is not None and rm_cfg.size_xy is not None:
+            xmin = rm_cfg.center_xy[0] - rm_cfg.size_xy[0] / 2.0
+            xmax = rm_cfg.center_xy[0] + rm_cfg.size_xy[0] / 2.0
+            ymin = rm_cfg.center_xy[1] - rm_cfg.size_xy[1] / 2.0
+            ymax = rm_cfg.center_xy[1] + rm_cfg.size_xy[1] / 2.0
+        else:
+            points = [d.position for d in scene.devices]
+            points += [p.transform.translation for p in scene.prims]
+            if not points:
+                points = [[0.0, 0.0, 0.0]]
+            pad = 20.0
+            xmin = min(p[0] for p in points) - pad
+            xmax = max(p[0] for p in points) + pad
+            ymin = min(p[1] for p in points) - pad
+            ymax = max(p[1] for p in points) + pad
 
         cell = config.radio_map.cell_size_m
         height = config.radio_map.height_m
@@ -383,31 +414,57 @@ class MockBackend(RayTracingBackend):
                 metadata={"frequency_hz": config.frequency_hz, "engine": ENGINE},
             )
 
+        # Per-cell, per-TX received power (dBm), then reduce to the requested
+        # metric. serving_tx records the strongest TX index per cell so multi
+        # TX coverage maps show cell association, and sinr_db uses the true
+        # S / (I + N) split.
+        from .sionna_backend import noise_floor_dbm
+
+        noise_w = 10.0 ** (noise_floor_dbm(config) / 10.0)
+        multi_tx = len(txs) > 1
         values: list[list[Optional[float]]] = []
+        serving: list[list[Optional[int]]] = []
         for j in range(ny):
             row: list[Optional[float]] = []
+            srow: list[Optional[int]] = []
             cy = ymin + (j + 0.5) * cell
             for i in range(nx):
                 cx = xmin + (i + 0.5) * cell
-                best: Optional[float] = None
-                for tx in txs:
-                    d = _dist([cx, cy, height], tx.position)
-                    v = friis_dbm(tx.power_dbm, config.frequency_hz, d)
-                    if metric == "path_gain_db":
-                        v -= tx.power_dbm
-                    if best is None or v > best:
-                        best = v
                 # Deterministic ripple stands in for multipath fading.
-                row.append(best + 6.0 * math.sin(0.35 * i) * math.cos(0.35 * j))
+                ripple = 6.0 * math.sin(0.35 * i) * math.cos(0.35 * j)
+                rss = [
+                    friis_dbm(
+                        tx.power_dbm,
+                        config.frequency_hz,
+                        _dist([cx, cy, height], tx.position),
+                    )
+                    + ripple
+                    for tx in txs
+                ]
+                best_idx = max(range(len(rss)), key=lambda k: rss[k])
+                srow.append(best_idx if multi_tx else None)
+                if metric == "sinr_db":
+                    s_w = 10.0 ** (rss[best_idx] / 10.0)
+                    i_w = sum(
+                        10.0 ** (v / 10.0) for k, v in enumerate(rss) if k != best_idx
+                    )
+                    row.append(10.0 * math.log10(s_w / (i_w + noise_w)))
+                elif metric == "path_gain_db":
+                    row.append(rss[best_idx] - txs[best_idx].power_dbm)
+                else:
+                    row.append(rss[best_idx])
             values.append(row)
+            serving.append(srow)
 
         metadata = {
             "frequency_hz": config.frequency_hz,
             "num_tx": len(txs),
             "engine": ENGINE,
         }
-        if len(txs) > 1:
-            metadata["multi_tx"] = "cell values are the max over all transmitters"
+        if multi_tx:
+            metadata["multi_tx"] = (
+                "cells show the serving (strongest) transmitter; see serving_tx"
+            )
 
         return RadioMapResultSet(
             result_id=UNSAVED_RESULT_ID,
@@ -417,6 +474,8 @@ class MockBackend(RayTracingBackend):
             metric=metric,
             grid=grid,
             values=values,
+            tx_ids=[t.id for t in txs],
+            serving_tx=serving if multi_tx else None,
             warnings=warnings,
             metadata=metadata,
         )

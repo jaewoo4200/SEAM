@@ -27,9 +27,11 @@ export const SELECTED_PATH_COLOR = "#ffee58";
 export const STATUS_COLORS: Record<AssignmentStatus, string> = {
   unassigned: "#ff9800",
   rule_suggested: "#ffd54f",
+  rule_assigned: "#9ccc65",
   ai_suggested: "#ffd54f",
   user_confirmed: "#66bb6a",
   measurement_calibrated: "#29b6f6",
+  rejected: "#e57373",
 };
 
 export const SEVERITY_COLORS: Record<Severity, string> = {

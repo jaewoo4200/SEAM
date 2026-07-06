@@ -1,12 +1,34 @@
+import { useState } from "react";
 import { useAppStore } from "../store/appStore";
 import { SEVERITY_COLORS } from "./common";
 import type { Severity, ValidationIssue } from "../types/api";
 
 const SEVERITY_ORDER: Severity[] = ["error", "warning", "info"];
 
+// The AI explain-validation route is not (yet) on the shared `api` client
+// (api/client.ts is owned by a sibling). Call it directly with the same
+// relative-"/api" base the client uses so the dev/prod proxy routes it.
+const API_BASE = "/api";
+
+interface ExplainValidationResponse {
+  explanation: string;
+  provider: string;
+  model?: string | null;
+  warnings: string[];
+}
+
+/** Suggested next actions the backend attaches to an issue. Read defensively:
+ *  `ValidationIssue.suggested_actions` lands via a sibling contract this wave
+ *  and may not be on the pinned type yet. */
+function issueActions(issue: ValidationIssue): string[] {
+  const a = (issue as { suggested_actions?: string[] | null }).suggested_actions;
+  return Array.isArray(a) ? a : [];
+}
+
 function IssueRow({ issue }: { issue: ValidationIssue }) {
   const selectPrim = useAppStore((s) => s.selectPrim);
   const selectDevice = useAppStore((s) => s.selectDevice);
+  const actions = issueActions(issue);
   return (
     <div
       className="issue-row"
@@ -34,7 +56,66 @@ function IssueRow({ issue }: { issue: ValidationIssue }) {
             <span className="issue-prim">{issue.device_id}</span>
           </>
         )}
+        {actions.length > 0 && (
+          <ul className="issue-actions">
+            {actions.map((a, i) => (
+              <li key={i}>{a}</li>
+            ))}
+          </ul>
+        )}
       </span>
+    </div>
+  );
+}
+
+/** Panel-level "explain the whole report in prose" affordance. */
+function ExplainWithAI() {
+  const projectId = useAppStore((s) => s.projectId);
+  const [explanation, setExplanation] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const explain = async () => {
+    if (!projectId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE}/projects/${projectId}/ai/explain-validation`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) {
+        if (res.status === 409) {
+          throw new Error(
+            "No local LLM available — start a provider (e.g. Ollama) to explain validation.",
+          );
+        }
+        let detail = `${res.status} ${res.statusText}`;
+        try {
+          const data = (await res.json()) as { detail?: unknown };
+          if (typeof data.detail === "string") detail = data.detail;
+        } catch {
+          /* non-JSON */
+        }
+        throw new Error(detail);
+      }
+      const data = (await res.json()) as ExplainValidationResponse;
+      setExplanation(data.explanation);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="validation-explain">
+      <button disabled={!projectId || busy} onClick={() => void explain()}>
+        {busy ? "Explaining…" : "Explain with AI"}
+      </button>
+      {error && <div className="disambig-error">{error}</div>}
+      {explanation && <div className="explain-block">{explanation}</div>}
     </div>
   );
 }
@@ -74,6 +155,8 @@ export default function ValidationPanel() {
               {validation.ok ? "ok" : "blocked"}
             </span>
           </div>
+
+          <ExplainWithAI />
 
           {validation.issues.length === 0 ? (
             <div className="empty-state">No issues — the scene is ready to compile.</div>

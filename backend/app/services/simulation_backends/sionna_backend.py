@@ -30,7 +30,11 @@ from app.schemas.results import (
 from app.schemas.scene import Scene
 from app.schemas.simulation import BeamformingRequest, SimulationConfig
 
-from .base import UNSAVED_RESULT_ID, RayTracingBackend
+from .base import (
+    UNSAVED_RESULT_ID,
+    RayTracingBackend,
+    geometric_departure_arrival_deg,
+)
 
 # paths.objects sentinel for "no interaction at this depth" (uint32 max).
 _NO_OBJECT = 0xFFFFFFFF
@@ -329,6 +333,23 @@ class SionnaBackend(RayTracingBackend):
         from app.services.availability import sionna_available
 
         return sionna_available()
+
+    def capabilities(self) -> dict:
+        caps = {
+            **super().capabilities(),
+            "beamforming": True,
+            "doppler": True,
+            "diffraction": True,
+            "edge_diffraction": True,
+            "engines": True,  # alternate sionna-rt venvs via subprocess worker
+        }
+        try:  # best-effort GPU probe; never let it break the listing
+            import drjit  # type: ignore[import-not-found]  # noqa: F401
+
+            caps["gpu"] = True  # dr.jit picks CUDA when present, LLVM otherwise
+        except Exception:  # noqa: BLE001
+            caps["gpu"] = False
+        return caps
 
     # ------------------------------------------------------------- paths
 
@@ -928,6 +949,22 @@ class SionnaBackend(RayTracingBackend):
         objects = to_np(solved.objects) if hasattr(solved, "objects") else None
         itypes = to_np(solved.interactions) if hasattr(solved, "interactions") else None
 
+        def angle_tensor(name):
+            """Solver angle tensor as [num_rx, num_tx, num_paths] or None."""
+            if not hasattr(solved, name):
+                return None
+            try:
+                arr = to_np(getattr(solved, name))
+                if arr.ndim == 5:  # antenna axes present: reference element
+                    arr = arr[:, 0, :, 0, :]
+                return arr if arr.ndim == 3 else None
+            except Exception:  # noqa: BLE001 - angles are best-effort
+                return None
+
+        # Sionna zenith/azimuth (radians) for departure (t) and arrival (r).
+        theta_t, phi_t = angle_tensor("theta_t"), angle_tensor("phi_t")
+        theta_r, phi_r = angle_tensor("theta_r"), angle_tensor("phi_r")
+
         num_rx = min(tau.shape[0], len(rxs))
         num_tx = min(tau.shape[1], len(txs))
         max_paths = tau.shape[-1]
@@ -956,6 +993,23 @@ class SionnaBackend(RayTracingBackend):
                         objid_to_material, material_to_prims, np,
                     )
                     verts = [list(txs[t].position)] + bounce + [list(rxs[r].position)]
+                    # AoD/AoA as [azimuth_deg, elevation_deg]: solver tensors
+                    # when exposed (elevation = 90 - zenith), else derived from
+                    # the polyline geometry (exact for specular paths).
+                    if theta_t is not None and phi_t is not None:
+                        aod = [
+                            math.degrees(float(phi_t[r, t, p])),
+                            90.0 - math.degrees(float(theta_t[r, t, p])),
+                        ]
+                    else:
+                        aod = geometric_departure_arrival_deg(verts)[0]
+                    if theta_r is not None and phi_r is not None:
+                        aoa = [
+                            math.degrees(float(phi_r[r, t, p])),
+                            90.0 - math.degrees(float(theta_r[r, t, p])),
+                        ]
+                    else:
+                        aoa = geometric_departure_arrival_deg(verts)[1]
                     counter += 1
                     paths.append(
                         RayPath(
@@ -965,8 +1019,11 @@ class SionnaBackend(RayTracingBackend):
                             path_type=SionnaBackend._path_type(interactions),
                             vertices=verts,
                             power_dbm=power_dbm,
+                            path_gain_db=power_dbm - txs[t].power_dbm,
                             delay_ns=tau_s * 1e9,
                             phase_rad=math.atan2(amp.imag, amp.real),
+                            aod_deg=aod,
+                            aoa_deg=aoa,
                             interactions=interactions,
                         )
                     )
@@ -1096,7 +1153,12 @@ class SionnaBackend(RayTracingBackend):
         # bbox is unavailable.
         cell = float(config.radio_map.cell_size_m)
         height = float(config.radio_map.height_m)
-        cx, cy, ext_x, ext_y = self._measurement_extent(rt_scene, txs, np)
+        if config.radio_map.center_xy is not None and config.radio_map.size_xy is not None:
+            # Explicit region (refinement): solve only the requested extent.
+            cx, cy = config.radio_map.center_xy
+            ext_x, ext_y = config.radio_map.size_xy
+        else:
+            cx, cy, ext_x, ext_y = self._measurement_extent(rt_scene, txs, np)
         # Plain Python floats: mitsuba Point3f/Point2f reject numpy scalars.
         center = [float(cx), float(cy), float(height)]
         size = [float(max(ext_x, cell * 2)), float(max(ext_y, cell * 2))]
@@ -1125,17 +1187,43 @@ class SionnaBackend(RayTracingBackend):
         )
 
         metric = config.radio_map.metric
-        raw = np.array(rm.rss if metric == "rss_dbm" else rm.path_gain)  # [num_tx, ny, nx]
-        agg = raw.max(axis=0)  # combine transmitters by strongest coverage
-        ny, nx = agg.shape
-        with np.errstate(divide="ignore"):
-            db = 10.0 * np.log10(np.where(agg > 0, agg, np.nan))
-        if metric == "rss_dbm":
-            db = db + 30.0  # Sionna rss is in Watts -> dBm
+        # Always take the per-TX RSS (Watts) so serving-TX association and
+        # SINR share one tensor; path gain is recovered by dividing out the
+        # transmit power per TX.
+        rss_w = np.array(rm.rss)  # [num_tx, ny, nx], Watts
+        ny, nx = rss_w.shape[1], rss_w.shape[2]
+        serving_idx = rss_w.argmax(axis=0)  # [ny, nx]
+        s_w = rss_w.max(axis=0)
+        multi_tx = len(txs) > 1
+        with np.errstate(divide="ignore", invalid="ignore"):
+            if metric == "sinr_db":
+                noise_w = 10.0 ** ((noise_floor_dbm(config) - 30.0) / 10.0)  # dBm->W
+                i_w = rss_w.sum(axis=0) - s_w
+                db = np.where(
+                    s_w > 0, 10.0 * np.log10(s_w / (i_w + noise_w)), np.nan
+                )
+            elif metric == "path_gain_db":
+                tx_pw_w = np.array(
+                    [10.0 ** ((t.power_dbm - 30.0) / 10.0) for t in txs]
+                )[serving_idx]
+                db = np.where(s_w > 0, 10.0 * np.log10(s_w / tx_pw_w), np.nan)
+            else:  # rss_dbm
+                db = np.where(s_w > 0, 10.0 * np.log10(s_w) + 30.0, np.nan)
         values = [
             [None if not np.isfinite(db[j, i]) else float(db[j, i]) for i in range(nx)]
             for j in range(ny)
         ]
+        serving = (
+            [
+                [
+                    int(serving_idx[j, i]) if s_w[j, i] > 0 else None
+                    for i in range(nx)
+                ]
+                for j in range(ny)
+            ]
+            if multi_tx
+            else None
+        )
 
         centers = np.array(rm.cell_centers)  # [ny, nx, 3]
         origin = [
@@ -1153,7 +1241,14 @@ class SionnaBackend(RayTracingBackend):
                 origin=origin, cell_size_m=cell, nx=nx, ny=ny, height_m=height
             ),
             values=values,
-            warnings=warnings + (["multiple tx aggregated by max"] if len(txs) > 1 else []),
+            tx_ids=[t.id for t in txs],
+            serving_tx=serving,
+            warnings=warnings
+            + (
+                ["cells show the serving (strongest) transmitter; see serving_tx"]
+                if multi_tx
+                else []
+            ),
             metadata={
                 "frequency_hz": config.frequency_hz,
                 "num_tx": len(txs),

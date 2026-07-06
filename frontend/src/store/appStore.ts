@@ -21,6 +21,7 @@ import type {
   Environment,
   HealthResponse,
   MaterialSuggestionResponse,
+  MeshRadioMapResultSet,
   PathResultSet,
   PathType,
   ProjectInfo,
@@ -115,11 +116,13 @@ interface AppState {
   decisions: Record<string, SuggestionDecision>;
   pathResults: PathResultSet | null;
   radioMap: RadioMapResultSet | null;
+  meshRadioMap: MeshRadioMapResultSet | null;
   beamforming: BeamformingResult | null;
   selectedPathId: string | null;
   // Result-overlay visibility toggles (Result mode).
   showPaths: boolean;
   showRadioMap: boolean;
+  showMeshRadioMap: boolean;
   showBeamforming: boolean;
   /** Scenario playback takes over the device/actor layers only while ON.
    *  Off by default when a persisted scenario merely loads with the project
@@ -153,6 +156,9 @@ interface AppState {
   pathTypeFilter: PathType | "all";
   // Device ids whose links are hidden in ray overlays/tables (filter chips).
   hiddenLinkDevices: string[];
+  // RF material ids to keep in ray overlays/tables (empty = all). A path is
+  // kept if any interaction hits one of these materials.
+  materialFilter: string[];
   /** Prim ids hidden in the 3D viewer (eye toggle in the scene tree). */
   hiddenPrims: string[];
   strongestN: number;
@@ -183,7 +189,13 @@ interface AppState {
    *  scene changed since - shown as a "stale" badge instead of silently
    *  presenting outdated numbers. */
   sceneEpoch: number;
-  resultEpochs: { paths?: number; channel?: number; trajectory?: number; beamforming?: number };
+  resultEpochs: {
+    paths?: number;
+    channel?: number;
+    trajectory?: number;
+    beamforming?: number;
+    mesh_radio_map?: number;
+  };
 
   // --- viewport pick mode (click-to-place) ---
   pick: PickRequest | null;
@@ -229,19 +241,27 @@ interface AppState {
   selectDevice: (deviceId: string) => void;
   clearSelection: () => void;
   selectPath: (pathId: string | null) => void;
-  toggleOverlay: (kind: "paths" | "radioMap" | "beamforming") => void;
+  toggleOverlay: (kind: "paths" | "radioMap" | "meshRadioMap" | "beamforming") => void;
   runValidation: () => Promise<void>;
   compileRF: () => Promise<void>;
   simulatePaths: () => Promise<void>;
   simulateRadioMap: () => Promise<void>;
+  /** Mesh radio map over the current selection (uses selection as prim_ids). */
+  simulateMeshRadioMap: () => Promise<void>;
+  /** Best-effort silent fetch of the latest stored mesh radio map (project open). */
+  fetchLatestMeshRadioMap: () => Promise<void>;
   removePaths: () => void;
   removeRadioMap: () => void;
+  removeMeshRadioMap: () => void;
   removeScenario: () => void;
   exportRfdata: () => Promise<void>;
   runBeamforming: () => Promise<void>;
   assignMaterial: (req: AssignRequest) => Promise<void>;
   saveMaterial: (mat: RFMaterial) => Promise<void>;
   suggestMaterials: () => Promise<void>;
+  /** Replace the AI-suggestion state directly (rule-generation flows produce
+   *  MaterialSuggestionResponse outside suggestMaterials). Resets decisions. */
+  setSuggestions: (resp: MaterialSuggestionResponse | null) => void;
   setDecision: (primId: string, decision: SuggestionDecision | null) => void;
   applyDecisions: () => Promise<void>;
 
@@ -297,6 +317,8 @@ interface AppState {
   setPathTypeFilter: (f: PathType | "all") => void;
   toggleLinkDevice: (id: string) => void;
   setHiddenLinkDevices: (ids: string[]) => void;
+  toggleMaterialFilter: (id: string) => void;
+  setMaterialFilter: (ids: string[]) => void;
   togglePrimVisibility: (primId: string) => void;
   setStrongestN: (n: number) => void;
   setMinPowerDbm: (p: number | null) => void;
@@ -467,7 +489,9 @@ export const useAppStore = create<AppState>()((set, get) => {
   }
 
   /** Stamp a result kind as computed at the current scene epoch. */
-  function stampResult(kind: "paths" | "channel" | "trajectory" | "beamforming"): void {
+  function stampResult(
+    kind: "paths" | "channel" | "trajectory" | "beamforming" | "mesh_radio_map",
+  ): void {
     set({ resultEpochs: { ...get().resultEpochs, [kind]: get().sceneEpoch } });
   }
 
@@ -660,6 +684,75 @@ export const useAppStore = create<AppState>()((set, get) => {
   // Multi-view capture fn (4 azimuth views), registered by Viewer3D.
   let multiViewCapture: (() => string[]) | null = null;
 
+  // --- live-event WebSocket: server pushes sim/compile start/finish notices ---
+  // Entirely best-effort: the endpoint lands this wave on the backend; every
+  // failure path (unsupported protocol, connect error, malformed frame) is
+  // swallowed so its absence is silent and never crashes the app.
+  let eventSocket: WebSocket | null = null;
+
+  function closeEventSocket(): void {
+    if (eventSocket) {
+      try {
+        // Drop handlers first so onclose/onerror don't fire during teardown.
+        eventSocket.onopen = null;
+        eventSocket.onmessage = null;
+        eventSocket.onerror = null;
+        eventSocket.onclose = null;
+        eventSocket.close();
+      } catch {
+        // already closing/closed
+      }
+      eventSocket = null;
+    }
+  }
+
+  function connectEventSocket(projectId: string): void {
+    closeEventSocket();
+    if (typeof WebSocket === "undefined") return;
+    let url: string;
+    try {
+      // Derive from the API client base ("/api") against the current origin so
+      // the same dev-proxy / reverse-proxy host serves the socket.
+      const base = new URL("/api", window.location.href);
+      base.protocol = base.protocol === "https:" ? "wss:" : "ws:";
+      url = `${base.origin}/ws/projects/${encodeURIComponent(projectId)}/events`;
+    } catch {
+      return;
+    }
+    let sock: WebSocket;
+    try {
+      sock = new WebSocket(url);
+    } catch {
+      return; // construction can throw on a malformed URL / blocked scheme
+    }
+    eventSocket = sock;
+    sock.onerror = () => {
+      // Absence of the endpoint is expected while the backend side lands;
+      // stay silent rather than surfacing a connection error to the user.
+    };
+    sock.onmessage = (ev) => {
+      // A stale socket from a prior project must not post into the new one.
+      if (eventSocket !== sock || get().projectId !== projectId) return;
+      let msg: { type?: unknown; [k: string]: unknown };
+      try {
+        const parsed: unknown = JSON.parse(String(ev.data));
+        if (parsed === null || typeof parsed !== "object") return;
+        msg = parsed as { type?: unknown };
+      } catch {
+        return; // malformed frame: ignore
+      }
+      const type = typeof msg.type === "string" ? msg.type : "";
+      if (type === "simulation_finished") {
+        const backend = typeof msg.backend === "string" ? ` (${msg.backend})` : "";
+        set({ notice: `Simulation finished${backend}` });
+      } else if (type === "compile_finished") {
+        set({ notice: "Compile finished" });
+      }
+      // start events are intentionally quiet (the busy spinner already shows
+      // in-app runs); only completions from the outside world raise a notice.
+    };
+  }
+
   return {
     projects: [],
     projectId: null,
@@ -679,10 +772,12 @@ export const useAppStore = create<AppState>()((set, get) => {
     decisions: {},
     pathResults: null,
     radioMap: null,
+    meshRadioMap: null,
     beamforming: null,
     selectedPathId: null,
     showPaths: true,
     showRadioMap: true,
+    showMeshRadioMap: true,
     showBeamforming: true,
     showScenario: false,
 
@@ -705,6 +800,7 @@ export const useAppStore = create<AppState>()((set, get) => {
 
     pathTypeFilter: "all",
     hiddenLinkDevices: [],
+    materialFilter: [],
     hiddenPrims: [],
     strongestN: 50,
     minPowerDbm: null,
@@ -805,15 +901,18 @@ export const useAppStore = create<AppState>()((set, get) => {
           decisions: {},
           pathResults: null,
           radioMap: null,
+          meshRadioMap: null,
           beamforming: null,
           selectedPathId: null,
           // Overlay visibility starts fresh per project.
           hiddenLinkDevices: [],
+          materialFilter: [],
           // Show every prim the scene defines; hiding is the user's call via
           // the eye toggle (auto-hiding "helper" prims kept surprising users).
           hiddenPrims: [],
           showPaths: true,
           showRadioMap: true,
+          showMeshRadioMap: true,
           showBeamforming: true,
           // A persisted scenario loads for playback ON DEMAND - it must not
           // take over the viewport just because the project has one stored.
@@ -898,6 +997,11 @@ export const useAppStore = create<AppState>()((set, get) => {
           // no scenario yet; ignore silently
         }
       });
+      // Latest stored mesh radio map + live-event socket: both out-of-band and
+      // fully best-effort so a missing endpoint (this wave still landing on the
+      // backend) never blocks or breaks project open.
+      void get().fetchLatestMeshRadioMap();
+      connectEventSocket(projectId);
     },
 
     refetchScene: async () => {
@@ -1022,6 +1126,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     toggleOverlay: (kind) => {
       if (kind === "paths") set({ showPaths: !get().showPaths });
       else if (kind === "radioMap") set({ showRadioMap: !get().showRadioMap });
+      else if (kind === "meshRadioMap") set({ showMeshRadioMap: !get().showMeshRadioMap });
       else set({ showBeamforming: !get().showBeamforming });
     },
 
@@ -1087,11 +1192,54 @@ export const useAppStore = create<AppState>()((set, get) => {
       });
     },
 
+    simulateMeshRadioMap: async () => {
+      const pid = get().projectId;
+      if (!pid) return;
+      const primIds = get().selection;
+      if (primIds.length === 0) {
+        // Guard: the button is disabled without a selection, but a keyboard/API
+        // caller could still reach here. Surface the requirement, don't POST an
+        // invalid (empty prim_ids) request.
+        set({ error: "Select at least one surface prim before running a mesh radio map" });
+        return;
+      }
+      await run("Simulating mesh radio map…", async () => {
+        const result = await api.simulateMeshRadioMap(pid, {
+          config: get().radioMapConfig,
+          prim_ids: primIds,
+        });
+        const tris = result.surfaces.reduce((n, s) => n + s.triangle_count, 0);
+        set({
+          meshRadioMap: result,
+          showMeshRadioMap: true,
+          ...resultsMode(),
+          notice:
+            `Mesh radio map: ${result.surfaces.length} surface(s), ${tris} triangle(s) via ` +
+            `${result.backend} backend`,
+        });
+        stampResult("mesh_radio_map");
+        await refetchSceneInner(); // a ResultSetRef (kind 'mesh_radio_map') was appended
+      });
+    },
+
+    fetchLatestMeshRadioMap: async () => {
+      const pid = get().projectId;
+      if (!pid) return;
+      try {
+        const result = await api.getMeshRadioMapResult(pid);
+        // Guard against a project switch racing the fetch.
+        if (get().projectId === pid) set({ meshRadioMap: result });
+      } catch {
+        // no mesh radio map yet (or endpoint not landed): ignore silently
+      }
+    },
+
     removePaths: () => set({ pathResults: null, selectedPathId: null }),
 
     removeScenario: () =>
       set({ scenario: null, scenarioFrame: 0, scenarioPlaying: false, showScenario: false }),
     removeRadioMap: () => set({ radioMap: null }),
+    removeMeshRadioMap: () => set({ meshRadioMap: null }),
 
     exportRfdata: async () => {
       const pid = get().projectId;
@@ -1491,6 +1639,15 @@ export const useAppStore = create<AppState>()((set, get) => {
       });
     },
     setHiddenLinkDevices: (ids) => set({ hiddenLinkDevices: ids }),
+    toggleMaterialFilter: (id) => {
+      const cur = get().materialFilter;
+      set({
+        materialFilter: cur.includes(id)
+          ? cur.filter((x) => x !== id)
+          : [...cur, id],
+      });
+    },
+    setMaterialFilter: (ids) => set({ materialFilter: ids }),
 
     togglePrimVisibility: (primId) => {
       const cur = get().hiddenPrims;
@@ -1624,6 +1781,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     },
 
     setSendScreenshot: (on) => set({ sendScreenshot: on }),
+    setSuggestions: (resp) => set({ suggestions: resp, decisions: {} }),
     setSendTextureCrops: (on) => set({ sendTextureCrops: on }),
 
     registerViewportCapture: (fn) => {

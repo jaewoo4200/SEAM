@@ -79,3 +79,41 @@ class AIProviderStatus(StrictModel):
     available: bool
     model: Optional[str] = None
     detail: str = ""
+
+
+class AssignmentRule(StrictModel):
+    """One name-match -> RF material rule (SEAM spec style).
+
+    A rule fires when any of ``match_name_contains`` appears (case-insensitively)
+    in a prim's evidence (name / mesh_name / semantic tags / visual material
+    name). ``rf_material_id`` must exist in the project library - unknown ids
+    are dropped at generation time, same anti-hallucination stance as the
+    suggestion parser.
+    """
+
+    id: str = Field(pattern=r"^[a-z0-9_\-]+$")
+    match_name_contains: list[str] = Field(min_length=1)
+    rf_material_id: str
+    note: Optional[str] = None
+
+
+class RuleGenerationRequest(StrictModel):
+    instruction: str = Field(min_length=1)
+
+
+class RuleGenerationResponse(StrictModel):
+    rules: list[AssignmentRule] = Field(default_factory=list)
+    provider: str
+    model: Optional[str] = None
+    warnings: list[str] = Field(default_factory=list)
+
+
+class ApplyRulesRequest(StrictModel):
+    rules: list[AssignmentRule] = Field(min_length=1)
+
+
+class ExplainValidationResponse(StrictModel):
+    explanation: str
+    provider: str
+    model: Optional[str] = None
+    warnings: list[str] = Field(default_factory=list)

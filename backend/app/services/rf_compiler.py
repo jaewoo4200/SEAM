@@ -175,7 +175,20 @@ def _extract_grouped_meshes(
         if tm_scene is None:
             skipped.append(prim.id)
             continue
-        mesh = mesh_tools.extract_prim_mesh(tm_scene, prim.mesh_ref)
+        mesh: Optional[trimesh.Trimesh] = None
+        if prim.mesh_ref.face_group is not None:
+            # Mode 2 intra-mesh split: prefer the named sub-mesh (child region).
+            mesh = mesh_tools.extract_face_group_mesh(tm_scene, prim.mesh_ref)
+            if mesh is None:
+                # Fallback: use the whole named mesh and flag the unresolved
+                # group with the spec-aligned NO_FACE_GROUP code.
+                warnings.append(
+                    f"NO_FACE_GROUP: face_group {prim.mesh_ref.face_group!r} not "
+                    f"found under mesh {prim.mesh_ref.mesh_name!r} for prim "
+                    f"{prim.id}; using whole mesh"
+                )
+        if mesh is None:
+            mesh = mesh_tools.extract_prim_mesh(tm_scene, prim.mesh_ref)
         if mesh is None:
             skipped.append(prim.id)
             warnings.append(
@@ -183,11 +196,6 @@ def _extract_grouped_meshes(
                 f"in {prim.mesh_ref.asset_uri}; skipped"
             )
             continue
-        if prim.mesh_ref.face_group is not None:
-            warnings.append(
-                "face_group split not yet implemented; using whole mesh "
-                f"{prim.mesh_ref.mesh_name!r} for prim {prim.id}"
-            )
         grouped.setdefault(prim.rf.material_id, []).append((prim, mesh))
     return grouped
 

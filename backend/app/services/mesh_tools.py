@@ -34,6 +34,100 @@ def _first_node_for_geometry(tm_scene: trimesh.Scene, geometry_name: str) -> Opt
     return None
 
 
+def _resolve_node(tm_scene: trimesh.Scene, name: str) -> Optional[str]:
+    """Resolve a name to a scene-graph node (group OR geometry node).
+
+    Unlike ``extract_prim_mesh`` resolution this accepts group nodes with no
+    geometry of their own (e.g. a "building" parent whose children are the
+    per-material regions), so the subtree of a Mode-2 mesh can be scoped.
+    """
+    if name in tm_scene.graph.nodes:
+        return name
+    # A geometry name that is not itself a node: fall back to its first node.
+    if name in tm_scene.geometry:
+        return _first_node_for_geometry(tm_scene, name)
+    return None
+
+
+def _world_mesh_for_node(tm_scene: trimesh.Scene, node_name: str) -> Optional[trimesh.Trimesh]:
+    """World-space copy of the geometry instanced at ``node_name`` (or None)."""
+    transform, geometry_name = tm_scene.graph[node_name]
+    if geometry_name is None:
+        return None
+    geometry = tm_scene.geometry.get(geometry_name)
+    if not isinstance(geometry, trimesh.Trimesh):
+        return None
+    mesh = geometry.copy()
+    if transform is not None:
+        mesh.apply_transform(np.asarray(transform, dtype=np.float64))
+    return mesh
+
+
+def extract_face_group_mesh(
+    tm_scene: trimesh.Scene, mesh_ref: MeshRef
+) -> Optional[trimesh.Trimesh]:
+    """Mode-2 intra-mesh split: the sub-mesh named by ``mesh_ref.face_group``.
+
+    ``face_group`` is interpreted as the name of a DESCENDANT geometry/node
+    under the node subtree that ``mesh_name`` resolves to (the importer/SAM2
+    pipeline emits one child geometry per material region). Resolution, most
+    specific first:
+
+    1. an exact geometry name ``f"{mesh_name}/{face_group}"`` (the qualified
+       path an exporter may emit for a region);
+    2. a descendant NODE whose name equals ``face_group``;
+    3. a descendant node whose GEOMETRY name equals ``face_group``;
+    4. the bare ``face_group`` as a top-level geometry name, only when it is
+       unambiguous (referenced by exactly one node).
+
+    The matched geometry is returned in world coordinates (its instancing
+    node's world transform baked into a copy). Returns None when the group
+    cannot be resolved, when ``mesh_ref.face_group`` is None, or when the
+    match is ambiguous.
+    """
+    face_group = mesh_ref.face_group
+    if face_group is None:
+        return None
+
+    # (1) qualified "mesh_name/face_group" geometry name.
+    qualified = f"{mesh_ref.mesh_name}/{face_group}"
+    if qualified in tm_scene.geometry:
+        node = _first_node_for_geometry(tm_scene, qualified)
+        if node is not None:
+            return _world_mesh_for_node(tm_scene, node)
+
+    root = _resolve_node(tm_scene, mesh_ref.mesh_name)
+    if root is not None:
+        subtree = tm_scene.graph.transforms.successors(root)
+        # (2) descendant node whose name == face_group.
+        if face_group in subtree and face_group != root:
+            mesh = _world_mesh_for_node(tm_scene, face_group)
+            if mesh is not None:
+                return mesh
+        # (3) descendant node whose geometry name == face_group. Deterministic:
+        # nodes are considered in sorted order; the qualified/name paths above
+        # already handle the common exporter conventions.
+        for node in sorted(subtree):
+            if node == root:
+                continue
+            _, gname = tm_scene.graph[node]
+            if gname == face_group:
+                return _world_mesh_for_node(tm_scene, node)
+
+    # (4) bare geometry name at any level, only if referenced by exactly one
+    # node (unambiguous).
+    if face_group in tm_scene.geometry:
+        matching = [
+            node
+            for node in sorted(tm_scene.graph.nodes_geometry)
+            if tm_scene.graph[node][1] == face_group
+        ]
+        if len(matching) == 1:
+            return _world_mesh_for_node(tm_scene, matching[0])
+
+    return None
+
+
 def extract_prim_mesh(tm_scene: trimesh.Scene, mesh_ref: MeshRef) -> Optional[trimesh.Trimesh]:
     """Resolve a MeshRef against the loaded visual scene.
 

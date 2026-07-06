@@ -12,7 +12,93 @@ from typing import Optional
 
 from app.schemas.materials import RFMaterialLibrary
 from app.schemas.scene import Prim, Scene
-from app.schemas.validation import ValidationIssue, ValidationReport
+from app.schemas.validation import Severity, ValidationIssue, ValidationReport
+
+# Geometry-density thresholds (per HANDOFF geometry guardrails). Triangle
+# counts above these slow ray tracing dramatically; the AABB extents bracket
+# the plausible scale for a metric scene (a sub-0.5 m or >50 km scene is almost
+# always a unit/import error rather than reality).
+_PRIM_TRIANGLE_WARN = 500_000
+_SCENE_TRIANGLE_WARN = 2_000_000
+_SCALE_MIN_M = 0.5
+_SCALE_MAX_M = 50_000.0
+
+# 1-3 concrete next steps per issue code. The validator attaches these so the
+# frontend can render actionable buttons/hints without duplicating the table.
+_SUGGESTED_ACTIONS: dict[str, list[str]] = {
+    "DUPLICATE_PRIM_ID": [
+        "Rename one of the prims so every id is unique",
+    ],
+    "MISSING_MESH_REF": [
+        "Attach a mesh_ref pointing at the prim's geometry",
+        "Or change the prim type to 'group' if it has no geometry",
+    ],
+    "UNKNOWN_PARENT": [
+        "Create the missing parent group",
+        "Or clear parent_id to leave the prim at the scene root",
+    ],
+    "UNKNOWN_RF_MATERIAL": [
+        "Pick an existing material in the RF Materials tab",
+        "Or add the missing material to the project library",
+    ],
+    "MISSING_RF_MATERIAL": [
+        "Assign an RF material in the RF Materials tab",
+        "Run rule-based or AI suggestion",
+    ],
+    "VISUAL_RF_MISMATCH": [
+        "Confirm the RF material matches the real surface",
+        "Or reassign to the visually indicated material",
+    ],
+    "MISSING_THICKNESS": [
+        "Set thickness_m on the prim's RF binding",
+        "Or set a default thickness_m on the material",
+    ],
+    "UNCONFIRMED_SUGGESTION": [
+        "Review and confirm the suggested RF material",
+        "Or reject it to leave the prim unassigned",
+    ],
+    "MATERIAL_OUT_OF_BAND": [
+        "Swap to a constant material valid at this frequency (e.g. ground_28ghz)",
+    ],
+    "UNSUPPORTED_MESH_REF": [
+        "Import the referenced visual asset into the project",
+        "Or update the mesh_ref to an asset that exists",
+    ],
+    "NO_DEVICES": [
+        "Add at least one tx and one rx device before simulating",
+    ],
+    "TOO_MANY_TRIANGLES": [
+        "Decimate/simplify the geometry before RF compilation",
+        "Or split the mesh into per-material RF proxies",
+    ],
+    "NON_MANIFOLD_OR_OPEN_MESH": [
+        "Verify open shells are intended (normal for building facades)",
+        "Close the mesh if transmission through it must be modeled",
+    ],
+    "SCALE_SUSPICIOUS": [
+        "Check the import unit scale (meters expected, Z-up)",
+        "Re-import or rescale the asset to metric extents",
+    ],
+}
+
+
+def _issue(
+    severity: Severity,
+    code: str,
+    message: str,
+    *,
+    prim_id: Optional[str] = None,
+    device_id: Optional[str] = None,
+) -> ValidationIssue:
+    """Construct a ValidationIssue with the code's canonical suggested_actions."""
+    return ValidationIssue(
+        severity=severity,
+        code=code,
+        message=message,
+        prim_id=prim_id,
+        device_id=device_id,
+        suggested_actions=list(_SUGGESTED_ACTIONS.get(code, [])),
+    )
 
 # Evidence keywords for the VISUAL_RF_MISMATCH heuristic. Matching is
 # exact-token over the prim's visual evidence text, so e.g. "fiberglass" does
@@ -96,16 +182,141 @@ def _mismatch_issue(prim: Prim, library: RFMaterialLibrary) -> Optional[Validati
         return None
     if _categories_compatible(evidence_category, assigned_category):
         return None
-    return ValidationIssue(
-        severity="warning",
-        code="VISUAL_RF_MISMATCH",
-        message=(
+    return _issue(
+        "warning",
+        "VISUAL_RF_MISMATCH",
+        (
             f"visual evidence for prim {prim.id!r} suggests category "
             f"'{evidence_category}', but assigned RF material "
             f"{material.id!r} has category '{assigned_category}'"
         ),
         prim_id=prim.id,
     )
+
+
+def _geometry_issues(scene: Scene, project_dir: Optional[Path]) -> list[ValidationIssue]:
+    """Best-effort geometry sanity checks against the loaded visual asset.
+
+    Only runs when ``project_dir`` is given and the asset actually loads;
+    everything here is defensive - a broken/missing asset yields no issues
+    rather than an exception (validation must never raise on content).
+    """
+    if project_dir is None:
+        return []
+
+    # Import lazily so validation has no hard dependency on trimesh when no
+    # project_dir is passed (the common in-memory validation path).
+    try:
+        from app.services import mesh_tools
+    except Exception:  # pragma: no cover - trimesh import guard
+        return []
+
+    asset_uri = scene.assets.visual_scene_uri or "visual/scene.glb"
+    try:
+        tm_scene = mesh_tools.load_visual_scene(project_dir, asset_uri)
+    except Exception:
+        return []
+    if tm_scene is None:
+        return []
+
+    issues: list[ValidationIssue] = []
+    total_faces = 0
+    counted_any = False
+
+    for prim in scene.prims:
+        if prim.mesh_ref is None:
+            continue
+        try:
+            mesh = mesh_tools.extract_prim_mesh(tm_scene, prim.mesh_ref)
+        except Exception:
+            mesh = None
+        if mesh is None:
+            continue
+        try:
+            face_count = int(len(mesh.faces))
+        except Exception:
+            continue
+        counted_any = True
+        total_faces += face_count
+
+        if face_count > _PRIM_TRIANGLE_WARN:
+            issues.append(
+                _issue(
+                    "warning",
+                    "TOO_MANY_TRIANGLES",
+                    (
+                        f"prim {prim.id!r} geometry has {face_count:,} triangles "
+                        f"(> {_PRIM_TRIANGLE_WARN:,}); RF ray tracing will be slow "
+                        "- consider decimating or using an RF proxy mesh"
+                    ),
+                    prim_id=prim.id,
+                )
+            )
+
+        # Watertightness is informational: open shells are normal for building
+        # facades, but a solid the user expects to transmit through behaves
+        # differently when it is not closed.
+        try:
+            watertight = bool(mesh.is_watertight)
+        except Exception:
+            watertight = True
+        if not watertight:
+            issues.append(
+                _issue(
+                    "info",
+                    "NON_MANIFOLD_OR_OPEN_MESH",
+                    (
+                        f"prim {prim.id!r} geometry is not watertight (open or "
+                        "non-manifold); open shells are normal for building "
+                        "facades, but transmission through them behaves "
+                        "differently than through a closed solid"
+                    ),
+                    prim_id=prim.id,
+                )
+            )
+
+    if counted_any and total_faces > _SCENE_TRIANGLE_WARN:
+        issues.append(
+            _issue(
+                "warning",
+                "TOO_MANY_TRIANGLES",
+                (
+                    f"scene geometry totals {total_faces:,} triangles "
+                    f"(> {_SCENE_TRIANGLE_WARN:,}); RF compilation and ray "
+                    "tracing may be very slow"
+                ),
+            )
+        )
+
+    # Scale sanity: measure the whole loaded asset's AABB (Z-up meters). A
+    # sub-0.5 m or >50 km max extent is almost always a unit/import-scale error.
+    try:
+        extents = tm_scene.bounds  # (2, 3) min/max, or None when empty
+    except Exception:
+        extents = None
+    if extents is not None:
+        try:
+            max_extent = float(
+                max(extents[1][i] - extents[0][i] for i in range(3))
+            )
+        except Exception:
+            max_extent = None  # type: ignore[assignment]
+        if max_extent is not None and max_extent > 0.0 and (
+            max_extent < _SCALE_MIN_M or max_extent > _SCALE_MAX_M
+        ):
+            issues.append(
+                _issue(
+                    "warning",
+                    "SCALE_SUSPICIOUS",
+                    (
+                        f"loaded geometry spans {max_extent:.3g} m on its largest "
+                        f"axis, outside the plausible {_SCALE_MIN_M}-{_SCALE_MAX_M:g} m "
+                        "range; check the import unit scale (meters, Z-up)"
+                    ),
+                )
+            )
+
+    return issues
 
 
 def validate_scene(
@@ -125,10 +336,10 @@ def validate_scene(
         if prim.id in seen and prim.id not in reported_dups:
             reported_dups.add(prim.id)
             issues.append(
-                ValidationIssue(
-                    severity="error",
-                    code="DUPLICATE_PRIM_ID",
-                    message=f"duplicate prim id: {prim.id!r}",
+                _issue(
+                    "error",
+                    "DUPLICATE_PRIM_ID",
+                    f"duplicate prim id: {prim.id!r}",
                     prim_id=prim.id,
                 )
             )
@@ -137,10 +348,10 @@ def validate_scene(
     for prim in scene.prims:
         if prim.type == "mesh_primitive" and prim.mesh_ref is None:
             issues.append(
-                ValidationIssue(
-                    severity="error",
-                    code="MISSING_MESH_REF",
-                    message=f"mesh_primitive prim {prim.id!r} has no mesh_ref",
+                _issue(
+                    "error",
+                    "MISSING_MESH_REF",
+                    f"mesh_primitive prim {prim.id!r} has no mesh_ref",
                     prim_id=prim.id,
                 )
             )
@@ -149,10 +360,10 @@ def validate_scene(
             # Missing intermediate groups are common in partially authored
             # scenes; the hierarchy is organizational, not geometric.
             issues.append(
-                ValidationIssue(
-                    severity="warning",
-                    code="UNKNOWN_PARENT",
-                    message=(
+                _issue(
+                    "warning",
+                    "UNKNOWN_PARENT",
+                    (
                         f"prim {prim.id!r} references parent_id "
                         f"{prim.parent_id!r} which does not exist"
                     ),
@@ -163,10 +374,10 @@ def validate_scene(
         rf = prim.rf
         if rf.material_id is not None and rf.material_id not in library_ids:
             issues.append(
-                ValidationIssue(
-                    severity="error",
-                    code="UNKNOWN_RF_MATERIAL",
-                    message=(
+                _issue(
+                    "error",
+                    "UNKNOWN_RF_MATERIAL",
+                    (
                         f"prim {prim.id!r} references RF material "
                         f"{rf.material_id!r} which is not in the project library"
                     ),
@@ -174,12 +385,18 @@ def validate_scene(
                 )
             )
 
-        if prim.type == "mesh_primitive" and rf.material_id is None:
+        # A mesh_primitive with no material AND a non-rejected status is a real
+        # gap; a "rejected" prim deliberately has no material, so stay silent.
+        if (
+            prim.type == "mesh_primitive"
+            and rf.material_id is None
+            and rf.assignment_status != "rejected"
+        ):
             issues.append(
-                ValidationIssue(
-                    severity="warning",
-                    code="MISSING_RF_MATERIAL",
-                    message=f"prim {prim.id!r} has no RF material assigned",
+                _issue(
+                    "warning",
+                    "MISSING_RF_MATERIAL",
+                    f"prim {prim.id!r} has no RF material assigned",
                     prim_id=prim.id,
                 )
             )
@@ -196,10 +413,10 @@ def validate_scene(
             and material.thickness_m is None
         ):
             issues.append(
-                ValidationIssue(
-                    severity="warning",
-                    code="MISSING_THICKNESS",
-                    message=(
+                _issue(
+                    "warning",
+                    "MISSING_THICKNESS",
+                    (
                         f"prim {prim.id!r} uses transmissive RF material "
                         f"{material.id!r} but no thickness_m is set on the "
                         "prim or the material"
@@ -210,10 +427,10 @@ def validate_scene(
 
         if rf.assignment_status in _SUGGESTED_STATUSES:
             issues.append(
-                ValidationIssue(
-                    severity="info",
-                    code="UNCONFIRMED_SUGGESTION",
-                    message=(
+                _issue(
+                    "info",
+                    "UNCONFIRMED_SUGGESTION",
+                    (
                         f"prim {prim.id!r} RF material {rf.material_id!r} is "
                         f"only {rf.assignment_status} and awaits user "
                         "confirmation"
@@ -226,10 +443,10 @@ def validate_scene(
             asset = project_dir / prim.mesh_ref.asset_uri
             if not asset.is_file():
                 issues.append(
-                    ValidationIssue(
-                        severity="warning",
-                        code="UNSUPPORTED_MESH_REF",
-                        message=(
+                    _issue(
+                        "warning",
+                        "UNSUPPORTED_MESH_REF",
+                        (
                             f"prim {prim.id!r} mesh_ref asset "
                             f"{prim.mesh_ref.asset_uri!r} does not exist in "
                             "the project folder"
@@ -255,10 +472,10 @@ def validate_scene(
             ):
                 flagged.add(mat.id)
                 issues.append(
-                    ValidationIssue(
-                        severity="warning",
-                        code="MATERIAL_OUT_OF_BAND",
-                        message=(
+                    _issue(
+                        "warning",
+                        "MATERIAL_OUT_OF_BAND",
+                        (
                             f"material {mat.id!r} (ITU ground) is used at "
                             f"{freq / 1e9:.1f} GHz, beyond the ~10 GHz ITU-R "
                             "P.2040 validity range; use a constant material "
@@ -274,10 +491,10 @@ def validate_scene(
     for actor in scene.actors:
         if actor.rf_material_id is not None and actor.rf_material_id not in library_ids:
             issues.append(
-                ValidationIssue(
-                    severity="error",
-                    code="UNKNOWN_RF_MATERIAL",
-                    message=(
+                _issue(
+                    "error",
+                    "UNKNOWN_RF_MATERIAL",
+                    (
                         f"actor {actor.id!r} references RF material "
                         f"{actor.rf_material_id!r} which is not in the project library"
                     ),
@@ -289,15 +506,17 @@ def validate_scene(
     if not (has_tx and has_rx):
         missing = [k for k, ok in (("tx", has_tx), ("rx", has_rx)) if not ok]
         issues.append(
-            ValidationIssue(
-                severity="info",
-                code="NO_DEVICES",
-                message=(
+            _issue(
+                "info",
+                "NO_DEVICES",
+                (
                     "scene has no "
                     + " and no ".join(missing)
                     + " device; simulations would produce no paths"
                 ),
             )
         )
+
+    issues.extend(_geometry_issues(scene, project_dir))
 
     return ValidationReport.from_issues(issues)

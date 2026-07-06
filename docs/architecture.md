@@ -123,6 +123,114 @@ GET /api/projects/{id}/results/paths         latest = last ref of that kind
 
 `simulate/radio-map` follows the same shape with `RadioMapResultSet`.
 
+## Result schemas, reproducibility, and events
+
+The backend-neutral result models (`app.schemas.results`) carry more than raw
+power. What the frontend reads out of them:
+
+### Angle of arrival / departure (AoA / AoD)
+
+Every `RayPath` carries `path_gain_db` (per-path channel gain = `power_dbm`
+minus the configured TX power, so links compare independent of transmit power)
+and two angle pairs:
+
+- `aod_deg = [azimuth_deg, elevation_deg]` — direction of **departure** at the
+  TX.
+- `aoa_deg = [azimuth_deg, elevation_deg]` — direction of **arrival**, pointing
+  *from the RX toward where the ray came from*.
+
+Azimuth is `atan2(y, x)` about `+Z`; elevation is up from the XY plane. Both
+default to `null` when a backend cannot resolve them. The frontend
+`AngularPlot` renders these as a polar scatter — azimuth = polar angle, path
+power = radius (inner ring weakest), AoD as filled markers and AoA as hollow —
+with elevation carried in the CSV export and each marker's tooltip.
+
+### Multi-TX radio maps: SINR and serving cell
+
+`RadioMapResultSet.metric` is one of `path_gain_db | rss_dbm | sinr_db`
+(`sinr_db` models true co-channel interference `S/(I+N)`; with a single TX it
+degenerates to SNR). Multi-TX maps also fill:
+
+- `tx_ids: string[]` — every TX that contributed, in solver order.
+- `serving_tx: (number|null)[][]` — row-major per-cell index into `tx_ids` for
+  the strongest TX at each cell (only populated for multi-TX scenes, so single
+  TX payloads stay small).
+
+`values` is row-major `[ny][nx]`; `null` marks a cell that was not computed
+(progressive refinement leaves holes rather than fabricating values).
+
+### Mesh radio map (surface coverage)
+
+`POST /projects/{id}/simulate/mesh-radio-map` paints coverage on actual mesh
+surfaces (facades, floors, roads) instead of a horizontal plane. The request
+`MeshRadioMapRequest {prim_ids (≥1), tx_id?, metric: path_gain_db|rss_dbm
+(default rss_dbm), max_triangles=2000, offset_m=0.05}` places a probe RX at
+each triangle center, offset `offset_m` along the face normal. The response
+`MeshRadioMapResultSet` holds one `MeshRadioMapSurface` per prim with aligned
+`centers` / `normals` / `values` lists (so the viewer never has to reproduce
+the backend's triangle ordering) and a `sample_stride > 1` when a mesh exceeded
+`max_triangles` and every k-th triangle was sampled. Latest fetch:
+`GET /projects/{id}/results/mesh-radio-map?result_id=`.
+
+### Region refinement
+
+`RadioMapGridConfig` adds `center_xy` / `size_xy` (`[x, y]` in meters, both
+optional; `null` = auto-fit to scene geometry). A caller re-solves a selected
+region at a finer `cell_size_m` by passing an explicit center/size instead of
+recomputing the whole map — the refined values overwrite that region's cells.
+
+### Reproducibility hashes
+
+Every persisted result's `metadata` is stamped with content hashes so a stale
+result is detectable (`simulate.py::_provenance_hashes`):
+
+- `scene_hash` — the canonical scene **minus** `result_sets` (results must not
+  churn the hash of the scene that produced them).
+- `rf_assignment_hash` — just `(prim_id, material_id, assignment_status)`, so a
+  pure material re-assignment is detectable on its own.
+- `sim_config_hash` — the exact solver knobs; the full `config_snapshot` is
+  stored alongside.
+
+The frontend compares a result's stamped hashes against the live scene to badge
+results as stale when the scene or assignments have moved on since the solve.
+
+### Backends and capabilities
+
+`GET /api/backends` returns `[{name, available, detail, capabilities}]` for
+capability-aware UIs. `capabilities` is a stable, additive feature map
+(`paths`, `radio_map`, `mesh_radio_map`, `cir`, `beamforming`, `doppler`,
+`diffraction`, `gpu`, …); **frontends treat a missing key as `false`**. The
+`mock` backend is always available; `sionna` reports `available: false` with a
+"not installed (optional)" detail when Sionna RT is not importable.
+
+### Live events (WebSocket)
+
+`WS /ws/projects/{id}/events` (mounted **without** the `/api` prefix) streams
+JSON frames as work runs: a one-shot `{type: "connected"}` hello, then
+`compile_started` / `compile_finished`, `simulation_started` /
+`simulation_finished` (the finished frames carry `kind`, `result_id`,
+`backend`). The frontend uses these to show live compile/solve progress without
+polling.
+
+### AODT import
+
+`POST /projects/{id}/results/import-aodt` reads NVIDIA AODT parquet exports from
+a server-local `source_dir` (`kinds: ["paths", "radio_map"]`), normalizes them
+into the same result schemas, remaps AODT object ids to canonical prim ids via
+`mapping/object_map.json`, and persists them through the shared
+`_persist_result` helper — so imported sets get canonical ids, provenance
+hashes, and a `ResultSetRef` with `backend: "aodt_import"` exactly like a local
+solve. Returns 409 when `pyarrow` is not installed.
+
+### Measurement CSV import
+
+`POST /projects/{id}/calibrate/measurements/import-csv {csv_text}` parses
+measured per-link samples (RX position + measured path gain) into
+`MeasurementSample`s (each with an optional `measurement_id`), reporting
+`skipped` rows and `warnings`; `GET /projects/{id}/calibrate/measurements`
+returns the stored set. These feed material calibration and RF disambiguation
+(see `docs/ai_assistant.md`, `docs/accuracy.md`).
+
 ## Simulation backend interface
 
 All backends implement one protocol

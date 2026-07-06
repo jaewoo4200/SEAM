@@ -18,6 +18,7 @@ from typing import Literal, Optional
 from pydantic import Field, field_validator, model_validator
 
 from .common import (
+    NO_MATERIAL_STATUSES,
     SCHEMA_VERSION,
     AssignmentStatus,
     RGBA,
@@ -88,14 +89,19 @@ class RFBinding(StrictModel):
 
     @model_validator(mode="after")
     def _status_consistent(self) -> "RFBinding":
-        if self.material_id is None and self.assignment_status != "unassigned":
+        # "unassigned" and "rejected" are the only statuses that legitimately
+        # carry no material: unassigned is the absence of a binding, rejected
+        # is a deliberate decline that keeps material_id None on purpose.
+        if self.material_id is None and self.assignment_status not in NO_MATERIAL_STATUSES:
             raise ValueError(
-                "rf.assignment_status must be 'unassigned' when rf.material_id is None"
+                "rf.assignment_status must be 'unassigned' or 'rejected' when "
+                "rf.material_id is None"
             )
-        if self.material_id is not None and self.assignment_status == "unassigned":
+        if self.material_id is not None and self.assignment_status in NO_MATERIAL_STATUSES:
             raise ValueError(
-                "rf.material_id is set but assignment_status is 'unassigned'; "
-                "use rule_suggested/ai_suggested/user_confirmed/measurement_calibrated"
+                f"rf.material_id is set but assignment_status is "
+                f"{self.assignment_status!r}; use rule_suggested/rule_assigned/"
+                "ai_suggested/user_confirmed/measurement_calibrated"
             )
         return self
 
@@ -223,7 +229,7 @@ class ResultSetRef(StrictModel):
     """Pointer from the scene to a stored result artifact."""
 
     result_id: str
-    kind: Literal["paths", "radio_map", "trajectory", "scenario"]
+    kind: Literal["paths", "radio_map", "mesh_radio_map", "trajectory", "scenario"]
     backend: str
     simulation_config_id: str
     # Relative to the project folder, e.g. "results/paths.json".

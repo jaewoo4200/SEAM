@@ -11,6 +11,7 @@ import type {
   ApplySuggestionsRequest,
   AssignRequest,
   AssignResponse,
+  BackendCapabilities,
   EngineListResponse,
   BatchAssignRequest,
   BeamformingRequest,
@@ -27,6 +28,8 @@ import type {
   MaterialImpactReport,
   MaterialImpactRequest,
   MaterialSuggestionResponse,
+  MeshRadioMapRequest,
+  MeshRadioMapResultSet,
   PathResultSet,
   ProjectCreateRequest,
   ProjectInfo,
@@ -109,6 +112,9 @@ export const api = {
   // health
   health: () => request<HealthResponse>("GET", "/health"),
 
+  // solver backends + their capability bags (GET /api/backends).
+  listBackends: () => request<BackendCapabilities[]>("GET", "/backends"),
+
   // compute engines
   getEngines: (refresh = false) =>
     request<EngineListResponse>("GET", `/engines${refresh ? "?refresh=true" : ""}`),
@@ -168,6 +174,15 @@ export const api = {
   getPathResults: (pid: string) => request<PathResultSet>("GET", `/projects/${pid}/results/paths`),
   getRadioMap: (pid: string) =>
     request<RadioMapResultSet>("GET", `/projects/${pid}/results/radio-map`),
+
+  // mesh radio map: metric draped onto the triangles of selected surfaces.
+  simulateMeshRadioMap: (pid: string, req: MeshRadioMapRequest) =>
+    request<MeshRadioMapResultSet>("POST", `/projects/${pid}/simulate/mesh-radio-map`, req),
+  getMeshRadioMapResult: (pid: string, resultId?: string) =>
+    request<MeshRadioMapResultSet>(
+      "GET",
+      `/projects/${pid}/results/mesh-radio-map${resultId ? `?result_id=${encodeURIComponent(resultId)}` : ""}`,
+    ),
   simulateTrajectory: (pid: string, req: TrajectorySimulateRequest) =>
     request<TrajectoryResultSet>("POST", `/projects/${pid}/simulate/trajectory`, req),
   getTrajectory: (pid: string) =>

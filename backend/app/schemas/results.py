@@ -33,9 +33,14 @@ class RayPath(StrictModel):
     # Polyline from tx to rx, including interaction points.
     vertices: list[Vec3] = Field(min_length=2)
     power_dbm: float
+    # Per-path channel gain (power_dbm minus the TX power): backend-agnostic
+    # comparison metric independent of the configured transmit power.
+    path_gain_db: Optional[float] = None
     delay_ns: float = Field(ge=0.0)
     phase_rad: float = 0.0
-    # Azimuth/zenith of departure and arrival in degrees (future AoA/AoD plots).
+    # [azimuth_deg, elevation_deg] of departure (at TX) and arrival (at RX).
+    # Azimuth is atan2(y, x) about +Z; elevation is up from the XY plane.
+    # Arrival points FROM the RX TOWARD the incoming ray (where it came from).
     aod_deg: Optional[list[float]] = None
     aoa_deg: Optional[list[float]] = None
     interactions: list[PathInteraction] = Field(default_factory=list)
@@ -134,11 +139,49 @@ class RadioMapResultSet(StrictModel):
     simulation_config_id: str
     created_at: Optional[str] = None
     tx_id: str
-    metric: Literal["path_gain_db", "rss_dbm"] = "rss_dbm"
+    metric: Literal["path_gain_db", "rss_dbm", "sinr_db"] = "rss_dbm"
     grid: RadioMapGrid
     # Row-major [ny][nx]; None marks cells that were not computed (progressive
     # refinement leaves holes rather than fabricating values).
     values: list[list[Optional[float]]]
+    # Every TX that contributed, in solver order. serving_tx holds per-cell
+    # indices into this list (the strongest TX at that cell); only filled for
+    # multi-TX scenes so single-TX payloads stay small.
+    tx_ids: list[str] = Field(default_factory=list)
+    serving_tx: Optional[list[list[Optional[int]]]] = None
+    warnings: list[str] = Field(default_factory=list)
+    metadata: dict = Field(default_factory=dict)
+
+
+class MeshRadioMapSurface(StrictModel):
+    """Per-triangle coverage sampled on one prim's mesh surface.
+
+    Probe receivers sit at each triangle center, offset along the face normal,
+    so the viewer can paint facades/roads/floors instead of a horizontal
+    plane. Centers/normals are included so rendering never depends on the
+    viewer reproducing the backend's triangle ordering."""
+
+    prim_id: str
+    mesh_ref: Optional[str] = None
+    triangle_count: int = Field(ge=0)
+    # Aligned lists, one entry per sampled triangle.
+    centers: list[Vec3] = Field(default_factory=list)
+    normals: list[Vec3] = Field(default_factory=list)
+    values: list[Optional[float]] = Field(default_factory=list)
+    # >1 when the mesh had more triangles than the sampling budget and every
+    # k-th triangle was sampled instead.
+    sample_stride: int = 1
+
+
+class MeshRadioMapResultSet(StrictModel):
+    result_id: str
+    kind: Literal["mesh_radio_map"] = "mesh_radio_map"
+    backend: str
+    simulation_config_id: str
+    created_at: Optional[str] = None
+    tx_id: str
+    metric: Literal["path_gain_db", "rss_dbm"] = "rss_dbm"
+    surfaces: list[MeshRadioMapSurface] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     metadata: dict = Field(default_factory=dict)
 

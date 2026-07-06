@@ -1,14 +1,49 @@
-"""GET /api/health - app, backend, and AI provider availability."""
+"""GET /api/health - app, backend, and AI provider availability.
+
+GET /api/backends adds the per-backend capability map (what each solver can
+actually do on this machine) for capability-aware frontends.
+"""
 
 from fastapi import APIRouter
 
 from app.core.config import APP_VERSION, get_settings
 from app.schemas.ai import AIProviderStatus
-from app.schemas.common import SCHEMA_VERSION
+from app.schemas.common import SCHEMA_VERSION, StrictModel
 from app.schemas.projects import HealthBackendStatus, HealthResponse
 from app.services.availability import sionna_available
 
 router = APIRouter(tags=["health"])
+
+
+class BackendCapabilities(StrictModel):
+    name: str
+    available: bool
+    detail: str = ""
+    capabilities: dict = {}
+
+
+@router.get("/backends", response_model=list[BackendCapabilities])
+def list_backends() -> list[BackendCapabilities]:
+    from app.services.simulation_backends import get_backend
+
+    out: list[BackendCapabilities] = []
+    for name in ("mock", "sionna"):
+        try:
+            backend = get_backend(name)
+            available = backend.is_available()
+            out.append(
+                BackendCapabilities(
+                    name=name,
+                    available=available,
+                    detail="" if available else "not installed (optional)",
+                    capabilities=backend.capabilities(),
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 - listing must never 500
+            out.append(
+                BackendCapabilities(name=name, available=False, detail=str(exc))
+            )
+    return out
 
 
 @router.get("/health", response_model=HealthResponse)

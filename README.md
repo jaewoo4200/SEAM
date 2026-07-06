@@ -102,11 +102,32 @@ bash scripts/start.sh     # 2. 백엔드+프론트 실행
 - **선택적 로컬 AI** — 강제 제공자 → Ollama → 규칙 기반 폴백 체인. 엄격한 JSON
   스키마 검증, 제안은 절대 자동 적용되지 않고 provenance가 남습니다. 멀티뷰 캡처와
   프림별 텍스처 크롭으로 제안 정확도를 높입니다.
+- **자연어 규칙 지정 + 검증 설명** — "창문은 유리, concrete 벽은 itu_concrete" 같은
+  한 문장을 검토 가능한 지정 규칙으로 바꿔(`/ai/generate-rules`) 일괄 적용하고
+  (`/ai/apply-rules`, 승인 전까지 씬 불변), 검증 경고를 평문으로 풀어 설명해 줍니다
+  (`/ai/explain-validation`, 읽기 전용 + `suggested_actions` 원클릭 조치).
 - **RF 판별 + 재질 임팩트 평가** — 시각적으로 같은 재질(예: 유리)을 측정된 링크
   path gain 으로 구분하고(`/calibrate/disambiguate`, RMSE 최저 후보 선택·구분 불가
   시 경고), 지정 재질 대 단일 기준재질을 위치별 NMSE/코사인 유사도/dRSS/용량으로
   비교(`/analyze/material-impact`, KICS 2026)해 "이 재질이 링크에 얼마나 중요한지"를
   정량화합니다.
+- **AoA/AoD 각도 분석** — 각 레이 경로가 출발각(AoD)·도착각(AoA)의
+  `[방위각, 고각]`과 per-path `path_gain_db`를 실어, 논문 스타일 극좌표 산점도
+  (방위각=각, 파워=반경, AoD 채움·AoA 빈 마커, 고각은 CSV·툴팁)로 렌더됩니다.
+- **메시 라디오맵 + 영역 정밀화** — 수평 평면 대신 벽면·바닥·도로 **표면 위**에
+  삼각형 단위로 커버리지를 칠하고(`/simulate/mesh-radio-map`), 관심 영역만
+  `center_xy`/`size_xy` + 작은 셀로 재계산하는 영역 정밀화, 다중 TX `sinr_db`
+  라디오맵과 셀별 **서빙 TX** 지도를 지원합니다.
+- **정확도 프리셋** — 대표 배치(28 GHz 실내/실외, 3.5 GHz 도심 매크로, 60 GHz
+  실내)를 고르면 depth·메커니즘·격자 등 솔버 노브가 한 번에 세팅되고, 손으로 바꾸면
+  Custom 으로 전환됩니다.
+- **결과 재현성 + 라이브 이벤트** — 모든 결과에 `scene_hash`/`rf_assignment_hash`/
+  `sim_config_hash` + `config_snapshot`을 각인해 씬·지정이 바뀐 뒤의 stale 결과를
+  배지로 알리고, `WS /ws/projects/{id}/events`로 컴파일/시뮬레이션 진행을
+  폴링 없이 스트리밍합니다. `GET /api/backends`는 백엔드별 capability 맵을 제공합니다.
+- **외부 결과·측정값 가져오기** — NVIDIA AODT parquet 결과를 같은 스키마로 정규화해
+  가져오고(`/results/import-aodt`, `aodt_import` 백엔드로 각인), 실측 링크 CSV를
+  불러와(`/calibrate/measurements/import-csv`) 보정·판별의 입력으로 씁니다.
 
 전체 데모 흐름은 [TUTORIAL.md](TUTORIAL.md) 참조.
 

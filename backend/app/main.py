@@ -14,8 +14,10 @@ from app.api import (
     compile as compile_api,
     datasets,
     engines,
+    events,
     export,
     health,
+    import_results,
     import_scene,
     materials,
     projects,
@@ -49,9 +51,12 @@ def create_app() -> FastAPI:
     for module in (
         health, projects, import_scene, scene, materials, ai, compile_api,
         simulate, export, calibrate, channel, scenario, engines, datasets,
-        render,
+        render, import_results,
     ):
         app.include_router(module.router, prefix="/api")
+    # WebSocket event stream is mounted WITHOUT the /api prefix so the path is
+    # exactly /ws/projects/{id}/events (frontend contract).
+    app.include_router(events.router)
     # Load user plugins (plugins/<name>/plugin.py). Failures are contained in
     # PluginInfo records, never raised - a bad plugin cannot break startup.
     from app.services.plugins import load_plugins

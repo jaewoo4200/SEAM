@@ -12,7 +12,13 @@ class RadioMapGridConfig(StrictModel):
     # Height above ground for the planar measurement grid.
     height_m: float = 1.5
     # Default matches Sionna RT's preview/render default (path gain in dB).
-    metric: Literal["path_gain_db", "rss_dbm"] = "path_gain_db"
+    # sinr_db needs >=1 TX; with a single TX it degenerates to SNR.
+    metric: Literal["path_gain_db", "rss_dbm", "sinr_db"] = "path_gain_db"
+    # Optional explicit extent override ([x, y] center / size in meters).
+    # None = auto-fit to the scene geometry. Lets a caller refine a selected
+    # region at a finer cell size instead of re-solving the whole map.
+    center_xy: Optional[list[float]] = Field(default=None, min_length=2, max_length=2)
+    size_xy: Optional[list[float]] = Field(default=None, min_length=2, max_length=2)
 
 
 class SimulationConfig(StrictModel):
@@ -63,6 +69,25 @@ class SimulateRequest(StrictModel):
     config_id: Optional[str] = None
     # ...or supply an inline config (wins over config_id).
     config: Optional[SimulationConfig] = None
+
+
+class MeshRadioMapRequest(StrictModel):
+    """Body for POST /simulate/mesh-radio-map: per-triangle coverage on the
+    selected prims' surfaces (facades, roads, floors) instead of a horizontal
+    plane. Probe receivers are parked at triangle centers, offset along the
+    face normal, and solved in chunks with the active backend."""
+
+    config_id: Optional[str] = None
+    config: Optional[SimulationConfig] = None
+    prim_ids: list[str] = Field(min_length=1)
+    # Serving TX; None = first tx in the scene.
+    tx_id: Optional[str] = None
+    metric: Literal["path_gain_db", "rss_dbm"] = "rss_dbm"
+    # Sampling budget across ALL requested surfaces; meshes above it are
+    # sampled every k-th triangle (stride recorded per surface).
+    max_triangles: int = Field(default=2000, ge=1, le=20000)
+    # Probe offset along the face normal so receivers sit just off the surface.
+    offset_m: float = Field(default=0.05, gt=0.0)
 
 
 class BeamformingRequest(StrictModel):

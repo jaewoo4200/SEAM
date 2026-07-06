@@ -18,15 +18,21 @@ from app.api import deps
 from app.core.config import get_settings
 from app.schemas.ai import SuggestMaterialsRequest
 from app.schemas.scene import MeshRef, Prim, Scene, VisualBinding
+from app.schemas.ai import AssignmentRule
 from app.services import ai_provider
 from app.services.ai_provider import (
     AIParseError,
     LocalOpenAIProvider,
+    NoTextProviderError,
     OllamaTextProvider,
     RuleBasedProvider,
     _extract_json_object,
+    apply_rules,
+    build_evidence,
+    generate_assignment_rules,
     get_provider_statuses,
     parse_ai_response,
+    parse_rules_response,
     suggest_materials,
 )
 from app.services.project_store import load_default_library
@@ -488,7 +494,10 @@ def test_api_apply_suggestions_approve_and_reject(client):
 
     walls = saved.prim_by_id(WALLS_ID)
     assert walls.rf.material_id is None
-    assert walls.rf.assignment_status == "unassigned"
+    # Reject now stamps the binding "rejected" (material stays None) so the prim
+    # is not re-suggested; the sibling wave lands the enum value.
+    assert walls.rf.assignment_status == "rejected"
+    assert walls.rf.assignment_sources == ["ai:rule_based", "user"]
 
     decisions = [r for r in _read_log(project_dir) if r["event"] == "decision"]
     assert {d["action"] for d in decisions} == {"approve", "reject"}
@@ -987,3 +996,399 @@ def test_suggest_materials_texture_crops_off_for_rule_based(
     response = suggest_materials(scene, library, request, project_dir=tmp_path)
     assert response.provider == "rule_based"
     assert response.suggestions[0].recommended_rf_material_id == "itu_glass"
+
+
+# ------------------------------------------------- evidence upgrades (task #6)
+
+
+def test_build_evidence_includes_mesh_name(scene, library):
+    prim = scene.prim_by_id(WINDOW_ID)
+    evidence = build_evidence(prim, library)
+    assert evidence["mesh_name"] == "building_01"
+
+
+def test_build_evidence_neighbor_context_is_siblings(scene, library):
+    # WALLS and BLOB live under different parents than WINDOW, so WINDOW's
+    # sibling list is empty; give a prim a real sibling to exercise the path.
+    from app.schemas.scene import MeshRef, Prim
+
+    sib_a = Prim(
+        id="/room/panel_a", name="panel_a", mesh_ref=MeshRef(mesh_name="pa")
+    )
+    sib_b = Prim(
+        id="/room/panel_b", name="panel_b", mesh_ref=MeshRef(mesh_name="pb")
+    )
+    scene.prims.extend([sib_a, sib_b])
+    evidence = build_evidence(sib_a, library, scene=scene)
+    assert evidence["neighbor_context"] == ["panel_b"]
+
+
+def test_mesh_name_evidence_drives_rule_suggestion(library):
+    # A prim whose ONLY glass hint is the mesh_name still gets itu_glass.
+    from app.schemas.scene import MeshRef, Prim, Scene
+
+    prim = Prim(
+        id="/b/p1", name="p1", mesh_ref=MeshRef(mesh_name="glass_pane_07")
+    )
+    scn = Scene(scene_id="s", prims=[prim])
+    response = RuleBasedProvider().suggest(scn, library, ["/b/p1"])
+    suggestion = response.suggestions[0]
+    assert suggestion.recommended_rf_material_id == "itu_glass"
+    assert any("mesh name" in e for e in suggestion.evidence)
+
+
+# ------------------------------------------------- rule parsing (task #2)
+
+
+def _rules_payload() -> dict:
+    return {
+        "rules": [
+            {
+                "id": "rule_window_glass",
+                "match_name_contains": ["window", "glass"],
+                "rf_material_id": "itu_glass",
+                "note": "windows -> glass",
+            }
+        ]
+    }
+
+
+def test_parse_rules_valid_payload(library):
+    rules, warnings = parse_rules_response(json.dumps(_rules_payload()), library)
+    assert warnings == []
+    assert len(rules) == 1
+    assert rules[0].id == "rule_window_glass"
+    assert rules[0].match_name_contains == ["window", "glass"]
+    assert rules[0].rf_material_id == "itu_glass"
+
+
+def test_parse_rules_tolerates_fenced_and_preamble(library):
+    raw = (
+        "Sure, here are the rules you asked for:\n```json\n"
+        + json.dumps(_rules_payload())
+        + "\n```"
+    )
+    rules, warnings = parse_rules_response(raw, library)
+    assert len(rules) == 1
+    assert rules[0].rf_material_id == "itu_glass"
+
+
+def test_parse_rules_drops_unknown_material_with_warning(library):
+    payload = _rules_payload()
+    payload["rules"][0]["rf_material_id"] = "vibranium"
+    rules, warnings = parse_rules_response(json.dumps(payload), library)
+    assert rules == []
+    assert any("vibranium" in w for w in warnings)
+
+
+def test_parse_rules_drops_malformed_rule(library):
+    payload = _rules_payload()
+    # Second rule has an empty match list -> fails min_length validation.
+    payload["rules"].append(
+        {"id": "bad", "match_name_contains": [], "rf_material_id": "itu_glass"}
+    )
+    rules, warnings = parse_rules_response(json.dumps(payload), library)
+    assert len(rules) == 1
+    assert any("malformed" in w for w in warnings)
+
+
+def test_parse_rules_garbage_raises(library):
+    with pytest.raises(AIParseError):
+        parse_rules_response("no json here", library)
+    with pytest.raises(AIParseError):
+        parse_rules_response('{"not_rules": []}', library)
+
+
+def test_rule_generation_prompt_lists_library_ids_and_few_shots(library):
+    from app.services.ai_provider import _build_rule_generation_messages
+
+    system, user = _build_rule_generation_messages("window은 glass로", library)
+    # Every library id appears in the allowed-ids block.
+    for mat in library.materials:
+        assert mat.id in user
+    # SEAM-style few-shot examples are present.
+    assert "rule_window_glass" in user
+    assert "match_name_contains" in user
+    assert "Respond ONLY with JSON" in system
+
+
+# ------------------------------------------------- apply_rules (task #3)
+
+
+def test_apply_rules_matches_name(scene, library):
+    rules = [
+        AssignmentRule(
+            id="r_window",
+            match_name_contains=["window"],
+            rf_material_id="itu_glass",
+        )
+    ]
+    response = apply_rules(scene, library, rules)
+    assert response.provider == "rule_generated"
+    by_prim = {s.prim_id: s for s in response.suggestions}
+    assert WINDOW_ID in by_prim
+    suggestion = by_prim[WINDOW_ID]
+    assert suggestion.recommended_rf_material_id == "itu_glass"
+    assert suggestion.confidence == pytest.approx(0.7)
+    assert suggestion.needs_user_confirmation is True
+    assert suggestion.evidence == ["rule r_window: name contains 'window'"]
+
+
+def test_apply_rules_matches_semantic_tag(scene, library):
+    # WALLS_ID carries semantic tag "building".
+    rules = [
+        AssignmentRule(
+            id="r_building",
+            match_name_contains=["building"],
+            rf_material_id="itu_concrete",
+        )
+    ]
+    response = apply_rules(scene, library, rules)
+    by_prim = {s.prim_id: s for s in response.suggestions}
+    assert WALLS_ID in by_prim
+    assert by_prim[WALLS_ID].recommended_rf_material_id == "itu_concrete"
+
+
+def test_apply_rules_matches_visual_material_name(scene, library):
+    # WINDOW_ID's visual material name is "blue_glass_pbr".
+    rules = [
+        AssignmentRule(
+            id="r_glass_visual",
+            match_name_contains=["blue_glass"],
+            rf_material_id="itu_glass",
+        )
+    ]
+    response = apply_rules(scene, library, rules)
+    by_prim = {s.prim_id: s for s in response.suggestions}
+    assert WINDOW_ID in by_prim
+    assert by_prim[WINDOW_ID].evidence[0].startswith("rule r_glass_visual")
+
+
+def test_apply_rules_first_matching_rule_wins(scene, library):
+    rules = [
+        AssignmentRule(
+            id="r_first", match_name_contains=["window"], rf_material_id="metal"
+        ),
+        AssignmentRule(
+            id="r_second",
+            match_name_contains=["window"],
+            rf_material_id="itu_glass",
+        ),
+    ]
+    response = apply_rules(scene, library, rules)
+    by_prim = {s.prim_id: s for s in response.suggestions}
+    assert by_prim[WINDOW_ID].recommended_rf_material_id == "metal"
+
+
+def test_apply_rules_skips_user_confirmed(scene, library):
+    from app.schemas.materials import AssignRequest
+    from app.services.material_assignment import assign_materials
+
+    assign_materials(
+        scene,
+        AssignRequest(
+            prim_ids=[WINDOW_ID],
+            rf_material_id="itu_glass",
+            assignment_status="user_confirmed",
+        ),
+        library,
+    )
+    rules = [
+        AssignmentRule(
+            id="r_window", match_name_contains=["window"], rf_material_id="metal"
+        )
+    ]
+    response = apply_rules(scene, library, rules)
+    assert all(s.prim_id != WINDOW_ID for s in response.suggestions)
+
+
+def test_apply_rules_skips_unknown_material_with_warning(scene, library):
+    rules = [
+        AssignmentRule(
+            id="r_bad", match_name_contains=["window"], rf_material_id="vibranium"
+        )
+    ]
+    response = apply_rules(scene, library, rules)
+    assert response.suggestions == []
+    assert any("vibranium" in w for w in response.warnings)
+
+
+# ------------------------------------- generate_assignment_rules provider path
+
+
+def _openai_up_get(url, *a, **k):
+    if "/models" in url:
+        return _FakeResponse({"data": []})  # OpenAI probe up
+    raise httpx.ConnectError("ollama down")  # Ollama /api/tags down
+
+
+def test_generate_assignment_rules_uses_text_llm(scene, library, monkeypatch):
+    monkeypatch.setattr(httpx, "get", _openai_up_get)
+    monkeypatch.setattr(
+        httpx,
+        "post",
+        lambda *a, **k: _FakeResponse(_openai_payload(json.dumps(_rules_payload()))),
+    )
+    rules, provider, model, warnings = generate_assignment_rules(
+        "window은 glass로", library
+    )
+    assert provider == "local_openai"
+    assert len(rules) == 1
+    assert rules[0].rf_material_id == "itu_glass"
+
+
+def test_generate_assignment_rules_raises_when_no_provider(library, monkeypatch):
+    def _raise(*a, **k):
+        raise httpx.ConnectError("connection refused")
+
+    monkeypatch.setattr(httpx, "get", _raise)
+    with pytest.raises(NoTextProviderError):
+        generate_assignment_rules("window은 glass로", library)
+
+
+def test_explain_validation_warnings_uses_text_llm(library, monkeypatch):
+    from app.schemas.validation import ValidationIssue
+
+    monkeypatch.setattr(httpx, "get", _openai_up_get)
+    monkeypatch.setattr(
+        httpx,
+        "post",
+        lambda *a, **k: _FakeResponse(
+            _openai_payload("Assign an RF material to the flagged prim.")
+        ),
+    )
+    issues = [
+        ValidationIssue(
+            severity="warning",
+            code="MISSING_RF_MATERIAL",
+            message="prim has no RF material",
+            prim_id=WALLS_ID,
+        )
+    ]
+    explanation, provider, model, warnings = ai_provider.explain_validation_warnings(
+        issues, library
+    )
+    assert provider == "local_openai"
+    assert "RF material" in explanation
+
+
+def test_explain_validation_warnings_raises_when_no_provider(library, monkeypatch):
+    def _raise(*a, **k):
+        raise httpx.ConnectError("connection refused")
+
+    monkeypatch.setattr(httpx, "get", _raise)
+    with pytest.raises(NoTextProviderError):
+        ai_provider.explain_validation_warnings([], library)
+
+
+# ------------------------------------------------------ new API routes
+
+
+def test_api_apply_rules_writes_jsonl_and_suggests(client):
+    http, _store, project_dir = client
+    response = http.post(
+        "/api/projects/ai_test/ai/apply-rules",
+        json={
+            "rules": [
+                {
+                    "id": "r_window",
+                    "match_name_contains": ["window"],
+                    "rf_material_id": "itu_glass",
+                }
+            ]
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["provider"] == "rule_generated"
+    by_prim = {s["prim_id"]: s for s in body["suggestions"]}
+    assert by_prim[WINDOW_ID]["recommended_rf_material_id"] == "itu_glass"
+
+    records = _read_log(project_dir)
+    suggested = [r for r in records if r["event"] == "suggested"]
+    assert suggested and suggested[-1]["provider"] == "rule_generated"
+    assert suggested[-1]["rule_ids"] == ["r_window"]
+
+
+def test_api_apply_rules_requires_at_least_one_rule(client):
+    http, _store, _dir = client
+    response = http.post(
+        "/api/projects/ai_test/ai/apply-rules", json={"rules": []}
+    )
+    assert response.status_code == 422
+
+
+def test_api_generate_rules_409_when_no_provider(client, monkeypatch):
+    http, _store, _dir = client
+
+    def _raise(*a, **k):
+        raise httpx.ConnectError("connection refused")
+
+    monkeypatch.setattr(httpx, "get", _raise)
+    response = http.post(
+        "/api/projects/ai_test/ai/generate-rules",
+        json={"instruction": "window은 glass로"},
+    )
+    assert response.status_code == 409
+
+
+def test_api_generate_rules_success(client, monkeypatch):
+    http, _store, _dir = client
+    monkeypatch.setattr(httpx, "get", _openai_up_get)
+    monkeypatch.setattr(
+        httpx,
+        "post",
+        lambda *a, **k: _FakeResponse(_openai_payload(json.dumps(_rules_payload()))),
+    )
+    response = http.post(
+        "/api/projects/ai_test/ai/generate-rules",
+        json={"instruction": "window은 glass로"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["provider"] == "local_openai"
+    assert body["rules"][0]["rf_material_id"] == "itu_glass"
+
+
+def test_api_explain_validation_409_when_no_provider(client, monkeypatch):
+    http, _store, _dir = client
+
+    def _raise(*a, **k):
+        raise httpx.ConnectError("connection refused")
+
+    monkeypatch.setattr(httpx, "get", _raise)
+    response = http.post("/api/projects/ai_test/ai/explain-validation")
+    assert response.status_code == 409
+
+
+def test_api_explain_validation_success(client, monkeypatch):
+    http, _store, _dir = client
+    monkeypatch.setattr(httpx, "get", _openai_up_get)
+    monkeypatch.setattr(
+        httpx,
+        "post",
+        lambda *a, **k: _FakeResponse(
+            _openai_payload("Assign RF materials to the unassigned prims.")
+        ),
+    )
+    response = http.post("/api/projects/ai_test/ai/explain-validation")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["provider"] == "local_openai"
+    assert "RF material" in body["explanation"]
+
+
+def test_api_apply_suggestions_reject_stamps_rejected_status(client):
+    http, store, _dir = client
+    response = http.post(
+        "/api/projects/ai_test/ai/apply-suggestions",
+        json={
+            "decisions": [{"prim_id": WALLS_ID, "action": "reject"}],
+            "provider": "rule_based",
+        },
+    )
+    assert response.status_code == 200
+    saved = store.load_scene("ai_test")
+    walls = saved.prim_by_id(WALLS_ID)
+    assert walls.rf.material_id is None
+    assert walls.rf.assignment_status == "rejected"

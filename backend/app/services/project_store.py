@@ -221,6 +221,13 @@ class ProjectStore:
         _atomic_write_text(path, json.dumps(obj, indent=2))
         return path
 
+    def save_text(self, project_id: str, relative: str, text: str) -> Path:
+        """Atomically write raw text to a project-relative path (e.g. an
+        imported CSV kept verbatim). Mirrors ``save_json`` traversal safety."""
+        path = self.asset_path(project_id, relative)
+        _atomic_write_text(path, text)
+        return path
+
     def load_json(self, project_id: str, relative: str) -> dict:
         return json.loads(
             self.asset_path(project_id, relative).read_text(encoding="utf-8")

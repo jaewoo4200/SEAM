@@ -19,6 +19,9 @@ CalibParam = Literal[
 
 
 class MeasurementSample(StrictModel):
+    # Optional stable id carried from the imported CSV (measurement_id column);
+    # lets the UI/exports round-trip a caller's own row identity.
+    measurement_id: Optional[str] = None
     # RX (receiver) position in meters, Z-up.
     rx_position: Vec3
     tx_id: Optional[str] = None  # None = first tx

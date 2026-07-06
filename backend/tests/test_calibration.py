@@ -365,3 +365,112 @@ def test_disambiguation_unknown_candidate_skipped(tmp_path: Path):
     assert scored.n_links > 0 and scored.rmse_db is not None
     # A single scored candidate skips the flat-spread guard, so it is the best.
     assert report.best_material_id == "itu_concrete"
+
+
+# --------------------------------------------- measurement CSV import + GET
+
+
+def _create_cal_project(api_client, pid: str = "measproj") -> None:
+    from app.api.deps import get_store
+
+    store = get_store()
+    store.create_project("Meas API", project_id=pid)
+    store.save_scene(pid, _scene())
+
+
+def test_measurement_id_roundtrips_on_sample():
+    from app.schemas.calibration import MeasurementSample
+
+    s = MeasurementSample(
+        measurement_id="m-42", rx_position=[1.0, 2.0, 1.5], measured_path_gain_db=-95.0
+    )
+    assert s.measurement_id == "m-42"
+    again = MeasurementSample.model_validate_json(s.model_dump_json())
+    assert again.measurement_id == "m-42"
+    # Optional: omitting it defaults to None.
+    assert MeasurementSample(rx_position=[0, 0, 1.5], measured_path_gain_db=-90.0).measurement_id is None
+
+
+def test_import_measurements_csv_happy_and_get(api_client):
+    _create_cal_project(api_client, "measok")
+    csv_text = (
+        "measurement_id,x,y,z,tx_id,measured_path_gain_db\n"
+        "m1,10.0,0.0,1.5,tx_001,-92.3\n"
+        "m2,25.0,5.0,1.5,tx_001,-101.0\n"
+    )
+    resp = api_client.post(
+        "/api/projects/measok/calibrate/measurements/import-csv",
+        json={"csv_text": csv_text},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["skipped"] == 0
+    assert len(body["measurements"]) == 2
+    m1 = body["measurements"][0]
+    assert m1["measurement_id"] == "m1"
+    assert m1["rx_position"] == [10.0, 0.0, 1.5]
+    assert m1["tx_id"] == "tx_001"
+    assert m1["measured_path_gain_db"] == pytest.approx(-92.3)
+
+    # GET re-parses the persisted raw CSV and returns the same rows.
+    got = api_client.get("/api/projects/measok/calibrate/measurements")
+    assert got.status_code == 200, got.text
+    assert len(got.json()["measurements"]) == 2
+    assert got.json()["measurements"][1]["measurement_id"] == "m2"
+
+
+def test_import_measurements_csv_skips_bad_rows(api_client):
+    _create_cal_project(api_client, "measbad")
+    csv_text = (
+        "measurement_id,x,y,z,measured_path_gain_db\n"
+        "good,10.0,0.0,1.5,-92.3\n"
+        "no_gain,25.0,5.0,1.5,\n"          # missing gain -> skipped
+        "bad_number,not_a_float,0.0,1.5,-90.0\n"  # unparseable coord -> skipped
+        "missing_col,5.0,1.5,-88.0\n"      # too few columns -> skipped
+    )
+    resp = api_client.post(
+        "/api/projects/measbad/calibrate/measurements/import-csv",
+        json={"csv_text": csv_text},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert len(body["measurements"]) == 1
+    assert body["measurements"][0]["measurement_id"] == "good"
+    assert body["skipped"] == 3
+    assert any("skipped 3" in w for w in body["warnings"])
+
+
+def test_import_measurements_csv_alias_headers(api_client):
+    """rx_x/rx_y/rx_z position columns and rsrp_dbm gain alias are accepted."""
+    _create_cal_project(api_client, "measalias")
+    csv_text = (
+        "rx_x,rx_y,rx_z,rsrp_dbm\n"
+        "12.0,0.0,1.5,-70.5\n"
+        "30.0,0.0,1.5,-80.0\n"
+    )
+    resp = api_client.post(
+        "/api/projects/measalias/calibrate/measurements/import-csv",
+        json={"csv_text": csv_text},
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["skipped"] == 0
+    assert len(body["measurements"]) == 2
+    assert body["measurements"][0]["rx_position"] == [12.0, 0.0, 1.5]
+    assert body["measurements"][0]["measured_path_gain_db"] == pytest.approx(-70.5)
+    # No explicit id column -> measurement_id is None.
+    assert body["measurements"][0]["measurement_id"] is None
+
+
+def test_get_measurements_404_when_none_imported(api_client):
+    _create_cal_project(api_client, "measempty")
+    resp = api_client.get("/api/projects/measempty/calibrate/measurements")
+    assert resp.status_code == 404
+
+
+def test_import_measurements_csv_unknown_project_404(api_client):
+    resp = api_client.post(
+        "/api/projects/nope/calibrate/measurements/import-csv",
+        json={"csv_text": "x,y,z,measured_path_gain_db\n1,2,1.5,-90\n"},
+    )
+    assert resp.status_code == 404

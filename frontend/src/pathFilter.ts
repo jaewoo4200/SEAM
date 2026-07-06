@@ -13,6 +13,9 @@ export interface PathFilterParams {
   minPowerDbm: number | null;
   // Device ids whose links are hidden (AODT-style per-TX/RX filter chips).
   hiddenLinkDevices?: string[];
+  // RF material ids to keep (empty = all). A path passes if ANY of its
+  // interactions hit a material in this set (interaction-material chips).
+  materialFilter?: string[];
 }
 
 /**
@@ -30,6 +33,12 @@ export function filterPaths(paths: RayPath[], p: PathFilterParams): RayPath[] {
   }
   if (p.pathTypeFilter !== "all") {
     out = out.filter((path) => path.path_type === p.pathTypeFilter);
+  }
+  if (p.materialFilter && p.materialFilter.length > 0) {
+    const keep = new Set(p.materialFilter);
+    out = out.filter((path) =>
+      path.interactions.some((it) => it.rf_material_id !== null && keep.has(it.rf_material_id)),
+    );
   }
   if (p.minPowerDbm !== null) {
     const min = p.minPowerDbm;

@@ -41,6 +41,33 @@ error sources and what SionnaTwin Studio does about them.
   `assignment_status: measurement_calibrated`.
 - **Frequency-aware defaults** — 28 GHz default, ITU vs constant material split.
 
+## Solver / accuracy presets
+
+Getting the solver knobs right is as much an accuracy lever as material choice:
+too few samples biases diffuse paths low, too shallow a `max_depth` drops NLOS
+bounces, and the wrong mechanisms (scattering/refraction/diffraction off) can
+mis-predict coverage by tens of dB. Rather than leave every knob to the user,
+`SolverControls` offers **named presets** (`frontend/src/configPresets.ts`)
+that bundle a coherent set of solver knobs plus the radio-map grid for a
+canonical deployment:
+
+| preset | freq | max_depth | mechanisms | grid cell |
+|---|---|---|---|---|
+| **28 GHz Indoor Lab** | 28 GHz | 5 | reflection + refraction + scattering | 0.25 m |
+| **28 GHz Outdoor Campus** | 28 GHz | 3 | reflection + scattering | 2.0 m |
+| **3.5 GHz Urban Macro** | 3.5 GHz | 4 | reflection + refraction + diffraction | 5.0 m |
+| **60 GHz Indoor** | 60 GHz | 4 | reflection + refraction | 0.25 m |
+
+Selecting a preset patches **both** the paths config and the radio-map grid; it
+leaves the user's backend/TX/RX selection untouched. Presets only ever set keys
+that already exist in the pinned `SimulationConfig` wire type, so they cannot
+introduce drift. Hand-editing any covered knob flips the dropdown to **Custom**
+(the sentinel for "no named preset matches"). The indoor presets deliberately
+turn on refraction (through-wall transmission dominates indoor NLOS) and a
+finer 0.25 m grid; the outdoor/urban presets trade depth and grid resolution
+for area coverage. These are starting points, not calibrated ground truth —
+run measurement calibration (above) to close the residual material error.
+
 ## Planned next steps
 
 - **Differentiable (Adam) calibration.** Sionna RT is differentiable w.r.t.

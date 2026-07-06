@@ -25,6 +25,7 @@ from pydantic import ValidationError
 from app.core.config import get_settings
 from app.schemas.ai import (
     AIProviderStatus,
+    AssignmentRule,
     MaterialAlternative,
     MaterialSuggestion,
     MaterialSuggestionResponse,
@@ -32,6 +33,7 @@ from app.schemas.ai import (
 )
 from app.schemas.materials import RFMaterialLibrary
 from app.schemas.scene import Prim, Scene
+from app.schemas.validation import ValidationIssue
 
 PROMPT_VERSION = "v2"
 
@@ -58,6 +60,15 @@ _KEYWORD_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
 
 class AIParseError(ValueError):
     """Raised when an AI response payload is completely unusable."""
+
+
+class NoTextProviderError(RuntimeError):
+    """Raised when a text-LLM feature is requested but no provider is available.
+
+    The API layer maps this to HTTP 409 (the rule-generation and
+    validation-explanation features genuinely require an LLM; unlike material
+    suggestions there is no keyword fallback that makes sense).
+    """
 
 
 def _strip_data_url_prefix(data_url: str | None) -> str | None:
@@ -114,7 +125,9 @@ def _is_vision_rejection(exc: Exception) -> bool:
     )
 
 
-def build_evidence(prim: Prim, library: RFMaterialLibrary) -> dict:
+def build_evidence(
+    prim: Prim, library: RFMaterialLibrary, scene: Optional[Scene] = None
+) -> dict:
     """Collect the ONLY visual information any provider is allowed to see.
 
     Evidence, never truth: names, tags and texture basenames are hints for
@@ -122,6 +135,12 @@ def build_evidence(prim: Prim, library: RFMaterialLibrary) -> dict:
     the pinned signature for providers that want to cross-check evidence
     against material categories; the rule/LLM evidence itself never includes
     RF state.
+
+    ``mesh_name`` (from ``prim.mesh_ref.mesh_name``) is scanned like the other
+    textual hints. ``neighbor_context`` (up to 4 sibling prim names sharing the
+    same parent path segment) is informational only - it is shown to the LLM as
+    surrounding context but never keyword-scanned, so a neighbor named "glass"
+    cannot silently flip this prim to glass.
     """
     visual = prim.visual
     texture = visual.base_color_texture if visual else None
@@ -131,11 +150,33 @@ def build_evidence(prim: Prim, library: RFMaterialLibrary) -> dict:
     return {
         "prim_id": prim.id,
         "name": prim.name,
+        "mesh_name": prim.mesh_ref.mesh_name if prim.mesh_ref else None,
         "semantic_tags": list(prim.semantic_tags),
         "visual_material_id": visual.material_id if visual else None,
         "visual_material_name": visual.material_name if visual else None,
         "texture_basename": texture_basename,
+        "neighbor_context": _neighbor_context(prim, scene) if scene else [],
     }
+
+
+def _neighbor_context(prim: Prim, scene: Scene, limit: int = 4) -> list[str]:
+    """Up to ``limit`` sibling prim names sharing the parent path segment.
+
+    Siblings are other prims whose id has the same parent directory as this
+    prim (e.g. everything under "/buildings/b07/"). Informational only: this
+    list is never keyword-scanned, just surfaced to the LLM as context.
+    """
+    parent = prim.id.rsplit("/", 1)[0]
+    names: list[str] = []
+    for other in scene.prims:
+        if other.id == prim.id:
+            continue
+        if other.id.rsplit("/", 1)[0] != parent:
+            continue
+        names.append(other.name)
+        if len(names) >= limit:
+            break
+    return names
 
 
 def _evidence_fields(evidence: dict) -> list[tuple[str, str, float]]:
@@ -151,6 +192,7 @@ def _evidence_fields(evidence: dict) -> list[tuple[str, str, float]]:
             ),
             0.8,
         ),
+        ("mesh name", str(evidence.get("mesh_name") or ""), 0.7),
     ]
     for tag in evidence.get("semantic_tags") or []:
         fields.append(("semantic tag", str(tag), 0.65))
@@ -1233,3 +1275,384 @@ def suggest_materials(
     if response.prompt_version is None:
         response.prompt_version = PROMPT_VERSION
     return response
+
+
+# --------------------------------------------------------------- text LLM tasks
+# Rule generation and validation-explanation are TEXT-only LLM tasks (no image
+# path, no rule fallback). They reuse the provider-selection conventions of the
+# suggestion path: prefer the local SOTA reasoning model (LM Studio / OpenAI-
+# compatible) then the Ollama text model. When neither is reachable they raise
+# NoTextProviderError, which the API maps to HTTP 409.
+
+
+def _select_text_provider() -> tuple[str, str]:
+    """(provider_name, model) for the best available TEXT LLM.
+
+    Mirrors ``_select_provider`` ordering (local_openai then ollama_text) but
+    excludes the rule-based/disabled providers, which cannot answer free-text
+    prompts. Raises :class:`NoTextProviderError` when AI is off or no server is
+    reachable.
+    """
+    settings = get_settings().ai
+    if settings.enabled == "off":
+        raise NoTextProviderError(
+            "AI assistance is disabled (SIONNATWIN_AI_ENABLED=off)"
+        )
+    if LocalOpenAIProvider().is_available():
+        return "local_openai", settings.openai_model
+    if OllamaTextProvider().is_available():
+        return "ollama_text", settings.text_model
+    raise NoTextProviderError(
+        "no text LLM provider is reachable "
+        f"(tried local_openai at {settings.openai_url} and "
+        f"ollama_text at {settings.base_url})"
+    )
+
+
+def _call_text_llm(
+    provider_name: str,
+    model: str,
+    system: str,
+    user: str,
+    force_json: bool = False,
+) -> str:
+    """One text-only round-trip to ``provider_name``; returns the raw answer.
+
+    Raises on transport/HTTP errors so the caller can decide how to degrade.
+    ``force_json`` asks the server for a JSON object (honored by Ollama's
+    ``format`` field; OpenAI-compatible servers get a response_format hint).
+    """
+    import httpx  # lazy: never required at import time
+
+    settings = get_settings().ai
+    messages = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user},
+    ]
+    if provider_name == "local_openai":
+        body: dict = {
+            "model": model,
+            "messages": messages,
+            "temperature": 0,
+            "max_tokens": 2000,
+            "stream": False,
+        }
+        if force_json:
+            body["response_format"] = {"type": "json_object"}
+        response = httpx.post(
+            f"{settings.openai_url}/chat/completions",
+            json=body,
+            timeout=settings.timeout_s,
+        )
+        if response.status_code == 400 and force_json:
+            # Some OpenAI-compatible servers (LM Studio with certain models)
+            # reject response_format outright; the parser tolerates prose
+            # wrappers, so retry once without the hint.
+            body.pop("response_format", None)
+            response = httpx.post(
+                f"{settings.openai_url}/chat/completions",
+                json=body,
+                timeout=settings.timeout_s,
+            )
+        response.raise_for_status()
+        return LocalOpenAIProvider._extract_content(response.json())
+    # ollama_text
+    body = {
+        "model": model,
+        "messages": messages,
+        "stream": False,
+        "options": {"temperature": 0},
+    }
+    if force_json:
+        body["format"] = "json"
+    response = httpx.post(
+        f"{settings.base_url}/api/chat",
+        json=body,
+        timeout=settings.timeout_s,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if isinstance(payload, dict):
+        return (payload.get("message") or {}).get("content") or ""
+    return ""
+
+
+# Few-shot examples in the SEAM spec style: a natural-language instruction and
+# the rule JSON it should produce. These pin the output shape and demonstrate
+# the case-insensitive, multi-term matching contract.
+_RULE_FEW_SHOTS: tuple[dict, ...] = (
+    {
+        "instruction": "window 들어간 object는 glass로",
+        "rules": [
+            {
+                "id": "rule_window_glass",
+                "match_name_contains": ["window", "glass"],
+                "rf_material_id": "itu_glass",
+                "note": "window/glass named objects -> glass",
+            }
+        ],
+    },
+    {
+        "instruction": "wall이나 concrete는 콘크리트 재질로",
+        "rules": [
+            {
+                "id": "rule_wall_concrete",
+                "match_name_contains": ["wall", "concrete", "cement"],
+                "rf_material_id": "itu_concrete",
+                "note": "walls -> concrete",
+            }
+        ],
+    },
+)
+
+
+def _build_rule_generation_messages(
+    instruction: str, library: RFMaterialLibrary
+) -> tuple[str, str]:
+    """(system, user) prompt for assignment-rule generation.
+
+    The user prompt lists every allowed rf material id (anti-hallucination) and
+    two SEAM-style few-shot examples, then the actual instruction.
+    """
+    library_lines = "\n".join(
+        f"- {mat.id} (category: {mat.category})" for mat in library.materials
+    )
+    few_shots = "\n\n".join(
+        "Instruction: "
+        + json.dumps(example["instruction"], ensure_ascii=False)
+        + "\nRules JSON:\n"
+        + json.dumps({"rules": example["rules"]}, ensure_ascii=False, indent=2)
+        for example in _RULE_FEW_SHOTS
+    )
+    schema_example = {
+        "rules": [
+            {
+                "id": "rule_window_glass",
+                "match_name_contains": ["window", "glass"],
+                "rf_material_id": "itu_glass",
+                "note": "short human note (optional)",
+            }
+        ]
+    }
+    system = (
+        "You convert a natural-language material-assignment instruction into a "
+        "list of deterministic name-matching rules for a wireless ray-tracing "
+        "scene. Each rule matches 3D objects whose name/mesh/tag CONTAINS any "
+        "of match_name_contains (case-insensitive) and assigns them one RF "
+        "material. Use ONLY the allowed rf material ids. Respond ONLY with JSON."
+    )
+    user = (
+        "Allowed rf material ids (use ONLY these for rf_material_id):\n"
+        f"{library_lines}\n\n"
+        "Examples:\n"
+        f"{few_shots}\n\n"
+        "Respond ONLY with JSON exactly matching this schema example "
+        "(no prose, no markdown):\n"
+        f"{json.dumps(schema_example, indent=2)}\n\n"
+        "Rules: id is a short lowercase slug (letters, digits, _ or -); "
+        "match_name_contains has at least one lowercase search term; "
+        "rf_material_id must be one of the allowed ids above.\n\n"
+        f"Instruction: {json.dumps(instruction, ensure_ascii=False)}\n"
+        "Rules JSON:"
+    )
+    return system, user
+
+
+def parse_rules_response(
+    raw_text: str, library: RFMaterialLibrary
+) -> tuple[list[AssignmentRule], list[str]]:
+    """Parse + validate an AI rule payload. Pure - no I/O.
+
+    Tolerates code fences and reasoning preambles exactly like
+    :func:`parse_ai_response`. Malformed rules are dropped with a warning; a
+    rule whose ``rf_material_id`` is not in the library is dropped and warned
+    (same anti-hallucination stance as suggestions). A completely unusable
+    payload raises :class:`AIParseError`.
+    """
+    text = (raw_text or "").strip()
+    fenced = _FENCED_BLOCK_RE.match(text)
+    if fenced:
+        text = fenced.group(1).strip()
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as exc:
+        block = _extract_json_object(text)
+        if block is not None:
+            try:
+                payload = json.loads(block)
+            except json.JSONDecodeError:
+                raise AIParseError(f"AI response is not valid JSON: {exc}") from exc
+        else:
+            raise AIParseError(f"AI response is not valid JSON: {exc}") from exc
+    if not isinstance(payload, dict) or not isinstance(payload.get("rules"), list):
+        raise AIParseError("AI response is missing a top-level 'rules' list")
+
+    library_ids = library.ids()
+    allowed_keys = set(AssignmentRule.model_fields)
+    rules: list[AssignmentRule] = []
+    warnings: list[str] = []
+    for index, item in enumerate(payload["rules"]):
+        if not isinstance(item, dict):
+            warnings.append(f"dropped rule #{index}: not a JSON object")
+            continue
+        data = {k: v for k, v in item.items() if k in allowed_keys}
+        try:
+            rule = AssignmentRule.model_validate(data)
+        except ValidationError as exc:
+            first = exc.errors()[0]
+            warnings.append(
+                f"dropped malformed rule #{index}: "
+                f"{first.get('loc')}: {first.get('msg')}"
+            )
+            continue
+        if rule.rf_material_id not in library_ids:
+            warnings.append(
+                f"dropped rule {rule.id!r}: unknown material "
+                f"'{rule.rf_material_id}'"
+            )
+            continue
+        rules.append(rule)
+    return rules, warnings
+
+
+def generate_assignment_rules(
+    instruction: str, library: RFMaterialLibrary
+) -> tuple[list[AssignmentRule], str, Optional[str], list[str]]:
+    """(rules, provider, model, warnings) from a natural-language instruction.
+
+    Prompts the best available text LLM with the library id list and SEAM-style
+    few-shot examples, parses the JSON with the same fence/brace tolerance as
+    :func:`parse_ai_response`, and validates every ``rf_material_id`` against
+    the library (unknown ids dropped + warned). Raises
+    :class:`NoTextProviderError` when no LLM is reachable (API maps to 409) and
+    :class:`AIParseError` when the LLM answer is unusable.
+    """
+    provider_name, model = _select_text_provider()
+    system, user = _build_rule_generation_messages(instruction, library)
+    raw_text = _call_text_llm(provider_name, model, system, user, force_json=True)
+    rules, warnings = parse_rules_response(raw_text, library)
+    return rules, provider_name, model, warnings
+
+
+def _rule_matches_prim(rule: AssignmentRule, prim: Prim) -> Optional[str]:
+    """The first ``match_name_contains`` term that hits this prim, or None.
+
+    Case-insensitively scans the prim's name, mesh_name, semantic tags and
+    visual material name/id. ``neighbor_context`` is deliberately NOT scanned
+    (it is informational only).
+    """
+    haystacks: list[str] = [prim.name]
+    if prim.mesh_ref is not None:
+        haystacks.append(prim.mesh_ref.mesh_name)
+    haystacks.extend(prim.semantic_tags)
+    if prim.visual is not None:
+        if prim.visual.material_name:
+            haystacks.append(prim.visual.material_name)
+        if prim.visual.material_id:
+            haystacks.append(prim.visual.material_id)
+    lowered = [h.lower() for h in haystacks if h]
+    for term in rule.match_name_contains:
+        needle = term.lower()
+        if any(needle in h for h in lowered):
+            return term
+    return None
+
+
+# Prims already trusted at this level are never overridden by a generated rule.
+_RULE_PROTECTED_STATUSES = ("user_confirmed", "measurement_calibrated")
+
+
+def apply_rules(
+    scene: Scene, library: RFMaterialLibrary, rules: list[AssignmentRule]
+) -> MaterialSuggestionResponse:
+    """Turn assignment rules into material SUGGESTIONS (never auto-applied).
+
+    For every mesh prim that is not already user_confirmed or
+    measurement_calibrated, the first matching rule (in rule order) wins and
+    produces a MaterialSuggestion with confidence 0.7, an evidence line naming
+    the rule + matched term, and needs_user_confirmation=True. Rules whose
+    ``rf_material_id`` is not in the library are skipped with a warning. The
+    response provider is ``"rule_generated"``.
+    """
+    library_ids = library.ids()
+    warnings: list[str] = []
+    valid_rules: list[AssignmentRule] = []
+    for rule in rules:
+        if rule.rf_material_id not in library_ids:
+            warnings.append(
+                f"rule {rule.id!r} skipped: unknown material "
+                f"'{rule.rf_material_id}'"
+            )
+            continue
+        valid_rules.append(rule)
+
+    suggestions: list[MaterialSuggestion] = []
+    for prim in scene.prims:
+        if prim.type != "mesh_primitive":
+            continue
+        if prim.rf.assignment_status in _RULE_PROTECTED_STATUSES:
+            continue
+        for rule in valid_rules:
+            term = _rule_matches_prim(rule, prim)
+            if term is None:
+                continue
+            suggestions.append(
+                MaterialSuggestion(
+                    prim_id=prim.id,
+                    recommended_rf_material_id=rule.rf_material_id,
+                    confidence=0.7,
+                    evidence=[f"rule {rule.id}: name contains '{term}'"],
+                    needs_user_confirmation=True,
+                )
+            )
+            break  # first matching rule wins
+    return MaterialSuggestionResponse(
+        suggestions=suggestions,
+        provider="rule_generated",
+        model=None,
+        prompt_version=PROMPT_VERSION,
+        warnings=warnings,
+    )
+
+
+def _build_explain_messages(
+    issues: list[ValidationIssue], library: RFMaterialLibrary
+) -> tuple[str, str]:
+    """(system, user) prompt for the validation-explanation task."""
+    issue_lines = "\n".join(
+        f"- [{issue.severity}] {issue.code}"
+        + (f" (prim {issue.prim_id})" if issue.prim_id else "")
+        + (f" (device {issue.device_id})" if issue.device_id else "")
+        + f": {issue.message}"
+        for issue in issues
+    )
+    if not issue_lines:
+        issue_lines = "- (no issues reported)"
+    system = (
+        "You are an RF-simulation engineer's assistant. Given a scene "
+        "validation report, explain in plain English what is causing the "
+        "issues and give concrete, actionable fixes. Be concise and specific; "
+        "no markdown headers, no JSON - just a short readable explanation."
+    )
+    user = (
+        "Scene validation issues (code, severity, affected object, message):\n"
+        f"{issue_lines}\n\n"
+        "Explain the likely causes and the concrete steps to fix each class of "
+        "issue. Keep it brief and engineer-facing."
+    )
+    return system, user
+
+
+def explain_validation_warnings(
+    issues: list[ValidationIssue], library: RFMaterialLibrary
+) -> tuple[str, str, Optional[str], list[str]]:
+    """(explanation, provider, model, warnings) for a validation report.
+
+    Feeds the validation issues to the best available text LLM and returns a
+    concise plain-text explanation of causes and fixes. Raises
+    :class:`NoTextProviderError` when no LLM is reachable (API maps to 409).
+    """
+    provider_name, model = _select_text_provider()
+    system, user = _build_explain_messages(issues, library)
+    explanation = _call_text_llm(provider_name, model, system, user)
+    return explanation.strip(), provider_name, model, []

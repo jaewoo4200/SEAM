@@ -16,18 +16,25 @@ UnitFloat = Annotated[float, Field(ge=0.0, le=1.0)]
 # measurement_calibrated. A visual/PBR material is never, by itself, an RF
 # material - suggestions derived from visual evidence stay in *_suggested
 # until a user confirms or a calibration run promotes them.
+# "rule_assigned" is a deterministic rule-based assignment (no human/AI in the
+# loop) that carries a material; "rejected" records that a suggestion was
+# declined and the prim intentionally has NO material (material_id stays None).
 AssignmentStatus = Literal[
     "unassigned",
     "rule_suggested",
+    "rule_assigned",
     "ai_suggested",
     "user_confirmed",
     "measurement_calibrated",
+    "rejected",
 ]
 
 # Statuses a material assignment may carry - "unassigned" is only ever the
-# absence of a binding, never something a request can set alongside a material.
+# absence of a binding, and "rejected" is a deliberate no-material decision;
+# neither is something a request can set alongside a material.
 ActiveAssignmentStatus = Literal[
     "rule_suggested",
+    "rule_assigned",
     "ai_suggested",
     "user_confirmed",
     "measurement_calibrated",
@@ -36,10 +43,17 @@ ActiveAssignmentStatus = Literal[
 ASSIGNMENT_STATUSES: tuple[str, ...] = (
     "unassigned",
     "rule_suggested",
+    "rule_assigned",
     "ai_suggested",
     "user_confirmed",
     "measurement_calibrated",
+    "rejected",
 )
+
+# Statuses that legitimately carry NO material_id: "unassigned" is the absence
+# of a binding, "rejected" is an explicit no-material decision. Every other
+# status requires a material_id.
+NO_MATERIAL_STATUSES: tuple[str, ...] = ("unassigned", "rejected")
 
 
 class StrictModel(BaseModel):
