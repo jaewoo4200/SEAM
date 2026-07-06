@@ -205,10 +205,15 @@ function GLBScene({ url }: { url: string }) {
         // tint those (and only those) with a muted version of the prim's RF
         // preview color so visual mode stays legible.
         const src = Array.isArray(orig) ? orig[0] : orig;
+        // NOT bare when the mesh carries vertex colors: the importer bakes the
+        // Mitsuba bsdf color into COLOR_0 (orange metal, green terrain...), and
+        // GLTFLoader exposes it as a white vertexColors material. Replacing it
+        // discards the scene's real colors (the black/gray-FTC regression).
         const bare =
           src instanceof THREE.MeshStandardMaterial &&
           src.name === "" &&
           !src.map &&
+          !src.vertexColors &&
           src.color.getHex() === 0xffffff;
         if (bare && prim) {
           const matDef = materials?.materials.find((mm) => mm.id === prim.rf.material_id);

@@ -153,8 +153,7 @@ interface AppState {
   pathTypeFilter: PathType | "all";
   // Device ids whose links are hidden in ray overlays/tables (filter chips).
   hiddenLinkDevices: string[];
-  /** Prim ids hidden in the 3D viewer (eye toggle in the scene tree).
-   *  RF-helper geometry (occlusion blockers) is seeded hidden per project. */
+  /** Prim ids hidden in the 3D viewer (eye toggle in the scene tree). */
   hiddenPrims: string[];
   strongestN: number;
   minPowerDbm: number | null;
@@ -810,11 +809,9 @@ export const useAppStore = create<AppState>()((set, get) => {
           selectedPathId: null,
           // Overlay visibility starts fresh per project.
           hiddenLinkDevices: [],
-          // RF occlusion helpers (blocker slices) are solver aids, not
-          // visual geometry: hide them by default (eye toggle re-shows).
-          hiddenPrims: scene.prims
-            .filter((pr) => /occlusion|blocker/i.test(pr.mesh_ref?.mesh_name ?? pr.id))
-            .map((pr) => pr.id),
+          // Show every prim the scene defines; hiding is the user's call via
+          // the eye toggle (auto-hiding "helper" prims kept surprising users).
+          hiddenPrims: [],
           showPaths: true,
           showRadioMap: true,
           showBeamforming: true,
