@@ -216,6 +216,9 @@ function GLBScene({ url }: { url: string }) {
             const tinted = new THREE.MeshStandardMaterial({
               color: new THREE.Color(matDef.preview_color).lerp(new THREE.Color("#9aa4ad"), 0.55),
               roughness: 0.85,
+              // GLTFLoader flat-shades primitives that ship without normals;
+              // the replacement must inherit that or those meshes go black.
+              flatShading: src.flatShading === true,
             });
             created.push(tinted);
             mesh.material = tinted;
