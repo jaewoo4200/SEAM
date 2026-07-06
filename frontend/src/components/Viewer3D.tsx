@@ -248,6 +248,7 @@ function GLBScene({ url }: { url: string }) {
     <primitive
       object={gltf.scene}
       onPointerDown={(e: ThreeEvent<PointerEvent>) => {
+        if (useAppStore.getState().pick) return; // pick owns clicks
         e.stopPropagation();
         const prim = findPrim(e.object);
         if (prim) selectPrim(prim.id, isAdditive(e));
@@ -472,6 +473,7 @@ function Devices() {
         const inner = (
           <group
             onPointerDown={(e: ThreeEvent<PointerEvent>) => {
+              if (useAppStore.getState().pick) return; // pick owns clicks
               e.stopPropagation();
               selectDevice(d.id);
             }}
@@ -549,6 +551,7 @@ function Actors({ frameStates }: { frameStates?: Map<string, { position: Vec3; o
         const inner = (
           <group
             onPointerDown={(e: ThreeEvent<PointerEvent>) => {
+              if (useAppStore.getState().pick) return; // pick owns clicks
               e.stopPropagation();
               selectActor(a.id);
             }}
@@ -1053,6 +1056,35 @@ function ViewerHotkeys() {
     }
   }, [pickActiveForGhost]);
 
+  // Frame the camera to the scene extents whenever the project changes: the
+  // fixed default pose is right for a lab room but far too close for a
+  // hundreds-of-meters outdoor scene (reported: outdoor loads over-zoomed).
+  const projectIdForFrame = useAppStore((s) => s.projectId);
+  const boundsForFrame = useAppStore((s) => s.sceneBounds);
+  const framedProject = useRef<string | null>(null);
+  useEffect(() => {
+    if (!projectIdForFrame || !boundsForFrame) return;
+    if (framedProject.current === projectIdForFrame) return;
+    framedProject.current = projectIdForFrame;
+    const b = boundsForFrame;
+    const center = new THREE.Vector3(
+      (b.min[0] + b.max[0]) / 2,
+      (b.min[1] + b.max[1]) / 2,
+      (b.min[2] + b.max[2]) / 2,
+    );
+    const radius = Math.max(
+      1,
+      Math.hypot(b.max[0] - b.min[0], b.max[1] - b.min[1], b.max[2] - b.min[2]) / 2,
+    );
+    const persp = camera as THREE.PerspectiveCamera;
+    const dist = (radius / Math.tan(((persp.fov ?? 45) * Math.PI) / 360)) * 1.2;
+    // Same iso view direction as the default pose (SW, elevated).
+    const dir = new THREE.Vector3(1, -1, 0.75).normalize();
+    camera.position.copy(center.clone().addScaledVector(dir, dist));
+    controls?.target?.copy(center);
+    controls?.update?.();
+  }, [projectIdForFrame, boundsForFrame, camera, controls]);
+
   useEffect(() => {
     cameraPoseGetter = () => ({
       position: [camera.position.x, camera.position.y, camera.position.z],
@@ -1328,8 +1360,9 @@ function PickController() {
       if (e.target !== canvas) return;
       const p = resolve(e.clientX, e.clientY);
       if (!p) return;
-      e.stopImmediatePropagation();
-      e.preventDefault();
+      // Do NOT stop propagation here: OrbitControls must see this pointerup
+      // to end its internal drag state, or the camera keeps orbiting with the
+      // button released. Selection is suppressed in the r3f handlers instead.
       useAppStore.getState().addPickPoint(p);
     };
     const onCancel = () => {
