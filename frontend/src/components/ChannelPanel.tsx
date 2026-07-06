@@ -8,6 +8,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAppStore } from "../store/appStore";
+import { StaleChip } from "./ResultExplorer";
 import { PATH_COLORS } from "./common";
 import type { CirTap, PathType } from "../types/api";
 
@@ -520,7 +521,14 @@ export default function ChannelPanel() {
         {r && (
           <>
             <div className="results-meta">
-              <span className="mono">{r.tx_id}</span> → <span className="mono">{r.rx_id}</span> ·{" "}
+              <span className="mono">{r.tx_id}</span> → <span className="mono">{r.rx_id}{" "}
+            <span
+              className="traj-kind"
+              title="Snapshot of the FIXED tx/rx positions at compute time - a moving-UE sweep lives in the Trajectory panel"
+            >
+              fixed link
+            </span>{" "}
+            <StaleChip kind="channel" /></span> ·{" "}
               backend <span className="mono">{r.backend}</span> · {(r.frequency_hz / 1e9).toFixed(2)} GHz ·{" "}
               {r.distance_3d_m.toFixed(1)} m · {r.num_paths} path(s)
             </div>

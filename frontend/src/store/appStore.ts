@@ -39,6 +39,7 @@ import type {
 import { ACTOR_DEFAULTS } from "../actorDefaults";
 import {
   defaultViewportSettings,
+  hasViewportSettings,
   loadViewportSettings,
   saveViewportSettings,
 } from "../viewportSettings";
@@ -176,6 +177,14 @@ interface AppState {
 
   // --- channel analysis ---
   channelResult: ChannelAnalysisResult | null;
+
+  // --- result provenance / staleness ---
+  /** Bumped on every scene edit (device/actor/material moves, live sync).
+   *  Results remember the epoch they were computed at; a mismatch means the
+   *  scene changed since - shown as a "stale" badge instead of silently
+   *  presenting outdated numbers. */
+  sceneEpoch: number;
+  resultEpochs: { paths?: number; channel?: number; trajectory?: number; beamforming?: number };
 
   // --- viewport pick mode (click-to-place) ---
   pick: PickRequest | null;
@@ -450,6 +459,11 @@ export const useAppStore = create<AppState>()((set, get) => {
     }
   }
 
+  /** Stamp a result kind as computed at the current scene epoch. */
+  function stampResult(kind: "paths" | "channel" | "trajectory" | "beamforming"): void {
+    set({ resultEpochs: { ...get().resultEpochs, [kind]: get().sceneEpoch } });
+  }
+
   /** Mode patch for result-producing actions: user-initiated runs jump to
    *  Results; auto reruns leave the current mode alone. */
   function resultsMode(): { mode?: Mode } {
@@ -483,6 +497,7 @@ export const useAppStore = create<AppState>()((set, get) => {
    *  auto-inferred environment fresh (device spread may have changed), and
    *  fire every auto recompute that is enabled. */
   function afterSceneEdit(): void {
+    set({ sceneEpoch: get().sceneEpoch + 1 });
     invalidateBeamforming();
     refreshResolvedEnv();
     scheduleAuto("paths");
@@ -701,6 +716,9 @@ export const useAppStore = create<AppState>()((set, get) => {
 
     channelResult: null,
 
+    sceneEpoch: 0,
+    resultEpochs: {},
+
     pick: null,
     pickPoints: [],
     trajPreview: null,
@@ -812,12 +830,23 @@ export const useAppStore = create<AppState>()((set, get) => {
           channelResult: null,
           // Live sync is opt-in and reset per project (stops any prior poll).
           liveMode: false,
+          // Fresh epoch per project; persisted results are epoch-0 (fresh).
+          sceneEpoch: 0,
+          resultEpochs: {},
           // Pick state is per-scene; bounds refetch below.
           pick: null,
           pickPoints: [],
           sceneBounds: null,
           // Viewport lighting/helpers are per-project (localStorage-backed).
-          viewport: loadViewportSettings(projectId),
+          // First open (nothing persisted): the slice height defaults to a
+          // human-height cut indoors instead of the outdoor 2 m.
+          viewport: (() => {
+            const vp = loadViewportSettings(projectId);
+            if (!hasViewportSettings(projectId) && resolvedForOpen === "indoor") {
+              vp.sliceZ = 1.2;
+            }
+            return vp;
+          })(),
         });
         // Scene bounds seed sane coordinate defaults (dataset region,
         // trajectory endpoints). 404 = no mesh/devices; leave null.
@@ -1031,6 +1060,7 @@ export const useAppStore = create<AppState>()((set, get) => {
           ...resultsMode(),
           notice: `Simulated ${result.paths.length} path(s) via ${result.backend} backend`,
         });
+        stampResult("paths");
         await refetchSceneInner(); // a ResultSetRef was appended to the scene
       });
     },
@@ -1110,6 +1140,7 @@ export const useAppStore = create<AppState>()((set, get) => {
         }
         if (r.warnings.length) parts.push(r.warnings[0]);
         set({ beamforming: r, showBeamforming: true, ...resultsMode(), notice: parts.join(" · ") });
+        stampResult("beamforming");
       });
     },
 
@@ -1485,6 +1516,7 @@ export const useAppStore = create<AppState>()((set, get) => {
           ...resultsMode(),
           notice: `Trajectory: ${result.samples.length} sample(s) via ${result.backend} backend`,
         });
+        stampResult("trajectory");
         await refetchSceneInner();
       });
     },
@@ -1558,6 +1590,7 @@ export const useAppStore = create<AppState>()((set, get) => {
             `Channel ${result.tx_id}→${result.rx_id}: ${result.num_paths} path(s) via ` +
             `${result.backend} backend`,
         });
+        stampResult("channel");
       });
     },
 

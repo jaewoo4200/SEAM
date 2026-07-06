@@ -11,6 +11,7 @@
 
 import { useMemo } from "react";
 import { useAppStore } from "../store/appStore";
+import { StaleChip } from "./ResultExplorer";
 import { PATH_COLORS } from "./common";
 import {
   BarChart,
@@ -245,6 +246,16 @@ export default function MetricsPanel() {
         {r.distance_3d_m.toFixed(1)} m · {r.num_paths} path(s)
       </div>
 
+      <h4 className="metrics-section-head">
+        Static link (fixed RX) - {r.tx_id} → {r.rx_id} <StaleChip kind="channel" />
+      </h4>
+      {Array.isArray(r.metadata?.rx_position_m) && (
+        <p className="hint">
+          Computed with RX at [
+          {(r.metadata.rx_position_m as number[]).map((v) => v.toFixed(1)).join(", ")}
+          ] - the trajectory section below is a separate moving-UE sweep.
+        </p>
+      )}
       <div className="metric-grid">
         {kpis.map((k) => (
           <div className="metric-cell" key={k.label} title={k.title}>
@@ -316,6 +327,9 @@ export default function MetricsPanel() {
       {/* e. trajectory time series */}
       {traj ? (
         <>
+      <h4 className="metrics-section-head">
+        Moving UE (trajectory sweep) <StaleChip kind="trajectory" />
+      </h4>
           <LineChart
             title="Trajectory: power vs time"
             name="trajectory_power"

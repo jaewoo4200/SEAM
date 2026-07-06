@@ -660,6 +660,10 @@ def analyze_channel(
             "h_ut_m": h_ut,
             "noise_floor_dbm": noise_floor,
             "tx_power_dbm": tx.power_dbm,
+            # Device poses AT COMPUTE TIME: the UI shows these so a static
+            # link result stays attributable after devices move (provenance).
+            "tx_position_m": list(tx.position),
+            "rx_position_m": list(rx.position),
             "engine": result.metadata.get("engine"),
         },
     )

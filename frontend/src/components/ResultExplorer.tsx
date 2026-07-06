@@ -20,6 +20,23 @@ import type {
 
 const SELECTED_COLOR = SELECTED_PATH_COLOR;
 
+/** "Scene changed since this was computed" badge. Results never silently
+ *  present outdated numbers: the chip appears as soon as any scene edit
+ *  (device/actor/material move, live sync) postdates the computation. */
+export function StaleChip({ kind }: { kind: "paths" | "channel" | "trajectory" | "beamforming" }) {
+  const sceneEpoch = useAppStore((st) => st.sceneEpoch);
+  const at = useAppStore((st) => st.resultEpochs[kind]);
+  if (at === undefined || at === sceneEpoch) return null;
+  return (
+    <span
+      className="stale-chip"
+      title="The scene was edited after this result was computed - re-run to refresh"
+    >
+      ⚠ stale
+    </span>
+  );
+}
+
 type SortKey = "path_id" | "path_type" | "power_dbm" | "delay_ns" | "interactions";
 
 function DelayPowerScatter({
@@ -538,7 +555,14 @@ function PlaybackTrajectory({
   return (
     <div className="traj-playback">
       <div className="results-meta">
-        <span className="mono">{trajectory.ue_id}</span> · {trajectory.samples.length} sample(s) ·
+        <span className="mono">{trajectory.ue_id}</span>{" "}
+        <span
+          className="traj-kind"
+          title="Time-series over a MOVING receiver (each waypoint re-solved) - distinct from the fixed-device results above"
+        >
+          moving UE
+        </span>{" "}
+        <StaleChip kind="trajectory" /> · {trajectory.samples.length} sample(s) ·
         backend <span className="mono">{trajectory.backend}</span>
         {hasFramePaths && <> · live rays</>}
       </div>
@@ -918,6 +942,10 @@ export function MlDatasetSection() {
     // UE height: 1.5 m if it fits inside the scene's Z range, else mid-height.
     const h = b.min[2] + 1.5 < b.max[2] ? 1.5 : Math.max(0.1, (b.max[2] - b.min[2]) / 2);
     setHeightM(r2(h));
+    // Grid spacing scales with the region: a fixed 2 m grid in a 6 m room
+    // yields ~9 points; ~20 cells across the larger side is a useful sweep.
+    const ext = Math.max(b.max[0] - b.min[0], b.max[1] - b.min[1]);
+    setGridSpacing(r2(Math.min(5, Math.max(0.25, ext / 20))));
     // Trajectory default: diagonal across the region at UE height.
     setStart([r2(b.min[0] + pad), r2(b.min[1] + pad), r2(h)]);
     setEnd([r2(b.max[0] - pad), r2(b.max[1] - pad), r2(h)]);
@@ -1580,7 +1608,7 @@ export default function ResultExplorer() {
       ) : (
         <>
           <div className="results-meta">
-            <span className="mono">{pathResults.result_id}</span> · backend{" "}
+            <span className="mono">{pathResults.result_id}</span> <StaleChip kind="paths" /> · backend{" "}
             <span className="mono">{pathResults.backend}</span> · config{" "}
             <span className="mono">{pathResults.simulation_config_id}</span>
             {pathResults.created_at && <> · {new Date(pathResults.created_at).toLocaleString()}</>}

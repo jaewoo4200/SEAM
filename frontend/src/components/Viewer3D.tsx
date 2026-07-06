@@ -198,6 +198,31 @@ function GLBScene({ url }: { url: string }) {
       const selected = prim !== null && selection.includes(prim.id);
       const color = overlayColor(prim, mode, materials, sevMap);
       if (color === null) {
+        // Demo GLBs exported without materials render uniform default gray;
+        // tint those (and only those) with a muted version of the prim's RF
+        // preview color so visual mode stays legible.
+        const src = Array.isArray(orig) ? orig[0] : orig;
+        const bare =
+          src instanceof THREE.MeshStandardMaterial &&
+          src.name === "" &&
+          !src.map &&
+          src.color.getHex() === 0xffffff;
+        if (bare && prim) {
+          const matDef = materials?.materials.find((mm) => mm.id === prim.rf.material_id);
+          if (matDef) {
+            const tinted = new THREE.MeshStandardMaterial({
+              color: new THREE.Color(matDef.preview_color).lerp(new THREE.Color("#9aa4ad"), 0.55),
+              roughness: 0.85,
+            });
+            created.push(tinted);
+            mesh.material = tinted;
+            if (selected) {
+              tinted.emissive = new THREE.Color(ACCENT);
+              tinted.emissiveIntensity = 0.5;
+            }
+            return;
+          }
+        }
         if (selected) {
           // Clone (never mutate) the shared visual material for the emissive boost.
           const boost = (m: THREE.Material) => {
@@ -1156,21 +1181,23 @@ function ViewerHotkeys() {
         .intersectObjects(three.children, true)
         .filter((h) => (h.object as THREE.Mesh).isMesh && h.object.visible);
       const hit = hits[0];
+      // Indoor rooms are meters wide: a 1.5 m normal push off a wall lands
+      // the device mid-room. Scale the offset to the environment.
+      const off = useAppStore.getState().resolvedEnvironment === "indoor" ? 0.4 : 1.5;
       if (hit) {
         const pos = hit.point.clone();
         if (hit.face) {
-          // +1.5 m along the surface normal, like the RT GUI's placement.
           const n = hit.face.normal.clone().transformDirection(hit.object.matrixWorld);
-          pos.addScaledVector(n, 1.5);
+          pos.addScaledVector(n, off);
         } else {
-          pos.z += 1.5;
+          pos.z += off;
         }
         return [pos.x, pos.y, pos.z];
       }
       // No geometry under the cursor: drop onto the z=0 ground plane.
       const t = new THREE.Vector3();
       if (ray.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0, 0, 1), 0), t)) {
-        return [t.x, t.y, 1.5];
+        return [t.x, t.y, off];
       }
       return null;
     };
@@ -1625,7 +1652,17 @@ export default function Viewer3D() {
       >
         {/* AODT-style dark viewer; lighting/background driven by viewport settings. */}
         <color attach="background" args={[viewport.backgroundColor]} />
-        <PerspectiveCamera makeDefault up={[0, 0, 1]} position={[35, -35, 25]} fov={45} near={0.1} far={5000} />
+        <PerspectiveCamera
+          makeDefault
+          up={[0, 0, 1]}
+          position={[35, -35, 25]}
+          fov={45}
+          // Outdoor scenes push the far geometry hundreds of meters out; a
+          // 0.1 m near plane starves depth precision there (z-fighting on
+          // large coplanar surfaces). Indoor keeps the tight near plane.
+          near={resolvedEnv === "indoor" ? 0.1 : 1}
+          far={5000}
+        />
         <OrbitControls makeDefault target={[0, 0, 0]} />
         <ambientLight intensity={viewport.ambientIntensity} />
         {/* position defines the hemisphere axis: +Z sky in our Z-up world

@@ -147,6 +147,16 @@ function storageKey(projectId: string): string {
 }
 
 /** Read + normalize persisted viewport settings for a project. */
+/** True when the project has persisted viewport settings (used to decide
+ *  whether env-derived defaults like sliceZ may be applied). */
+export function hasViewportSettings(projectId: string): boolean {
+  try {
+    return localStorage.getItem(storageKey(projectId)) !== null;
+  } catch {
+    return false;
+  }
+}
+
 export function loadViewportSettings(projectId: string): ViewportSettings {
   try {
     const raw = localStorage.getItem(storageKey(projectId));
