@@ -1481,7 +1481,11 @@ export default function Viewer3D() {
   const showRadioMap = radioMap && mode === "results" && showRadioMapToggle;
   // Scenario playback owns the actors/devices when a scenario is loaded in
   // Results mode; otherwise actors render at their static scene poses.
-  const scenarioActive = scenario !== null && scenario.frames.length > 0 && mode === "results";
+  const showScenario = useAppStore((s) => s.showScenario);
+  // Scenario playback replaces the device/actor layers - only while the user
+  // has it switched ON (a stored scenario must not hijack the viewport).
+  const scenarioActive =
+    scenario !== null && scenario.frames.length > 0 && mode === "results" && showScenario;
   // When the current trajectory sample carries live per-frame rays, they take
   // over from the static pathResults overlay (feature: trajectory live rays).
   const trajActive = trajectory !== null && mode === "results" && !scenarioActive;

@@ -1912,3 +1912,18 @@ button.picking {
 .metrics-panel .metrics-empty-fig {
   margin: 4px 0 0 0;
 }
+
+
+/* Dock-card / floating-window bodies: the trajectory/scenario/dataset
+   sections were flush against the card edges - pad them like the
+   solver-section bodies above so the column reads uniformly. */
+.dock-card .traj-section,
+.fw-body .traj-section {
+  margin-top: 0;
+  border-top: none;
+  padding: 10px 12px 12px 12px;
+}
+.dock-card .panel,
+.fw-body .panel {
+  border-bottom: none;
+}

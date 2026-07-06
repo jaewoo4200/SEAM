@@ -743,9 +743,30 @@ function ScenarioPlayback({ scenario }: { scenario: ScenarioResultSet }) {
   );
 }
 
+/** "Scenario" checkbox in the overlay-toggles row: mirrors Rays/Radio map.
+ *  Checking it hands the device/actor layers to scenario playback. */
+function ScenarioOverlayToggle() {
+  const scenario = useAppStore((s) => s.scenario);
+  const showScenario = useAppStore((s) => s.showScenario);
+  const has = scenario !== null && scenario.frames.length > 0;
+  return (
+    <label className={has ? "" : "disabled"} title="Scenario playback replaces the static devices/actors while ON">
+      <input
+        type="checkbox"
+        checked={showScenario}
+        disabled={!has}
+        onChange={() => useAppStore.setState({ showScenario: !showScenario })}
+      />{" "}
+      Scenario
+    </label>
+  );
+}
+
 export function ScenarioSection() {
   const scenario = useAppStore((s) => s.scenario);
   const simulateScenario = useAppStore((s) => s.simulateScenario);
+  const removeScenario = useAppStore((s) => s.removeScenario);
+  const showScenario = useAppStore((s) => s.showScenario);
   const busy = useAppStore((s) => s.busy);
   const projectId = useAppStore((s) => s.projectId);
   const disabled = busy !== null;
@@ -756,6 +777,12 @@ export function ScenarioSection() {
 
   return (
     <div className="traj-section">
+      <p className="hint">
+        Animates each actor along its own waypoint trajectory (set per actor
+        in Visual mode) frame by frame. To sweep a single receiver along a
+        line, use UE trajectory instead. While the playback overlay is ON it
+        temporarily replaces the static device/actor markers.
+      </p>
       <label className="solver-field">
         <span className="solver-field-label">Num frames</span>
         <span className="solver-field-input">
@@ -803,6 +830,24 @@ export function ScenarioSection() {
         >
           Simulate scenario
         </button>
+        {scenario && scenario.frames.length > 0 && (
+          <>
+            <button
+              disabled={disabled}
+              title="Hand the viewport to scenario playback / give it back to the static scene"
+              onClick={() => useAppStore.setState({ showScenario: !showScenario })}
+            >
+              {showScenario ? "Hide playback" : "Show playback"}
+            </button>
+            <button
+              disabled={disabled}
+              title="Discard the loaded scenario result (viewport returns to normal)"
+              onClick={removeScenario}
+            >
+              Clear
+            </button>
+          </>
+        )}
       </div>
 
       {scenario && scenario.frames.length > 0 && <ScenarioPlayback scenario={scenario} />}
@@ -1523,6 +1568,7 @@ export default function ResultExplorer() {
           />{" "}
           Beamforming
         </label>
+        <ScenarioOverlayToggle />
       </div>
 
       {beamforming && showBeamforming && <BeamformingCard beamforming={beamforming} />}

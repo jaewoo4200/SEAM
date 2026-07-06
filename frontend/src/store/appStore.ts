@@ -120,6 +120,10 @@ interface AppState {
   showPaths: boolean;
   showRadioMap: boolean;
   showBeamforming: boolean;
+  /** Scenario playback takes over the device/actor layers only while ON.
+   *  Off by default when a persisted scenario merely loads with the project
+   *  (a stored result must not hijack the viewport). */
+  showScenario: boolean;
 
   // --- solver control surface (SolverControls.tsx) ---
   pathsConfig: SimulationConfig;
@@ -218,6 +222,7 @@ interface AppState {
   simulateRadioMap: () => Promise<void>;
   removePaths: () => void;
   removeRadioMap: () => void;
+  removeScenario: () => void;
   exportRfdata: () => Promise<void>;
   runBeamforming: () => Promise<void>;
   assignMaterial: (req: AssignRequest) => Promise<void>;
@@ -651,6 +656,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     showPaths: true,
     showRadioMap: true,
     showBeamforming: true,
+    showScenario: false,
 
     pathsConfig: defaultSimConfig(),
     radioMapConfig: defaultSimConfig(),
@@ -760,6 +766,9 @@ export const useAppStore = create<AppState>()((set, get) => {
           showPaths: true,
           showRadioMap: true,
           showBeamforming: true,
+          // A persisted scenario loads for playback ON DEMAND - it must not
+          // take over the viewport just because the project has one stored.
+          showScenario: false,
           pathsConfig: seed,
           radioMapConfig: { ...seed },
           // Auto-update is opt-in; reset per project.
@@ -1018,6 +1027,9 @@ export const useAppStore = create<AppState>()((set, get) => {
     },
 
     removePaths: () => set({ pathResults: null, selectedPathId: null }),
+
+    removeScenario: () =>
+      set({ scenario: null, scenarioFrame: 0, scenarioPlaying: false, showScenario: false }),
     removeRadioMap: () => set({ radioMap: null }),
 
     exportRfdata: async () => {
@@ -1454,6 +1466,7 @@ export const useAppStore = create<AppState>()((set, get) => {
         });
         set({
           scenario: result,
+          showScenario: true,
           scenarioFrame: 0,
           scenarioPlaying: false,
           ...resultsMode(),
