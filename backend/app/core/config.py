@@ -41,6 +41,10 @@ class AISettings:
     openai_url: str = "http://localhost:1234/v1"
     openai_model: str = "google/gemma-4-31b"
     timeout_s: float = 60.0
+    # Separate ceiling for multimodal (image-carrying) calls: a local 20-30B
+    # VLM needs model load + multi-image prefill, which routinely exceeds the
+    # text timeout. Only used when images are attached.
+    vision_timeout_s: float = 300.0
     auto_apply: bool = False
 
 
@@ -86,6 +90,7 @@ def get_settings() -> Settings:
         openai_url=_env("OPENAI_URL", "http://localhost:1234/v1").rstrip("/"),
         openai_model=_env("OPENAI_MODEL", "google/gemma-4-31b"),
         timeout_s=float(_env("AI_TIMEOUT_S", "60")),
+        vision_timeout_s=float(_env("AI_VISION_TIMEOUT_S", "300")),
         auto_apply=_bool_env("AI_AUTO_APPLY", False),
     )
     return Settings(project_roots=roots, ai=ai)

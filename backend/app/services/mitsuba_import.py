@@ -92,6 +92,11 @@ def _parse_materials(root: ET.Element) -> dict[str, dict]:
             or _rgb(bsdf.find("rgb[@name='color']"))
             or _rgb(bsdf.find(".//rgb[@name='base_color']"))
         )
+        # bitmap texture (Blender textured exports nest it in the diffuse
+        # reflectance, through the twosided wrapper). The filename is relative
+        # to the XML's directory; the shape loop resolves + persists it.
+        tex_el = bsdf.find(".//texture[@type='bitmap']/string[@name='filename']")
+        info["texture_file"] = tex_el.get("value") if tex_el is not None else None
         # constant radio-material params
         if btype == "radio-material":
             def fget(name: str) -> Optional[float]:
@@ -161,15 +166,30 @@ def _sanitize(name: str) -> str:
     return re.sub(r"[^a-z0-9_]+", "_", name.lower()).strip("_") or "obj"
 
 
+# Longest side (px) of texture images embedded in the visual GLB. Originals
+# can be 1024+ px and multi-MB each (a 60-building campus would produce a
+# >100 MB GLB); the viewer only needs facade-level detail, while AI evidence
+# crops read the ORIGINAL files persisted under visual/textures/.
+_GLB_TEXTURE_MAX_PX = 512
+
+
 def import_mitsuba_scene(
     xml_path: Path,
     scene_id: str,
     library: RFMaterialLibrary,
     scene_name: str = "",
     default_frequency_hz: float = _DEFAULT_FREQUENCY_HZ,
-) -> tuple[Scene, "trimesh.Scene", list[str]]:
+) -> tuple[Scene, "trimesh.Scene", list[str], dict[str, Path]]:
     """Parse the XML and build (canonical Scene, combined visual trimesh.Scene,
-    warnings). The GLB is exported by the caller.
+    warnings, texture_files). The GLB is exported by the caller.
+
+    ``texture_files`` maps a project-relative destination path (e.g.
+    ``visual/textures/tex_000.png``) to the absolute source file the XML
+    referenced; the caller copies them into the project so the original
+    full-resolution textures survive for AI evidence crops. Prims whose mesh
+    has UVs and whose bsdf carries a bitmap texture get real
+    ``TextureVisuals`` in the GLB (downscaled to ``_GLB_TEXTURE_MAX_PX``) and
+    ``VisualBinding.base_color_texture`` pointing at the persisted original.
 
     ``default_frequency_hz`` is the frequency of the project's default
     SimulationConfig (28 GHz by default). When a mapped ITU material is out of
@@ -186,6 +206,10 @@ def import_mitsuba_scene(
     tm_scene = trimesh.Scene()
     prims: list[Prim] = []
     used_names: set[str] = set()
+    # project-relative dest -> absolute source, plus source -> dest to reuse
+    # one persisted file for materials sharing a texture.
+    texture_files: dict[str, Path] = {}
+    texture_dest_by_source: dict[Path, str] = {}
 
     for shape in root.findall("shape"):
         if shape.get("type") != "ply":
@@ -221,7 +245,68 @@ def import_mitsuba_scene(
 
         info = materials.get(mat_id, {}) if mat_id else {}
         color = info.get("color_rgba")
-        if color:
+        # Textured bsdf + UV-carrying mesh -> real TextureVisuals in the GLB
+        # (viewer renders it, AI crops read it). Any missing piece (no UVs, no
+        # file, PIL failure) falls back to the flat preview color, keeping
+        # untextured bundles byte-identical to before.
+        base_color_texture: Optional[str] = None
+        tex_rel = info.get("texture_file")
+        if tex_rel:
+            tex_src = (xml_dir / tex_rel).resolve()
+            uv = getattr(mesh.visual, "uv", None)
+            if not tex_src.is_file():
+                warnings.append(
+                    f"shape {base}: texture not found, using flat color: {tex_rel}"
+                )
+            elif uv is None or len(uv) != len(mesh.vertices):
+                warnings.append(
+                    f"shape {base}: mesh has no UV coordinates; texture "
+                    f"{tex_rel} ignored"
+                )
+            else:
+                try:
+                    import io as _io
+
+                    from PIL import Image
+
+                    img = Image.open(tex_src)
+                    img.load()
+                    if img.mode not in ("RGB", "RGBA"):
+                        img = img.convert("RGB")
+                    glb_img = img.copy()
+                    glb_img.thumbnail(
+                        (_GLB_TEXTURE_MAX_PX, _GLB_TEXTURE_MAX_PX),
+                        Image.Resampling.LANCZOS,
+                    )
+                    # Re-encode the embedded copy as JPEG (PIL format drives
+                    # the GLB mimeType): 60 campus facades as PNG would bloat
+                    # the GLB by tens of MB; JPEG keeps it a few MB. RGBA
+                    # (alpha) stays PNG since JPEG cannot carry it.
+                    if glb_img.mode == "RGB":
+                        buf = _io.BytesIO()
+                        glb_img.save(buf, format="JPEG", quality=85)
+                        buf.seek(0)
+                        glb_img = Image.open(buf)
+                        glb_img.load()
+                    mesh.visual = trimesh.visual.texture.TextureVisuals(
+                        uv=uv, image=glb_img
+                    )
+                    dest = texture_dest_by_source.get(tex_src)
+                    if dest is None:
+                        leaf = Path(tex_rel.replace("\\", "/")).name
+                        dest = f"visual/textures/{leaf}"
+                        if dest in texture_files:
+                            # same basename from a different dir: disambiguate
+                            dest = f"visual/textures/{base}_{leaf}"
+                        texture_files[dest] = tex_src
+                        texture_dest_by_source[tex_src] = dest
+                    base_color_texture = dest
+                except Exception as exc:
+                    warnings.append(
+                        f"shape {base}: could not load texture {tex_rel} "
+                        f"({exc}); using flat color"
+                    )
+        if base_color_texture is None and color:
             mesh.visual = trimesh.visual.ColorVisuals(
                 mesh=mesh, face_colors=[int(c * 255) for c in color[:3]] + [255]
             )
@@ -292,7 +377,11 @@ def import_mitsuba_scene(
                 mesh_ref=MeshRef(
                     asset_uri="visual/scene.glb", mesh_name=base, face_group=None
                 ),
-                visual=VisualBinding(material_name=mat_id, base_color_rgba=color),
+                visual=VisualBinding(
+                    material_name=mat_id,
+                    base_color_rgba=color,
+                    base_color_texture=base_color_texture,
+                ),
                 rf=RFBinding(
                     material_id=rf_id,
                     assignment_status="user_confirmed",
@@ -308,4 +397,4 @@ def import_mitsuba_scene(
         assets=SceneAssets(visual_scene_uri="visual/scene.glb"),
         prims=prims,
     )
-    return scene, tm_scene, warnings
+    return scene, tm_scene, warnings, texture_files

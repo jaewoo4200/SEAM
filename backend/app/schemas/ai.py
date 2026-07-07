@@ -29,6 +29,17 @@ class MaterialSuggestion(StrictModel):
     needs_user_confirmation: bool = True
 
 
+class EvidenceImage(StrictModel):
+    """A persisted copy of an image the provider actually saw (reproducibility).
+
+    ``asset_path`` is project-relative (ai/evidence/<batch>/<prim>.jpg) and
+    servable via GET /projects/{id}/assets/{asset_path}.
+    """
+
+    prim_id: str
+    asset_path: str
+
+
 class MaterialSuggestionResponse(StrictModel):
     suggestions: list[MaterialSuggestion] = Field(default_factory=list)
     # Provider that actually produced the result: "rule_based",
@@ -37,6 +48,10 @@ class MaterialSuggestionResponse(StrictModel):
     model: Optional[str] = None
     prompt_version: Optional[str] = None
     warnings: list[str] = Field(default_factory=list)
+    # Texture crops attached to this batch, persisted under ai/evidence/ so a
+    # researcher can audit exactly what the VLM saw. None when no crops were
+    # attached (text-only providers, feature off, or persistence failed).
+    evidence_images: Optional[list[EvidenceImage]] = None
 
 
 class SuggestMaterialsRequest(StrictModel):

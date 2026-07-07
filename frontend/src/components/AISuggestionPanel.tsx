@@ -311,11 +311,20 @@ function DisambiguateForm({ suggestion }: { suggestion: MaterialSuggestion }) {
   );
 }
 
-function SuggestionCard({ suggestion }: { suggestion: MaterialSuggestion }) {
+function SuggestionCard({
+  suggestion,
+  evidenceImage,
+}: {
+  suggestion: MaterialSuggestion;
+  /** Project-relative path of the texture crop the VLM saw for this prim, if
+   *  the last suggest response carried one. */
+  evidenceImage: string | null;
+}) {
   const materials = useAppStore((s) => s.materials);
   const decisions = useAppStore((s) => s.decisions);
   const setDecision = useAppStore((s) => s.setDecision);
   const selectPrim = useAppStore((s) => s.selectPrim);
+  const projectId = useAppStore((s) => s.projectId);
 
   const [disambigOpen, setDisambigOpen] = useState(false);
 
@@ -344,9 +353,24 @@ function SuggestionCard({ suggestion }: { suggestion: MaterialSuggestion }) {
 
   return (
     <div className={"ai-card" + (decision ? ` decided-${decision.action}` : "")}>
-      <span className="prim-link" onClick={() => selectPrim(suggestion.prim_id)}>
-        {suggestion.prim_id}
-      </span>
+      <div className="ai-card-head">
+        <span className="prim-link" onClick={() => selectPrim(suggestion.prim_id)}>
+          {suggestion.prim_id}
+        </span>
+        {/* The texture crop the VLM actually looked at (graceful no-op when the
+            response carried none / the asset 404s). */}
+        {projectId && evidenceImage && (
+          <img
+            className="evidence-thumb"
+            src={api.assetUrl(projectId, evidenceImage)}
+            alt=""
+            title="Texture evidence the AI saw"
+            onError={(e) => {
+              (e.currentTarget as HTMLImageElement).style.display = "none";
+            }}
+          />
+        )}
+      </div>
 
       <div className="recommended">
         <Swatch color={recommended?.preview_color ?? "#3a4450"} />
@@ -810,6 +834,12 @@ export default function AISuggestionPanel() {
   const providers = aiStatuses.length > 0 ? aiStatuses : (health?.ai_providers ?? []);
   const decisionCount = Object.keys(decisions).length;
 
+  // prim_id -> texture-crop asset path the VLM saw (empty when the response
+  // carried no evidence images / a non-vision provider answered).
+  const evidenceByPrim = new Map(
+    (suggestions?.evidence_images ?? []).map((ev) => [ev.prim_id, ev.asset_path]),
+  );
+
   return (
     <div className="panel">
       <h3 className="panel-title">AI material assist</h3>
@@ -915,7 +945,11 @@ export default function AISuggestionPanel() {
             <div className="empty-state">No suggestions returned for the requested prims.</div>
           ) : (
             suggestions.suggestions.map((s) => (
-              <SuggestionCard key={s.prim_id} suggestion={s} />
+              <SuggestionCard
+                key={s.prim_id}
+                suggestion={s}
+                evidenceImage={evidenceByPrim.get(s.prim_id) ?? null}
+              />
             ))
           )}
 

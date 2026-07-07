@@ -101,14 +101,16 @@ class TestImportAPI:
 
     def test_external_meshes_missing_returns_400(self, api_client):
         # Upload only the XML (no meshes): every shape is skipped -> 400 with a
-        # hint to use the bundle importer, and no project is created.
+        # count of the missing meshes and the zip-bundle hint, and no project
+        # is created.
         resp = api_client.post(
             "/api/projects/import",
             files=[("file", ("scene.xml", SCENE_XML.encode("utf-8"), "application/xml"))],
             data={"project_id": "no_meshes", "name": "No Meshes", "environment": "auto"},
         )
         assert resp.status_code == 400, resp.text
-        assert "import_bundle_scene.py" in resp.json()["detail"]
+        detail = resp.json()["detail"]
+        assert "were not found" in detail and ".zip" in detail
         assert "no_meshes" not in {p["project_id"] for p in api_client.get("/api/projects").json()}
 
     def test_invalid_environment_rejected(self, api_client):

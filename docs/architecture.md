@@ -231,6 +231,29 @@ measured per-link samples (RX position + measured path gain) into
 returns the stored set. These feed material calibration and RF disambiguation
 (see `docs/ai_assistant.md`, `docs/accuracy.md`).
 
+### Scene bundle import (Mitsuba XML / zip)
+
+`POST /projects/import` accepts either a single Mitsuba `.xml` (+ optional
+companion mesh uploads, staged flat and under `meshes/`) or a **`.zip` of a
+whole scene folder** (detected by magic/extension). The zip is extracted
+preserving relative paths — rejecting traversal entries, skipping macOS
+`__MACOSX`/`.DS_Store`/`._*` cruft, capped against zip bombs — so Blender-style
+bundles whose XML references `meshes_tex/x.ply` + `textures/y.png` resolve
+exactly as on disk. With several scene XMLs in one zip, the one resolving the
+most PLY references wins (textured variants win ties); the choice is recorded
+in provenance (`source_xml`, `textures_persisted`).
+
+Bitmap textures referenced by the XML (`<texture type="bitmap">`, including
+through `twosided` wrappers) are parsed by `mitsuba_import`: meshes with UVs
+get real `TextureVisuals` in `visual/scene.glb` (embedded copies downscaled to
+512 px, JPEG-backed), the ORIGINAL full-resolution files are copied to
+`visual/textures/`, and each prim's `visual.base_color_texture` points at its
+persisted original. AI texture-crop evidence reads those originals first
+(cropped to the prim's used UV bounding box when it is a sub-window, 256 px),
+falls back to the GLB baseColor, and every crop a multimodal provider actually
+saw is persisted under `ai/evidence/<batch>/` and referenced from the suggest
+response (`evidence_images`) and `ai/suggestions.jsonl` for reproducibility.
+
 ### OpenStreetMap import
 
 `POST /projects/import-osm {name, lat, lon, width_m, height_m, ...}` builds a

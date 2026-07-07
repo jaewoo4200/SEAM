@@ -270,6 +270,12 @@ function slugifyId(name: string): string {
   return name.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, "_").replace(/^_+|_+$/g, "");
 }
 
+/** True when the chosen primary file is a zipped scene folder (whole bundle:
+ *  XML + mesh subdirs + textures) rather than a bare .xml. */
+function isZip(file: File): boolean {
+  return /\.zip$/i.test(file.name);
+}
+
 /** "Import" button + inline popover: upload a Mitsuba/Sionna .xml (with any
  *  companion .ply/.obj meshes) as a new project. On success reloads the project
  *  list and opens the new project. Errors surface inline in the popover. */
@@ -422,26 +428,33 @@ function ImportSceneButton({
           {source === "xml" && (
             <>
               <label>
-                Scene XML
+                Scene XML or .zip bundle
                 <input
                   type="file"
-                  accept=".xml"
+                  accept=".xml,.zip"
                   onChange={(e) => {
                     const f = e.target.files?.[0] ?? null;
                     setXml(f);
-                    if (f && !name) setName(f.name.replace(/\.xml$/i, ""));
+                    // A zip carries its own meshes/textures — drop any picked
+                    // companion meshes so they aren't sent alongside it.
+                    if (f && isZip(f)) setMeshes([]);
+                    if (f && !name) setName(f.name.replace(/\.(xml|zip)$/i, ""));
                   }}
                 />
               </label>
-              <label>
-                Mesh files (optional .ply/.obj)
-                <input
-                  type="file"
-                  accept=".ply,.obj,.stl"
-                  multiple
-                  onChange={(e) => setMeshes(Array.from(e.target.files ?? []))}
-                />
-              </label>
+              {/* Companion mesh files only apply to the single-XML path; a zip
+                  bundle already contains its meshes at their relative paths. */}
+              {!(xml && isZip(xml)) && (
+                <label>
+                  Mesh files (optional .ply/.obj)
+                  <input
+                    type="file"
+                    accept=".ply,.obj,.stl"
+                    multiple
+                    onChange={(e) => setMeshes(Array.from(e.target.files ?? []))}
+                  />
+                </label>
+              )}
             </>
           )}
           {source === "osm" && (
@@ -578,8 +591,10 @@ function ImportSceneButton({
             </button>
           </div>
           <p className="hint">
-            Self-contained scenes: upload the .xml with its referenced meshes. For large
-            multi-file bundles use examples/scripts/import_bundle_scene.py.
+            Either a self-contained .xml plus its referenced mesh files, or a .zip of
+            the whole scene folder (XML + meshes/ + textures/). Zipped bundles keep
+            their textures, so they show up in the viewer and feed the AI material
+            suggestions.
           </p>
         </div>
       )}

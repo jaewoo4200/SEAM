@@ -26,6 +26,7 @@ from app.core.config import get_settings
 from app.schemas.ai import (
     AIProviderStatus,
     AssignmentRule,
+    EvidenceImage,
     MaterialAlternative,
     MaterialSuggestion,
     MaterialSuggestionResponse,
@@ -147,7 +148,7 @@ def build_evidence(
     texture_basename = (
         PurePosixPath(texture.replace("\\", "/")).name if texture else None
     )
-    return {
+    evidence = {
         "prim_id": prim.id,
         "name": prim.name,
         "mesh_name": prim.mesh_ref.mesh_name if prim.mesh_ref else None,
@@ -157,6 +158,16 @@ def build_evidence(
         "texture_basename": texture_basename,
         "neighbor_context": _neighbor_context(prim, scene) if scene else [],
     }
+    # Geo-context seam (extension point, informational only): present only
+    # when the scene is georeferenced (OSM imports set origin_lat_lon_alt).
+    # Local-first: nothing here or downstream fetches imagery over the
+    # network - a future evidence source can attach a LOCAL photo taken at
+    # these coordinates as one more image.
+    if scene is not None:
+        origin = scene.coordinate_system.origin_lat_lon_alt
+        if origin is not None:
+            evidence["geo_context"] = {"origin_lat_lon_alt": list(origin)}
+    return evidence
 
 
 def _neighbor_context(prim: Prim, scene: Scene, limit: int = 4) -> list[str]:
@@ -265,18 +276,26 @@ def extract_prim_texture_crops(
     scene: Scene,
     prim_ids: list[str],
     max_crops: int = 6,
-    size: int = 128,
+    size: int = 256,
 ) -> list[dict]:
-    """Extract per-prim baseColor texture crops from the project's visual GLB.
+    """Extract per-prim texture crops for the VLM, best evidence first.
 
-    For each target prim, resolve its geometry through ``mesh_ref.mesh_name``
-    against the loaded visual scene; if the geometry's material carries a
-    baseColor texture image, downscale it to ``size`` px (longest side) and
-    encode a JPEG data URL. Prims without a texture (or without geometry) are
-    skipped silently. Returns at most ``max_crops`` entries, in prim order,
-    shaped ``[{"prim_id", "data_url"}]``. Best-effort: any failure (missing
-    GLB, trimesh/PIL error) yields an empty list rather than raising, so the
-    suggest flow degrades to text/screenshots only.
+    Image source preference per prim:
+    1. The ORIGINAL texture file persisted at import time
+       (``prim.visual.base_color_texture``, project-relative under
+       ``visual/textures/``) - full-resolution evidence.
+    2. The baseColor image embedded in the visual GLB (resolved through
+       ``mesh_ref.mesh_name``) - viewer-sized fallback.
+
+    The image is then cropped to the prim's UV bounding box when its UVs use
+    only a sub-region of the texture (drape-projected bundles map terrain to
+    an inner window of an aerial ortho; unwrapped meshes often pack into a
+    corner) - without this the VLM sees the whole atlas instead of the prim's
+    own surface. Finally downscaled to ``size`` px (longest side) and encoded
+    as a JPEG data URL. Prims without any texture are skipped silently.
+    Returns at most ``max_crops`` entries, in prim order, shaped
+    ``[{"prim_id", "data_url"}]``. Best-effort: any failure (missing GLB,
+    trimesh/PIL error) degrades to text/screenshots only.
     """
     if max_crops <= 0 or not prim_ids:
         return []
@@ -291,6 +310,7 @@ def extract_prim_texture_crops(
     # loaded once. Most scenes share a single asset_uri.
     crops: list[dict] = []
     scene_cache: dict[str, object] = {}
+    project_root = project_dir.resolve()
     for prim_id in prim_ids:
         if len(crops) >= max_crops:
             break
@@ -306,15 +326,33 @@ def extract_prim_texture_crops(
             except Exception:
                 scene_cache[asset_uri] = None
         tm_scene = scene_cache[asset_uri]
-        if tm_scene is None:
+        geometry = None
+        if tm_scene is not None:
+            try:
+                geometry = _resolve_prim_geometry(tm_scene, prim.mesh_ref.mesh_name)
+            except Exception:
+                geometry = None
+
+        # Image source: original persisted file first, GLB baseColor second.
+        image = None
+        tex_rel = prim.visual.base_color_texture if prim.visual else None
+        if tex_rel:
+            try:
+                tex_path = (project_root / tex_rel).resolve()
+                if tex_path.is_file() and tex_path.is_relative_to(project_root):
+                    image = Image.open(tex_path)
+                    image.load()
+            except Exception:
+                image = None
+        if image is None and geometry is not None:
+            try:
+                image = _texture_image_for_geometry(geometry)
+            except Exception:
+                image = None
+        if image is None:
             continue
         try:
-            geometry = _resolve_prim_geometry(tm_scene, prim.mesh_ref.mesh_name)
-            if geometry is None:
-                continue
-            image = _texture_image_for_geometry(geometry)
-            if image is None:
-                continue
+            image = _crop_to_uv_bbox(geometry, image)
             data_url = _encode_crop(Image, image, size)
         except Exception:
             # One bad prim must not sink the whole batch.
@@ -322,6 +360,38 @@ def extract_prim_texture_crops(
         if data_url is not None:
             crops.append({"prim_id": prim_id, "data_url": data_url})
     return crops
+
+
+def _crop_to_uv_bbox(geometry, image):
+    """Crop a texture image to the prim's used UV region, when meaningful.
+
+    UVs are clamped to [0, 1] (tiling wraps around anyway) and the crop only
+    happens when the used region is a real sub-window (< 90% of either axis) -
+    a fully-unwrapped [0,1]^2 mesh keeps the whole image. V is flipped because
+    UV origin is bottom-left while PIL's is top-left. Any failure returns the
+    image unchanged (evidence quality upgrade, never a gate).
+    """
+    try:
+        uv = getattr(getattr(geometry, "visual", None), "uv", None)
+        if uv is None or len(uv) == 0:
+            return image
+        u = [min(1.0, max(0.0, float(p[0]))) for p in uv]
+        v = [min(1.0, max(0.0, float(p[1]))) for p in uv]
+        u0, u1, v0, v1 = min(u), max(u), min(v), max(v)
+        if (u1 - u0) > 0.9 and (v1 - v0) > 0.9:
+            return image  # uses (nearly) the whole texture: nothing to crop
+        w, h = image.size
+        left = int(u0 * w)
+        right = min(w, max(left + 8, int(u1 * w)))
+        top = int((1.0 - v1) * h)
+        bottom = min(h, max(top + 8, int((1.0 - v0) * h)))
+        if right - left < 4 or bottom - top < 4:
+            # Degenerate UVs (e.g. all-zero) collapse the window to nothing;
+            # the whole image is better evidence than an empty crop.
+            return image
+        return image.crop((left, top, right, bottom))
+    except Exception:
+        return image
 
 
 def _resolve_prim_geometry(tm_scene, mesh_name: str):
@@ -612,7 +682,8 @@ class OllamaTextProvider(MaterialSuggestionProvider):
                     "format": "json",
                     "options": {"temperature": 0},
                 },
-                timeout=settings.timeout_s,
+                # Vision ceiling for image-carrying calls (see LocalOpenAI).
+                timeout=settings.vision_timeout_s if has_image else settings.timeout_s,
             )
             response.raise_for_status()
             payload = response.json()
@@ -714,8 +785,11 @@ class OllamaTextProvider(MaterialSuggestionProvider):
                 for offset, pid in enumerate(crop_prim_ids)
             )
             image_note += (
-                "The following attached images are close-up texture crops of "
-                "specific prims (EVIDENCE only, in this order):\n"
+                "The following attached images are close-up surface texture "
+                "crops taken from each prim's OWN texture map - the strongest "
+                "visual evidence available (still EVIDENCE, never RF ground "
+                "truth). When a crop conflicts with name-based hints, weigh "
+                "the crop higher:\n"
                 f"{crop_lines}\n\n"
             )
         user = (
@@ -886,7 +960,10 @@ class LocalOpenAIProvider(MaterialSuggestionProvider):
                 "max_tokens": 2000,
                 "stream": False,
             },
-            timeout=settings.timeout_s,
+            # Image-carrying calls get the vision ceiling: a local 20-30B VLM
+            # needs model load + multi-image prefill, which routinely blows the
+            # text timeout (live-verified: 4 crops on gemma-4-31b > 60 s).
+            timeout=settings.vision_timeout_s if image_urls else settings.timeout_s,
         )
         response.raise_for_status()
         return LocalOpenAIProvider._extract_content(response.json())
@@ -1274,7 +1351,56 @@ def suggest_materials(
     )
     if response.prompt_version is None:
         response.prompt_version = PROMPT_VERSION
+    # Research provenance: persist the crops the provider actually saw. Gated
+    # on the RESPONDING provider being the multimodal one that was selected -
+    # after an internal fallback (e.g. VLM timeout -> rule_based) the crops
+    # were never consumed, and claiming them as evidence would be dishonest.
+    if (
+        texture_crops
+        and project_dir is not None
+        and response.provider == provider.name
+    ):
+        response.evidence_images = _persist_evidence_crops(
+            project_dir, texture_crops
+        )
     return response
+
+
+def _persist_evidence_crops(
+    project_dir: Path, crops: list[dict]
+) -> Optional[list[EvidenceImage]]:
+    """Write attached crops under ai/evidence/<batch>/ and return their refs.
+
+    Batch dirs are timestamped (UTC, second resolution) with a short random
+    suffix so re-runs within the same second cannot collide. Best-effort: any
+    write failure returns None rather than failing the suggestion batch.
+    """
+    import secrets
+    from datetime import datetime, timezone
+
+    try:
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        batch = f"{stamp}-{secrets.token_hex(2)}"
+        out_dir = project_dir / "ai" / "evidence" / batch
+        out_dir.mkdir(parents=True, exist_ok=True)
+        refs: list[EvidenceImage] = []
+        for crop in crops:
+            data_url = crop.get("data_url") or ""
+            payload = _strip_data_url_prefix(data_url)
+            if not payload:
+                continue
+            leaf = re.sub(r"[^a-z0-9_\-]+", "_", str(crop["prim_id"]).lower()).strip("_")
+            path = out_dir / f"{leaf or 'prim'}.jpg"
+            path.write_bytes(base64.b64decode(payload))
+            refs.append(
+                EvidenceImage(
+                    prim_id=crop["prim_id"],
+                    asset_path=f"ai/evidence/{batch}/{path.name}",
+                )
+            )
+        return refs or None
+    except Exception:  # pragma: no cover - best-effort persistence
+        return None
 
 
 # --------------------------------------------------------------- text LLM tasks

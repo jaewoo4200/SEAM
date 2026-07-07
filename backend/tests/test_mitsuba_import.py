@@ -56,7 +56,7 @@ def test_class_map_covers_itu_names():
 @requires_lab_room
 def test_import_lab_room(tmp_path: Path):
     library = load_default_library()
-    scene, tm_scene, warnings = import_mitsuba_scene(
+    scene, tm_scene, warnings, _tex = import_mitsuba_scene(
         LAB_ROOM_XML, "lab_room", library, scene_name="Lab Room"
     )
 
@@ -92,7 +92,7 @@ def test_imported_scene_validates_clean():
     from app.services.scene_validator import validate_scene
 
     library = load_default_library()
-    scene, _tm, _w = import_mitsuba_scene(LAB_ROOM_XML, "lab_room", library)
+    scene, _tm, _w, _tex = import_mitsuba_scene(LAB_ROOM_XML, "lab_room", library)
     report = validate_scene(scene, library)
     # All prims have confirmed materials; no error-severity issues.
     assert report.ok, [i.model_dump() for i in report.issues if i.severity == "error"]
@@ -106,7 +106,7 @@ OUTDOOR_XML = (
 @pytest.mark.skipif(not OUTDOOR_XML.is_file(), reason="outdoor bundle scene not present")
 def test_import_outdoor_ftc_applies_transform_and_maps_materials():
     library = load_default_library()
-    scene, tm_scene, warnings = import_mitsuba_scene(
+    scene, tm_scene, warnings, _tex = import_mitsuba_scene(
         OUTDOOR_XML, "ftc_outdoor", library, scene_name="FTC Outdoor"
     )
     mats = {p.rf.material_id for p in scene.prims}
@@ -151,7 +151,7 @@ def test_import_remaps_out_of_band_itu_ground_to_28ghz_safe(tmp_path: Path):
     library = load_default_library()
     xml_path = _write_itu_material_scene(tmp_path, "medium_dry_ground")
 
-    scene, _tm, warnings = import_mitsuba_scene(
+    scene, _tm, warnings, _tex = import_mitsuba_scene(
         xml_path, "ground_scene", library, default_frequency_hz=28e9
     )
 
@@ -186,7 +186,7 @@ def test_import_non_remappable_out_of_band_warns_with_fix(tmp_path: Path, monkey
     library = load_default_library()
     xml_path = _write_itu_material_scene(tmp_path, "medium_dry_ground")
 
-    scene, _tm, warnings = import_mitsuba_scene(
+    scene, _tm, warnings, _tex = import_mitsuba_scene(
         xml_path, "ground_scene", library, default_frequency_hz=28e9
     )
 
@@ -207,7 +207,7 @@ def test_import_in_band_itu_material_not_remapped(tmp_path: Path):
     library = load_default_library()
     xml_path = _write_itu_material_scene(tmp_path, "medium_dry_ground")
 
-    scene, _tm, warnings = import_mitsuba_scene(
+    scene, _tm, warnings, _tex = import_mitsuba_scene(
         xml_path, "ground_scene", library, default_frequency_hz=5e9
     )
 

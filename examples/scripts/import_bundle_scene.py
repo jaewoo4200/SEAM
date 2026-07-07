@@ -65,7 +65,7 @@ def main() -> None:
         raise SystemExit(f"scene XML not found: {xml_path}")
 
     library = load_default_library()
-    scene, tm_scene, warnings = import_mitsuba_scene(
+    scene, tm_scene, warnings, texture_files = import_mitsuba_scene(
         xml_path, args.scene_id, library, scene_name=args.name
     )
     for w in warnings:
@@ -97,6 +97,12 @@ def main() -> None:
         (project_dir / sub).mkdir(parents=True, exist_ok=True)
 
     (project_dir / "visual" / "scene.glb").write_bytes(tm_scene.export(file_type="glb"))
+    # Original full-resolution textures referenced by the XML (AI evidence
+    # crops read these; the GLB embeds viewer-sized copies).
+    for rel, src in texture_files.items():
+        dest = project_dir / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dest)
     if args.visual_overlay:
         overlay_src = Path(args.visual_overlay).resolve()
         if overlay_src.is_file():

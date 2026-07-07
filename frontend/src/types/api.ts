@@ -773,12 +773,20 @@ export interface MaterialSuggestion {
   needs_user_confirmation: boolean;
 }
 
+/** One VLM evidence crop: the texture region the model actually saw for a
+ *  prim, as a project-relative asset path (servable via GET .../assets/...). */
+export interface EvidenceImage {
+  prim_id: string;
+  asset_path: string;
+}
+
 export interface MaterialSuggestionResponse {
   suggestions: MaterialSuggestion[];
   provider: string;
   model: string | null;
   prompt_version: string | null;
   warnings: string[];
+  evidence_images?: EvidenceImage[] | null;
 }
 
 export interface SuggestMaterialsRequest {

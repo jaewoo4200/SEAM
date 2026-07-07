@@ -81,12 +81,15 @@ def suggest_materials(
             "model": response.model,
             "prompt_version": response.prompt_version,
             "input_prim_ids": ai_provider.resolve_target_prim_ids(scene, request),
-            # Provenance only: how many viewport images were attached (0 = none)
-            # and whether texture crops were requested. The images themselves are
-            # EVIDENCE, transient, and never persisted here.
+            # Image provenance: viewport screenshots are transient (count
+            # only), but texture crops the provider saw are persisted under
+            # ai/evidence/ and referenced here so a batch is reproducible.
             "screenshot_attached": screenshot_count > 0,
             "screenshot_count": screenshot_count,
             "texture_crops_requested": bool(request.attach_texture_crops),
+            "evidence_images": [
+                e.asset_path for e in (response.evidence_images or [])
+            ],
             "suggestions": [s.model_dump(mode="json") for s in response.suggestions],
         },
     )
