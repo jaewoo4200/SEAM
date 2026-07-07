@@ -86,6 +86,8 @@ pre{background:#0e1622;border:1px solid var(--line);border-radius:6px;padding:18
   font-family:"Cascadia Code",Consolas,monospace;font-size:13.5px;line-height:1.8;color:#cfe0f2;margin:0}
 pre .c{color:#5f7590}
 .qs-note{font-size:13px;color:var(--mut);margin-top:10px}
+.qs-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px}
+.qs-os{font-family:Consolas,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--acc);margin:0 0 8px}
 
 /* language switch */
 .lang{position:absolute;top:16px;right:20px;z-index:3;font-family:Consolas,monospace;font-size:12px;
@@ -98,7 +100,8 @@ pre .c{color:#5f7590}
 /* feature detail grid */
 .feats{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px 28px}
 .feat{border-top:1px solid var(--line);padding-top:14px}
-.feat h5{margin:0 0 6px;font-size:15.5px;font-weight:600;color:var(--ink)}
+.feat h5{margin:0 0 6px;font-size:15.5px;font-weight:600;color:var(--ink);display:flex;align-items:center;gap:9px}
+.feat h5 svg{flex:none;width:17px;height:17px;color:var(--acc)}
 .feat p{margin:0;color:var(--mut);font-size:13.5px}
 .feat .mono{font-size:11.5px;color:#7bb8f5}
 
@@ -214,46 +217,46 @@ footer{margin-top:40px;border-top:1px solid var(--line)}
     <p class="lead">Under the three pillars sit the tools you actually run experiments and write
       papers with — from link analysis to dataset generation.</p>
     <div class="feats">
-      <div class="feat"><h5>Channel analysis &amp; live tuning</h5>
+      <div class="feat"><h5><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4v5M6 15v5M12 4v9M12 19v1M18 4v1M18 11v9"/><circle cx="6" cy="12" r="2"/><circle cx="12" cy="16" r="2"/><circle cx="18" cy="8" r="2"/></svg>Channel analysis &amp; live tuning</h5>
         <p>Link budget, CIR/CFR, K-factor, RMS delay spread, and empirical path-loss models
         (incl. 3GPP 38.901) compared against RT. Change frequency, bandwidth, TX power, noise figure
         or SCS and the analysis re-runs instantly, including TS 38.215-style RSRP/RSSI/RSRQ.</p></div>
-      <div class="feat"><h5>Multi-TX interference · SINR</h5>
+      <div class="feat"><h5><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8a6 6 0 0 1 0 8.4M7.8 16.2a6 6 0 0 1 0-8.4M19.1 4.9a10 10 0 0 1 0 14.2M4.9 19.1a10 10 0 0 1 0-14.2"/></svg>Multi-TX interference · SINR</h5>
         <p>Ray-traced received powers from all non-serving TXs sum into co-channel interference:
         SINR = S/(I+N). Selectable serving cell, SINR radio maps, and a per-cell serving-TX map.</p></div>
-      <div class="feat"><h5>MIMO beamforming</h5>
+      <div class="feat"><h5><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21v-8"/><circle cx="12" cy="11" r="2"/><path d="M8.5 7.5a5 5 0 0 1 7 0M6 5a8.5 8.5 0 0 1 12 0"/></svg>MIMO beamforming</h5>
         <p>Codebook sweep / TX-MRT / SVD beamforming gains computed on the actual ray channel
         (~12/24 dB validated at 4×4).</p></div>
-      <div class="feat"><h5>Mesh radio maps + region refinement</h5>
+      <div class="feat"><h5><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="1.5"/><path d="M4 10h16M4 16h16M10 4v16M16 4v16"/></svg>Mesh radio maps + region refinement</h5>
         <p>Coverage painted per triangle on real surfaces — walls, floors, roads — instead of a
         horizontal plane, with region-of-interest re-solves at finer cell sizes.</p></div>
-      <div class="feat"><h5>Trajectory RF metrics &amp; terrain following</h5>
+      <div class="feat"><h5><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="19" r="2"/><circle cx="18" cy="5" r="2"/><path d="M8 19h6a4 4 0 0 0 0-8H10a4 4 0 0 1 0-8h6"/></svg>Trajectory RF metrics &amp; terrain following</h5>
         <p>Sample RSS, path gain, RMS delay and SINR along UE trajectories. Trajectories drape onto
         terrain and rooftops instead of tunneling through hills, and devices place by
         height-above-surface (AGL).</p></div>
-      <div class="feat"><h5>Material segmentation &amp; splitting</h5>
+      <div class="feat"><h5><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 2 8.5 12 14l10-5.5L12 3Z"/><path d="m4 12.5 8 4.5 8-4.5"/><path d="m4 16.5 8 4.5 8-4.5"/></svg>Material segmentation &amp; splitting</h5>
         <p>Split a monolithic building mesh into per-material faces from a texture mask (color
         heuristic / local VLM / uploaded SAM2 mask), or split merged meshes into connected
         components. Every split keeps a GLB backup and is undoable.</p></div>
-      <div class="feat"><h5>Measurement-driven calibration</h5>
+      <div class="feat"><h5><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>Measurement-driven calibration</h5>
         <p>Import measured link CSVs to grid-fit material parameters, tell visually identical
         materials apart from measured path gains, and quantify how much an assignment matters via
         NMSE and capacity deltas.</p></div>
-      <div class="feat"><h5>Metrics dashboard &amp; paper-ready export</h5>
+      <div class="feat"><h5><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 20v-6M11 20V6M17 20v-9M3 20h18"/></svg>Metrics dashboard &amp; paper-ready export</h5>
         <p>Link KPIs and CIR/CFR/Doppler/path-loss charts in a white-background serif paper style —
         every chart has built-in PNG/SVG/CSV export. Viewport capture and offline Mitsuba renders
         included.</p></div>
-      <div class="feat"><h5>Datasets &amp; AODT interop</h5>
+      <div class="feat"><h5><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5.5" rx="8" ry="2.8"/><path d="M4 5.5v13c0 1.6 3.6 2.9 8 2.9s8-1.3 8-2.9v-13"/><path d="M4 12c0 1.6 3.6 2.9 8 2.9s8-1.3 8-2.9"/></svg>Datasets &amp; AODT interop</h5>
         <p>Generate ML ground-truth datasets (npz + metadata), export the AODT RFData contract, and
         import NVIDIA AODT parquet results into the same schema.</p></div>
-      <div class="feat"><h5>Natural-language rules &amp; validation explains</h5>
+      <div class="feat"><h5><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z"/><path d="M8 8h8M8 12h5"/></svg>Natural-language rules &amp; validation explains</h5>
         <p>Turn "windows are glass, concrete walls are itu_concrete" into reviewable assignment
         rules applied in bulk, and get validation warnings explained in plain language with
         one-click actions.</p></div>
-      <div class="feat"><h5>Result reproducibility &amp; live events</h5>
+      <div class="feat"><h5><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 9h14M5 15h14M9.5 4 8 20M16 4l-1.5 16"/></svg>Result reproducibility &amp; live events</h5>
         <p>Every result is stamped with scene/assignment/config hashes plus a config snapshot, so
         stale results get badges; compile and simulation progress streams over WebSocket.</p></div>
-      <div class="feat"><h5>Live sync <span class="mono">POST /live/state</span></h5>
+      <div class="feat"><h5><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>Live sync <span class="mono">POST /live/state</span></h5>
         <p>Inject real-world positions from GPS, mocap or logs into the loaded scene — the viewer
         follows in real time and can re-simulate immediately for a measure → sync → predict loop.</p></div>
     </div>
@@ -293,9 +296,20 @@ footer{margin-top:40px;border-top:1px solid var(--line)}
   <div class="wrap">
     <h2>Quickstart</h2>
     <h3 class="sec">Up in three lines</h3>
+    <div class="qs-grid">
+      <div>
+        <div class="qs-os">Windows · PowerShell</div>
+<pre>git clone https://github.com/jaewoo4200/SEAM.git; cd SEAM
+powershell -ExecutionPolicy Bypass -File scripts\install.ps1
+powershell -ExecutionPolicy Bypass -File scripts\start.ps1   <span class="c"># → http://localhost:5173</span></pre>
+      </div>
+      <div>
+        <div class="qs-os">Linux · macOS</div>
 <pre>git clone https://github.com/jaewoo4200/SEAM.git &amp;&amp; cd SEAM
-powershell -ExecutionPolicy Bypass -File scripts\install.ps1   <span class="c"># or: bash scripts/install.sh</span>
-powershell -ExecutionPolicy Bypass -File scripts\start.ps1     <span class="c"># open http://localhost:5173</span></pre>
+bash scripts/install.sh
+bash scripts/start.sh   <span class="c"># → http://localhost:5173</span></pre>
+      </div>
+    </div>
     <p class="qs-note">Python 3.11+ · Node 20+. Everything works on the Mock backend with no GPU,
       Sionna or LLM — Sionna RT and LM Studio are optional upgrades. See
       <a href="https://github.com/jaewoo4200/SEAM/blob/master/INSTALL.md">INSTALL.md</a> ·
