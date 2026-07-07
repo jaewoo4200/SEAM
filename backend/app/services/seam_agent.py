@@ -518,6 +518,14 @@ def _run_pipeline(
         job.face_groups[seg_id] = [int(f) for f in faces]
     _finish(st, f"{len(segments)} segments proposed")
 
+    # Benchmark/repro artifact: the raw per-face labels backing the segments.
+    np.savez_compressed(
+        out_dir / "face_labels.npz",
+        labels=labels_idx.astype(np.int8),
+        classes=np.array(_LABELS),
+        confidence=face_conf.astype(np.float32),
+    )
+
     # ---- persist + finish ---------------------------------------------------
     with _lock:
         job.segments = segments
