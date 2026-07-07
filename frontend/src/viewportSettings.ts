@@ -47,6 +47,11 @@ export interface ViewportSettings {
   /** Distance fog (Blender viewport mist): far geometry fades into the
    *  background color. Range auto-scales with the scene. */
   fogEnabled: boolean;
+  /** Unlit photo textures (Blender "flat" shading): texture-carrying GLB
+   *  materials render their own pixels, ignoring scene lighting. Best for
+   *  photogrammetry / aerial-ortho imports; flat-color meshes stay lit.
+   *  Auto-enabled on first open of a project whose prims carry textures. */
+  unlitTextures: boolean;
 }
 
 export type RadioMapColormap = "jet" | "viridis" | "plasma" | "turbo";
@@ -102,6 +107,7 @@ export function defaultViewportSettings(): ViewportSettings {
     zoomToCursor: true,
     orbitSelection: false,
     fogEnabled: false,
+    unlitTextures: false,
   };
 }
 
@@ -174,6 +180,7 @@ export function normalizeViewportSettings(
     zoomToCursor: bool(raw.zoomToCursor, d.zoomToCursor),
     orbitSelection: bool(raw.orbitSelection, d.orbitSelection),
     fogEnabled: bool(raw.fogEnabled, d.fogEnabled),
+    unlitTextures: bool(raw.unlitTextures, d.unlitTextures),
   };
 }
 

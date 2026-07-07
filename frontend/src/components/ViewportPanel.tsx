@@ -214,6 +214,11 @@ export default function ViewportPanel({ onClose }: { onClose: () => void }) {
           onChange={(v) => patch({ fogEnabled: v })}
         />
         <Toggle
+          label="Unlit textures (photo)"
+          checked={viewport.unlitTextures}
+          onChange={(v) => patch({ unlitTextures: v })}
+        />
+        <Toggle
           label="Slice plane (S)"
           checked={viewport.showSlice}
           onChange={(v) => patch({ showSlice: v })}

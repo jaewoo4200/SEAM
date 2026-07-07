@@ -288,8 +288,27 @@ def import_mitsuba_scene(
                         buf.seek(0)
                         glb_img = Image.open(buf)
                         glb_img.load()
+                    # Mitsuba texture coordinates are image-space (v origin at
+                    # the TOP-left), but trimesh's TextureVisuals expects
+                    # OpenGL bottom-left - its glTF exporter then flips v back
+                    # to the top-left origin the glTF spec wants. Without this
+                    # conversion every atlas samples vertically mirrored and
+                    # facades render as scrambled patches (live-verified on
+                    # the HYU bundle: corr(world Y, v) was exactly -1).
+                    uv_gl = np.array(uv, dtype=np.float64, copy=True)
+                    uv_gl[:, 1] = 1.0 - uv_gl[:, 1]
+                    # Explicit PBR material: TextureVisuals(image=...) alone
+                    # makes trimesh emit SimpleMaterial defaults - a 0.4-grey
+                    # baseColorFactor and NO metallicFactor (glTF default 1.0,
+                    # fully metallic) - which renders photo textures as dark
+                    # broken-looking patches in three.js (live-verified).
                     mesh.visual = trimesh.visual.texture.TextureVisuals(
-                        uv=uv, image=glb_img
+                        uv=uv_gl,
+                        material=trimesh.visual.material.PBRMaterial(
+                            baseColorTexture=glb_img,
+                            metallicFactor=0.0,
+                            roughnessFactor=1.0,
+                        ),
                     )
                     dest = texture_dest_by_source.get(tex_src)
                     if dest is None:

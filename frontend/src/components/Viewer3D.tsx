@@ -174,6 +174,7 @@ function GLBScene({ url }: { url: string }) {
   const hiddenPrims = useAppStore((s) => s.hiddenPrims);
   const showSlice = useAppStore((s) => s.viewport.showSlice);
   const sliceZ = useAppStore((s) => s.viewport.sliceZ);
+  const unlitTextures = useAppStore((s) => s.viewport.unlitTextures);
 
   // Prims are matched to GLB nodes by mesh_ref.mesh_name; a named node's
   // descendants (multi-primitive meshes) inherit the match.
@@ -222,6 +223,39 @@ function GLBScene({ url }: { url: string }) {
       const selected = prim !== null && selection.includes(prim.id);
       const color = overlayColor(prim, mode, materials, sevMap);
       if (color === null) {
+        // Unlit photo textures (Blender "flat" shading for photogrammetry /
+        // aerial-ortho city bundles): show the texture's own pixels instead
+        // of texture x scene lighting, which reads dark and patchy on real
+        // imagery. Only texture-carrying materials swap; flat-color meshes
+        // in the same scene stay lit.
+        if (unlitTextures) {
+          const texMats = Array.isArray(orig) ? orig : [orig];
+          if (texMats.some((m) => (m as THREE.MeshStandardMaterial).map)) {
+            const toUnlit = (m: THREE.Material): THREE.Material => {
+              const map = (m as THREE.MeshStandardMaterial).map;
+              if (!map) return m;
+              const basic = new THREE.MeshBasicMaterial({
+                map,
+                color: selected
+                  ? new THREE.Color(ACCENT).lerp(new THREE.Color("#ffffff"), 0.45)
+                  : new THREE.Color("#ffffff"),
+                side: (m as THREE.MeshStandardMaterial).side,
+              });
+              created.push(basic);
+              return basic;
+            };
+            mesh.material = Array.isArray(orig) ? orig.map(toUnlit) : toUnlit(orig);
+            const planes = showSlice
+              ? [new THREE.Plane(new THREE.Vector3(0, 0, -1), sliceZ)]
+              : null;
+            const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+            for (const m of mats) {
+              m.clippingPlanes = planes;
+              m.needsUpdate = true;
+            }
+            return;
+          }
+        }
         // Demo GLBs exported without materials render uniform default gray;
         // tint those (and only those) with a muted version of the prim's RF
         // preview color so visual mode stays legible.
@@ -306,7 +340,7 @@ function GLBScene({ url }: { url: string }) {
       });
       for (const m of created) m.dispose();
     };
-  }, [gltf, findPrim, mode, selection, materials, validation, showSlice, sliceZ, hiddenPrims]);
+  }, [gltf, findPrim, mode, selection, materials, validation, showSlice, sliceZ, hiddenPrims, unlitTextures]);
 
   return (
     <primitive

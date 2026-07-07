@@ -976,11 +976,16 @@ export const useAppStore = create<AppState>()((set, get) => {
           sceneBounds: null,
           // Viewport lighting/helpers are per-project (localStorage-backed).
           // First open (nothing persisted): the slice height defaults to a
-          // human-height cut indoors instead of the outdoor 2 m.
+          // human-height cut indoors instead of the outdoor 2 m, and
+          // photo-textured imports open with unlit textures - lit shading
+          // makes real aerial/photogrammetry imagery read dark and patchy.
           viewport: (() => {
             const vp = loadViewportSettings(projectId);
-            if (!hasViewportSettings(projectId) && resolvedForOpen === "indoor") {
-              vp.sliceZ = 1.2;
+            if (!hasViewportSettings(projectId)) {
+              if (resolvedForOpen === "indoor") vp.sliceZ = 1.2;
+              if (scene.prims.some((p) => p.visual?.base_color_texture)) {
+                vp.unlitTextures = true;
+              }
             }
             return vp;
           })(),
