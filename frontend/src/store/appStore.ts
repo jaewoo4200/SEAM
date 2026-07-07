@@ -10,6 +10,9 @@ import type { ResolvedEnvironment } from "../envPresets";
 import type {
   Actor,
   ActorKind,
+  AgentBudget,
+  AgentTrace,
+  AgentView,
   AIProviderStatus,
   AssignRequest,
   BeamformingMode,
@@ -293,6 +296,14 @@ interface AppState {
    *  drags don't reload a multi-hundred-MB mesh. */
   glbEpoch: number;
 
+  // --- SEAM-Agent (AI material authoring) ---
+  /** Active agent job (null = none). Set when a job is started, cleared on
+   *  clearAgentJob / apply / project switch. */
+  agentJob: { jobId: string; primId: string } | null;
+  /** Latest polled trace for the active job (live activity/steps/evidence/
+   *  segments). Polled every 2.5s while status === "running". */
+  agentTrace: AgentTrace | null;
+
   busy: string | null;
   error: string | null;
   notice: string | null;
@@ -355,6 +366,26 @@ interface AppState {
   undoSegmentation: (batchId: string) => Promise<void>;
   /** Drop the active preview (Cancel); the 3D tint + overlay clear. */
   clearSegPreview: () => void;
+
+  // SEAM-Agent (AI material authoring)
+  /** Capture multi-view RGB + tri-id buffers of the prim's mesh, POST them to
+   *  the agent, then poll the trace every 2.5s until status != "running".
+   *  `opts` carries the user hint, web toggle, model, and optional budget. */
+  startAgentJob: (
+    primId: string,
+    opts: {
+      meshName: string;
+      userHint: string | null;
+      allowWeb: boolean;
+      model: string | null;
+      budget?: AgentBudget;
+    },
+  ) => Promise<void>;
+  /** Bake the accepted segments into the visual GLB (same refresh + glbEpoch +
+   *  lastSegApply/undo wiring as splitParts), then clear the agent job. */
+  applyAgentSegments: (segmentIds: string[]) => Promise<void>;
+  /** Drop the active agent job + trace, cancel any in-flight poll. */
+  clearAgentJob: () => void;
 
   // viewport pick mode
   requestPick: (req: Omit<PickRequest, "id">) => number;
@@ -478,6 +509,11 @@ interface AppState {
    *  Viewer3D registers it; the store calls it when sendScreenshot is on. */
   registerMultiViewCapture: (fn: (() => string[]) | null) => void;
   captureMultiView: () => string[];
+  /** SEAM-Agent: capture 6 RGB + triangle-id views of one prim's mesh (by mesh
+   *  name). Registered from inside the r3f world by Viewer3D; returns [] when a
+   *  mesh with that name is not in the live scene. */
+  registerAgentCapture: (fn: ((meshName: string) => AgentView[]) | null) => void;
+  captureAgentViews: (meshName: string) => AgentView[];
 
   dismissError: () => void;
   dismissNotice: () => void;
@@ -790,6 +826,17 @@ export const useAppStore = create<AppState>()((set, get) => {
   let viewportCapture: (() => string | null) | null = null;
   // Multi-view capture fn (4 azimuth views), registered by Viewer3D.
   let multiViewCapture: (() => string[]) | null = null;
+  // SEAM-Agent multi-view + tri-id capture fn, registered by Viewer3D.
+  let agentCapture: ((meshName: string) => AgentView[]) | null = null;
+  // Cancelable handle for the active agent-trace poll loop (2.5s interval).
+  let agentPollTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function stopAgentPoll(): void {
+    if (agentPollTimer) {
+      clearTimeout(agentPollTimer);
+      agentPollTimer = null;
+    }
+  }
 
   // --- live-event WebSocket: server pushes sim/compile start/finish notices ---
   // Entirely best-effort: the endpoint lands this wave on the backend; every
@@ -956,6 +1003,9 @@ export const useAppStore = create<AppState>()((set, get) => {
     lastSegApply: null,
     glbEpoch: 0,
 
+    agentJob: null,
+    agentTrace: null,
+
     busy: null,
     error: null,
     notice: null,
@@ -1069,6 +1119,10 @@ export const useAppStore = create<AppState>()((set, get) => {
           segJobProgress: null,
           lastSegApply: null,
           glbEpoch: 0,
+          // SEAM-Agent job/trace belong to one project's mesh; reset per open
+          // (any in-flight poll is stopped just below).
+          agentJob: null,
+          agentTrace: null,
           // Fresh epoch per project; persisted results are epoch-0 (fresh).
           sceneEpoch: 0,
           resultEpochs: {},
@@ -1103,6 +1157,8 @@ export const useAppStore = create<AppState>()((set, get) => {
         // Switching projects must stop a running live poll from the old one,
         // and the remembered channel-analysis pair belongs to the old scene.
         stopLivePoll();
+        // A SEAM-Agent poll from the old project must not land in the new one.
+        stopAgentPoll();
         setLastChannelArgs(null);
         // Provider statuses: prefer the dedicated endpoint, fall back to health.
         try {
@@ -1150,6 +1206,7 @@ export const useAppStore = create<AppState>()((set, get) => {
         // socket before we swap in (or clear) the project so a stale socket
         // can't post into whatever opens next.
         stopLivePoll();
+        stopAgentPoll();
         closeEventSocket();
         // Reload the list, then open the first survivor. openProject resets the
         // full per-project view state, so no manual scene/result cleanup here.
@@ -1177,6 +1234,8 @@ export const useAppStore = create<AppState>()((set, get) => {
             scenario: null,
             channelResult: null,
             sceneBounds: null,
+            agentJob: null,
+            agentTrace: null,
             notice: `Deleted project ${pid} (no projects remaining)`,
           });
         }
@@ -1786,6 +1845,100 @@ export const useAppStore = create<AppState>()((set, get) => {
 
     clearSegPreview: () => set({ segPreview: null, segJobProgress: null }),
 
+    // ---------------------------------------------------- SEAM-Agent
+
+    startAgentJob: async (primId, opts) => {
+      const pid = get().projectId;
+      if (!pid) return;
+      // A new job supersedes any previous one; stop its poll and clear trace.
+      stopAgentPoll();
+      set({ agentJob: null, agentTrace: null });
+      await run("Starting SEAM-Agent…", async () => {
+        // Capture the multi-view RGB + tri-id buffers from the live r3f scene.
+        const views = agentCapture ? agentCapture(opts.meshName) : [];
+        if (views.length === 0) {
+          throw new Error(
+            "Could not capture the prim's mesh (not loaded in the 3D viewer yet). " +
+              "Open the visual scene and try again.",
+          );
+        }
+        const resp = await api.agentStart(pid, {
+          prim_id: primId,
+          user_hint: opts.userHint,
+          allow_web: opts.allowWeb,
+          model: opts.model,
+          views,
+          ...(opts.budget ? { budget: opts.budget } : {}),
+        });
+        // A project switch can race the start; do not adopt a stale job.
+        if (get().projectId !== pid) return;
+        set({
+          agentJob: { jobId: resp.job_id, primId },
+          agentTrace: null,
+          notice: `SEAM-Agent started (job ${resp.job_id}) over ${views.length} view(s)`,
+        });
+        // Poll the trace every 2.5s until it settles. The loop guards against a
+        // project switch / job replacement (jobId mismatch) each tick.
+        const jobId = resp.job_id;
+        const poll = async () => {
+          if (get().projectId !== pid || get().agentJob?.jobId !== jobId) return;
+          try {
+            const trace = await api.agentTrace(pid, jobId);
+            if (get().projectId !== pid || get().agentJob?.jobId !== jobId) return;
+            set({ agentTrace: trace });
+            if (trace.status === "running") {
+              agentPollTimer = setTimeout(() => void poll(), 2500);
+            } else {
+              stopAgentPoll();
+            }
+          } catch {
+            // Transient trace fetch failure: keep the last trace and retry.
+            if (get().projectId === pid && get().agentJob?.jobId === jobId) {
+              agentPollTimer = setTimeout(() => void poll(), 2500);
+            }
+          }
+        };
+        // Kick off the first poll immediately (no initial 2.5s dead time).
+        void poll();
+      });
+    },
+
+    applyAgentSegments: async (segmentIds) => {
+      const pid = get().projectId;
+      const job = get().agentJob;
+      if (!pid || !job || segmentIds.length === 0) return;
+      await run("Applying SEAM-Agent materials…", async () => {
+        const resp = await api.agentApply(pid, job.jobId, { segment_ids: segmentIds });
+        // Same GLB-rewrite semantics as splitParts: refresh the scene and bump
+        // glbEpoch so the viewer reloads past useGLTF's URL cache; remember the
+        // batch for undo (reuses lastSegApply / undoSegmentation).
+        await refetchSceneInner();
+        stopAgentPoll();
+        set({
+          lastSegApply: {
+            batchId: resp.batch_id,
+            primId: job.primId,
+            addedPrimIds: resp.added_prim_ids,
+          },
+          glbEpoch: get().glbEpoch + 1,
+          selection: get().selection.filter((id) => id !== resp.removed_prim_id),
+          // The job is done once its segments are baked in.
+          agentJob: null,
+          agentTrace: null,
+          notice:
+            `SEAM-Agent applied ${segmentIds.length} segment(s): split ${resp.removed_prim_id} ` +
+            `into ${resp.added_prim_ids.length} prim(s): ${resp.added_prim_ids.join(", ")}`,
+        });
+        await revalidateIfOpen();
+      });
+      afterSceneEdit();
+    },
+
+    clearAgentJob: () => {
+      stopAgentPoll();
+      set({ agentJob: null, agentTrace: null });
+    },
+
     // ---------------------------------------------------- environment
 
     setEnvironment: async (environment) => {
@@ -2212,6 +2365,12 @@ export const useAppStore = create<AppState>()((set, get) => {
       if (shots.length > 0) set({ lastViewportShot: shots[0] });
       return shots;
     },
+
+    registerAgentCapture: (fn) => {
+      agentCapture = fn;
+    },
+
+    captureAgentViews: (meshName) => (agentCapture ? agentCapture(meshName) : []),
 
     dismissError: () => set({ error: null }),
     dismissNotice: () => set({ notice: null }),

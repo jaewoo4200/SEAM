@@ -279,6 +279,23 @@ and `model_source` provenance in `ai/suggestions.jsonl`. Trajectory drape
 surface z between draped neighbors (`drape_fill_gaps`, default on), and the
 FE enables draping by default for routes drawn via surface picks.
 
+### SEAM-Agent (retrieval-augmented material authoring)
+
+`app/services/seam_agent.py` + `/projects/{id}/agent/material-assignment/*`:
+segments ONE building-level prim into RF components and proposes materials.
+The FE captures multi-view orthographic renders (RGB + triangle-id buffers,
+faceIndex as uint24 vertex colors) inside the r3f world; the backend runs a
+BOUNDED agent loop (budgets for searches/VLM calls/runtime) that optionally
+retrieves web + image evidence for the user's site hint (DuckDuckGo via
+`ddgs`, opt-in, provenance stored under ai/agent/<job>/), has the local VLM
+summarize the retrieved photos into material claims, then labels each view's
+RF-relevant regions (boxes) with those claims as context. Boxes back-project
+through the triangle-id buffers into per-face votes (+ an upper-half upward-
+normal roof prior), faces aggregate into semantic segments with confidence,
+and the user reviews/applies via the segmentation bake machinery (undo
+included). The trace endpoint exposes an observable activity log (steps,
+queries, evidence cards) - never raw chain-of-thought.
+
 ### OpenStreetMap import
 
 `POST /projects/import-osm {name, lat, lon, width_m, height_m, ...}` builds a

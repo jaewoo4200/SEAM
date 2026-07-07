@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useAppStore } from "../store/appStore";
 import SegmentationPanel from "./SegmentationPanel";
+import SeamAgentPanel from "./SeamAgentPanel";
 import {
   MaterialSelect,
   Row,
@@ -749,6 +750,10 @@ function PrimCard({ prim }: { prim: Prim }) {
       {/* Multi-material split: only for prims backed by a texture atlas (the
           mask sources classify texels / render tiles from that texture). */}
       {prim.mesh_ref && <SegmentationPanel prim={prim} />}
+
+      {/* SEAM-Agent: AI material authoring over multi-view captures of this
+          prim's mesh (gated on mesh_ref like the split above). */}
+      {prim.mesh_ref && <SeamAgentPanel prim={prim} />}
 
       {primIssues.length > 0 && (
         <div className="insp-issues">

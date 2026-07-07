@@ -16,6 +16,7 @@ import { directionalPosition, renderQualityDpr } from "../viewportSettings";
 import type { RadioMapColormap } from "../viewportSettings";
 import ViewportPanel from "./ViewportPanel";
 import MeshRadioMapOverlay from "./MeshRadioMapOverlay";
+import { captureAgentViews } from "./AgentCapture";
 import { segmentationClassColor } from "../types/api";
 import type {
   Prim,
@@ -948,8 +949,27 @@ function ScreenshotCapture() {
   const camera = useThree((s) => s.camera);
   const registerViewportCapture = useAppStore((s) => s.registerViewportCapture);
   const registerMultiViewCapture = useAppStore((s) => s.registerMultiViewCapture);
+  const registerAgentCapture = useAppStore((s) => s.registerAgentCapture);
   useEffect(() => {
     registerViewportCapture(() => canvasToJpeg(gl.domElement));
+    // SEAM-Agent: capture 6 RGB + triangle-id views of the prim's mesh (found
+    // by mesh name in the live graph) into offscreen render targets, then
+    // restore the visible frame. Returns [] when the mesh is not loaded yet.
+    registerAgentCapture((meshName) => {
+      const mesh = scene.getObjectByName(meshName) as THREE.Mesh | null;
+      if (!mesh || !(mesh as THREE.Mesh).isMesh) return [];
+      try {
+        return captureAgentViews(gl, mesh);
+      } finally {
+        // Restore the on-screen frame: the capture rendered offscreen targets,
+        // but re-render the real camera so nothing flashes / stays stale.
+        try {
+          gl.render(scene, camera);
+        } catch {
+          // best-effort; the next rAF repaints regardless
+        }
+      }
+    });
     // Multi-view (paper roadmap #3): render 4 azimuth poses around the scene
     // center with a TEMPORARY camera so the VLM sees the geometry from every
     // side. The user's camera is never moved; we re-render it after the loop
@@ -1015,9 +1035,10 @@ function ScreenshotCapture() {
     return () => {
       registerViewportCapture(null);
       registerMultiViewCapture(null);
+      registerAgentCapture(null);
       viewportPngGetter = null;
     };
-  }, [gl, scene, camera, registerViewportCapture, registerMultiViewCapture]);
+  }, [gl, scene, camera, registerViewportCapture, registerMultiViewCapture, registerAgentCapture]);
   return null;
 }
 

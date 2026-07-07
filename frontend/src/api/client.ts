@@ -7,6 +7,11 @@
  */
 
 import type {
+  AgentApplyRequest,
+  AgentApplyResponse,
+  AgentStartRequest,
+  AgentStartResponse,
+  AgentTrace,
   AIModelsResponse,
   AIProviderStatus,
   ApplySuggestionsRequest,
@@ -200,6 +205,20 @@ export const api = {
     request<SplitPartsResponse>("POST", `/projects/${pid}/segmentation/split-parts`, req),
   undoSegmentation: (pid: string, req: SegmentationUndoRequest) =>
     request<SegmentationUndoResponse>("POST", `/projects/${pid}/segmentation/undo`, req),
+
+  // SEAM-Agent (AI material authoring): start an agentic job over multi-view
+  // captures of one prim, poll its live activity trace, then apply the accepted
+  // segments (same GLB-rewrite + undo semantics as the material split).
+  agentStart: (pid: string, req: AgentStartRequest) =>
+    request<AgentStartResponse>("POST", `/projects/${pid}/agent/material-assignment/start`, req),
+  agentTrace: (pid: string, jobId: string) =>
+    request<AgentTrace>("GET", `/projects/${pid}/agent/material-assignment/${jobId}/trace`),
+  agentApply: (pid: string, jobId: string, req: AgentApplyRequest) =>
+    request<AgentApplyResponse>(
+      "POST",
+      `/projects/${pid}/agent/material-assignment/${jobId}/apply`,
+      req,
+    ),
 
   // calibration: RF-sensing disambiguation (rank candidate materials by fit).
   disambiguate: (pid: string, req: DisambiguationRequest) =>

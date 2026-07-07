@@ -1038,6 +1038,104 @@ export function segmentationClassColor(materialId: number): string {
   );
 }
 
+// ------------------------------------------------ SEAM-Agent (AI material authoring)
+// An agentic material-authoring job: the frontend captures multi-view RGB +
+// triangle-id buffers of one prim's mesh and POSTs them to the backend agent,
+// which segments the surface, gathers web/image evidence, and proposes an
+// RF-material assignment per segment. The trace endpoint streams a live
+// activity log (steps + evidence + segments) polled until the job settles;
+// apply bakes the accepted segments into the visual GLB (reusing the same
+// per-material sub-prim machinery + undo as the material segmentation split).
+
+/** One captured view of the target prim's mesh. `tri_id_png_data_url` encodes
+ *  faceIndex as a uint24 RGB (r<<16|g<<8|b), background 0xFFFFFF, so the agent
+ *  can map any pixel it reasons about back to a triangle. */
+export interface AgentView {
+  view_id: string;
+  /** JPEG data URL, ~768px longest side. */
+  rgb_data_url: string;
+  /** PNG data URL: RGB = faceIndex uint24, background = white (0xFFFFFF). */
+  tri_id_png_data_url: string;
+  width: number;
+  height: number;
+}
+
+/** Optional caps on the agent's tool usage / runtime (backend defaults apply
+ *  to any omitted field). */
+export interface AgentBudget {
+  max_web_searches?: number;
+  max_image_searches?: number;
+  max_vlm_calls?: number;
+  max_runtime_sec?: number;
+}
+
+export interface AgentStartRequest {
+  prim_id: string;
+  user_hint?: string | null;
+  allow_web: boolean;
+  /** null = provider default (same convention as suggest-materials). */
+  model?: string | null;
+  views: AgentView[];
+  budget?: AgentBudget;
+}
+
+export interface AgentStartResponse {
+  job_id: string;
+}
+
+export type AgentStatus = "running" | "needs_review" | "error" | "done";
+
+/** One step in the agent's activity trace (the "thinking" visibility). */
+export interface AgentStep {
+  step_id: string;
+  status: "running" | "done" | "error";
+  summary: string;
+  /** Search/tool queries issued in this step (rendered as chips). */
+  queries?: string[];
+}
+
+/** One piece of gathered evidence (a web result, image match, datasheet…). */
+export interface AgentEvidence {
+  evidence_id: string;
+  type: string;
+  claim: string;
+  source_url?: string;
+  page_url?: string;
+  /** Project-relative asset path (serve via api.assetUrl). */
+  thumb_asset_path?: string;
+  query?: string;
+}
+
+/** A proposed material assignment for one surface segment. */
+export interface AgentSegment {
+  segment_id: string;
+  semantic_label: string;
+  face_count: number;
+  rf_material_id: string;
+  confidence: number;
+  alternatives?: { rf_material_id: string; confidence: number }[];
+  evidence_ids: string[];
+}
+
+export interface AgentTrace {
+  status: AgentStatus;
+  detail?: string;
+  steps: AgentStep[];
+  evidence: AgentEvidence[];
+  segments?: AgentSegment[];
+}
+
+export interface AgentApplyRequest {
+  segment_ids: string[];
+}
+
+export interface AgentApplyResponse {
+  added_prim_ids: string[];
+  removed_prim_id: string;
+  backup_glb: string;
+  batch_id: string;
+}
+
 // -------------------------------------------------------------- projects
 
 export interface ProjectInfo {
