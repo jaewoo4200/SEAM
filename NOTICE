@@ -23,3 +23,7 @@ sources and software. Their licenses apply to those components:
 Web/image evidence retrieved by SEAM-Agent (opt-in) is fetched from public
 search results at the user's request; source URLs are stored as provenance
 and retrieved images are not redistributed with this software.
+
+- website/assets/agent_ftc_photo.jpg: "Hanyang University Fusion Technology
+  Center" by Modamoda, CC BY 3.0, via Wikimedia Commons.
+  https://commons.wikimedia.org/wiki/File:Hanyang_University_Fusion_Technology_Center.jpg

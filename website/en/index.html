@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SEAM Studio — Scene-to-Electromagnetic Authoring and Mapping</title>
+<meta name="description" content="Local-first AI-assisted RF digital twin workbench on Sionna RT. One textured scene, two material bindings — visual and electromagnetic.">
+<style>
+:root{
+  --bg:#0b111b; --panel:#141d2b; --line:#233246; --ink:#e2eaf4; --mut:#8a9cb0;
+  --acc:#2e9bff; --glass:#4a7cb0; --concrete:#69a98e; --metal:#d97706; --ground:#b0833e;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:16px/1.7 "Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,sans-serif}
+img{max-width:100%;display:block}
+a{color:var(--acc);text-decoration:none}
+.mono{font-family:"Cascadia Code",Consolas,ui-monospace,monospace}
+.wrap{max-width:1080px;margin:0 auto;padding:0 24px}
+.spectrum{height:3px;background:linear-gradient(90deg,#173a8a,#2e9bff,#2fd0c0,#8fd45e,#e8b93c,#e2632e);border-radius:2px}
+
+/* hero */
+.hero{position:relative;min-height:78vh;display:flex;align-items:flex-end;overflow:hidden}
+.hero img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;filter:saturate(1.05)}
+.hero .shade{position:absolute;inset:0;background:
+  linear-gradient(180deg,rgba(11,17,27,.62) 0%,rgba(11,17,27,.38) 38%,rgba(11,17,27,.96) 88%)}
+.hero .wrap{position:relative;padding-bottom:64px;padding-top:96px}
+.eyebrow{font-family:Consolas,monospace;font-size:12px;letter-spacing:.22em;color:var(--acc);text-transform:uppercase;text-shadow:0 1px 3px rgba(4,10,20,.95),0 2px 14px rgba(4,10,20,.85)}
+h1.wordmark{font:650 clamp(44px,7vw,84px)/1.02 "Segoe UI Variable Display","Segoe UI",sans-serif;
+  letter-spacing:-.02em;margin:10px 0 6px;text-shadow:0 2px 6px rgba(4,10,20,.6),0 6px 28px rgba(4,10,20,.5)}
+h1 .studio{color:var(--acc)}
+p.tag{max-width:62ch;font-size:clamp(16px,2vw,19px);color:#c6d3e2;margin:14px 0 8px;text-wrap:balance;text-shadow:0 1px 3px rgba(4,10,20,.9),0 2px 12px rgba(4,10,20,.7)}
+p.tag b{color:var(--ink)}
+.hero-rule{width:120px;margin:18px 0 22px}
+.cta{display:flex;gap:12px;flex-wrap:wrap}
+.btn{display:inline-block;padding:11px 22px;border-radius:4px;font-weight:600;font-size:15px}
+.btn.primary{background:var(--acc);color:#04101f}
+.btn.ghost{border:1px solid var(--line);color:var(--ink);background:rgba(11,17,27,.5)}
+.hero-cap{position:absolute;right:18px;bottom:12px;font-size:11px;color:#7286a0;font-family:Consolas,monospace}
+
+/* sections */
+section{padding:72px 0}
+h2{font:600 13px/1 "Segoe UI",sans-serif;letter-spacing:.16em;text-transform:uppercase;color:var(--acc);margin:0 0 8px}
+h3.sec{font:600 clamp(24px,3.2vw,32px)/1.25 "Segoe UI Variable Display","Segoe UI",sans-serif;margin:0 0 14px;text-wrap:balance}
+p.lead{color:var(--mut);max-width:68ch;margin:0 0 34px}
+
+.pillars{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}
+.pillar{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:22px 22px 18px}
+.pillar .k{font-family:Consolas,monospace;font-size:12px;color:var(--acc);letter-spacing:.14em;text-transform:uppercase}
+.pillar h4{margin:8px 0 8px;font-size:18px}
+.pillar p{margin:0;color:var(--mut);font-size:14.5px}
+.pillar ul{margin:10px 0 0;padding-left:18px;color:var(--mut);font-size:13.5px}
+.pillar li{margin:3px 0}
+
+/* pipeline strip */
+.pipe{display:flex;flex-wrap:wrap;gap:0;align-items:stretch;border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.pipe div{flex:1 1 160px;padding:16px 18px;background:var(--panel);border-right:1px solid var(--line)}
+.pipe div:last-child{border-right:0}
+.pipe .st{font-family:Consolas,monospace;font-size:11px;color:var(--acc);letter-spacing:.12em;text-transform:uppercase}
+.pipe p{margin:6px 0 0;font-size:13px;color:var(--mut)}
+.chips{margin-top:8px;display:flex;gap:6px;flex-wrap:wrap}
+.chip{font-family:Consolas,monospace;font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--line)}
+.chip.glass{color:#9dc4ec;border-color:var(--glass)} .chip.concrete{color:#a8d8c3;border-color:var(--concrete)}
+.chip.metal{color:#f0b273;border-color:var(--metal)} .chip.ground{color:#d9b98a;border-color:var(--ground)}
+
+/* gallery */
+.gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px}
+figure{margin:0;background:var(--panel);border:1px solid var(--line);border-radius:6px;overflow:hidden}
+figure img{width:100%;aspect-ratio:4/3;object-fit:cover}
+figcaption{padding:10px 14px;font-size:13px;color:var(--mut)}
+figcaption b{color:var(--ink);font-weight:600}
+
+/* agent story */
+.story{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;align-items:center}
+.story .ev{display:flex;gap:10px}
+.story .ev img{width:50%;border:1px solid var(--line);border-radius:4px;aspect-ratio:1/1;object-fit:cover}
+.trace{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:16px 18px;font-family:Consolas,monospace;font-size:12.5px;line-height:1.9;color:var(--mut)}
+.trace .ok{color:#7bd88f}
+.trace .q{color:var(--acc)}
+.ev-cap{font-size:11.5px;color:#6f8299;margin-top:8px;line-height:1.6}
+.ev-cap a{color:#8fb4dd}
+
+/* quickstart */
+pre{background:#0e1622;border:1px solid var(--line);border-radius:6px;padding:18px 20px;overflow-x:auto;
+  font-family:"Cascadia Code",Consolas,monospace;font-size:13.5px;line-height:1.8;color:#cfe0f2;margin:0}
+pre .c{color:#5f7590}
+.qs-note{font-size:13px;color:var(--mut);margin-top:10px}
+
+/* language switch */
+.lang{position:absolute;top:16px;right:20px;z-index:3;font-family:Consolas,monospace;font-size:12px;
+  letter-spacing:.08em;color:#c6d3e2;background:rgba(11,17,27,.55);border:1px solid var(--line);
+  border-radius:999px;padding:6px 14px}
+.lang a{color:#8fb4dd}
+.lang b{color:var(--ink)}
+.lang span{margin:0 6px;color:#51637b}
+
+/* feature detail grid */
+.feats{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px 28px}
+.feat{border-top:1px solid var(--line);padding-top:14px}
+.feat h5{margin:0 0 6px;font-size:15.5px;font-weight:600;color:var(--ink)}
+.feat p{margin:0;color:var(--mut);font-size:13.5px}
+.feat .mono{font-size:11.5px;color:#7bb8f5}
+
+/* video */
+.vid{width:100%;border:1px solid var(--line);border-radius:6px;background:#000;display:block}
+
+/* footer */
+footer{margin-top:40px;border-top:1px solid var(--line)}
+.logos{background:#f4f7fb;border-radius:6px;margin:44px 0 20px;padding:22px 26px;display:flex;gap:36px;align-items:center;flex-wrap:wrap;justify-content:center}
+.logos img{height:44px;width:auto}
+.fineprint{padding:0 0 48px;color:#6f8299;font-size:12.5px;line-height:1.8;text-align:center}
+.fineprint a{color:#8fb4dd}
+@media (prefers-reduced-motion: no-preference){
+  .hero .wrap{animation:rise .7s ease-out both}
+  @keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <img src="../assets/hero_campus.jpg" alt="Hanyang University campus digital twin rendered in SEAM Studio with real aerial textures">
+  <div class="shade"></div>
+  <nav class="lang" aria-label="Language"><a href="../ko/">KO</a><span>·</span><b>EN</b></nav>
+  <div class="wrap">
+    <div class="eyebrow">Scene-to-Electromagnetic Authoring and Mapping</div>
+    <h1 class="wordmark">SEAM <span class="studio">Studio</span></h1>
+    <p class="tag"><b>A local-first, AI-assisted RF digital twin workbench.</b> In one textured 3D scene,
+      every mesh carries <b>two material bindings</b> — visual (PBR) and electromagnetic (RF). The
+      canonical scene compiles into a Sionna RT projection, and ray paths and radio maps come back
+      as overlays on the very same viewport. No GPU, no Sionna, no LLM required.</p>
+    <div class="spectrum hero-rule"></div>
+    <div class="cta">
+      <a class="btn primary" href="https://github.com/jaewoo4200/SEAM">View on GitHub</a>
+      <a class="btn ghost" href="#quickstart">Quickstart</a>
+    </div>
+  </div>
+  <div class="hero-cap">HYU campus · drone/aerial-textured twin, imported &amp; rendered in SEAM Studio</div>
+</header>
+
+<section>
+  <div class="wrap">
+    <h2>What it does</h2>
+    <h3 class="sec">From scene import to radio propagation, on one screen</h3>
+    <p class="lead">Import Mitsuba XML, zip bundles or an OpenStreetMap rectangle; assign and validate
+      RF materials; run 28 GHz ray tracing; and paint the results back onto the same scene.</p>
+    <div class="pillars">
+      <div class="pillar"><span class="k">Author</span>
+        <h4>Scene &amp; material authoring</h4>
+        <p>Texture-embedded GLB viewer (Blender-grade navigation), per-prim RF materials, physical splitting.</p>
+        <ul><li>zip bundle / OSM map-drag import</li><li>material &amp; connectivity mesh splits + undo</li><li>ITU band guardrails &amp; validation lints</li></ul>
+      </div>
+      <div class="pillar"><span class="k">Simulate</span>
+        <h4>Sionna RT projection</h4>
+        <p>Canonical scene → Mitsuba XML auto-compile, with automatic recompile on staleness.</p>
+        <ul><li>paths · radio maps · SINR · beamforming · channel (CFR)</li><li>multi-UE trajectories + terrain-following drape</li><li>ML ground-truth dataset export</li></ul>
+      </div>
+      <div class="pillar"><span class="k">SEAM-Agent</span>
+        <h4>Retrieval-augmented local AI material assignment</h4>
+        <p>A local LLM/VLM harness observes buildings in multi-view, augments with web evidence, and proposes materials.</p>
+        <ul><li>triangle-id back-projection → per-face segments</li><li>observable activity trace + evidence cards</li><li>confidence · provenance · user approval</li></ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section style="padding-top:0">
+  <div class="wrap">
+    <h2>Pipeline</h2>
+    <h3 class="sec">unsegmented mesh → Sionna-ready RF scene</h3>
+    <div class="pipe">
+      <div><span class="st">1 · Import</span><p>Mitsuba XML / zip / OSM. Textures persist twice: viewer GLB + full-resolution AI evidence.</p></div>
+      <div><span class="st">2 · Segment</span><p>Per-face splits from heuristics, a local VLM, or an uploaded SAM2 mask.</p>
+        <div class="chips"><span class="chip glass">glass</span><span class="chip concrete">concrete</span><span class="chip metal">metal</span><span class="chip ground">ground</span></div></div>
+      <div><span class="st">3 · Assign</span><p>SEAM-Agent proposals + user review. Every decision recorded with provenance.</p></div>
+      <div><span class="st">4 · Compile</span><p>Per-material PLY groups + clean Mitsuba XML with ITU bsdfs, generated automatically.</p></div>
+      <div><span class="st">5 · Solve</span><p>Sionna RT (or Mock) paths &amp; radio maps → overlaid on the same viewport.</p></div>
+    </div>
+  </div>
+</section>
+
+<section style="padding-top:0">
+  <div class="wrap">
+    <h2>In action</h2>
+    <h3 class="sec">Real scenes, really running</h3>
+    <div class="gallery">
+      <figure><img src="../assets/rays_demo.jpg" alt="Sionna RT ray tracing on the campus twin — 39 paths between one TX and two RX devices">
+        <figcaption><b>Sionna RT ray tracing</b> — 39 paths (LOS cyan · reflections magenta) between one TX and two RXs on the campus twin, solved by the real Sionna backend.</figcaption></figure>
+      <figure><img src="../assets/campus_top.jpg" alt="Top-down view of the textured campus twin with continuous terrain">
+        <figcaption><b>Campus twin, top-down</b> — aerial textures on continuous terrain, with view snaps (1/3/7) and an infinite grid.</figcaption></figure>
+      <figure><img src="../assets/sample_demo.jpg" alt="Sample demo scene with TX and RX devices">
+        <figcaption><b>Sample Demo</b> — TX/RX placement, height-above-surface (AGL) editing; the tutorial scene runs on the Mock backend alone.</figcaption></figure>
+      <figure><img src="../assets/ftc_building.jpg" alt="Drone-mapped FTC building multi-view capture used by SEAM-Agent">
+        <figcaption><b>Drone-mapped FTC building</b> — the orthographic multi-view capture (triangle-id buffer pairs) that SEAM-Agent sees.</figcaption></figure>
+    </div>
+  </div>
+</section>
+
+<section id="trajectory" style="padding-top:0;display:none">
+  <div class="wrap">
+    <h2>Trajectory playback</h2>
+    <h3 class="sec">RF metrics that follow a moving UE</h3>
+    <p class="lead">A real screen recording: a UE moves along a terrain-draped trajectory and the ray
+      paths re-solve at every position.</p>
+    <video class="vid" controls muted playsinline preload="metadata" src="../assets/trajectory.mp4"></video>
+  </div>
+</section>
+
+<section style="padding-top:0">
+  <div class="wrap">
+    <h2>Capabilities</h2>
+    <h3 class="sec">A closer look at the features</h3>
+    <p class="lead">Under the three pillars sit the tools you actually run experiments and write
+      papers with — from link analysis to dataset generation.</p>
+    <div class="feats">
+      <div class="feat"><h5>Channel analysis &amp; live tuning</h5>
+        <p>Link budget, CIR/CFR, K-factor, RMS delay spread, and empirical path-loss models
+        (incl. 3GPP 38.901) compared against RT. Change frequency, bandwidth, TX power, noise figure
+        or SCS and the analysis re-runs instantly, including TS 38.215-style RSRP/RSSI/RSRQ.</p></div>
+      <div class="feat"><h5>Multi-TX interference · SINR</h5>
+        <p>Ray-traced received powers from all non-serving TXs sum into co-channel interference:
+        SINR = S/(I+N). Selectable serving cell, SINR radio maps, and a per-cell serving-TX map.</p></div>
+      <div class="feat"><h5>MIMO beamforming</h5>
+        <p>Codebook sweep / TX-MRT / SVD beamforming gains computed on the actual ray channel
+        (~12/24 dB validated at 4×4).</p></div>
+      <div class="feat"><h5>Mesh radio maps + region refinement</h5>
+        <p>Coverage painted per triangle on real surfaces — walls, floors, roads — instead of a
+        horizontal plane, with region-of-interest re-solves at finer cell sizes.</p></div>
+      <div class="feat"><h5>Trajectory RF metrics &amp; terrain following</h5>
+        <p>Sample RSS, path gain, RMS delay and SINR along UE trajectories. Trajectories drape onto
+        terrain and rooftops instead of tunneling through hills, and devices place by
+        height-above-surface (AGL).</p></div>
+      <div class="feat"><h5>Material segmentation &amp; splitting</h5>
+        <p>Split a monolithic building mesh into per-material faces from a texture mask (color
+        heuristic / local VLM / uploaded SAM2 mask), or split merged meshes into connected
+        components. Every split keeps a GLB backup and is undoable.</p></div>
+      <div class="feat"><h5>Measurement-driven calibration</h5>
+        <p>Import measured link CSVs to grid-fit material parameters, tell visually identical
+        materials apart from measured path gains, and quantify how much an assignment matters via
+        NMSE and capacity deltas.</p></div>
+      <div class="feat"><h5>Metrics dashboard &amp; paper-ready export</h5>
+        <p>Link KPIs and CIR/CFR/Doppler/path-loss charts in a white-background serif paper style —
+        every chart has built-in PNG/SVG/CSV export. Viewport capture and offline Mitsuba renders
+        included.</p></div>
+      <div class="feat"><h5>Datasets &amp; AODT interop</h5>
+        <p>Generate ML ground-truth datasets (npz + metadata), export the AODT RFData contract, and
+        import NVIDIA AODT parquet results into the same schema.</p></div>
+      <div class="feat"><h5>Natural-language rules &amp; validation explains</h5>
+        <p>Turn "windows are glass, concrete walls are itu_concrete" into reviewable assignment
+        rules applied in bulk, and get validation warnings explained in plain language with
+        one-click actions.</p></div>
+      <div class="feat"><h5>Result reproducibility &amp; live events</h5>
+        <p>Every result is stamped with scene/assignment/config hashes plus a config snapshot, so
+        stale results get badges; compile and simulation progress streams over WebSocket.</p></div>
+      <div class="feat"><h5>Live sync <span class="mono">POST /live/state</span></h5>
+        <p>Inject real-world positions from GPS, mocap or logs into the loaded scene — the viewer
+        follows in real time and can re-simulate immediately for a measure → sync → predict loop.</p></div>
+    </div>
+  </div>
+</section>
+
+<section style="padding-top:0">
+  <div class="wrap">
+    <h2>SEAM-Agent</h2>
+    <h3 class="sec">"This building is the Hanyang FTC" — one line is enough</h3>
+    <p class="lead">Give the agent a hint and it retrieves real exterior photos from the web, while a
+      local VLM extracts material cues and fuses them with multi-view observations. The whole run is
+      an observable activity trace, and nothing applies without your approval.</p>
+    <div class="story">
+      <div>
+        <div class="ev">
+          <img src="../assets/agent_ftc_photo.jpg" alt="Real exterior photo of the Hanyang FTC building retrieved from the web by the agent">
+          <img src="../assets/agent_ftc_assigned.jpg" alt="The drone-mapped FTC mesh after per-segment RF material assignment — glass curtain wall shown in blue">
+        </div>
+        <div class="ev-cap">Left: the real FTC exterior photo the agent retrieved
+          (<a href="https://commons.wikimedia.org/wiki/File:Hanyang_University_Fusion_Technology_Center.jpg">Modamoda,
+          CC BY 3.0, Wikimedia Commons</a>) · Right: the same building's drone-mapped mesh after
+          per-segment assignment, in RF material color mode (glass curtain wall = blue, concrete = grey)</div>
+      </div>
+      <div class="trace">
+        <div><span class="ok">[done]</span> web_search <span class="q">"Hanyang University Fusion Technology Center FTC exterior"</span></div>
+        <div><span class="ok">[done]</span> 6 photos retrieved · Wikimedia + hyu.wiki</div>
+        <div><span class="ok">[done]</span> VLM claim: <em>"glass curtain wall, white concrete structure"</em></div>
+        <div><span class="ok">[done]</span> 4 views analyzed → face votes → segments</div>
+        <div><span class="ok">[review]</span> curtain_wall_glass → itu_glass (0.83) · roof → itu_concrete (0.98)</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="quickstart" style="padding-top:0">
+  <div class="wrap">
+    <h2>Quickstart</h2>
+    <h3 class="sec">Up in three lines</h3>
+<pre>git clone https://github.com/jaewoo4200/SEAM.git &amp;&amp; cd SEAM
+powershell -ExecutionPolicy Bypass -File scripts\install.ps1   <span class="c"># or: bash scripts/install.sh</span>
+powershell -ExecutionPolicy Bypass -File scripts\start.ps1     <span class="c"># open http://localhost:5173</span></pre>
+    <p class="qs-note">Python 3.11+ · Node 20+. Everything works on the Mock backend with no GPU,
+      Sionna or LLM — Sionna RT and LM Studio are optional upgrades. See
+      <a href="https://github.com/jaewoo4200/SEAM/blob/master/INSTALL.md">INSTALL.md</a> ·
+      <a href="https://github.com/jaewoo4200/SEAM/blob/master/TUTORIAL.md">TUTORIAL.md</a>.</p>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="logos">
+      <img src="../assets/wsl_logo.png" alt="Wireless Systems Laboratory, Hanyang University">
+      <img src="../assets/beyond_g_logo.png" alt="BEYOND-G Global Innovation Center">
+    </div>
+    <div class="fineprint">
+      SEAM Studio · Apache License 2.0 · <a href="https://github.com/jaewoo4200/SEAM">github.com/jaewoo4200/SEAM</a> · <a href="../ko/">한국어 페이지</a><br>
+      Developed by <b>Jaewoo Lee (이재우)</b> · Wireless Systems Laboratory (WSL), Hanyang University · BEYOND-G Global Innovation Center<br>
+      OSM import uses data © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a> (ODbL) via Overpass API · map picker by Leaflet ·
+      built on <a href="https://github.com/NVlabs/sionna-rt">NVIDIA Sionna RT</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+/* The trajectory clip is dropped in later as assets/trajectory.mp4; only show
+   the section when the file actually exists on the host. */
+fetch('../assets/trajectory.mp4',{method:'HEAD'})
+  .then(function(r){if(r.ok){document.getElementById('trajectory').style.display='';}})
+  .catch(function(){});
+</script>
+
+</body>
+</html>
