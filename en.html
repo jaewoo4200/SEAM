@@ -183,10 +183,10 @@ footer{margin-top:40px;border-top:1px solid var(--line)}
     <h2>In action</h2>
     <h3 class="sec">Real scenes, really running</h3>
     <div class="gallery">
-      <figure><img src="assets/rays_demo.jpg" alt="Sionna RT ray tracing — LOS and reflection paths drawn between a rooftop TX and a street-level RX">
-        <figcaption><b>Sionna RT ray tracing</b> — LOS (cyan) and reflection (magenta) paths between a rooftop TX and a street-level RX, drawn right on the scene.</figcaption></figure>
-      <figure><img src="assets/campus_top.jpg" alt="Top-down orthographic view of the textured campus twin">
-        <figcaption><b>Campus twin, orthographic</b> — 62 aerial-textured blocks with view snaps (1/3/7) and an infinite grid.</figcaption></figure>
+      <figure><img src="assets/rays_demo.jpg" alt="Sionna RT ray tracing on the campus twin — 39 paths between one TX and two RX devices">
+        <figcaption><b>Sionna RT ray tracing</b> — 39 paths (LOS cyan · reflections magenta) between one TX and two RXs on the campus twin, solved by the real Sionna backend.</figcaption></figure>
+      <figure><img src="assets/campus_top.jpg" alt="Top-down view of the textured campus twin with continuous terrain">
+        <figcaption><b>Campus twin, top-down</b> — aerial textures on continuous terrain, with view snaps (1/3/7) and an infinite grid.</figcaption></figure>
       <figure><img src="assets/sample_demo.jpg" alt="Sample demo scene with TX and RX devices">
         <figcaption><b>Sample Demo</b> — TX/RX placement, height-above-surface (AGL) editing; the tutorial scene runs on the Mock backend alone.</figcaption></figure>
       <figure><img src="assets/ftc_building.jpg" alt="Drone-mapped FTC building multi-view capture used by SEAM-Agent">
@@ -199,8 +199,8 @@ footer{margin-top:40px;border-top:1px solid var(--line)}
   <div class="wrap">
     <h2>Trajectory playback</h2>
     <h3 class="sec">RF metrics that follow a moving UE</h3>
-    <p class="lead">A UE moves along a terrain-draped trajectory while ray paths and received-signal
-      metrics update at every waypoint.</p>
+    <p class="lead">A real screen recording: a UE moves along a terrain-draped trajectory and the ray
+      paths re-solve at every position.</p>
     <video class="vid" controls muted playsinline preload="metadata" src="assets/trajectory.mp4"></video>
   </div>
 </section>
