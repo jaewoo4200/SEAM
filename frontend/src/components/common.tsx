@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { useAppStore } from "../store/appStore";
 import type {
   AssignmentStatus,
   PathType,
@@ -7,6 +8,36 @@ import type {
   Severity,
   Vec4,
 } from "../types/api";
+
+/** All result kinds that carry a computed-at epoch (see appStore.resultEpochs).
+ *  Superset of the union in ResultExplorer's local StaleChip; kept here so
+ *  panels outside ResultExplorer (SolverControls, ...) can flag staleness for
+ *  the radio-map / scenario results too. */
+export type ResultKind =
+  | "paths"
+  | "channel"
+  | "trajectory"
+  | "beamforming"
+  | "mesh_radio_map"
+  | "radio_map"
+  | "scenario";
+
+/** "Scene changed since this was computed" badge. Mirrors ResultExplorer's
+ *  StaleChip (same class/markup) but covers every result kind, so it can mount
+ *  next to the radio-map and scenario controls that live outside that file. */
+export function EpochStaleChip({ kind }: { kind: ResultKind }) {
+  const sceneEpoch = useAppStore((st) => st.sceneEpoch);
+  const at = useAppStore((st) => st.resultEpochs[kind]);
+  if (at === undefined || at === sceneEpoch) return null;
+  return (
+    <span
+      className="stale-chip"
+      title="The scene was edited after this result was computed - re-run to refresh"
+    >
+      ⚠ stale
+    </span>
+  );
+}
 
 export const ACCENT = "#4fc3f7";
 

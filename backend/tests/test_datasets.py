@@ -96,6 +96,56 @@ def test_list_and_download_roundtrip(project_dir, library):
     assert ds.dataset_file(project_dir, "..", "secrets.txt") is None
 
 
+def test_delete_dataset_service_removes_dir_and_guards_traversal(project_dir, library):
+    info = _gen(project_dir, library,
+                DatasetSampling(mode="random", num_samples=2,
+                                region_min=[0, 0, 0], region_max=[5, 5, 3]))
+    out = project_dir / "export" / "datasets" / info.dataset_id
+    assert out.is_dir()
+    # Unknown id -> False (no removal); a traversal id can never escape.
+    assert ds.delete_dataset(project_dir, "nope") is False
+    assert ds.delete_dataset(project_dir, "..") is False
+    assert project_dir.is_dir()  # traversal did not touch the project itself
+    # Real id -> removed.
+    assert ds.delete_dataset(project_dir, info.dataset_id) is True
+    assert not out.exists()
+    assert all(d.dataset_id != info.dataset_id for d in ds.list_datasets(project_dir))
+    # Second delete of the same id -> False (already gone).
+    assert ds.delete_dataset(project_dir, info.dataset_id) is False
+
+
+def test_delete_dataset_route_roundtrip(api_client):
+    api_client.post("/api/projects", json={"name": "DS API", "project_id": "ds_api"})
+    # Seed a scene with a tx/rx pair so the mock sweep produces a dataset.
+    scene = make_demo_scene("ds_api")
+    put = api_client.put("/api/projects/ds_api/scene", json=scene.model_dump(mode="json"))
+    assert put.status_code == 200, put.text
+    gen = api_client.post(
+        "/api/projects/ds_api/datasets/generate",
+        json={
+            "name": "d",
+            "config": {"backend": "mock"},
+            "sampling": {"mode": "random", "num_samples": 2,
+                         "region_min": [0, 0, 0], "region_max": [5, 5, 3]},
+        },
+    )
+    assert gen.status_code == 200, gen.text
+    dataset_id = gen.json()["dataset_id"]
+    assert any(d["dataset_id"] == dataset_id
+               for d in api_client.get("/api/projects/ds_api/datasets").json()["datasets"])
+
+    resp = api_client.delete(f"/api/projects/ds_api/datasets/{dataset_id}")
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == {"deleted": True, "dataset_id": dataset_id}
+    # Gone from the list...
+    assert all(d["dataset_id"] != dataset_id
+               for d in api_client.get("/api/projects/ds_api/datasets").json()["datasets"])
+    # ...and a second delete is a 404.
+    assert api_client.delete(f"/api/projects/ds_api/datasets/{dataset_id}").status_code == 404
+    # Unknown project is a 404 too.
+    assert api_client.delete("/api/projects/nope/datasets/whatever").status_code == 404
+
+
 def test_include_paths_writes_jsonl(project_dir, library):
     info = _gen(project_dir, library,
                 DatasetSampling(mode="random", num_samples=2,

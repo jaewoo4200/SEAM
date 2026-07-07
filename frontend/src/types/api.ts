@@ -757,6 +757,12 @@ export interface DatasetListResponse {
   datasets: DatasetInfo[];
 }
 
+// DELETE /projects/{pid}/datasets/{dataset_id} — remove a dataset's files.
+export interface DatasetDeleteResponse {
+  deleted: boolean;
+  dataset_id: string;
+}
+
 // -------------------------------------------------------------------- ai
 
 /** One selectable model for an AI provider (GET /ai/models). */

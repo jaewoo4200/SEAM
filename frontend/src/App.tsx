@@ -26,6 +26,7 @@ export default function App() {
   const notice = useAppStore((s) => s.notice);
   const dismissError = useAppStore((s) => s.dismissError);
   const dismissNotice = useAppStore((s) => s.dismissNotice);
+  const setImportOpen = useAppStore((s) => s.setImportOpen);
 
   const panel = usePanelSize();
 
@@ -116,10 +117,13 @@ export default function App() {
           ) : projects.length === 0 ? (
             <>
               <h2>No projects found</h2>
-              <p>
-                Add a project folder under <code>projects/</code> or{" "}
-                <code>examples/demo_project/</code> and reload, or make sure the backend is
-                running on port 8000.
+              <p>Import a Mitsuba/Sionna scene (or an OpenStreetMap area) to get started.</p>
+              <button className="primary" onClick={() => setImportOpen(true)}>
+                Import a scene
+              </button>
+              <p className="hint">
+                Or drop a project folder under <code>examples/demo_project/</code> and reload.
+                Make sure the backend is running on port 8000.
               </p>
             </>
           ) : (

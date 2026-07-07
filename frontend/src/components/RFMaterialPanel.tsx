@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAppStore } from "../store/appStore";
 import { api, ApiError } from "../api/client";
 import { Swatch } from "./common";
@@ -150,6 +150,7 @@ function MaterialEditor({
 export default function RFMaterialPanel() {
   const materials = useAppStore((s) => s.materials);
   const selection = useAppStore((s) => s.selection);
+  const scene = useAppStore((s) => s.scene);
   const projectId = useAppStore((s) => s.projectId);
   const assignMaterial = useAppStore((s) => s.assignMaterial);
   const saveMaterial = useAppStore((s) => s.saveMaterial);
@@ -166,6 +167,58 @@ export default function RFMaterialPanel() {
 
   const list = materials?.materials ?? [];
   const active = list.find((m) => m.id === activeId) ?? null;
+
+  // Overwrite guard: how many selected prims already carry a DIFFERENT,
+  // user-confirmed RF material. Assigning over those silently discards a manual
+  // decision, so the assign button becomes a two-step confirm when this is > 0.
+  const primById = new Map((scene?.prims ?? []).map((p) => [p.id, p]));
+  const overwriteCount = active
+    ? selection.filter((id) => {
+        const rf = primById.get(id)?.rf;
+        return (
+          rf?.assignment_status === "user_confirmed" && rf.material_id !== active.id
+        );
+      }).length
+    : 0;
+
+  // Two-step confirm state (mirrors the inline armed-confirm pattern used by
+  // SceneTree/InspectorPanel): first click arms, auto-reverts after ~4s.
+  const [confirmOverwrite, setConfirmOverwrite] = useState(false);
+  const confirmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const disarmOverwrite = () => {
+    if (confirmTimer.current) {
+      clearTimeout(confirmTimer.current);
+      confirmTimer.current = null;
+    }
+    setConfirmOverwrite(false);
+  };
+  useEffect(() => disarmOverwrite, []);
+  // Never leave the confirm armed once the reason to confirm is gone (selection
+  // changed, a different material row was picked, or overwrites dropped to 0).
+  useEffect(() => {
+    if (overwriteCount === 0) disarmOverwrite();
+  }, [overwriteCount, activeId]);
+
+  const doAssign = () => {
+    if (!active) return;
+    disarmOverwrite();
+    void assignMaterial({
+      prim_ids: selection,
+      rf_material_id: active.id,
+      assignment_status: "user_confirmed",
+      sources: ["user"],
+    });
+  };
+
+  const onAssignClick = () => {
+    if (!active) return;
+    if (overwriteCount > 0 && !confirmOverwrite) {
+      setConfirmOverwrite(true);
+      confirmTimer.current = setTimeout(() => setConfirmOverwrite(false), 4000);
+      return;
+    }
+    doAssign();
+  };
 
   const unassignSelection = async () => {
     if (!projectId || selection.length === 0) return;
@@ -312,26 +365,25 @@ export default function RFMaterialPanel() {
 
       <div className="panel-actions">
         <button
-          className="primary"
+          className={confirmOverwrite ? "danger" : "primary"}
           disabled={!active || selection.length === 0 || busy !== null}
           title={
             selection.length === 0
               ? "Select prims in the scene tree (ctrl-click for multi-select) first"
-              : active
-                ? `Assign ${active.id} to ${selection.length} prim(s)`
-                : "Pick a material row first"
+              : !active
+                ? "Pick a material row first"
+                : confirmOverwrite
+                  ? `Overwrite ${overwriteCount} user-confirmed assignment(s) with ${active.id}`
+                  : overwriteCount > 0
+                    ? `${overwriteCount} selected prim(s) already have a different confirmed material`
+                    : `Assign ${active.id} to ${selection.length} prim(s)`
           }
-          onClick={() => {
-            if (!active) return;
-            void assignMaterial({
-              prim_ids: selection,
-              rf_material_id: active.id,
-              assignment_status: "user_confirmed",
-              sources: ["user"],
-            });
-          }}
+          onClick={onAssignClick}
+          onBlur={disarmOverwrite}
         >
-          Assign to selection ({selection.length})
+          {confirmOverwrite
+            ? `${overwriteCount} assigned — overwrite?`
+            : `Assign to selection (${selection.length})`}
         </button>
         <button
           disabled={selection.length === 0 || busy !== null || unassigning}

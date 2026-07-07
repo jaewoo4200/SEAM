@@ -68,3 +68,8 @@ class DatasetInfo(StrictModel):
 
 class DatasetListResponse(StrictModel):
     datasets: list[DatasetInfo] = Field(default_factory=list)
+
+
+class DatasetDeleteResponse(StrictModel):
+    deleted: bool
+    dataset_id: str

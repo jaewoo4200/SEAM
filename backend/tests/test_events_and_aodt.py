@@ -132,6 +132,27 @@ def test_import_unavailable_when_pyarrow_missing(monkeypatch, tmp_path):
         aodt_import.import_aodt_results(tmp_path, "paths")
 
 
+def test_require_pyarrow_guard_actionable_message(monkeypatch):
+    """The real _require_pyarrow guard (import forced to fail) raises the typed
+    unavailable error with an ACTIONABLE message naming the [results] extra -
+    not a bare ImportError. Monkeypatches the import itself, not the guard."""
+    import builtins
+
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "pyarrow.parquet" or name.startswith("pyarrow"):
+            raise ImportError("No module named 'pyarrow'")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+    with pytest.raises(aodt_import.AodtImportUnavailable) as excinfo:
+        aodt_import._require_pyarrow()
+    msg = str(excinfo.value)
+    assert "seam-backend[results]" in msg
+    assert "pyarrow" in msg
+
+
 def test_import_bad_kind_and_missing_dir():
     with pytest.raises(aodt_import.AodtImportError):
         aodt_import.import_aodt_results("/no/such/dir/exists", "paths")

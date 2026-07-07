@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse
 
 from app.api.deps import get_store, load_scene_or_404
 from app.schemas.datasets import (
+    DatasetDeleteResponse,
     DatasetGenerateRequest,
     DatasetInfo,
     DatasetListResponse,
@@ -59,6 +60,25 @@ def list_datasets(project_id: str) -> DatasetListResponse:
     return DatasetListResponse(
         datasets=dataset_service.list_datasets(store.resolve(project_id))
     )
+
+
+@router.delete(
+    "/projects/{project_id}/datasets/{dataset_id}",
+    response_model=DatasetDeleteResponse,
+)
+def delete_dataset(project_id: str, dataset_id: str) -> DatasetDeleteResponse:
+    """Permanently remove a generated dataset directory.
+
+    404 on an unknown project (via load_scene_or_404) or an unknown dataset;
+    ``dataset_id`` is validated against path traversal the same way the file
+    download route validates it, so it can never point removal outside the
+    project's datasets root.
+    """
+    store = get_store()
+    load_scene_or_404(store, project_id)  # 404 on unknown project
+    if not dataset_service.delete_dataset(store.resolve(project_id), dataset_id):
+        raise HTTPException(status_code=404, detail=f"dataset not found: {dataset_id}")
+    return DatasetDeleteResponse(deleted=True, dataset_id=dataset_id)
 
 
 @router.get("/projects/{project_id}/datasets/{dataset_id}/files/{filename}")

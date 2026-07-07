@@ -84,21 +84,23 @@ cd frontend
 npm install
 ```
 
-### 3. 데모 프로젝트 생성
+### 3. (선택) 데모 프로젝트 재생성
 
-데모 프로젝트의 생성물(GLB, 씬 JSON 등)은 리포에 커밋되지 않으므로, 최초 1회
-생성 스크립트를 실행해야 앱에서 프로젝트가 보입니다.
+데모 3종(**sample_demo · lab_room · ftc_outdoor**)의 생성물은 이미 리포에
+**커밋되어 있어**, 설치 직후 앱에서 바로 보입니다. 이 단계는 필수가 아니며,
+데모를 처음부터 다시 만들고 싶을 때만 실행합니다. (한 줄 설치 스크립트도 이
+스크립트들을 호출하지만, 아래 번들 임포트는 `reference-bundle/`이 있을 때만
+실행하고 없으면 경고 후 건너뜁니다 — 커밋된 데모를 그대로 사용.)
+
+`create_demo_project.py`는 번들 없이 항상 동작합니다. `import_bundle_scene.py`
+계열은 `reference-bundle/`(대용량 씬 자산, ~450 MB, git 미포함)이 리포 루트에
+있을 때만 필요하며, 번들을 별도로 내려받아 재임포트/재생성할 때만 씁니다.
 
 **Windows:**
 
 ```powershell
 backend\.venv\Scripts\python.exe examples\scripts\create_demo_project.py
 backend\.venv\Scripts\python.exe examples\scripts\import_bundle_scene.py
-> **참고**: `reference-bundle/`(대용량 씬 자산, ~450 MB)은 git에 포함되지 않습니다.
-> FTC outdoor 데모는 이미 임포트된 상태로 리포에 포함되어 있으므로 이 단계는
-> 번들을 별도로 내려받아 리포 루트의 `reference-bundle/`에 두었을 때만 필요합니다
-> (재임포트/재생성 용도).
-
 backend\.venv\Scripts\python.exe examples\scripts\import_bundle_scene.py --xml "reference-bundle/outdoor_material_assigned_cv_28ghz_safe.xml" --scene-id ftc_outdoor --name "FTC Outdoor (28 GHz)" --environment outdoor --visual-overlay "reference-bundle/outdoor_visual/FTC_OSM_ReconstructedMap_ZUp_v2.glb"
 ```
 
@@ -109,6 +111,10 @@ backend/.venv/bin/python examples/scripts/create_demo_project.py
 backend/.venv/bin/python examples/scripts/import_bundle_scene.py
 backend/.venv/bin/python examples/scripts/import_bundle_scene.py --xml "reference-bundle/outdoor_material_assigned_cv_28ghz_safe.xml" --scene-id ftc_outdoor --name "FTC Outdoor (28 GHz)" --environment outdoor --visual-overlay "reference-bundle/outdoor_visual/FTC_OSM_ReconstructedMap_ZUp_v2.glb"
 ```
+
+> **참고:** 위 두 번째·세 번째 명령(`import_bundle_scene.py`)은 `reference-bundle/`이
+> 리포 루트에 있어야 동작합니다. 없으면 `create_demo_project.py`만 실행하세요
+> — lab_room·ftc_outdoor는 이미 커밋된 상태로 유지됩니다.
 
 - `create_demo_project.py` → **sample_demo** (작은 야외 도심 씬: 지면/도로/건물
   2동+창문/나무, TX/RX, 차량·보행자 액터). `examples/demo_project/` 아래에 씁니다.
@@ -245,23 +251,28 @@ AI는 완전히 선택입니다. AI 서버가 없으면 **규칙 기반(rule-bas
 **LM Studio 예시 (Windows PowerShell로 백엔드 실행 시):**
 
 ```powershell
-$env:SIONNATWIN_OPENAI_URL   = "http://localhost:1234/v1"
-$env:SIONNATWIN_OPENAI_MODEL = "google/gemma-4-31b"
+$env:SEAM_OPENAI_URL   = "http://localhost:1234/v1"
+$env:SEAM_OPENAI_MODEL = "google/gemma-4-31b"
 backend\.venv\Scripts\python.exe -m uvicorn --app-dir backend app.main:app --port 8000
 ```
 
-**주요 환경변수:**
+**주요 환경변수:** 정식 접두사는 `SEAM_*`이며, 모든 변수에 대해 레거시
+`SIONNATWIN_*` 이름도 계속 인식됩니다(둘 다 설정되면 `SEAM_*`가 우선).
+전체 목록과 주석은 `backend/.env.example` 참고.
 
 | 변수 | 기본값 | 설명 |
 |---|---|---|
-| `SIONNATWIN_AI_ENABLED` | `auto` | `auto` / `on` / `off`(수동 전용) |
-| `SIONNATWIN_OLLAMA_URL` | `http://localhost:11434` | Ollama 엔드포인트 |
-| `SIONNATWIN_AI_TEXT_MODEL` | `qwen3:8b` | Ollama 텍스트 모델 |
-| `SIONNATWIN_AI_VISION_MODEL` | `qwen2.5vl:3b` | 스크린샷 첨부 시 비전 모델 |
-| `SIONNATWIN_OPENAI_URL` | `http://localhost:1234/v1` | LM Studio(OpenAI 호환) |
-| `SIONNATWIN_OPENAI_MODEL` | `google/gemma-4-31b` | LM Studio 모델 |
-| `SIONNATWIN_AI_TIMEOUT_S` | `60` | AI 요청 타임아웃(초) |
-| `SIONNATWIN_PROJECT_ROOTS` | (내장 기본값) | 프로젝트 탐색 루트(경로 구분자로 나열) |
+| `SEAM_PROJECT_ROOTS` | (내장 기본값: `projects/`, 그다음 `examples/demo_project/`) | 프로젝트 탐색 루트(경로 구분자로 나열). 첫 번째 루트가 새 프로젝트/UI 임포트가 저장되는 곳 |
+| `SEAM_AI_ENABLED` | `auto` | `auto` / `on` / `off`(수동 전용) |
+| `SEAM_OLLAMA_URL` | `http://localhost:11434` | Ollama 엔드포인트 |
+| `SEAM_AI_TEXT_MODEL` | `qwen3:8b` | Ollama 텍스트 모델 |
+| `SEAM_AI_VISION_MODEL` | `qwen2.5vl:3b` | 스크린샷 첨부 시 비전 모델 |
+| `SEAM_OPENAI_URL` | `http://localhost:1234/v1` | LM Studio(OpenAI 호환) |
+| `SEAM_OPENAI_MODEL` | `google/gemma-4-31b` | LM Studio 모델 |
+| `SEAM_AI_TIMEOUT_S` | `60` | 텍스트 AI 요청 타임아웃(초) |
+| `SEAM_AI_VISION_TIMEOUT_S` | `300` | 멀티모달(이미지 포함) 요청 타임아웃(초). 로컬 VLM은 모델 로드 + 다중 이미지 프리필로 텍스트보다 오래 걸리므로 상한이 더 높음 |
+| `SEAM_AI_AUTO_APPLY` | `false` | 향후 자동 적용 게이트용 예약 플래그. 설정으로 파싱되지만 MVP에서는 **아무 코드도 이를 사용하지 않음** |
+| `SEAM_OVERPASS_URL` | `https://overpass-api.de/api/interpreter` | OSM(OpenStreetMap) 임포트에 쓰는 Overpass API 엔드포인트 |
 
 AI 출력은 엄격한 JSON 스키마로 검증되며, 파싱 실패 시 경고와 함께 규칙 기반으로
 폴백합니다. 제안은 **절대 자동 적용되지 않습니다** — 사용자가 승인 후 *Apply
@@ -294,7 +305,7 @@ cd frontend && npm run build
 | **`LLVM ... ` 경고 로그** | 무해합니다. Sionna의 Dr.Jit가 CPU(LLVM) 백엔드를 초기화할 때 나오는 정보성 경고이며 동작에 영향 없습니다. |
 | **상태칩이 "Mock only"** | `sionna-rt`가 설치되지 않았거나(→ `backend[sionna]` 설치), CUDA/LLVM 백엔드가 없어서 Sionna가 스스로 비활성화된 상태입니다. Mock으로 전체 워크플로는 그대로 사용 가능합니다. |
 | **상태칩이 "AI off"** | AI 서버(Ollama/LM Studio)에 연결되지 않은 상태. 규칙 기반 제안은 여전히 동작합니다. 로컬 LLM을 켜려면 위 [로컬 LLM/VLM](#선택-로컬-llmvlm--ai-재질-제안) 참조. |
-| **프로젝트 목록이 비어 있음** | 데모 3종은 리포에 **기본 포함**되어 있어 보통 바로 보입니다. 비어 있다면 백엔드가 `examples/demo_project/`를 찾지 못한 것 — 리포 루트에서 서버를 실행했는지, `SIONNATWIN_PROJECT_ROOTS`를 덮어쓰지 않았는지 확인하세요. [3. 데모 프로젝트 생성](#3-데모-프로젝트-생성) 스크립트는 데모를 *재생성*할 때만 필요합니다. |
+| **프로젝트 목록이 비어 있음** | 데모 3종은 리포에 **기본 포함**되어 있어 보통 바로 보입니다. 백엔드는 두 곳을 순서대로 탐색합니다 — 먼저 리포 루트의 `projects/`(루트 #1, UI에서 임포트한 프로젝트가 저장되는 곳; 새 클론에서는 비어 있거나 없을 수 있음), 그다음 커밋된 데모가 있는 `examples/demo_project/`. 비어 있다면 백엔드가 이 둘을 찾지 못한 것 — 리포 루트에서 서버를 실행했는지, `SEAM_PROJECT_ROOTS`(레거시 `SIONNATWIN_PROJECT_ROOTS`)를 덮어써 기본 루트를 가리지 않았는지 확인하세요. [3. (선택) 데모 프로젝트 재생성](#3-선택-데모-프로젝트-재생성) 스크립트는 데모를 *재생성*할 때만 필요합니다. |
 | **`import sionna.rt` 콜드 임포트가 느림** | 대체 엔진 첫 프로브는 수십 초 걸릴 수 있습니다(프로세스당 1회 캐시). 이후는 빨라집니다. |
 | **Windows에서 `localhost` 프록시 실패** | Vite 프록시는 의도적으로 `127.0.0.1:8000`을 사용합니다(Windows에서 `localhost`가 IPv6 `::1`로 먼저 해석되어 uvicorn IPv4 바인딩과 어긋나는 문제 회피). 백엔드가 IPv4 루프백에 바인딩되었는지 확인하세요. |
 

@@ -120,6 +120,108 @@ function ExplainWithAI() {
   );
 }
 
+/** Collapsible message list: shows the first `limit` items, then a toggle to
+ *  reveal the rest (mirrors the pattern the audit asked for — collapsed beyond
+ *  ~5). Used for the compile warnings/errors. */
+function MessageList({
+  messages,
+  color,
+  limit = 5,
+}: {
+  messages: string[];
+  color: string;
+  limit?: number;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  if (messages.length === 0) return null;
+  const shown = expanded ? messages : messages.slice(0, limit);
+  const hidden = messages.length - shown.length;
+  return (
+    <>
+      <ul className="compile-msg-list" style={{ borderLeft: `2px solid ${color}` }}>
+        {shown.map((m, i) => (
+          <li key={i}>{m}</li>
+        ))}
+      </ul>
+      {messages.length > limit && (
+        <button
+          className="compile-more"
+          onClick={() => setExpanded((v) => !v)}
+        >
+          {expanded ? "Show fewer" : `Show ${hidden} more`}
+        </button>
+      )}
+    </>
+  );
+}
+
+/** "Last RF compile" summary: the outcome of the most recent Compile RF run
+ *  (store.compileResult). Persists until the next compile; the dismiss button
+ *  clears it. */
+function LastCompileResult() {
+  const compileResult = useAppStore((s) => s.compileResult);
+  const clearCompileResult = useAppStore((s) => s.clearCompileResult);
+  if (!compileResult) return null;
+
+  const { ok, generated_files, material_groups, warnings, errors } = compileResult;
+  return (
+    <div className="compile-summary">
+      <div className="compile-summary-head">
+        <h4 className="compile-summary-title">Last RF compile</h4>
+        <button
+          className="compile-dismiss"
+          title="Dismiss this compile summary"
+          onClick={() => clearCompileResult()}
+        >
+          ×
+        </button>
+      </div>
+      <div className="chips">
+        <span className="chip" style={{ color: ok ? "#66bb6a" : "#ef5350" }}>
+          {ok ? "compiled" : `${errors.length} error${errors.length === 1 ? "" : "s"}`}
+        </span>
+        <span className="chip">
+          {material_groups.length} material group{material_groups.length === 1 ? "" : "s"}
+        </span>
+        {warnings.length > 0 && (
+          <span className="chip" style={{ color: SEVERITY_COLORS.warning }}>
+            {warnings.length} warning{warnings.length === 1 ? "" : "s"}
+          </span>
+        )}
+      </div>
+
+      {generated_files.length > 0 ? (
+        <ul className="compile-files">
+          {generated_files.map((f) => (
+            <li key={f} className="mono">
+              {f}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <div className="hint">No files generated.</div>
+      )}
+
+      {errors.length > 0 && (
+        <div className="compile-msg-group">
+          <span className="compile-msg-label" style={{ color: SEVERITY_COLORS.error }}>
+            errors
+          </span>
+          <MessageList messages={errors} color={SEVERITY_COLORS.error} />
+        </div>
+      )}
+      {warnings.length > 0 && (
+        <div className="compile-msg-group">
+          <span className="compile-msg-label" style={{ color: SEVERITY_COLORS.warning }}>
+            warnings
+          </span>
+          <MessageList messages={warnings} color={SEVERITY_COLORS.warning} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ValidationPanel() {
   const validation = useAppStore((s) => s.validation);
   const runValidation = useAppStore((s) => s.runValidation);
@@ -129,6 +231,8 @@ export default function ValidationPanel() {
   return (
     <div className="panel">
       <h3 className="panel-title">Scene validation</h3>
+
+      <LastCompileResult />
       <button
         className="primary"
         disabled={!projectId || busy !== null}

@@ -3,7 +3,7 @@ import { useAppStore } from "../store/appStore";
 import { api, ApiError } from "../api/client";
 import BeamSweepHeatmap from "./BeamSweepHeatmap";
 import AngularPlot from "./AngularPlot";
-import { PATH_COLORS, SELECTED_PATH_COLOR, formatVec, materialById } from "./common";
+import { EpochStaleChip, PATH_COLORS, SELECTED_PATH_COLOR, formatVec, materialById } from "./common";
 import { exportCsv } from "../charts";
 import { filterPaths, pathColor, pathDepth, powerRange } from "../pathFilter";
 import { meshRadioMapRange } from "./MeshRadioMapOverlay";
@@ -1140,6 +1140,7 @@ export function ScenarioSection() {
             >
               Clear
             </button>
+            <EpochStaleChip kind="scenario" />
           </>
         )}
       </div>
@@ -1169,8 +1170,49 @@ function formatCreatedAt(iso: string | null | undefined): string {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
 }
 
+/** Per-row dataset delete: two-step (× → ✓?) inline confirm, auto-reverting
+ *  after ~4s. Mirrors SceneTree's RowDeleteButton armed-confirm pattern. */
+function DatasetDeleteButton({
+  disabled,
+  onConfirm,
+}: {
+  disabled: boolean;
+  onConfirm: () => void;
+}) {
+  const [armed, setArmed] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const disarm = () => {
+    if (timer.current) {
+      clearTimeout(timer.current);
+      timer.current = null;
+    }
+    setArmed(false);
+  };
+  useEffect(() => disarm, []);
+  return (
+    <button
+      className={"row-del" + (armed ? " armed" : "")}
+      disabled={disabled}
+      title={armed ? "Confirm delete dataset" : "Delete dataset"}
+      onClick={() => {
+        if (armed) {
+          disarm();
+          onConfirm();
+        } else {
+          setArmed(true);
+          timer.current = setTimeout(() => setArmed(false), 4000);
+        }
+      }}
+      onBlur={disarm}
+    >
+      {armed ? "✓?" : "×"}
+    </button>
+  );
+}
+
 export function MlDatasetSection() {
   const projectId = useAppStore((s) => s.projectId);
+  const deleteDataset = useAppStore((s) => s.deleteDataset);
   // READ-ONLY: passed as the solver config for dataset generation.
   const pathsConfig = useAppStore((s) => s.pathsConfig);
   const sceneBounds = useAppStore((s) => s.sceneBounds);
@@ -1572,6 +1614,7 @@ export function MlDatasetSection() {
               <th>created</th>
               <th>size</th>
               <th>files</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -1608,6 +1651,20 @@ export function MlDatasetSection() {
                         {f === "dataset.npz" ? "npz" : "json"}
                       </a>
                     ))}
+                </td>
+                <td>
+                  <DatasetDeleteButton
+                    disabled={generating}
+                    onConfirm={() => {
+                      void deleteDataset(d.dataset_id).then((ok) => {
+                        if (ok) {
+                          setDatasets((prev) =>
+                            prev.filter((x) => x.dataset_id !== d.dataset_id),
+                          );
+                        }
+                      });
+                    }}
+                  />
                 </td>
               </tr>
               );
@@ -1989,6 +2046,69 @@ function PruneResultsButton({
   );
 }
 
+/** True when a path is absolute (outside the project dir), so we can't link it
+ *  through the project asset endpoint: leading POSIX slash, Windows drive
+ *  (C:\), or UNC (\\host). Project-relative export dirs (e.g. "export/rfdata")
+ *  return false and their files are linkable via api.assetUrl. */
+function isAbsolutePath(p: string): boolean {
+  return /^(\/|\\\\|[A-Za-z]:[\\/])/.test(p);
+}
+
+/** Durable, dismissible row surfacing the destination of the last RFData
+ *  export (the transient notice disappears; this persists until dismissed or
+ *  a project switch). Links each file through the project asset endpoint when
+ *  the export lives under the project dir. */
+function RfdataExportRow() {
+  const lastRfdataExport = useAppStore((s) => s.lastRfdataExport);
+  const dismissRfdataExport = useAppStore((s) => s.dismissRfdataExport);
+  const projectId = useAppStore((s) => s.projectId);
+  if (!lastRfdataExport) return null;
+  const { export_dir, files } = lastRfdataExport;
+  // Files are servable only when the export dir is project-relative (the
+  // backend returns "export/rfdata"); an absolute dir lives outside the
+  // project's asset root, so we show the names as plain text.
+  const linkable = projectId !== null && !isAbsolutePath(export_dir);
+  return (
+    <div className="ai-note rfdata-export-row">
+      <div className="rfdata-export-head">
+        <span>
+          Exported RFData to <span className="mono">{export_dir}</span>
+        </span>
+        <button
+          className="row-del"
+          title="Dismiss"
+          onClick={dismissRfdataExport}
+        >
+          ×
+        </button>
+      </div>
+      {files.length > 0 && (
+        <div className="rfdata-export-files">
+          {files.map((f) => {
+            // Show the basename; link the project-relative path when possible.
+            const name = f.split(/[\\/]/).pop() ?? f;
+            return linkable ? (
+              <a
+                key={f}
+                className="mono"
+                href={api.assetUrl(projectId!, f)}
+                download
+                style={{ marginRight: 8 }}
+              >
+                {name}
+              </a>
+            ) : (
+              <span key={f} className="mono" style={{ marginRight: 8 }}>
+                {name}
+              </span>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ResultExplorer() {
   const pathResults = useAppStore((s) => s.pathResults);
   const selectedPathId = useAppStore((s) => s.selectedPathId);
@@ -2178,6 +2298,8 @@ export default function ResultExplorer() {
           onPruned={refreshAfterPrune}
         />
       </div>
+
+      <RfdataExportRow />
 
       {(linkDevices.txs.length > 1 || linkDevices.rxs.length > 1) && (
         // AODT-style per-link filter chips: toggle a TX/RX to hide its links.

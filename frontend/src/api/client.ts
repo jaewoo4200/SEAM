@@ -25,6 +25,7 @@ import type {
   ChannelAnalysisRequest,
   ChannelAnalysisResult,
   CompileResult,
+  DatasetDeleteResponse,
   DatasetGenerateRequest,
   DatasetInfo,
   DatasetListResponse,
@@ -279,6 +280,9 @@ export const api = {
     request<DatasetInfo>("POST", `/projects/${pid}/datasets/generate`, req),
   listDatasets: (pid: string) =>
     request<DatasetListResponse>("GET", `/projects/${pid}/datasets`),
+  // Permanently remove a dataset's files (404 on unknown id).
+  deleteDataset: (pid: string, datasetId: string) =>
+    request<DatasetDeleteResponse>("DELETE", `/projects/${pid}/datasets/${datasetId}`),
   datasetFileUrl: (pid: string, datasetId: string, filename: string) =>
     `${BASE}/projects/${pid}/datasets/${datasetId}/files/${filename}`,
 

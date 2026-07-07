@@ -240,6 +240,8 @@ interface AppState {
     trajectory?: number;
     beamforming?: number;
     mesh_radio_map?: number;
+    radio_map?: number;
+    scenario?: number;
   };
 
   // --- viewport pick mode (click-to-place) ---
@@ -304,9 +306,18 @@ interface AppState {
    *  segments). Polled every 2.5s while status === "running". */
   agentTrace: AgentTrace | null;
 
+  /** Destination of the last successful RFData export (null = none this
+   *  session / project). Surfaced durably as a dismissible row so the path
+   *  survives the transient notice; reset on openProject. */
+  lastRfdataExport: { export_dir: string; files: string[] } | null;
+
   busy: string | null;
   error: string | null;
   notice: string | null;
+  /** Opens the Toolbar's import-scene popover from elsewhere (e.g. the
+   *  empty-state "Import a scene" CTA). The Toolbar mirrors it into its local
+   *  popover open-state and resets it back to false when the popover closes. */
+  importOpen: boolean;
 
   init: () => Promise<void>;
   openProject: (projectId: string) => Promise<void>;
@@ -315,6 +326,8 @@ interface AppState {
   deleteCurrentProject: () => Promise<void>;
   refetchScene: () => Promise<void>;
   setMode: (mode: Mode) => void;
+  /** Toggle the toolbar import-scene popover (see `importOpen`). */
+  setImportOpen: (open: boolean) => void;
   selectPrim: (primId: string, additive?: boolean) => void;
   selectDevice: (deviceId: string) => void;
   clearSelection: () => void;
@@ -328,6 +341,8 @@ interface AppState {
   showTrajectoryRays: boolean;
   runValidation: () => Promise<void>;
   compileRF: () => Promise<void>;
+  /** Clear the last RF compile result (dismiss the ValidationPanel summary). */
+  clearCompileResult: () => void;
   simulatePaths: () => Promise<void>;
   simulateRadioMap: () => Promise<void>;
   /** Mesh radio map over the current selection (uses selection as prim_ids).
@@ -341,6 +356,12 @@ interface AppState {
   removeMeshRadioMap: () => void;
   removeScenario: () => void;
   exportRfdata: () => Promise<void>;
+  /** Clear the surfaced last-RFData-export row (the ✕ on the dismissible row). */
+  dismissRfdataExport: () => void;
+  /** Delete an ML dataset (files + entry). Resolves true on success so the
+   *  caller can drop the row from its local list; false on failure (the error
+   *  is surfaced via the store's error banner). */
+  deleteDataset: (datasetId: string) => Promise<boolean>;
   runBeamforming: () => Promise<void>;
   assignMaterial: (req: AssignRequest) => Promise<void>;
   saveMaterial: (mat: RFMaterial) => Promise<void>;
@@ -640,7 +661,14 @@ export const useAppStore = create<AppState>()((set, get) => {
 
   /** Stamp a result kind as computed at the current scene epoch. */
   function stampResult(
-    kind: "paths" | "channel" | "trajectory" | "beamforming" | "mesh_radio_map",
+    kind:
+      | "paths"
+      | "channel"
+      | "trajectory"
+      | "beamforming"
+      | "mesh_radio_map"
+      | "radio_map"
+      | "scenario",
   ): void {
     set({ resultEpochs: { ...get().resultEpochs, [kind]: get().sceneEpoch } });
   }
@@ -1015,9 +1043,12 @@ export const useAppStore = create<AppState>()((set, get) => {
     agentJob: null,
     agentTrace: null,
 
+    lastRfdataExport: null,
+
     busy: null,
     error: null,
     notice: null,
+    importOpen: false,
 
     init: async () => {
       const projects = await run("Loading projects…", async () => {
@@ -1120,6 +1151,8 @@ export const useAppStore = create<AppState>()((set, get) => {
           scenarioPlaying: false,
           scenarioLoop: false,
           channelResult: null,
+          // The surfaced RFData-export path belongs to the previous project.
+          lastRfdataExport: null,
           // Live sync is opt-in and reset per project (stops any prior poll).
           liveMode: false,
           // AI model selection is per project: a model id valid for one
@@ -1267,6 +1300,8 @@ export const useAppStore = create<AppState>()((set, get) => {
       get().cancelPick();
       set({ mode, ...(hadPick ? { notice: `Pick cancelled (${hadPick.label})` } : {}) });
     },
+
+    setImportOpen: (open) => set({ importOpen: open }),
 
     // ---------------------------------------------------- viewport pick mode
 
@@ -1434,6 +1469,8 @@ export const useAppStore = create<AppState>()((set, get) => {
       });
     },
 
+    clearCompileResult: () => set({ compileResult: null }),
+
     simulatePaths: async () => {
       const pid = get().projectId;
       if (!pid) return;
@@ -1466,6 +1503,7 @@ export const useAppStore = create<AppState>()((set, get) => {
           ...resultsMode(),
           notice: `Radio map computed via ${result.backend} backend`,
         });
+        stampResult("radio_map");
         await refetchSceneInner();
       });
     },
@@ -1541,8 +1579,22 @@ export const useAppStore = create<AppState>()((set, get) => {
         const summary = await api.exportRfdata(pid, {});
         set({
           notice: `Exported ${summary.files.length} RFData files to ${summary.export_dir}`,
+          lastRfdataExport: { export_dir: summary.export_dir, files: summary.files },
         });
       });
+    },
+
+    dismissRfdataExport: () => set({ lastRfdataExport: null }),
+
+    deleteDataset: async (datasetId) => {
+      const pid = get().projectId;
+      if (!pid) return false;
+      const res = await run("Deleting dataset…", async () => {
+        const r = await api.deleteDataset(pid, datasetId);
+        set({ notice: `Deleted dataset ${datasetId}` });
+        return r;
+      });
+      return res?.deleted ?? false;
     },
 
     runBeamforming: async () => {
@@ -2295,6 +2347,7 @@ export const useAppStore = create<AppState>()((set, get) => {
           ...resultsMode(),
           notice: `Scenario: ${result.frames.length} frame(s) via ${result.backend} backend`,
         });
+        stampResult("scenario");
         await refetchSceneInner(); // a ResultSetRef (kind 'scenario') was appended
       });
     },

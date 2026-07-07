@@ -3,6 +3,7 @@ import { useAppStore } from "../store/appStore";
 import type { Mode } from "../store/appStore";
 import { api, ApiError } from "../api/client";
 import OsmAreaPicker from "./OsmAreaPicker";
+import { PANEL_REGISTRY } from "./PanelHost";
 import type { Environment } from "../types/api";
 
 const PROJECT_ID_PATTERN = /^[a-z0-9_-]+$/;
@@ -93,6 +94,8 @@ export default function Toolbar() {
           </button>
         ))}
       </nav>
+
+      <PanelsMenu />
 
       <label
         className="env-select"
@@ -289,6 +292,10 @@ function ImportSceneButton({
   onImported: (newId: string) => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
+  // A store flag lets other surfaces (the empty-state "Import a scene" CTA in
+  // App.tsx) pop this open; we mirror it into local state then reset the flag.
+  const importOpen = useAppStore((s) => s.importOpen);
+  const setImportOpen = useAppStore((s) => s.setImportOpen);
   const [source, setSource] = useState<"xml" | "osm">("xml");
   const [xml, setXml] = useState<File | null>(null);
   const [meshes, setMeshes] = useState<File[]>([]);
@@ -323,6 +330,16 @@ function ImportSceneButton({
       document.removeEventListener("keydown", onKey);
     };
   }, [open]);
+
+  // Open (or close) the popover to follow the store flag, and clear the flag
+  // once consumed so a later close doesn't immediately re-open it.
+  useEffect(() => {
+    if (importOpen && !open) {
+      setOpen(true);
+      setError(null);
+    }
+    if (importOpen) setImportOpen(false);
+  }, [importOpen, open, setImportOpen]);
 
   const reset = () => {
     setXml(null);
@@ -668,6 +685,98 @@ function ActionsMenu({ disabled, items }: { disabled: boolean; items: ActionItem
               {item.label}
             </button>
           ))}
+        </div>
+      )}
+    </span>
+  );
+}
+
+const DOCK_LABEL: Record<"left" | "right" | "float", string> = {
+  left: "left dock",
+  right: "right dock",
+  float: "floating",
+};
+
+/** "Panels ▾" dropdown: lists the dockable panel registry with each panel's
+ *  current dock state, and lets the user reach any panel from ANY mode (the
+ *  docked cards are hidden outside Results). Clicking a row floats the panel,
+ *  or — if it is already floating — raises (focuses) it. Quick left/right dock
+ *  buttons reuse the same store actions as the panel cards; no forked layout
+ *  model. */
+function PanelsMenu() {
+  const layout = useAppStore((s) => s.panelLayout);
+  const setPanelDock = useAppStore((s) => s.setPanelDock);
+  const raisePanel = useAppStore((s) => s.raisePanel);
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDocDown(e: PointerEvent): void {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
+    }
+    function onKey(e: KeyboardEvent): void {
+      if (e.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("pointerdown", onDocDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onDocDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <span className="actions-menu panels-menu" ref={wrapRef}>
+      <button
+        className={"actions-trigger" + (open ? " open" : "")}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title="Show or detach a dockable panel (works in any mode)"
+        onClick={() => setOpen((v) => !v)}
+      >
+        Panels <span className="actions-caret">▾</span>
+      </button>
+      {open && (
+        <div className="actions-dropdown panels-dropdown" role="menu">
+          {PANEL_REGISTRY.map((def) => {
+            const dock = layout[def.id]?.dock ?? "right";
+            return (
+              <div key={def.id} className="panels-row" role="menuitem">
+                <button
+                  className="panels-row-main"
+                  title={
+                    dock === "float"
+                      ? `Focus the floating "${def.title}" window`
+                      : `Detach "${def.title}" as a floating window`
+                  }
+                  onClick={() => {
+                    if (dock === "float") raisePanel(def.id);
+                    else setPanelDock(def.id, "float");
+                  }}
+                >
+                  <span className="panels-row-title">{def.title}</span>
+                  <span className="panels-row-state">{DOCK_LABEL[dock]}</span>
+                </button>
+                <span className="panels-row-docks">
+                  <button
+                    className={dock === "left" ? "active" : undefined}
+                    title="Dock to left sidebar"
+                    onClick={() => setPanelDock(def.id, "left")}
+                  >
+                    ◧
+                  </button>
+                  <button
+                    className={dock === "right" ? "active" : undefined}
+                    title="Dock to right sidebar"
+                    onClick={() => setPanelDock(def.id, "right")}
+                  >
+                    ◨
+                  </button>
+                </span>
+              </div>
+            );
+          })}
         </div>
       )}
     </span>

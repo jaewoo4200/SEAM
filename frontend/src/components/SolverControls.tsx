@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { useAppStore } from "../store/appStore";
 import type { BeamformingMode, SimulationConfig } from "../types/api";
 import { PRESETS, detectPreset } from "../configPresets";
+import { EpochStaleChip } from "./common";
 
 // ------------------------------------------------------------ primitives
 
@@ -570,15 +571,18 @@ function RadioMapSection() {
     <Section
       title="Radio map"
       actions={
-        <label className="solver-auto">
-          <input
-            type="checkbox"
-            checked={autoRadioMap}
-            disabled={disabled}
-            onChange={(e) => setAuto("radioMap", e.target.checked)}
-          />
-          Auto update
-        </label>
+        <>
+          <EpochStaleChip kind="radio_map" />
+          <label className="solver-auto">
+            <input
+              type="checkbox"
+              checked={autoRadioMap}
+              disabled={disabled}
+              onChange={(e) => setAuto("radioMap", e.target.checked)}
+            />
+            Auto update
+          </label>
+        </>
       }
     >
       <div className="panel-actions">

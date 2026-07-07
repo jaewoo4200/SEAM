@@ -360,3 +360,35 @@ def dataset_file(project_dir: Path, dataset_id: str, filename: str) -> Optional[
     if not target.is_relative_to(root) or not target.is_file():
         return None
     return target
+
+
+def _dataset_dir(project_dir: Path, dataset_id: str) -> Optional[Path]:
+    """Resolve a dataset directory, refusing path escapes (mirror dataset_file).
+
+    Returns the resolved directory only when it lives directly under the
+    datasets root and exists; ``None`` for a traversal attempt (``dataset_id``
+    containing ``..`` or an absolute path) or an unknown/absent dataset.
+    """
+    root = (project_dir / DATASETS_SUBDIR).resolve()
+    target = (root / dataset_id).resolve()
+    # A dataset is exactly one level below the root; is_relative_to alone would
+    # let a nested path through, so also pin the parent to the root.
+    if target.parent != root or not target.is_dir():
+        return None
+    return target
+
+
+def delete_dataset(project_dir: Path, dataset_id: str) -> bool:
+    """Remove a dataset directory. Returns True when removed, False if unknown.
+
+    ``dataset_id`` is validated the same way downloads are (no traversal
+    escapes); an id that does not resolve to an existing dataset directory
+    under this project yields False so the route can answer 404.
+    """
+    import shutil
+
+    target = _dataset_dir(project_dir, dataset_id)
+    if target is None:
+        return False
+    shutil.rmtree(target)
+    return True

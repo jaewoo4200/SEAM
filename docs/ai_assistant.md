@@ -41,18 +41,21 @@ no GPU, and no compatible model are required for anything else to work, and
 
 ## Configuration
 
-Environment variables (read once by `app.core.config.get_settings()`):
+Environment variables (read once by `app.core.config.get_settings()`).
+Names use the canonical `SEAM_*` prefix; the legacy `SIONNATWIN_*` name is
+still accepted for every variable (`SEAM_*` wins when both are set).
 
 | variable | default | meaning |
 |---|---|---|
-| `SIONNATWIN_AI_ENABLED` | `auto` | `auto` (use if reachable) \| `on` \| `off` |
-| `SIONNATWIN_OLLAMA_URL` | `http://localhost:11434` | Ollama endpoint |
-| `SIONNATWIN_AI_TEXT_MODEL` | `qwen3:8b` | Ollama text model |
-| `SIONNATWIN_AI_VISION_MODEL` | `qwen2.5vl:3b` | Ollama vision model used when a screenshot is attached (e.g. set to `llava` to use LLaVA) |
-| `SIONNATWIN_OPENAI_URL` | `http://localhost:1234/v1` | OpenAI-compatible endpoint (LM Studio 기본 포트) |
-| `SIONNATWIN_OPENAI_MODEL` | `google/gemma-4-31b` | model id served by the OpenAI-compatible server |
-| `SIONNATWIN_AI_TIMEOUT_S` | `60` | request timeout |
-| `SIONNATWIN_AI_AUTO_APPLY` | `false` | reserved for a future auto-apply gate; parsed into settings but **no code acts on it in the MVP** |
+| `SEAM_AI_ENABLED` | `auto` | `auto` (use if reachable) \| `on` \| `off` |
+| `SEAM_OLLAMA_URL` | `http://localhost:11434` | Ollama endpoint |
+| `SEAM_AI_TEXT_MODEL` | `qwen3:8b` | Ollama text model |
+| `SEAM_AI_VISION_MODEL` | `qwen2.5vl:3b` | Ollama vision model used when a screenshot is attached (e.g. set to `llava` to use LLaVA) |
+| `SEAM_OPENAI_URL` | `http://localhost:1234/v1` | OpenAI-compatible endpoint (LM Studio 기본 포트) |
+| `SEAM_OPENAI_MODEL` | `google/gemma-4-31b` | model id served by the OpenAI-compatible server |
+| `SEAM_AI_TIMEOUT_S` | `60` | request timeout (seconds) for text-only calls |
+| `SEAM_AI_VISION_TIMEOUT_S` | `300` | request timeout (seconds) for multimodal (image-carrying) calls — a local VLM needs model load + multi-image prefill, so it gets a higher ceiling than text |
+| `SEAM_AI_AUTO_APPLY` | `false` | reserved for a future auto-apply gate; parsed into settings but **no code acts on it in the MVP** |
 
 ## Strict JSON contract
 
