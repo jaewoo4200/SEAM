@@ -371,9 +371,19 @@ export function TrajectorySection() {
           ...rs.filter((r) => r.ue_id !== drawUe),
           { ue_id: drawUe, waypoints: pts },
         ]);
+        // Drawn routes come from viewport SURFACE picks, so the waypoints ride
+        // the terrain by construction; default follow-terrain ON so the solve
+        // drapes them (outdoor) instead of burying the path through hills. The
+        // user can still uncheck it (indoor rooms). Only auto-set until the
+        // user has manually touched the checkbox.
+        if (!followTouched.current) setFollowTerrain(true);
       },
     });
   };
+  // Tracks whether the user has manually toggled the "Follow terrain" checkbox.
+  // Provenance-driven defaults (drawn/picked route → ON, numeric entry → OFF)
+  // only apply until the user takes over; after that we never override them.
+  const followTouched = useRef(false);
   // Bounds usually arrive async right after project open; re-seed the
   // defaults once when they land unless the user already edited the fields.
   const touched = useRef(false);
@@ -404,6 +414,10 @@ export function TrajectorySection() {
         touched.current = true;
         setStart(pts[0]);
         setEnd(pts[1]);
+        // Endpoints picked off the scene surface: default follow-terrain ON so
+        // the straight line between them is draped onto the ground rather than
+        // cutting through it (until the user overrides the checkbox).
+        if (!followTouched.current) setFollowTerrain(true);
       },
     });
   };
@@ -500,6 +514,9 @@ export function TrajectorySection() {
                 const seeded = seededEndpoints();
                 setStart(seeded.start);
                 setEnd(seeded.end);
+                // Numeric/straight-line entry: default follow-terrain OFF (the
+                // endpoints are absolute coordinates, not surface picks).
+                if (!followTouched.current) setFollowTerrain(false);
               }}
             >
               Start at RX
@@ -508,10 +525,12 @@ export function TrajectorySection() {
           {vecField("Start", start, (v) => {
             touched.current = true;
             setStart(v);
+            if (!followTouched.current) setFollowTerrain(false);
           })}
           {vecField("End", end, (v) => {
             touched.current = true;
             setEnd(v);
+            if (!followTouched.current) setFollowTerrain(false);
           })}
           <p className="hint">
             X east · Y north · Z up (m). The dashed yellow line in the viewer
@@ -567,16 +586,23 @@ export function TrajectorySection() {
           </p>
         </div>
       )}
-      <label className="solver-check">
+      <label
+        className="solver-check"
+        title="Drape the path onto the scene surface + UE height (outdoor); disable for indoor rooms."
+      >
         <input
           type="checkbox"
           checked={followTerrain}
           disabled={disabled}
-          onChange={(e) => setFollowTerrain(e.target.checked)}
+          onChange={(e) => {
+            // A manual toggle takes over: provenance defaults stop overriding it.
+            followTouched.current = true;
+            setFollowTerrain(e.target.checked);
+          }}
         />
         Follow terrain
         <span className="hint" style={{ marginLeft: 6 }}>
-          snap each waypoint to the surface below +1.5 m (outdoor slopes)
+          drape each waypoint onto the surface below + UE height (outdoor slopes)
         </span>
       </label>
       <label className="solver-field">

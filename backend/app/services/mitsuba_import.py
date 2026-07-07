@@ -203,6 +203,21 @@ def import_mitsuba_scene(
     materials = _parse_materials(root)
     class_map = _class_to_library_id(library)
 
+    # Blender's render-flavored Mitsuba exports (with a <sensor> camera) keep
+    # shapes Y-up and bake NO to_world; the Sionna-converted variants add a
+    # per-shape rotate x=90. Importing the render flavor gives a sideways
+    # scene in our Z-up world - warn instead of guessing the up-axis.
+    if root.find("sensor") is not None and all(
+        s.find("transform[@name='to_world']") is None
+        for s in root.findall("shape")
+    ):
+        warnings.append(
+            "this XML looks like a render export (camera present, shapes carry "
+            "no to_world transform): geometry is likely Y-up and will appear "
+            "sideways. Prefer the Sionna-converted XML variant (per-shape "
+            "rotate x=90) for RF work."
+        )
+
     tm_scene = trimesh.Scene()
     prims: list[Prim] = []
     used_names: set[str] = set()

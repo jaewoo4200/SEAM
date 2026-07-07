@@ -1393,3 +1393,83 @@ def test_api_apply_suggestions_reject_stamps_rejected_status(client):
     walls = saved.prim_by_id(WALLS_ID)
     assert walls.rf.material_id is None
     assert walls.rf.assignment_status == "rejected"
+
+
+# ------------------------------------------- model-picker: request extras (422 fix)
+
+
+def test_api_generate_rules_accepts_provider_and_model(client, monkeypatch):
+    # Regression: the FE sends {instruction, provider}; StrictModel used to 422.
+    http, _store, _dir = client
+    monkeypatch.setattr(httpx, "get", _openai_up_get)
+    monkeypatch.setattr(
+        httpx,
+        "post",
+        lambda *a, **k: _FakeResponse(_openai_payload(json.dumps(_rules_payload()))),
+    )
+    response = http.post(
+        "/api/projects/ai_test/ai/generate-rules",
+        json={
+            "instruction": "window은 glass로",
+            "provider": "local_openai",
+            "model": None,
+        },
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["provider"] == "local_openai"
+    assert body["rules"][0]["rf_material_id"] == "itu_glass"
+
+
+def test_generate_assignment_rules_honors_model_override(library, monkeypatch):
+    # Discovery lists the requested model, so it is used in the request body and
+    # echoed back as the response model.
+    def _get(url, *a, **k):
+        if "/models" in url:
+            return _FakeResponse({"data": [{"id": "reason-xl"}]})
+        raise httpx.ConnectError("ollama down")
+
+    calls: list[dict] = []
+
+    def _post(*a, **k):
+        calls.append(k)
+        return _FakeResponse(_openai_payload(json.dumps(_rules_payload())))
+
+    monkeypatch.setattr(httpx, "get", _get)
+    monkeypatch.setattr(httpx, "post", _post)
+    rules, provider, model, warnings = generate_assignment_rules(
+        "window은 glass로", library, provider="local_openai", model="reason-xl"
+    )
+    assert provider == "local_openai"
+    assert model == "reason-xl"
+    assert calls[0]["json"]["model"] == "reason-xl"
+
+
+def test_api_apply_suggestions_records_provider_model_in_provenance(client):
+    http, _store, project_dir = client
+    response = http.post(
+        "/api/projects/ai_test/ai/apply-suggestions",
+        json={
+            "decisions": [{"prim_id": WALLS_ID, "action": "reject"}],
+            "provider": "local_openai",
+            "model": "google/gemma-4-31b",
+        },
+    )
+    assert response.status_code == 200
+    provenance = json.loads(
+        (project_dir / "provenance.json").read_text(encoding="utf-8")
+    )
+    ai_events = [e for e in provenance["events"] if e.get("type") == "ai_apply"]
+    assert ai_events[-1]["provider"] == "local_openai"
+    assert ai_events[-1]["model"] == "google/gemma-4-31b"
+
+
+def test_api_suggest_records_env_default_model_source(client):
+    # No model override -> model_source is env_default.
+    http, _store, project_dir = client
+    http.post(
+        "/api/projects/ai_test/ai/suggest-materials",
+        json={"prim_ids": [WINDOW_ID], "provider": "rule_based"},
+    )
+    suggested = [r for r in _read_log(project_dir) if r["event"] == "suggested"]
+    assert suggested[-1]["model_source"] == "env_default"

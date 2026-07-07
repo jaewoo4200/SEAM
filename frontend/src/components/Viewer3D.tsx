@@ -16,6 +16,7 @@ import { directionalPosition, renderQualityDpr } from "../viewportSettings";
 import type { RadioMapColormap } from "../viewportSettings";
 import ViewportPanel from "./ViewportPanel";
 import MeshRadioMapOverlay from "./MeshRadioMapOverlay";
+import { segmentationClassColor } from "../types/api";
 import type {
   Prim,
   RadioMapResultSet,
@@ -1101,6 +1102,109 @@ function RadioMapPlane({ radioMap }: { radioMap: RadioMapResultSet }) {
   );
 }
 
+// ----------------------------------------------------- segmentation tint
+
+/** Faces above this cap make the per-vertex color buffer (and the toNonIndexed
+ *  clone) too heavy to build interactively; the 2D overlay still conveys the
+ *  split, so the 3D tint is skipped past it. */
+const SEG_TINT_MAX_FACES = 800_000;
+
+/** Translucent per-face material tint of the SOURCE prim while a segmentation
+ *  preview is active (visual/results modes only). Builds an overlay mesh from a
+ *  NON-INDEXED clone of the source geometry with per-face vertex colors keyed by
+ *  the predicted material id, rendered slightly in front (polygonOffset) so it
+ *  reads as a wash over the real mesh without z-fighting. The shared source
+ *  geometry is never mutated. */
+function SegmentationTint() {
+  const three = useThree((s) => s.scene);
+  const segPreview = useAppStore((s) => s.segPreview);
+  const mode = useAppStore((s) => s.mode);
+  const scene = useAppStore((s) => s.scene);
+
+  // The tint only makes sense over the textured/lit mesh (visual/results); in
+  // RF/validation/AI modes the mesh is already recolored by material id.
+  const active = segPreview !== null && (mode === "visual" || mode === "results");
+
+  const built = useMemo(() => {
+    if (!active || !segPreview) return null;
+    const prim = scene?.prims.find((p) => p.id === segPreview.primId) ?? null;
+    const meshName = prim?.mesh_ref?.mesh_name;
+    if (!meshName) return null;
+    const src = three.getObjectByName(meshName) as THREE.Mesh | null;
+    if (!src || !(src as THREE.Mesh).isMesh) return null;
+
+    const faceMats = segPreview.faceMaterials;
+    if (faceMats.length === 0 || faceMats.length > SEG_TINT_MAX_FACES) return null;
+
+    // Non-indexed geometry so each triangle owns 3 unique vertices we can color
+    // independently. toNonIndexed() returns a FRESH geometry for indexed input
+    // (never mutating the shared source); for already-non-indexed input it
+    // returns `this`, so clone() there to keep the source pristine.
+    const srcGeom = src.geometry as THREE.BufferGeometry;
+    const geom = srcGeom.index ? srcGeom.toNonIndexed() : srcGeom.clone();
+    const pos = geom.getAttribute("position");
+    const triCount = Math.floor(pos.count / 3);
+    const colors = new Float32Array(pos.count * 3);
+    const col = new THREE.Color();
+    for (let f = 0; f < triCount; f++) {
+      // faceMaterials is in mesh face order; guard shorter arrays defensively.
+      col.set(segmentationClassColor(faceMats[f] ?? 0));
+      const base = f * 9;
+      for (let v = 0; v < 3; v++) {
+        colors[base + v * 3] = col.r;
+        colors[base + v * 3 + 1] = col.g;
+        colors[base + v * 3 + 2] = col.b;
+      }
+    }
+    geom.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+
+    const material = new THREE.MeshBasicMaterial({
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.75,
+      side: THREE.DoubleSide,
+      // Nudge the wash toward the camera so it wins the depth test over the
+      // coincident source faces without a visible gap.
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1,
+      depthWrite: false,
+    });
+
+    // Match the source mesh's world transform exactly (it may be nested under
+    // transformed parents), then freeze the matrix.
+    src.updateWorldMatrix(true, false);
+    const matrix = src.matrixWorld.clone();
+    return { geom, material, matrix };
+  }, [active, segPreview, scene, three]);
+
+  useEffect(() => {
+    return () => {
+      if (built) {
+        built.geom.dispose();
+        built.material.dispose();
+      }
+    };
+  }, [built]);
+
+  if (!built) return null;
+  return (
+    <mesh
+      ref={(self) => {
+        if (!self) return;
+        // The overlay mesh is a direct child of the r3f scene root (parent is
+        // effectively identity), so the source's world matrix IS this mesh's
+        // local matrix. Decompose it so three keeps it in sync each frame.
+        built.matrix.decompose(self.position, self.quaternion, self.scale);
+      }}
+      geometry={built.geom}
+      material={built.material}
+      renderOrder={997}
+      userData={{ __noFit: true }}
+    />
+  );
+}
+
 // -------------------------------------------------------- textured overlay
 
 /** Non-pickable textured backdrop loaded from scene.assets.visual_overlay_uri.
@@ -1815,16 +1919,87 @@ function PickController() {
   );
 }
 
+/** How many interpolated samples to insert along each preview segment when
+ *  draping onto the surface. ~16 keeps the polyline hugging bumpy terrain
+ *  without the raycast count getting silly for a long multi-waypoint route. */
+const TRAJ_PREVIEW_SUBDIV = 16;
+
 /** Dashed preview of a planned (not yet simulated) trajectory segment,
- *  published by TrajectorySection while it is mounted. */
+ *  published by TrajectorySection while it is mounted.
+ *
+ *  When "Follow terrain" is on, the backend drapes the path onto the scene
+ *  surface + UE height; this reproduces that cosmetically so the dashed preview
+ *  matches the eventual solve instead of a straight line cutting through hills.
+ *  Purely preview-only: it raycasts the visible scene meshes (the same
+ *  overlay-excluding set PickController uses) straight DOWN under each densified
+ *  point and lifts to surface + the waypoints' height offset, falling back to
+ *  the straight-line z where nothing is below. */
 function TrajPreviewLine() {
   const seg = useAppStore((s) => s.trajPreview);
   const picking = useAppStore((s) => s.pick !== null);
-  if (!seg || picking) return null;
+  const three = useThree((s) => s.scene);
+
+  // Recompute only when the waypoints change (NOT per-frame): a raycast per
+  // densified sample is cheap once but must not run every render.
+  const drape = useMemo<Vec3[] | null>(() => {
+    if (!seg || seg.length < 2) return seg ?? null;
+
+    // Overlays (pick dots, radio-map planes, grid, trajectory markers…) are
+    // tagged __noFit; the drape must only see real scene geometry (identical
+    // rule to PickController.isOverlay).
+    const isOverlay = (obj: THREE.Object3D): boolean => {
+      for (let cur: THREE.Object3D | null = obj; cur; cur = cur.parent) {
+        if (cur.userData.__noFit) return true;
+      }
+      return false;
+    };
+
+    // The path's height above the surface: the committed waypoints already sit
+    // at surface + UE height, so recover the offset from the first waypoint's
+    // clearance over the ground beneath it (clamped >= 0). A uniform offset
+    // matches the backend's "drape onto surface + fixed height" behavior.
+    const ray = new THREE.Raycaster();
+    ray.firstHitOnly = true;
+    const surfaceZ = (x: number, y: number, fromZ: number): number | null => {
+      // Cast straight down (-Z) from safely above the point.
+      ray.set(new THREE.Vector3(x, y, fromZ + 1000), new THREE.Vector3(0, 0, -1));
+      const hits = ray
+        .intersectObjects(three.children, true)
+        .filter(
+          (h) => (h.object as THREE.Mesh).isMesh && h.object.visible && !isOverlay(h.object),
+        );
+      return hits[0] ? hits[0].point.z : null;
+    };
+
+    const s0 = surfaceZ(seg[0][0], seg[0][1], seg[0][2]);
+    const offset = s0 === null ? 0 : Math.max(0, seg[0][2] - s0);
+
+    const out: Vec3[] = [];
+    for (let i = 0; i < seg.length - 1; i++) {
+      const a = seg[i];
+      const b = seg[i + 1];
+      // Include the segment start once; interpolate through to (and including)
+      // the segment end so adjacent segments share their joint sample.
+      const steps = TRAJ_PREVIEW_SUBDIV;
+      for (let k = i === 0 ? 0 : 1; k <= steps; k++) {
+        const t = k / steps;
+        const x = a[0] + (b[0] - a[0]) * t;
+        const y = a[1] + (b[1] - a[1]) * t;
+        const straightZ = a[2] + (b[2] - a[2]) * t;
+        const sz = surfaceZ(x, y, straightZ);
+        // Surface hit → surface + offset; miss → keep the straight-line z.
+        out.push([x, y, sz === null ? straightZ : sz + offset]);
+      }
+    }
+    return out;
+  }, [seg, three]);
+
+  if (!drape || picking) return null;
   return (
     <group userData={{ __noFit: true }}>
-      <Line points={[seg[0], seg[1]]} color={PICK_COLOR} lineWidth={2} dashed dashSize={0.6} gapSize={0.4} />
-      {seg.map((p, i) => (
+      <Line points={drape} color={PICK_COLOR} lineWidth={2} dashed dashSize={0.6} gapSize={0.4} />
+      {/* Markers only at the ORIGINAL waypoints (not the interpolated samples). */}
+      {(seg ?? []).map((p, i) => (
         <mesh key={i} position={p} renderOrder={998}>
           <sphereGeometry args={[0.35, 16, 10]} />
           <meshBasicMaterial color={PICK_COLOR} transparent opacity={0.7} depthTest={false} />
@@ -1903,7 +2078,23 @@ export default function Viewer3D() {
   };
 
   const uri = scene?.assets.visual_scene_uri ?? null;
-  const url = projectId && uri ? api.assetUrl(projectId, uri) : null;
+  // Cache-busting: a material split rewrites visual/scene.glb in place (same
+  // URI), so a bare URL would keep serving useGLTF's stale cache. glbEpoch is
+  // bumped by the segmentation apply/undo flows; appending it as ?v= makes the
+  // loader treat the rewritten GLB as a fresh URL. Evicting the prior epoch's
+  // entry below keeps the cache from growing unbounded across splits.
+  const glbEpoch = useAppStore((s) => s.glbEpoch);
+  const baseUrl = projectId && uri ? api.assetUrl(projectId, uri) : null;
+  const url = baseUrl ? (glbEpoch > 0 ? `${baseUrl}?v=${glbEpoch}` : baseUrl) : null;
+  const prevGlbUrl = useRef<string | null>(null);
+  useEffect(() => {
+    // Drop the previous epoch's cache entry once the new URL is in play, so the
+    // rewritten mesh is re-fetched and old buffers are released.
+    if (prevGlbUrl.current && prevGlbUrl.current !== url) {
+      useGLTF.clear(prevGlbUrl.current);
+    }
+    prevGlbUrl.current = url;
+  }, [url]);
   const overlayUri = scene?.assets.visual_overlay_uri ?? null;
   const overlayUrl =
     projectId && overlayUri && viewport.showOverlay
@@ -2054,6 +2245,9 @@ export default function Viewer3D() {
             <FallbackPrims />
           )}
         </Suspense>
+        {/* Per-face material tint of the source prim while a segmentation
+            preview is active (visual/results only; gated internally). */}
+        <SegmentationTint />
         {scenarioActive ? (
           <ScenarioOverlay showPaths={showPaths} />
         ) : (

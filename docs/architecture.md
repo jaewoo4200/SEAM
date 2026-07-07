@@ -254,6 +254,31 @@ falls back to the GLB baseColor, and every crop a multimodal provider actually
 saw is persisted under `ai/evidence/<batch>/` and referenced from the suggest
 response (`evidence_images`) and `ai/suggestions.jsonl` for reproducibility.
 
+### Material segmentation (multi-material buildings)
+
+Real buildings mix glass/concrete/metal; `app/services/material_segmentation.py`
+ports the FTC SAM2/DINOv2 study's split scaffold: texture atlas + UV mesh ->
+material mask -> per-face assignment (mask sampled at each face's UV centroid,
+`y=(1-v)*(H-1)`) -> PHYSICAL split into per-material named sub-meshes baked
+into `visual/scene.glb`, one prim per region (`rule_suggested`, sources
+`segmentation:<batch>`). Mask sources are tiered: instant color heuristic, an
+async local-VLM tile vote (LM Studio, tiles capped/downsampled), or an
+uploaded id-mask PNG (external SAM2-grade pipelines; size/id validated).
+Endpoints under `/projects/{id}/segmentation/*` (preview / upload-mask / jobs
+/ apply / undo); apply backs up the prior GLB
+(`visual/scene.pre-split-<batch>.glb`) and undo restores it, both recorded in
+provenance. Pre-split bundles (per-material meshes + own bsdfs, like the FTC
+materialsplit scene) import through the normal zip path as N prims with no
+extra work.
+
+The AI suggest path also gained a user-facing model picker: model discovery
+via `GET /projects/{id}/ai/models` (LM Studio `/v1/models`, Ollama
+`/api/tags`), per-request `model` override with an unknown-model guardrail,
+and `model_source` provenance in `ai/suggestions.jsonl`. Trajectory drape
+(`follow_terrain`) now fills interior footprint holes by interpolating the
+surface z between draped neighbors (`drape_fill_gaps`, default on), and the
+FE enables draping by default for routes drawn via surface picks.
+
 ### OpenStreetMap import
 
 `POST /projects/import-osm {name, lat, lon, width_m, height_m, ...}` builds a

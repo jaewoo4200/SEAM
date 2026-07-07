@@ -163,3 +163,6 @@ class TrajectorySimulateRequest(StrictModel):
     # sloped terrain; indoor scenes should leave this off.
     follow_terrain: bool = False
     follow_height_m: float = Field(default=1.5, gt=0.0)
+    # Interior footprint holes get their surface z interpolated between the
+    # nearest draped neighbors (False keeps the raw chord z across a hole).
+    drape_fill_gaps: bool = True

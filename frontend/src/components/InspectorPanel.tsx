@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useAppStore } from "../store/appStore";
+import SegmentationPanel from "./SegmentationPanel";
 import {
   MaterialSelect,
   Row,
@@ -744,6 +745,10 @@ function PrimCard({ prim }: { prim: Prim }) {
             : "Saved to the scene as user_confirmed."}
         </p>
       </div>
+
+      {/* Multi-material split: only for prims backed by a texture atlas (the
+          mask sources classify texels / render tiles from that texture). */}
+      {prim.visual?.base_color_texture && <SegmentationPanel prim={prim} />}
 
       {primIssues.length > 0 && (
         <div className="insp-issues">

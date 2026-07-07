@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAppStore } from "../store/appStore";
 import { api } from "../api/client";
 import { MaterialSelect, Swatch, materialById } from "./common";
 import { LineChart } from "../charts";
 import type {
   DisambiguationReport,
+  GenerateRulesRequest,
   MaterialImpactReport,
   MaterialSuggestion,
   MaterialSuggestionResponse,
@@ -663,6 +664,7 @@ function RuleRow({
 function RuleGenerationSection() {
   const projectId = useAppStore((s) => s.projectId);
   const aiProvider = useAppStore((s) => s.aiProvider);
+  const aiModel = useAppStore((s) => s.aiModel);
 
   const [instruction, setInstruction] = useState("");
   const [rules, setRules] = useState<AssignmentRule[] | null>(null);
@@ -677,9 +679,15 @@ function RuleGenerationSection() {
     setGenBusy(true);
     setError(null);
     try {
+      const body: GenerateRulesRequest = {
+        instruction: instruction.trim(),
+        provider: aiProvider,
+        // null = the provider default model (same convention as suggest).
+        model: aiModel,
+      };
       const resp = await postJson<GenerateRulesResponse>(
         `/projects/${projectId}/ai/generate-rules`,
-        { instruction: instruction.trim(), provider: aiProvider },
+        body,
       );
       setRules(resp.rules);
       setMeta({ provider: resp.provider, model: resp.model });
@@ -814,6 +822,74 @@ function errMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+// ---------------------------------------------------------------- model picker
+//
+// Sits under the provider radios. It lets the user pin a specific model for the
+// currently selected provider; "" = the provider default. Only rendered for a
+// concrete, non-rule-based provider (rule_based / "auto" have nothing to pick).
+
+function ModelPicker() {
+  const aiProvider = useAppStore((s) => s.aiProvider);
+  const aiModel = useAppStore((s) => s.aiModel);
+  const setAiModel = useAppStore((s) => s.setAiModel);
+  const aiModels = useAppStore((s) => s.aiModels);
+  const aiModelsLoading = useAppStore((s) => s.aiModelsLoading);
+  const projectId = useAppStore((s) => s.projectId);
+  const loadAiModels = useAppStore((s) => s.loadAiModels);
+
+  // (Re)load the model list on mount and whenever the provider changes: the
+  // available set (and the stale-selection reset) depends on the provider.
+  useEffect(() => {
+    if (projectId) void loadAiModels(projectId);
+  }, [projectId, aiProvider, loadAiModels]);
+
+  // "auto" (null) and the rule-based provider have no model to choose.
+  if (aiProvider === null || aiProvider === "rule_based") return null;
+
+  const pm = aiModels.find((p) => p.provider === aiProvider) ?? null;
+  const models = pm?.models ?? [];
+  // Disabled when: loading, the provider is unreachable, or it lists no models.
+  const empty = !aiModelsLoading && (pm === null || !pm.available || models.length === 0);
+  const disabled = aiModelsLoading || empty;
+  // The forced model no longer exists in the refreshed list (loadAiModels also
+  // resets aiModel to null in the store; this note explains the reset to the
+  // user for the window before/if it lingers).
+  const stale = aiModel !== null && !models.some((m) => m.id === aiModel);
+  const defaultLabel = pm?.default_model
+    ? `(provider default: ${pm.default_model})`
+    : "(provider default)";
+
+  return (
+    <label className="ai-model-row" title="Pick a specific model for the selected provider">
+      <span className="ai-model-label">Model</span>
+      <select
+        className="ai-model-select"
+        value={aiModel ?? ""}
+        disabled={disabled}
+        title={
+          empty
+            ? "start LM Studio / Ollama to pick a model"
+            : "Pick a specific model for the selected provider"
+        }
+        onChange={(e) => setAiModel(e.target.value === "" ? null : e.target.value)}
+      >
+        <option value="">{aiModelsLoading ? "Loading models…" : defaultLabel}</option>
+        {models.map((m) => (
+          <option key={m.id} value={m.id}>
+            {m.label}
+            {m.is_default ? " · default" : ""}
+          </option>
+        ))}
+      </select>
+      {stale && (
+        <span className="hint ai-model-stale">
+          Previous model is no longer available — reset to the provider default.
+        </span>
+      )}
+    </label>
+  );
+}
+
 export default function AISuggestionPanel() {
   const health = useAppStore((s) => s.health);
   const aiStatuses = useAppStore((s) => s.aiStatuses);
@@ -874,6 +950,9 @@ export default function AISuggestionPanel() {
           {p.detail && <span title={p.detail}>· {p.detail}</span>}
         </label>
       ))}
+
+      {/* Model picker for the selected provider (hidden for auto / rule_based). */}
+      <ModelPicker />
 
       {/* The vision opt-in lives HERE, next to the button that uses it (it
           also exists in Simulation > LIVE & AI; same store flag). */}

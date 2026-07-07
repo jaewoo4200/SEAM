@@ -25,6 +25,7 @@ from app.api import (
     render,
     scenario,
     scene,
+    segmentation,
     simulate,
 )
 from app.core.config import APP_VERSION
@@ -52,7 +53,7 @@ def create_app() -> FastAPI:
     for module in (
         health, projects, import_scene, import_osm, scene, materials, ai,
         compile_api, simulate, export, calibrate, channel, scenario, engines,
-        datasets, render, import_results,
+        datasets, render, import_results, segmentation,
     ):
         app.include_router(module.router, prefix="/api")
     # WebSocket event stream is mounted WITHOUT the /api prefix so the path is

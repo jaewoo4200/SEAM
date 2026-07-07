@@ -50,12 +50,18 @@ def snap_to_terrain(
     points: list[list[float]],
     height_m: float,
     warnings: Optional[list[str]] = None,
+    fill_gaps: bool = True,
 ) -> list[list[float]]:
     """Return points with z = (highest surface under each XY) + height_m.
 
-    Points with no surface underneath keep their original z (and one summary
-    warning is appended). Rays start above the mesh top so roofs/terrain are
-    hit from outside the geometry.
+    ``fill_gaps``: an interior run of points with no surface underneath (a
+    hole in the mesh footprint between two draped neighbors) gets its surface
+    z linearly interpolated from those neighbors instead of keeping the raw
+    chord z — a raw chord there re-introduces exactly the burial/step this
+    drape exists to remove, and puts a fake Doppler spike at each boundary.
+    Points outside the footprint at either END still keep their original z
+    (and one summary warning is appended). Rays start above the mesh top so
+    roofs/terrain are hit from outside the geometry.
     """
     import numpy as np
 
@@ -95,6 +101,18 @@ def snap_to_terrain(
         # the highest upward face there).
         if i not in best_z or z > best_z[i]:
             best_z[i] = z
+
+    # Interior footprint holes: interpolate the surface z between the nearest
+    # draped neighbors so the path stays continuous across small mesh gaps.
+    if fill_gaps and best_z and len(best_z) < len(points):
+        hit_idx = sorted(best_z)
+        for i in range(len(points)):
+            if i in best_z or i < hit_idx[0] or i > hit_idx[-1]:
+                continue
+            lo = max(j for j in hit_idx if j < i)
+            hi = min(j for j in hit_idx if j > i)
+            t = (i - lo) / (hi - lo)
+            best_z[i] = best_z[lo] * (1.0 - t) + best_z[hi] * t
 
     missed = 0
     out: list[list[float]] = []

@@ -59,6 +59,9 @@ class SuggestMaterialsRequest(StrictModel):
     prim_ids: Optional[list[str]] = None
     # Force a specific provider ("rule_based", "ollama_text"); None = best available.
     provider: Optional[str] = None
+    # Force a specific model on the selected provider; None = the provider's
+    # settings default. Ignored by providers without a model (rule_based).
+    model: Optional[str] = None
     # Optional viewport capture (data:image/jpeg;base64,...) passed to
     # vision-capable providers as visual evidence. Never RF truth.
     screenshot_data_url: Optional[str] = None
@@ -94,6 +97,36 @@ class AIProviderStatus(StrictModel):
     available: bool
     model: Optional[str] = None
     detail: str = ""
+    # Model ids discovered on the provider's server (empty when unreachable or
+    # the provider has no discoverable model list).
+    available_models: list[str] = Field(default_factory=list)
+
+
+class AIModelInfo(StrictModel):
+    """One selectable model on a provider's server."""
+
+    id: str
+    label: str
+    is_default: bool
+
+
+class ProviderModels(StrictModel):
+    """The models a single provider offers for the model picker.
+
+    ``available`` mirrors the provider probe state; ``models`` is discovered
+    from the server (empty when unreachable). ``default_model`` is the settings
+    default the provider falls back to when no explicit model is requested.
+    """
+
+    provider: str
+    available: bool
+    models: list[AIModelInfo] = Field(default_factory=list)
+    default_model: Optional[str] = None
+    detail: str = ""
+
+
+class AIModelsResponse(StrictModel):
+    providers: list[ProviderModels]
 
 
 class AssignmentRule(StrictModel):
@@ -114,6 +147,11 @@ class AssignmentRule(StrictModel):
 
 class RuleGenerationRequest(StrictModel):
     instruction: str = Field(min_length=1)
+    # Force a specific text-LLM provider ("local_openai", "ollama_text");
+    # None = best available. The FE already sends this.
+    provider: Optional[str] = None
+    # Force a specific model on the selected provider; None = settings default.
+    model: Optional[str] = None
 
 
 class RuleGenerationResponse(StrictModel):

@@ -1067,6 +1067,31 @@ h4 {
   cursor: not-allowed;
 }
 
+/* Model picker under the provider radios (feature: AI model picker). */
+.ai-model-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 4px 0 2px;
+  color: var(--muted);
+}
+.ai-model-row .ai-model-label {
+  color: var(--text);
+}
+.ai-model-select {
+  flex: 1 1 160px;
+  min-width: 140px;
+}
+.ai-model-select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.ai-model-row .ai-model-stale {
+  flex-basis: 100%;
+  color: var(--amber);
+}
+
 .ai-note {
   background: rgba(255, 183, 77, 0.12);
   border: 1px solid var(--amber);
@@ -2519,4 +2544,125 @@ button.picking {
 .traj-ue-name {
   font-size: 11px;
   min-width: 52px;
+}
+
+/* Material segmentation (multi-material building split) — on the prim card */
+.seg-section {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+.seg-expander {
+  width: 100%;
+  text-align: left;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+}
+.seg-expander.open {
+  border-color: var(--accent-dim);
+  color: var(--accent);
+}
+.seg-body {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.seg-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.seg-radio {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.seg-src-hint {
+  margin: 0;
+}
+.seg-vlm {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.seg-upload {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.seg-upload input[type="file"] {
+  font-size: 12px;
+}
+.seg-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.seg-progress-label {
+  font-size: 12px;
+  color: var(--muted);
+}
+.seg-progress-bar {
+  height: 6px;
+  background: var(--panel-3);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.seg-progress-bar > div {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.25s ease;
+}
+.seg-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.seg-overlay-img {
+  display: block;
+  max-width: 100%;
+  max-height: 200px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: zoom-in;
+}
+.seg-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.seg-table th,
+.seg-table td {
+  text-align: left;
+  padding: 3px 6px;
+  border-bottom: 1px solid var(--border);
+}
+.seg-table th {
+  color: var(--muted);
+  font-weight: 500;
+}
+.seg-table td:nth-child(4),
+.seg-table td:nth-child(5),
+.seg-table th:nth-child(4),
+.seg-table th:nth-child(5) {
+  text-align: right;
+}
+.seg-applied {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.seg-applied-note {
+  font-size: 12px;
+  color: var(--ok);
+}
+.seg-applied-prim {
+  margin-left: 4px;
+  color: var(--text);
 }

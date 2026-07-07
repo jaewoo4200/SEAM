@@ -25,12 +25,16 @@ import type {
   PathResultSet,
   PathType,
   ProjectInfo,
+  ProviderModels,
   RadioMapResultSet,
   RFMaterial,
   RFMaterialLibrary,
   ScenarioResultSet,
   Scene,
   SceneBounds,
+  SegmentationPreviewRequest,
+  SegmentationPreviewResponse,
+  SegmentationRegion,
   SimulationConfig,
   SuggestionDecision,
   TrajectoryResultSet,
@@ -92,6 +96,40 @@ export interface PickRequest {
 
 /** Compute-targets that support debounced auto-update on scene changes. */
 type AutoTarget = "paths" | "radioMap" | "beamforming" | "channel";
+
+/** Active material-segmentation preview (a reviewable split of one prim's mesh
+ *  before it is physically baked into the visual GLB). Cleared on apply/undo,
+ *  project switch, or Cancel. */
+export interface SegPreview {
+  /** Source prim being split (its mesh_ref.mesh_name is tinted in 3D). */
+  primId: string;
+  batchId: string;
+  /** Mask ref to pass to apply (material_mask_ids.png under the batch dir). */
+  maskRef: string;
+  /** Project-relative path to the 2D overlay preview image (assetUrl-servable). */
+  overlayAssetPath: string;
+  manifest: SegmentationRegion[];
+  /** Per-face material id in mesh face order (drives the 3D region tint). */
+  faceMaterials: number[];
+  /** flip_v used for this preview; forwarded verbatim to apply so the baked
+   *  split matches what the overlay/tint showed. */
+  flipV: boolean;
+}
+
+/** Progress of a running VLM tile-vote segmentation job (N/M tiles). */
+export interface SegJobProgress {
+  progress: number;
+  total: number;
+  detail: string;
+}
+
+/** Result of the last applied split, kept so the "Undo split" button survives
+ *  panel re-renders (segPreview is cleared on apply). */
+export interface LastSegApply {
+  batchId: string;
+  primId: string;
+  addedPrimIds: string[];
+}
 
 /** How the 3D viewer colors ray path polylines. */
 export type ColorBy = "type" | "power" | "depth";
@@ -232,6 +270,28 @@ interface AppState {
   sendTextureCrops: boolean;
   // Forced AI provider for suggestions; null = server picks the best available.
   aiProvider: string | null;
+  // Forced model within the chosen provider; null = the provider default.
+  aiModel: string | null;
+  // Per-provider selectable models (GET /ai/models); drives the model picker.
+  aiModels: ProviderModels[];
+  // True while loadAiModels is in flight (the picker shows "Loading models…").
+  aiModelsLoading: boolean;
+
+  // --- material segmentation (multi-material building split) ---
+  /** Active preview (null = none). Drives the 2D overlay, the material table,
+   *  and the 3D region tint in Viewer3D. */
+  segPreview: SegPreview | null;
+  /** VLM tile-vote job progress while a preview is being computed (else null). */
+  segJobProgress: SegJobProgress | null;
+  /** Last applied split, so "Undo split" survives the panel re-render that
+   *  clearing segPreview triggers. Cleared on undo / project switch. */
+  lastSegApply: LastSegApply | null;
+  /** Cache-busting epoch for the visual GLB URL. useGLTF caches by URL and the
+   *  split is baked into the SAME file (visual/scene.glb), so apply/undo bump
+   *  this to force a reload; the viewer appends it as ?v= and evicts the old
+   *  entry. Bumped only by GLB-mutating flows (NOT every scene edit) so device
+   *  drags don't reload a multi-hundred-MB mesh. */
+  glbEpoch: number;
 
   busy: string | null;
   error: string | null;
@@ -279,6 +339,19 @@ interface AppState {
   setSuggestions: (resp: MaterialSuggestionResponse | null) => void;
   setDecision: (primId: string, decision: SuggestionDecision | null) => void;
   applyDecisions: () => Promise<void>;
+
+  // material segmentation
+  /** Compute a segmentation preview for `req.prim_id`. Handles both the inline
+   *  (color_heuristic / user_png) and the polled-job (vlm_tile_vote) flows,
+   *  landing the result in segPreview. Polls every 3s while a VLM job runs. */
+  runSegmentationPreview: (req: SegmentationPreviewRequest) => Promise<void>;
+  /** Physically bake the current preview's split into the visual GLB, refresh
+   *  the scene + GLB, remember the batch for undo, and clear segPreview. */
+  applySegmentation: () => Promise<void>;
+  /** Reverse an applied split (restores the source prim + GLB backup). */
+  undoSegmentation: (batchId: string) => Promise<void>;
+  /** Drop the active preview (Cancel); the 3D tint + overlay clear. */
+  clearSegPreview: () => void;
 
   // viewport pick mode
   requestPick: (req: Omit<PickRequest, "id">) => number;
@@ -391,6 +464,10 @@ interface AppState {
   setSendScreenshot: (on: boolean) => void;
   setSendTextureCrops: (on: boolean) => void;
   setAiProvider: (name: string | null) => void;
+  /** Force a specific model within the chosen provider (null = provider default). */
+  setAiModel: (id: string | null) => void;
+  /** Fetch GET /ai/models into aiModels (best-effort; leaves [] on failure). */
+  loadAiModels: (projectId: string) => Promise<void>;
   /** Viewer3D registers a canvas snapshot fn here; store calls it on demand. */
   registerViewportCapture: (fn: (() => string | null) | null) => void;
   captureViewport: () => string | null;
@@ -867,6 +944,14 @@ export const useAppStore = create<AppState>()((set, get) => {
     sendScreenshot: false,
     sendTextureCrops: false,
     aiProvider: null,
+    aiModel: null,
+    aiModels: [],
+    aiModelsLoading: false,
+
+    segPreview: null,
+    segJobProgress: null,
+    lastSegApply: null,
+    glbEpoch: 0,
 
     busy: null,
     error: null,
@@ -967,6 +1052,17 @@ export const useAppStore = create<AppState>()((set, get) => {
           channelResult: null,
           // Live sync is opt-in and reset per project (stops any prior poll).
           liveMode: false,
+          // AI model selection is per project: a model id valid for one
+          // project's providers may not exist for the next, so reset to the
+          // provider default and refetch the model list below.
+          aiModel: null,
+          aiModels: [],
+          // Segmentation preview/undo state is per-project (a batch id and its
+          // face mask belong to one project's mesh).
+          segPreview: null,
+          segJobProgress: null,
+          lastSegApply: null,
+          glbEpoch: 0,
           // Fresh epoch per project; persisted results are epoch-0 (fresh).
           sceneEpoch: 0,
           resultEpochs: {},
@@ -1444,11 +1540,38 @@ export const useAppStore = create<AppState>()((set, get) => {
     },
 
     setAiProvider: (name) => set({ aiProvider: name }),
+    setAiModel: (id) => set({ aiModel: id }),
+
+    loadAiModels: async (projectId) => {
+      set({ aiModelsLoading: true });
+      try {
+        const resp = await api.aiModels(projectId);
+        // A project switch can race the fetch: only write models that belong to
+        // the project still open (mirrors the guards elsewhere in openProject).
+        if (get().projectId !== projectId) return;
+        const providers = resp.providers ?? [];
+        set({ aiModels: providers });
+        // Stale-selection guard: if the forced model is no longer offered by the
+        // selected provider's refreshed list, drop back to the provider default.
+        const { aiProvider, aiModel } = get();
+        if (aiModel !== null) {
+          const pm = providers.find((p) => p.provider === aiProvider);
+          const known = pm?.models.some((m) => m.id === aiModel) ?? false;
+          if (!known) set({ aiModel: null });
+        }
+      } catch {
+        // Endpoint missing / provider probe failed: leave the picker empty
+        // (the panel disables the select and the request uses the default).
+        if (get().projectId === projectId) set({ aiModels: [] });
+      } finally {
+        if (get().projectId === projectId) set({ aiModelsLoading: false });
+      }
+    },
 
     suggestMaterials: async () => {
       const pid = get().projectId;
       if (!pid) return;
-      const { selection, sendScreenshot, sendTextureCrops, aiProvider } = get();
+      const { selection, sendScreenshot, sendTextureCrops, aiProvider, aiModel } = get();
       // VLM: when the user opts in, capture 4 azimuth views around the scene
       // (paper roadmap #3) so the provider sees the geometry from every side.
       // Falls back to a single current-view capture when multi-view is
@@ -1462,6 +1585,8 @@ export const useAppStore = create<AppState>()((set, get) => {
           prim_ids: selection.length > 0 ? selection : null,
           // null = server picks the best available provider.
           provider: aiProvider,
+          // null = the provider's default model.
+          model: aiModel,
           screenshot_data_url: single,
           screenshot_data_urls: shots.length > 0 ? shots : null,
           attach_texture_crops: sendTextureCrops,
@@ -1504,6 +1629,128 @@ export const useAppStore = create<AppState>()((set, get) => {
       });
       afterSceneEdit();
     },
+
+    // ---------------------------------------------------- material segmentation
+
+    runSegmentationPreview: async (req) => {
+      const pid = get().projectId;
+      if (!pid) return;
+      const flipV = req.flip_v ?? true;
+      // A new preview supersedes any previous one; clear job progress too.
+      set({ segPreview: null, segJobProgress: null });
+      try {
+      await run("Computing material segmentation…", async () => {
+        const resp = await api.previewSegmentation(pid, req);
+        // color_heuristic / user_png answer inline; vlm_tile_vote returns a job.
+        let result: SegmentationPreviewResponse;
+        if ("job_id" in resp) {
+          const jobId = resp.job_id;
+          // Poll every 3s until the job finishes. A project switch mid-poll
+          // abandons the loop (its result belongs to the old project).
+          for (;;) {
+            await new Promise((r) => setTimeout(r, 3000));
+            if (get().projectId !== pid) return;
+            const status = await api.segmentationJob(pid, jobId);
+            set({
+              segJobProgress: {
+                progress: status.progress,
+                total: status.total,
+                detail: status.detail,
+              },
+            });
+            if (status.status === "error") {
+              throw new Error(status.detail || "segmentation job failed");
+            }
+            if (status.status === "done") {
+              if (!status.result) throw new Error("segmentation job returned no result");
+              result = status.result;
+              break;
+            }
+          }
+        } else {
+          result = resp;
+        }
+        // A late-landing preview must not overwrite a newer project's state.
+        if (get().projectId !== pid) return;
+        set({
+          segJobProgress: null,
+          segPreview: {
+            primId: req.prim_id,
+            batchId: result.batch_id,
+            maskRef: result.mask_ref,
+            overlayAssetPath: result.overlay_asset_path,
+            manifest: result.manifest,
+            faceMaterials: result.face_materials,
+            flipV,
+          },
+          notice:
+            `Segmentation preview: ${result.manifest.length} material(s), ` +
+            `${result.total_faces} face(s) — review, then Apply split`,
+        });
+      });
+      } finally {
+        // Never leave a stale progress bar after a failed/abandoned job.
+        if (get().segJobProgress !== null) set({ segJobProgress: null });
+      }
+    },
+
+    applySegmentation: async () => {
+      const pid = get().projectId;
+      const preview = get().segPreview;
+      if (!pid || !preview) return;
+      await run("Applying material split…", async () => {
+        const resp = await api.applySegmentation(pid, {
+          prim_id: preview.primId,
+          mask_ref: preview.maskRef,
+          flip_v: preview.flipV,
+        });
+        // The split is baked into the same visual GLB on disk; refresh the
+        // scene (new sub-prims replaced the source) and bump glbEpoch so the
+        // viewer reloads the mesh past useGLTF's URL cache.
+        await refetchSceneInner();
+        set({
+          segPreview: null,
+          segJobProgress: null,
+          lastSegApply: {
+            batchId: resp.batch_id,
+            primId: preview.primId,
+            addedPrimIds: resp.added_prim_ids,
+          },
+          glbEpoch: get().glbEpoch + 1,
+          // The source prim was removed and replaced by the split sub-prims;
+          // drop it from the selection so the inspector doesn't dangle.
+          selection: get().selection.filter((id) => id !== resp.removed_prim_id),
+          notice:
+            `Split ${resp.removed_prim_id} into ${resp.added_prim_ids.length} material prim(s): ` +
+            resp.added_prim_ids.join(", "),
+        });
+        await revalidateIfOpen();
+      });
+      // New geometry: invalidate stale results and fire enabled auto-recomputes.
+      afterSceneEdit();
+    },
+
+    undoSegmentation: async (batchId) => {
+      const pid = get().projectId;
+      if (!pid) return;
+      await run("Undoing material split…", async () => {
+        const resp = await api.undoSegmentation(pid, { batch_id: batchId });
+        await refetchSceneInner();
+        set({
+          // Only forget the remembered apply if it is the one being undone.
+          lastSegApply:
+            get().lastSegApply?.batchId === batchId ? null : get().lastSegApply,
+          glbEpoch: get().glbEpoch + 1,
+          // The split sub-prims are gone; drop them from the selection.
+          selection: get().selection.filter((id) => !resp.removed_prim_ids.includes(id)),
+          notice: `Undid split — restored ${resp.restored_prim_id}`,
+        });
+        await revalidateIfOpen();
+      });
+      afterSceneEdit();
+    },
+
+    clearSegPreview: () => set({ segPreview: null, segJobProgress: null }),
 
     // ---------------------------------------------------- environment
 

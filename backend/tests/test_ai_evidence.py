@@ -160,7 +160,7 @@ class _FakeVLMProvider(MaterialSuggestionProvider):
     def is_available(self) -> bool:
         return True
 
-    def suggest(self, scene, library, prim_ids, screenshot=None, screenshots=None, texture_crops=None):
+    def suggest(self, scene, library, prim_ids, screenshot=None, screenshots=None, texture_crops=None, model=None):
         return MaterialSuggestionResponse(
             suggestions=[], provider=self.name, model="fake", prompt_version="v2"
         )
@@ -176,7 +176,7 @@ class _FallbackVLMProvider(MaterialSuggestionProvider):
     def is_available(self) -> bool:
         return True
 
-    def suggest(self, scene, library, prim_ids, screenshot=None, screenshots=None, texture_crops=None):
+    def suggest(self, scene, library, prim_ids, screenshot=None, screenshots=None, texture_crops=None, model=None):
         return MaterialSuggestionResponse(
             suggestions=[], provider="rule_based", model=None, prompt_version="v2"
         )

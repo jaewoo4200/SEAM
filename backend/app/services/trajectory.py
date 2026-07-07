@@ -245,7 +245,8 @@ def _run_trajectory_routes(
 
         positions = [
             snap_to_terrain(
-                project_dir, scene, pos, request.follow_height_m, warnings
+                project_dir, scene, pos, request.follow_height_m, warnings,
+                fill_gaps=request.drape_fill_gaps,
             )
             for pos in positions
         ]
@@ -353,7 +354,8 @@ def run_trajectory(
         from app.services.terrain import snap_to_terrain
 
         waypoints = snap_to_terrain(
-            project_dir, scene, waypoints, request.follow_height_m, warnings
+            project_dir, scene, waypoints, request.follow_height_m, warnings,
+            fill_gaps=request.drape_fill_gaps,
         )
     samples: list[TrajectorySample] = []
     doppler_spreads: list[Optional[float]] = []

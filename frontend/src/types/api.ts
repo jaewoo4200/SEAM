@@ -759,6 +759,28 @@ export interface DatasetListResponse {
 
 // -------------------------------------------------------------------- ai
 
+/** One selectable model for an AI provider (GET /ai/models). */
+export interface AIModelInfo {
+  id: string;
+  label: string;
+  is_default: boolean;
+}
+
+/** Models available for a single provider ("local_openai", "ollama_text"),
+ *  plus whether the provider is reachable right now. `default_model` is the id
+ *  the backend uses when the request omits `model` (null = provider decides). */
+export interface ProviderModels {
+  provider: string;
+  available: boolean;
+  models: AIModelInfo[];
+  default_model: string | null;
+  detail: string;
+}
+
+export interface AIModelsResponse {
+  providers: ProviderModels[];
+}
+
 export interface MaterialAlternative {
   rf_material_id: string;
   confidence: number;
@@ -792,6 +814,8 @@ export interface MaterialSuggestionResponse {
 export interface SuggestMaterialsRequest {
   prim_ids?: string[] | null;
   provider?: string | null;
+  // Explicit model id within the chosen provider; null = the provider default.
+  model?: string | null;
   screenshot_data_url?: string | null;
   // Multi-view capture (up to 6): the old single-image field stays for
   // back-compat and is treated by the backend as a one-item list.
@@ -803,6 +827,15 @@ export interface SuggestionDecision {
   prim_id: string;
   action: "approve" | "reject" | "edit";
   rf_material_id?: string | null;
+}
+
+/** POST /ai/generate-rules — natural-language → assignment rules. `provider`
+ *  and `model` are both optional (null = server picks the best provider / the
+ *  provider default model). */
+export interface GenerateRulesRequest {
+  instruction: string;
+  provider?: string | null;
+  model?: string | null;
 }
 
 // -------------------------------------------------- calibration (RF disambig)
@@ -886,6 +919,107 @@ export interface ApplySuggestionsRequest {
   suggestions: MaterialSuggestion[];
   provider: string;
   model?: string | null;
+}
+
+// ------------------------------------------------ material segmentation
+// Multi-material building split: a mask + per-face material assignment is
+// previewed (reviewable overlay), then physically baked into the visual GLB
+// as per-material sub-prims (apply), with a GLB backup for undo.
+
+export type MaskSource = "color_heuristic" | "vlm_tile_vote" | "user_png";
+
+export interface SegmentationPreviewRequest {
+  prim_id: string;
+  mask_source: MaskSource;
+  // Mask images are top-left-origin, GLB UVs bottom-left; leave true unless
+  // the atlas was authored with an already-flipped V.
+  flip_v?: boolean;
+  // vlm_tile_vote tuning (ignored for the other sources).
+  tile_px?: number;
+  max_tiles?: number;
+  // null = the provider default model (same convention as suggest-materials).
+  model?: string | null;
+  // user_png: project-relative path returned by upload-mask.
+  mask_asset_path?: string | null;
+}
+
+/** One material region in the split (material_id is the mask id, not an RF id). */
+export interface SegmentationRegion {
+  material_id: number;
+  name: string;
+  rf_material_id: string;
+  face_count: number;
+}
+
+export interface SegmentationPreviewResponse {
+  batch_id: string;
+  // Project-relative refs servable via GET /projects/{id}/assets/{path}.
+  mask_ref: string;
+  overlay_asset_path: string;
+  manifest: SegmentationRegion[];
+  // Per-face material id in mesh face order (can be ~700k entries).
+  face_materials: number[];
+  total_faces: number;
+}
+
+/** vlm_tile_vote kicks off an async job instead of answering inline. */
+export interface SegmentationJobStart {
+  job_id: string;
+}
+
+export interface SegmentationJobStatus {
+  status: "running" | "done" | "error";
+  progress: number;
+  total: number;
+  detail: string;
+  result?: SegmentationPreviewResponse | null;
+}
+
+export interface SegmentationApplyRequest {
+  prim_id: string;
+  // The preview's mask_ref (material_mask_ids.png under the batch dir).
+  mask_ref: string;
+  flip_v?: boolean;
+}
+
+export interface SegmentationApplyResponse {
+  added_prim_ids: string[];
+  removed_prim_id: string;
+  backup_glb: string;
+  batch_id: string;
+}
+
+export interface SegmentationUndoRequest {
+  batch_id: string;
+}
+
+export interface SegmentationUndoResponse {
+  restored_prim_id: string;
+  removed_prim_ids: string[];
+}
+
+export interface MaskUploadResponse {
+  // Project-relative path to pass back as mask_asset_path.
+  mask_asset_path: string;
+  width: number;
+  height: number;
+}
+
+/** Material classes for the segmentation overlay tint (id → name → color).
+ *  Matches the backend heuristic classes; unknown ids fall back to class 0. */
+export const SEGMENTATION_CLASSES: { id: number; name: string; color: string }[] = [
+  { id: 0, name: "unknown", color: "#282828" },
+  { id: 1, name: "concrete", color: "#69a98e" },
+  { id: 2, name: "glass", color: "#4a7cb0" },
+  { id: 3, name: "metal", color: "#d97706" },
+  { id: 4, name: "ground", color: "#b0833e" },
+];
+
+export function segmentationClassColor(materialId: number): string {
+  return (
+    SEGMENTATION_CLASSES.find((c) => c.id === materialId)?.color ??
+    SEGMENTATION_CLASSES[0].color
+  );
 }
 
 // -------------------------------------------------------------- projects

@@ -24,12 +24,15 @@ from pydantic import ValidationError
 
 from app.core.config import get_settings
 from app.schemas.ai import (
+    AIModelInfo,
+    AIModelsResponse,
     AIProviderStatus,
     AssignmentRule,
     EvidenceImage,
     MaterialAlternative,
     MaterialSuggestion,
     MaterialSuggestionResponse,
+    ProviderModels,
     SuggestMaterialsRequest,
 )
 from app.schemas.materials import RFMaterialLibrary
@@ -444,6 +447,7 @@ class MaterialSuggestionProvider(abc.ABC):
         screenshot: str | None = None,
         screenshots: list[str] | None = None,
         texture_crops: list[dict] | None = None,
+        model: str | None = None,
     ) -> MaterialSuggestionResponse: ...
 
 
@@ -466,7 +470,10 @@ class RuleBasedProvider(MaterialSuggestionProvider):
         screenshot: str | None = None,
         screenshots: list[str] | None = None,
         texture_crops: list[dict] | None = None,
+        model: str | None = None,
     ) -> MaterialSuggestionResponse:
+        # ``model`` is accepted for signature parity but ignored: rules have no
+        # model.
         suggestions: list[MaterialSuggestion] = []
         warnings: list[str] = []
         for prim_id in prim_ids:
@@ -598,6 +605,71 @@ def _probe_openai(base_url: str) -> tuple[bool, str]:
     return ok, detail
 
 
+# base_url -> (monotonic timestamp, discovered model ids). Cached like the
+# probe cache and honoring the same TTL so the model picker does not hammer the
+# local server. Keyed by url so the OpenAI and Ollama lists never collide.
+_model_cache: dict[str, tuple[float, list[str]]] = {}
+
+
+def list_openai_models(base_url: str) -> list[str]:
+    """Model ids served by an OpenAI-compatible server (LM Studio), or [].
+
+    GET {base_url}/models and reads ``payload["data"][*]["id"]``, dropping
+    embedding models (ids containing "embed") which cannot answer chat. Short
+    timeout and TTL-cached like the reachability probes; any failure (offline,
+    bad JSON, unexpected shape) degrades to an empty list.
+    """
+    now = time.monotonic()
+    cached = _model_cache.get(base_url)
+    if cached is not None and now - cached[0] < _PROBE_TTL_S:
+        return cached[1]
+    try:
+        import httpx  # lazy: optional runtime dependency path
+
+        response = httpx.get(f"{base_url}/models", timeout=1.5)
+        response.raise_for_status()
+        payload = response.json()
+        data = payload.get("data") if isinstance(payload, dict) else None
+        models = [
+            str(item["id"])
+            for item in (data or [])
+            if isinstance(item, dict) and item.get("id")
+            and "embed" not in str(item["id"]).lower()
+        ]
+    except Exception:
+        models = []
+    _model_cache[base_url] = (now, models)
+    return models
+
+
+def list_ollama_models(base_url: str) -> list[str]:
+    """Model names served by an Ollama server, or [].
+
+    GET {base_url}/api/tags and reads ``models[*].name``. Short timeout and
+    TTL-cached like :func:`list_openai_models`; any failure degrades to [].
+    """
+    now = time.monotonic()
+    cached = _model_cache.get(base_url)
+    if cached is not None and now - cached[0] < _PROBE_TTL_S:
+        return cached[1]
+    try:
+        import httpx  # lazy: optional runtime dependency path
+
+        response = httpx.get(f"{base_url}/api/tags", timeout=1.5)
+        response.raise_for_status()
+        payload = response.json()
+        models_raw = payload.get("models") if isinstance(payload, dict) else None
+        models = [
+            str(item["name"])
+            for item in (models_raw or [])
+            if isinstance(item, dict) and item.get("name")
+        ]
+    except Exception:
+        models = []
+    _model_cache[base_url] = (now, models)
+    return models
+
+
 class OllamaTextProvider(MaterialSuggestionProvider):
     """Local text LLM via an Ollama-compatible /api/chat endpoint.
 
@@ -624,6 +696,7 @@ class OllamaTextProvider(MaterialSuggestionProvider):
         screenshot: str | None = None,
         screenshots: list[str] | None = None,
         texture_crops: list[dict] | None = None,
+        model: str | None = None,
     ) -> MaterialSuggestionResponse:
         settings = get_settings().ai
         warnings: list[str] = []
@@ -638,7 +711,7 @@ class OllamaTextProvider(MaterialSuggestionProvider):
             return MaterialSuggestionResponse(
                 suggestions=[],
                 provider=self.name,
-                model=settings.text_model,
+                model=model or settings.text_model,
                 prompt_version=PROMPT_VERSION,
                 warnings=warnings,
             )
@@ -653,7 +726,20 @@ class OllamaTextProvider(MaterialSuggestionProvider):
         images_b64 = [
             b64 for img in image_urls if (b64 := _strip_data_url_prefix(img))
         ]
-        model = settings.vision_model if has_image else settings.text_model
+        # Default model tracks whether an image is attached (vision vs text);
+        # an explicit override wins over both, subject to the discovery
+        # guardrail below.
+        default_model = settings.vision_model if has_image else settings.text_model
+        effective_model = model or default_model
+        if model is not None:
+            available = list_ollama_models(settings.base_url)
+            if available and model not in available:
+                effective_model = default_model
+                warnings.append(
+                    f"requested model '{model}' is not loaded; "
+                    f"used default '{default_model}'"
+                )
+        model = effective_model
         if has_image and settings.vision_model != settings.text_model:
             # Honesty over silence: attaching an image swaps to the vision
             # model, which may be smaller/weaker than the configured text one.
@@ -705,7 +791,7 @@ class OllamaTextProvider(MaterialSuggestionProvider):
             # before dropping all the way to rules.
             if has_image:
                 try:
-                    return self.suggest(scene, library, prim_ids)
+                    return self.suggest(scene, library, prim_ids, model=model)
                 except Exception:  # noqa: BLE001 - fall through to rules below
                     pass
             fallback = RuleBasedProvider().suggest(scene, library, prim_ids)
@@ -851,9 +937,23 @@ class LocalOpenAIProvider(MaterialSuggestionProvider):
         screenshot: str | None = None,
         screenshots: list[str] | None = None,
         texture_crops: list[dict] | None = None,
+        model: str | None = None,
     ) -> MaterialSuggestionResponse:
         settings = get_settings().ai
         warnings: list[str] = []
+        # Effective model = explicit override or the settings default. Guardrail:
+        # when discovery lists models and the requested one is not among them,
+        # fall back to the default and warn (only when the list is non-empty, so
+        # an unreachable/empty discovery never blocks a valid request).
+        effective_model = model or settings.openai_model
+        if model is not None:
+            available = list_openai_models(settings.openai_url)
+            if available and model not in available:
+                effective_model = settings.openai_model
+                warnings.append(
+                    f"requested model '{model}' is not loaded; "
+                    f"used default '{settings.openai_model}'"
+                )
         evidence_list: list[dict] = []
         for prim_id in prim_ids:
             prim = scene.prim_by_id(prim_id)
@@ -865,7 +965,7 @@ class LocalOpenAIProvider(MaterialSuggestionProvider):
             return MaterialSuggestionResponse(
                 suggestions=[],
                 provider=self.name,
-                model=settings.openai_model,
+                model=effective_model,
                 prompt_version=PROMPT_VERSION,
                 warnings=warnings,
             )
@@ -888,6 +988,7 @@ class LocalOpenAIProvider(MaterialSuggestionProvider):
                     image_urls if has_image else [],
                     num_views=num_views if has_image else 0,
                     crop_prim_ids=crop_prim_ids if has_image else [],
+                    model=effective_model,
                 )
             except Exception as img_exc:
                 # Graceful degradation: some servers reject image input for a
@@ -895,17 +996,19 @@ class LocalOpenAIProvider(MaterialSuggestionProvider):
                 # and record the downgrade rather than failing to rules.
                 if has_image and _is_vision_rejection(img_exc):
                     warnings.append(
-                        f"vision input rejected by {settings.openai_model}; "
+                        f"vision input rejected by {effective_model}; "
                         "used text only"
                     )
-                    raw_text = self._call(evidence_list, library, settings, [])
+                    raw_text = self._call(
+                        evidence_list, library, settings, [], model=effective_model
+                    )
                 else:
                     raise
             suggestions, parse_warnings = parse_ai_response(raw_text, scene, library)
             return MaterialSuggestionResponse(
                 suggestions=suggestions,
                 provider=self.name,
-                model=settings.openai_model,
+                model=effective_model,
                 prompt_version=PROMPT_VERSION,
                 warnings=warnings + parse_warnings,
             )
@@ -926,12 +1029,14 @@ class LocalOpenAIProvider(MaterialSuggestionProvider):
         image_urls: list[str],
         num_views: int = 0,
         crop_prim_ids: list[str] | None = None,
+        model: str | None = None,
     ) -> str:
         """One chat-completions round-trip; returns the raw answer text.
 
-        Raises on transport/HTTP errors so the caller can distinguish a
-        vision-rejection (retry without image) from other failures (fall back
-        to rules)."""
+        ``model`` is the effective model for the request body; None keeps the
+        settings default. Raises on transport/HTTP errors so the caller can
+        distinguish a vision-rejection (retry without image) from other
+        failures (fall back to rules)."""
         import httpx  # lazy: never required at import time
 
         messages = OllamaTextProvider._build_messages(
@@ -952,7 +1057,7 @@ class LocalOpenAIProvider(MaterialSuggestionProvider):
         response = httpx.post(
             f"{settings.openai_url}/chat/completions",
             json={
-                "model": settings.openai_model,
+                "model": model or settings.openai_model,
                 "messages": messages,
                 "temperature": 0,
                 # Reasoning models spend tokens on chain-of-thought before
@@ -1008,6 +1113,7 @@ class DisabledProvider(MaterialSuggestionProvider):
         screenshot: str | None = None,
         screenshots: list[str] | None = None,
         texture_crops: list[dict] | None = None,
+        model: str | None = None,
     ) -> MaterialSuggestionResponse:
         return MaterialSuggestionResponse(
             suggestions=[],
@@ -1233,6 +1339,10 @@ def get_provider_statuses() -> list[AIProviderStatus]:
                     available=ok_oai,
                     model=settings.openai_model,
                     detail=f"{detail_oai} (model {settings.openai_model})",
+                    # Discovered model ids (empty when the server is unreachable).
+                    available_models=(
+                        list_openai_models(settings.openai_url) if ok_oai else []
+                    ),
                 )
             )
             ok, detail = _probe_ollama(settings.base_url)
@@ -1242,6 +1352,9 @@ def get_provider_statuses() -> list[AIProviderStatus]:
                     available=ok,
                     model=settings.text_model,
                     detail=detail,
+                    available_models=(
+                        list_ollama_models(settings.base_url) if ok else []
+                    ),
                 )
             )
         statuses.append(
@@ -1266,6 +1379,87 @@ def get_provider_statuses() -> list[AIProviderStatus]:
             )
         )
     return statuses
+
+
+def _provider_models_entry(
+    provider: str,
+    available: bool,
+    default_model: Optional[str],
+    discovered: list[str],
+    detail: str,
+) -> ProviderModels:
+    """Build one ProviderModels, marking the default model in the list.
+
+    The default model is always offered even when discovery did not surface it
+    (an unreachable server, or a server that simply does not list the configured
+    default), so the picker never shows an empty list for a configured provider.
+    ``is_default`` marks the settings default; ``label`` is the bare model id.
+    """
+    ids: list[str] = list(discovered)
+    if default_model and default_model not in ids:
+        ids.insert(0, default_model)
+    models = [
+        AIModelInfo(id=mid, label=mid, is_default=(mid == default_model))
+        for mid in ids
+    ]
+    return ProviderModels(
+        provider=provider,
+        available=available,
+        models=models,
+        default_model=default_model,
+        detail=detail,
+    )
+
+
+def get_provider_models() -> AIModelsResponse:
+    """Selectable models per provider for the model picker. Never raises.
+
+    Covers the two model-bearing providers (local_openai + ollama_text);
+    rule_based/disabled are omitted since they have no model. ``available``
+    mirrors the provider probe state and the model list is discovered from the
+    server (empty/default-only when unreachable or AI is off).
+    """
+    settings = get_settings().ai
+    off = settings.enabled == "off"
+    if off:
+        return AIModelsResponse(
+            providers=[
+                _provider_models_entry(
+                    "local_openai",
+                    available=False,
+                    default_model=settings.openai_model,
+                    discovered=[],
+                    detail="disabled (SIONNATWIN_AI_ENABLED=off)",
+                ),
+                _provider_models_entry(
+                    "ollama_text",
+                    available=False,
+                    default_model=settings.text_model,
+                    discovered=[],
+                    detail="disabled (SIONNATWIN_AI_ENABLED=off)",
+                ),
+            ]
+        )
+    ok_oai, detail_oai = _probe_openai(settings.openai_url)
+    ok_ollama, detail_ollama = _probe_ollama(settings.base_url)
+    return AIModelsResponse(
+        providers=[
+            _provider_models_entry(
+                "local_openai",
+                available=ok_oai,
+                default_model=settings.openai_model,
+                discovered=list_openai_models(settings.openai_url) if ok_oai else [],
+                detail=detail_oai,
+            ),
+            _provider_models_entry(
+                "ollama_text",
+                available=ok_ollama,
+                default_model=settings.text_model,
+                discovered=list_ollama_models(settings.base_url) if ok_ollama else [],
+                detail=detail_ollama,
+            ),
+        ]
+    )
 
 
 _PROVIDER_CLASSES: dict[str, type[MaterialSuggestionProvider]] = {
@@ -1348,6 +1542,7 @@ def suggest_materials(
         targets,
         screenshots=screenshots or None,
         texture_crops=texture_crops or None,
+        model=request.model,
     )
     if response.prompt_version is None:
         response.prompt_version = PROMPT_VERSION
@@ -1411,18 +1606,32 @@ def _persist_evidence_crops(
 # NoTextProviderError, which the API maps to HTTP 409.
 
 
-def _select_text_provider() -> tuple[str, str]:
+def _select_text_provider(provider: Optional[str] = None) -> tuple[str, str]:
     """(provider_name, model) for the best available TEXT LLM.
 
     Mirrors ``_select_provider`` ordering (local_openai then ollama_text) but
     excludes the rule-based/disabled providers, which cannot answer free-text
-    prompts. Raises :class:`NoTextProviderError` when AI is off or no server is
-    reachable.
+    prompts. ``provider`` forces a specific text provider when it names a
+    text-capable one; any other value (e.g. "rule_based") is ignored and the
+    auto-selection order applies. Raises :class:`NoTextProviderError` when AI is
+    off or no server is reachable.
     """
     settings = get_settings().ai
     if settings.enabled == "off":
         raise NoTextProviderError(
             "AI assistance is disabled (SIONNATWIN_AI_ENABLED=off)"
+        )
+    if provider == "local_openai":
+        if LocalOpenAIProvider().is_available():
+            return "local_openai", settings.openai_model
+        raise NoTextProviderError(
+            f"local_openai is not reachable (at {settings.openai_url})"
+        )
+    if provider == "ollama_text":
+        if OllamaTextProvider().is_available():
+            return "ollama_text", settings.text_model
+        raise NoTextProviderError(
+            f"ollama_text is not reachable (at {settings.base_url})"
         )
     if LocalOpenAIProvider().is_available():
         return "local_openai", settings.openai_model
@@ -1641,23 +1850,59 @@ def parse_rules_response(
     return rules, warnings
 
 
+def _resolve_text_model(
+    provider_name: str, model: Optional[str]
+) -> tuple[str, list[str]]:
+    """(effective model, warnings) for a text-LLM provider given an override.
+
+    ``model`` None keeps the provider's settings default. When an explicit model
+    is requested, it is validated against the provider's discovery list with the
+    same guardrail as the suggestion path: a non-empty list that does not
+    contain the requested model falls back to the default and warns; an
+    empty/unreachable list lets the request through unchanged.
+    """
+    settings = get_settings().ai
+    default_model = (
+        settings.openai_model if provider_name == "local_openai" else settings.text_model
+    )
+    if model is None:
+        return default_model, []
+    if provider_name == "local_openai":
+        available = list_openai_models(settings.openai_url)
+    else:
+        available = list_ollama_models(settings.base_url)
+    if available and model not in available:
+        return default_model, [
+            f"requested model '{model}' is not loaded; used default '{default_model}'"
+        ]
+    return model, []
+
+
 def generate_assignment_rules(
-    instruction: str, library: RFMaterialLibrary
+    instruction: str,
+    library: RFMaterialLibrary,
+    provider: Optional[str] = None,
+    model: Optional[str] = None,
 ) -> tuple[list[AssignmentRule], str, Optional[str], list[str]]:
     """(rules, provider, model, warnings) from a natural-language instruction.
 
     Prompts the best available text LLM with the library id list and SEAM-style
     few-shot examples, parses the JSON with the same fence/brace tolerance as
     :func:`parse_ai_response`, and validates every ``rf_material_id`` against
-    the library (unknown ids dropped + warned). Raises
+    the library (unknown ids dropped + warned). ``provider`` forces a specific
+    text provider ("local_openai"/"ollama_text"); ``model`` overrides the model
+    on the selected provider (subject to the discovery guardrail). Raises
     :class:`NoTextProviderError` when no LLM is reachable (API maps to 409) and
     :class:`AIParseError` when the LLM answer is unusable.
     """
-    provider_name, model = _select_text_provider()
+    provider_name, _ = _select_text_provider(provider)
+    effective_model, model_warnings = _resolve_text_model(provider_name, model)
     system, user = _build_rule_generation_messages(instruction, library)
-    raw_text = _call_text_llm(provider_name, model, system, user, force_json=True)
+    raw_text = _call_text_llm(
+        provider_name, effective_model, system, user, force_json=True
+    )
     rules, warnings = parse_rules_response(raw_text, library)
-    return rules, provider_name, model, warnings
+    return rules, provider_name, effective_model, model_warnings + warnings
 
 
 def _rule_matches_prim(rule: AssignmentRule, prim: Prim) -> Optional[str]:

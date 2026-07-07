@@ -14,6 +14,7 @@ from fastapi import APIRouter, HTTPException
 
 from app.api.deps import get_store, load_scene_or_404
 from app.schemas.ai import (
+    AIModelsResponse,
     AIProviderStatus,
     ApplyRulesRequest,
     ApplySuggestionsRequest,
@@ -49,6 +50,22 @@ def ai_status(project_id: str) -> list[AIProviderStatus]:
     return ai_provider.get_provider_statuses()
 
 
+@router.get(
+    "/projects/{project_id}/ai/models",
+    response_model=AIModelsResponse,
+)
+def ai_models(project_id: str) -> AIModelsResponse:
+    """Selectable models per model-bearing provider for the picker.
+
+    Covers local_openai + ollama_text (rule_based/disabled omitted); each entry
+    mirrors the provider probe state and lists the models discovered on its
+    server.
+    """
+    store = get_store()
+    load_scene_or_404(store, project_id)  # 404 for unknown project
+    return ai_provider.get_provider_models()
+
+
 @router.post(
     "/projects/{project_id}/ai/suggest-materials",
     response_model=MaterialSuggestionResponse,
@@ -71,6 +88,18 @@ def suggest_materials(
             request.screenshot_data_urls, request.screenshot_data_url
         )
     )
+    # Model provenance: "user" when the caller's model override was honored,
+    # "fallback" when the guardrail replaced an unknown model with the default
+    # (detected via the warning the provider appended), else "env_default".
+    if request.model is None:
+        model_source = "env_default"
+    elif any(
+        f"requested model '{request.model}' is not loaded" in w
+        for w in response.warnings
+    ):
+        model_source = "fallback"
+    else:
+        model_source = "user"
     store.append_jsonl(
         project_id,
         SUGGESTIONS_LOG,
@@ -79,6 +108,7 @@ def suggest_materials(
             "event": "suggested",
             "provider": response.provider,
             "model": response.model,
+            "model_source": model_source,
             "prompt_version": response.prompt_version,
             "input_prim_ids": ai_provider.resolve_target_prim_ids(scene, request),
             # Image provenance: viewport screenshots are transient (count
@@ -204,6 +234,9 @@ def apply_suggestions(
             "approved": counts["approve"],
             "rejected": counts["reject"],
             "edited": counts["edit"],
+            # Which provider/model produced the batch these decisions apply to.
+            "provider": request.provider,
+            "model": request.model,
         },
     )
     return AssignResponse(
@@ -223,7 +256,7 @@ def generate_rules(
     library = store.load_materials(project_id)
     try:
         rules, provider, model, warnings = ai_provider.generate_assignment_rules(
-            request.instruction, library
+            request.instruction, library, request.provider, request.model
         )
     except NoTextProviderError as exc:
         raise HTTPException(status_code=409, detail=str(exc))

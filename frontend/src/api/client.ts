@@ -7,6 +7,7 @@
  */
 
 import type {
+  AIModelsResponse,
   AIProviderStatus,
   ApplySuggestionsRequest,
   AssignRequest,
@@ -27,6 +28,7 @@ import type {
   HealthResponse,
   MaterialImpactReport,
   MaterialImpactRequest,
+  MaskUploadResponse,
   MaterialSuggestionResponse,
   MeshRadioMapRequest,
   MeshRadioMapResultSet,
@@ -46,6 +48,14 @@ import type {
   ScenarioSimulateRequest,
   Scene,
   SceneBounds,
+  SegmentationApplyRequest,
+  SegmentationApplyResponse,
+  SegmentationJobStart,
+  SegmentationJobStatus,
+  SegmentationPreviewRequest,
+  SegmentationPreviewResponse,
+  SegmentationUndoRequest,
+  SegmentationUndoResponse,
   SimulateRequest,
   SuggestMaterialsRequest,
   TrajectoryResultSet,
@@ -162,10 +172,30 @@ export const api = {
 
   // ai
   aiStatus: (pid: string) => request<AIProviderStatus[]>("GET", `/projects/${pid}/ai/status`),
+  // Per-provider selectable models (drives the model picker in the AI panel).
+  aiModels: (pid: string) => request<AIModelsResponse>("GET", `/projects/${pid}/ai/models`),
   suggestMaterials: (pid: string, req: SuggestMaterialsRequest) =>
     request<MaterialSuggestionResponse>("POST", `/projects/${pid}/ai/suggest-materials`, req),
   applySuggestions: (pid: string, req: ApplySuggestionsRequest) =>
     request<AssignResponse>("POST", `/projects/${pid}/ai/apply-suggestions`, req),
+
+  // material segmentation (multi-material building split)
+  // color_heuristic / user_png answer inline (SegmentationPreviewResponse);
+  // vlm_tile_vote returns a {job_id} to poll via segmentationJob.
+  previewSegmentation: (pid: string, req: SegmentationPreviewRequest) =>
+    request<SegmentationPreviewResponse | SegmentationJobStart>(
+      "POST",
+      `/projects/${pid}/segmentation/preview`,
+      req,
+    ),
+  segmentationJob: (pid: string, jobId: string) =>
+    request<SegmentationJobStatus>("GET", `/projects/${pid}/segmentation/jobs/${jobId}`),
+  uploadSegmentationMask: (pid: string, form: FormData) =>
+    postForm<MaskUploadResponse>(`/projects/${pid}/segmentation/upload-mask`, form),
+  applySegmentation: (pid: string, req: SegmentationApplyRequest) =>
+    request<SegmentationApplyResponse>("POST", `/projects/${pid}/segmentation/apply`, req),
+  undoSegmentation: (pid: string, req: SegmentationUndoRequest) =>
+    request<SegmentationUndoResponse>("POST", `/projects/${pid}/segmentation/undo`, req),
 
   // calibration: RF-sensing disambiguation (rank candidate materials by fit).
   disambiguate: (pid: string, req: DisambiguationRequest) =>
