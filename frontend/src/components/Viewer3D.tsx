@@ -1954,6 +1954,21 @@ function TrajPreviewLine() {
       return false;
     };
 
+    // Candidate meshes are collected up front: this raycaster is built with
+    // ray.set() (no camera), and drei <Line> overlays READ raycaster.camera
+    // in their raycast - intersecting them crashed the Canvas ("Cannot read
+    // properties of null (reading 'near')") on any scene with line overlays.
+    // NOTE: Line2/LineSegments2 EXTEND Mesh, so isMesh alone does not exclude
+    // them - they must be filtered out explicitly.
+    const candidates: THREE.Object3D[] = [];
+    three.traverse((obj) => {
+      const m = obj as THREE.Mesh & { isLineSegments2?: boolean };
+      if (m.isMesh && !m.isLineSegments2 && m.visible && !isOverlay(m)) {
+        candidates.push(m);
+      }
+    });
+    if (candidates.length === 0) return seg;
+
     // The path's height above the surface: the committed waypoints already sit
     // at surface + UE height, so recover the offset from the first waypoint's
     // clearance over the ground beneath it (clamped >= 0). A uniform offset
@@ -1963,11 +1978,7 @@ function TrajPreviewLine() {
     const surfaceZ = (x: number, y: number, fromZ: number): number | null => {
       // Cast straight down (-Z) from safely above the point.
       ray.set(new THREE.Vector3(x, y, fromZ + 1000), new THREE.Vector3(0, 0, -1));
-      const hits = ray
-        .intersectObjects(three.children, true)
-        .filter(
-          (h) => (h.object as THREE.Mesh).isMesh && h.object.visible && !isOverlay(h.object),
-        );
+      const hits = ray.intersectObjects(candidates, false);
       return hits[0] ? hits[0].point.z : null;
     };
 

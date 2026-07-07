@@ -1042,7 +1042,10 @@ export const useAppStore = create<AppState>()((set, get) => {
           autoRadioMap: false,
           autoBeamforming: false,
           autoChannel: false,
-          // Trajectory playback state resets per project.
+          // Trajectory playback state resets per project. The route PREVIEW
+          // too: a stale preview from the last project would draw (and drape)
+          // a line at the old project's coordinates.
+          trajPreview: null,
           trajectory: null,
           trajFrame: 0,
           trajPlaying: false,
