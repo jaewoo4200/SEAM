@@ -53,5 +53,9 @@ __MACOSX/
 /WSL_LOGO.png
 /beyond-g_logo.png
 
+# Raw capture drops in website/assets (converted/encoded copies are committed:
+# rays_demo.jpg from SEAM_pic1.png, trajectory.mp4 from the screen recording).
+website/assets/SEAM_*
+
 # Local editor/agent launch config (machine-specific paths).
 .claude/
