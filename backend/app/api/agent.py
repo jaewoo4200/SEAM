@@ -89,13 +89,18 @@ def agent_apply(
     job = seam_agent.get_job(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail=f"unknown job: {job_id}")
-    try:
-        scene, info = seam_agent.apply_segments(
-            project_dir, scene, job, request.segment_ids
-        )
-    except SegmentationError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    store.save_scene(project_id, scene)
+    # GLB + scene JSON must move together; same per-project write lock as the
+    # segmentation apply/undo routes.
+    from app.services.material_segmentation import project_write_lock
+
+    with project_write_lock(project_dir):
+        try:
+            scene, info = seam_agent.apply_segments(
+                project_dir, scene, job, request.segment_ids
+            )
+        except SegmentationError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        store.save_scene(project_id, scene)
     store.append_provenance(
         project_id,
         {

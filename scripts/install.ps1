@@ -80,16 +80,27 @@ try {
 }
 
 # ------------------------------------------------------------ demo projects
-Step "Generating demo projects (kaist_demo + lab_room + ftc_outdoor)"
+# Demo projects (sample_demo + lab_room + ftc_outdoor) are COMMITTED under
+# examples/demo_project/. Regeneration from the reference bundle is optional:
+# a fresh clone without reference-bundle/ must still install cleanly.
+Step "Regenerating demo projects (sample_demo + lab_room + ftc_outdoor)"
 & $VenvPython (Join-Path $RepoRoot "examples\scripts\create_demo_project.py")
 if ($LASTEXITCODE -ne 0) { Fail "create_demo_project.py failed." }
-& $VenvPython (Join-Path $RepoRoot "examples\scripts\import_bundle_scene.py")
-if ($LASTEXITCODE -ne 0) { Fail "import_bundle_scene.py failed." }
-& $VenvPython (Join-Path $RepoRoot "examples\scripts\import_bundle_scene.py") `
-    --xml "reference-bundle/outdoor_material_assigned_cv_28ghz_safe.xml" `
-    --scene-id ftc_outdoor --name "FTC Outdoor (28 GHz)" --environment outdoor `
-    --visual-overlay "reference-bundle/outdoor_visual/FTC_OSM_ReconstructedMap_ZUp_v2.glb"
-if ($LASTEXITCODE -ne 0) { Fail "import_bundle_scene.py (ftc_outdoor) failed." }
+if (Test-Path (Join-Path $RepoRoot "reference-bundle\indoor\lab_room.xml")) {
+    & $VenvPython (Join-Path $RepoRoot "examples\scripts\import_bundle_scene.py")
+    if ($LASTEXITCODE -ne 0) { Fail "import_bundle_scene.py failed." }
+} else {
+    Write-Host " reference-bundle/ not present - keeping the committed lab_room demo." -ForegroundColor Yellow
+}
+if (Test-Path (Join-Path $RepoRoot "reference-bundle\outdoor_material_assigned_cv_28ghz_safe.xml")) {
+    & $VenvPython (Join-Path $RepoRoot "examples\scripts\import_bundle_scene.py") `
+        --xml "reference-bundle/outdoor_material_assigned_cv_28ghz_safe.xml" `
+        --scene-id ftc_outdoor --name "FTC Outdoor (28 GHz)" --environment outdoor `
+        --visual-overlay "reference-bundle/outdoor_visual/FTC_OSM_ReconstructedMap_ZUp_v2.glb"
+    if ($LASTEXITCODE -ne 0) { Fail "import_bundle_scene.py (ftc_outdoor) failed." }
+} else {
+    Write-Host " reference-bundle/ not present - keeping the committed ftc_outdoor demo." -ForegroundColor Yellow
+}
 
 # ------------------------------------------------------------ done
 Write-Host ""
@@ -100,7 +111,7 @@ Write-Host ""
 Write-Host " Next steps:"
 Write-Host "   1. Start both servers:   powershell -ExecutionPolicy Bypass -File scripts\start.ps1"
 Write-Host "   2. Open the app:         http://localhost:5173"
-Write-Host "      (the KAIST Demo project loads automatically)"
+Write-Host "      (the Sample Demo project loads automatically)"
 Write-Host ""
 Write-Host " Walkthrough: TUTORIAL.md    Install details/troubleshooting: INSTALL.md"
 Write-Host ""

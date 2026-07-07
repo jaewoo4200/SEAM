@@ -41,5 +41,13 @@ projects/
 reference-bundle/
 sionna-rt-gui-jaewoo-examples/
 
+# User scene data dropped at the repo root for import testing (never ship:
+# hundreds of MB of drone/photogrammetry assets + macOS zip cruft).
+rf_scene/
+ftc_material_segmentation_portable_*/
+ftc_material_segmentation_portable_*.zip
+__MACOSX/
+._*
+
 # Local editor/agent launch config (machine-specific paths).
 .claude/

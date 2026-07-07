@@ -72,6 +72,25 @@ class SegmentationError(ValueError):
     """User-input problem (no texture, no UVs, bad mask); API maps to 400."""
 
 
+# Per-project write lock: a GLB-mutating operation (split apply/undo, agent
+# apply) rewrites visual/scene.glb AND the scene JSON; interleaving two of
+# them - or racing a crashy one - can leave the GLB split while the scene
+# does not reference the new prims. Held by the API routes across
+# bake + save_scene so the two files move together.
+_project_locks: dict[str, threading.Lock] = {}
+_project_locks_guard = threading.Lock()
+
+
+def project_write_lock(project_dir: Path) -> threading.Lock:
+    key = str(project_dir.resolve())
+    with _project_locks_guard:
+        lock = _project_locks.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _project_locks[key] = lock
+        return lock
+
+
 # ---------------------------------------------------------------- masks
 
 

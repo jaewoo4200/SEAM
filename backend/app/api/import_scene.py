@@ -160,13 +160,17 @@ def _safe_upload_name(name: Optional[str]) -> Optional[str]:
 
 
 @router.post("/projects/import", response_model=ProjectInfo, status_code=201)
-async def import_project(
+def import_project(
     file: UploadFile = File(..., description="Mitsuba/Sionna scene .xml"),
     project_id: str = Form(...),
     name: str = Form(...),
     environment: str = Form("auto"),
     meshes: list[UploadFile] = File(default=[]),
 ) -> ProjectInfo:
+    # Deliberately SYNC (FastAPI runs it in the threadpool): a campus zip
+    # means minutes of extract + Mitsuba parse + GLB export, and an async def
+    # would pin all of it on the event loop - /health, the project list and
+    # the events WebSocket froze exactly while the user watched an import.
     if not _PROJECT_ID_RE.match(project_id):
         raise HTTPException(
             status_code=400,
@@ -195,7 +199,7 @@ async def import_project(
 
     with tempfile.TemporaryDirectory(prefix="sionnatwin_import_") as td:
         tmp_dir = Path(td)
-        payload = await file.read()
+        payload = file.file.read()
         if not payload.strip():
             raise HTTPException(status_code=400, detail="uploaded file is empty")
 
@@ -230,7 +234,7 @@ async def import_project(
                 leaf = _safe_upload_name(extra.filename)
                 if not leaf:
                     continue
-                data = await extra.read()
+                data = extra.file.read()
                 (tmp_dir / leaf).write_bytes(data)
                 (tmp_dir / "meshes" / leaf).write_bytes(data)
 

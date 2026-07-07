@@ -1198,6 +1198,25 @@ class SionnaBackend(RayTracingBackend):
         center = [float(cx), float(cy), float(height)]
         size = [float(max(ext_x, cell * 2)), float(max(ext_y, cell * 2))]
 
+        # Same consumer guardrail as the mock backend: a fine cell size over a
+        # campus extent would otherwise allocate a multi-billion-cell tensor
+        # on the GPU/host and OOM. Coarsen the cell + warn instead of failing.
+        import math as _math
+
+        _MAX_CELLS = 40_000
+        nx_est = max(1, _math.ceil(size[0] / cell))
+        ny_est = max(1, _math.ceil(size[1] / cell))
+        if nx_est * ny_est > _MAX_CELLS:
+            requested = cell
+            while nx_est * ny_est > _MAX_CELLS:
+                cell *= _math.sqrt(nx_est * ny_est / _MAX_CELLS) * 1.001
+                nx_est = max(1, _math.ceil(size[0] / cell))
+                ny_est = max(1, _math.ceil(size[1] / cell))
+            warnings.append(
+                f"radio map capped at {_MAX_CELLS} cells: cell size coarsened "
+                f"from {requested} m to {cell:.3f} m"
+            )
+
         solver = RadioMapSolver()
         # Full passthrough (RadioMapSolver has no synthetic_array kwarg; the
         # rest match PathSolver). Verified against sionna-rt 2.0.1.

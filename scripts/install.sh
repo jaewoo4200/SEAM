@@ -54,14 +54,25 @@ step "Installing frontend (npm install in frontend/)"
 ( cd "$REPO_ROOT/frontend" && npm install ) || fail "npm install failed."
 
 # ------------------------------------------------------------ demo projects
-step "Generating demo projects (kaist_demo + lab_room + ftc_outdoor)"
+# Demo projects (sample_demo + lab_room + ftc_outdoor) are COMMITTED under
+# examples/demo_project/. Regeneration from the reference bundle is optional:
+# a fresh clone without reference-bundle/ must still install cleanly.
+step "Regenerating demo projects (sample_demo + lab_room + ftc_outdoor)"
 "$VENV_PYTHON" "$REPO_ROOT/examples/scripts/create_demo_project.py" || fail "create_demo_project.py failed."
-"$VENV_PYTHON" "$REPO_ROOT/examples/scripts/import_bundle_scene.py" || fail "import_bundle_scene.py failed."
-"$VENV_PYTHON" "$REPO_ROOT/examples/scripts/import_bundle_scene.py" \
-    --xml "reference-bundle/outdoor_material_assigned_cv_28ghz_safe.xml" \
-    --scene-id ftc_outdoor --name "FTC Outdoor (28 GHz)" --environment outdoor \
-    --visual-overlay "reference-bundle/outdoor_visual/FTC_OSM_ReconstructedMap_ZUp_v2.glb" \
-    || fail "import_bundle_scene.py (ftc_outdoor) failed."
+if [ -f "$REPO_ROOT/reference-bundle/indoor/lab_room.xml" ]; then
+    "$VENV_PYTHON" "$REPO_ROOT/examples/scripts/import_bundle_scene.py" || fail "import_bundle_scene.py failed."
+else
+    echo " reference-bundle/ not present - keeping the committed lab_room demo."
+fi
+if [ -f "$REPO_ROOT/reference-bundle/outdoor_material_assigned_cv_28ghz_safe.xml" ]; then
+    "$VENV_PYTHON" "$REPO_ROOT/examples/scripts/import_bundle_scene.py" \
+        --xml "reference-bundle/outdoor_material_assigned_cv_28ghz_safe.xml" \
+        --scene-id ftc_outdoor --name "FTC Outdoor (28 GHz)" --environment outdoor \
+        --visual-overlay "reference-bundle/outdoor_visual/FTC_OSM_ReconstructedMap_ZUp_v2.glb" \
+        || fail "import_bundle_scene.py (ftc_outdoor) failed."
+else
+    echo " reference-bundle/ not present - keeping the committed ftc_outdoor demo."
+fi
 
 # ------------------------------------------------------------ done
 cat <<'EOF'
@@ -73,7 +84,7 @@ cat <<'EOF'
  Next steps:
    1. Start both servers:   bash scripts/start.sh
    2. Open the app:         http://localhost:5173
-      (the KAIST Demo project loads automatically)
+      (the Sample Demo project loads automatically)
 
  Walkthrough: TUTORIAL.md    Install details/troubleshooting: INSTALL.md
 EOF

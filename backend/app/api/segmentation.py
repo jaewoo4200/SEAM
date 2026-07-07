@@ -90,11 +90,12 @@ def segmentation_preview(project_id: str, request: SegmentationPreviewRequest):
     "/projects/{project_id}/segmentation/upload-mask",
     response_model=MaskUploadResponse,
 )
-async def upload_mask(project_id: str, file: UploadFile = File(...)) -> MaskUploadResponse:
+def upload_mask(project_id: str, file: UploadFile = File(...)) -> MaskUploadResponse:
     """Stage an externally produced id-mask PNG under the project.
 
     Size/id validation happens at preview time against the target prim's
     texture; here we only confirm it decodes as an image and persist it.
+    Sync on purpose: image decode runs in the threadpool, not the event loop.
     """
     from PIL import Image
     import io
@@ -102,7 +103,7 @@ async def upload_mask(project_id: str, file: UploadFile = File(...)) -> MaskUplo
     store = get_store()
     load_scene_or_404(store, project_id)
     project_dir = store.resolve(project_id)
-    data = await file.read()
+    data = file.file.read()
     try:
         img = Image.open(io.BytesIO(data))
         img.load()
@@ -154,14 +155,17 @@ def segmentation_apply(
     store = get_store()
     scene = load_scene_or_404(store, project_id)
     project_dir = store.resolve(project_id)
-    try:
-        scene, info = seg.apply_split(
-            project_dir, scene, request.prim_id, request.mask_ref,
-            flip_v=request.flip_v,
-        )
-    except seg.SegmentationError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    store.save_scene(project_id, scene)
+    # GLB + scene JSON must move together (crash between the two writes would
+    # silently desync the project); one write lock per project covers both.
+    with seg.project_write_lock(project_dir):
+        try:
+            scene, info = seg.apply_split(
+                project_dir, scene, request.prim_id, request.mask_ref,
+                flip_v=request.flip_v,
+            )
+        except seg.SegmentationError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        store.save_scene(project_id, scene)
     store.append_provenance(
         project_id,
         {
@@ -191,17 +195,18 @@ def segmentation_split_parts(
     store = get_store()
     scene = load_scene_or_404(store, project_id)
     project_dir = store.resolve(project_id)
-    try:
-        scene, info = seg.split_connected_parts(
-            project_dir,
-            scene,
-            request.prim_id,
-            min_faces=request.min_faces,
-            max_parts=request.max_parts,
-        )
-    except seg.SegmentationError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    store.save_scene(project_id, scene)
+    with seg.project_write_lock(project_dir):
+        try:
+            scene, info = seg.split_connected_parts(
+                project_dir,
+                scene,
+                request.prim_id,
+                min_faces=request.min_faces,
+                max_parts=request.max_parts,
+            )
+        except seg.SegmentationError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        store.save_scene(project_id, scene)
     store.append_provenance(
         project_id,
         {
@@ -224,11 +229,12 @@ def segmentation_undo(
     store = get_store()
     scene = load_scene_or_404(store, project_id)
     project_dir = store.resolve(project_id)
-    try:
-        scene, info = seg.undo_split(project_dir, scene, request.batch_id)
-    except seg.SegmentationError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    store.save_scene(project_id, scene)
+    with seg.project_write_lock(project_dir):
+        try:
+            scene, info = seg.undo_split(project_dir, scene, request.batch_id)
+        except seg.SegmentationError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        store.save_scene(project_id, scene)
     store.append_provenance(
         project_id,
         {

@@ -1033,7 +1033,12 @@ export const useAppStore = create<AppState>()((set, get) => {
         .then((r) => set({ engines: r.engines }))
         .catch(() => set({ engines: [] }));
       if (projects && projects.length > 0) {
-        await get().openProject(projects[0].project_id);
+        // First open prefers the committed Sample Demo (the tutorial's
+        // starting point) over whatever user project happens to sort first
+        // in the projects/ root.
+        const preferred =
+          projects.find((p) => p.project_id === "sample_demo") ?? projects[0];
+        await get().openProject(preferred.project_id);
       }
     },
 
