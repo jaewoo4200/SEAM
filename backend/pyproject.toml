@@ -33,6 +33,10 @@ dependencies = [
     "ddgs>=9.0",
 ]
 
+[project.urls]
+Repository = "https://github.com/jaewoo4200/SEAM"
+Issues = "https://github.com/jaewoo4200/SEAM/issues"
+
 [project.optional-dependencies]
 dev = ["pytest>=8.2"]
 # The real ray-tracing backend. Never required: the Mock backend and the whole

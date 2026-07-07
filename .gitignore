@@ -49,5 +49,9 @@ ftc_material_segmentation_portable_*.zip
 __MACOSX/
 ._*
 
+# Root-level logo drops (the committed copies live in website/assets/).
+/WSL_LOGO.png
+/beyond-g_logo.png
+
 # Local editor/agent launch config (machine-specific paths).
 .claude/

@@ -1,0 +1,25 @@
+SEAM Studio
+Copyright 2026 Jaewoo Lee / Wireless Systems Laboratory (WSL), Hanyang University
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product includes or interacts with the following third-party data
+sources and software. Their licenses apply to those components:
+
+- OpenStreetMap data (building footprints fetched at import time via the
+  Overpass API, and geocoding via Nominatim): (c) OpenStreetMap contributors,
+  available under the Open Database License (ODbL) 1.0.
+  https://www.openstreetmap.org/copyright
+  Scenes generated with the OSM import contain data derived from
+  OpenStreetMap and carry the same attribution requirement.
+- Leaflet (map picker in the OSM import dialog): BSD-2-Clause,
+  (c) Volodymyr Agafonkin. Map tiles shown in the picker are OpenStreetMap
+  standard tiles ((c) OpenStreetMap contributors).
+- NVIDIA Sionna RT (optional ray-tracing backend): Apache License 2.0,
+  (c) NVIDIA Corporation.
+- three.js / @react-three/fiber / @react-three/drei (3D viewer): MIT License.
+- Mitsuba 3 / Dr.Jit (via Sionna RT): BSD-3-Clause.
+
+Web/image evidence retrieved by SEAM-Agent (opt-in) is fetched from public
+search results at the user's request; source URLs are stored as provenance
+and retrieved images are not redistributed with this software.

@@ -16,6 +16,15 @@ Unified RF-Visual Scene Graph          (scene.sionnatwin.json - source of truth)
   └─ RF Projection      →  PLY material groups + Mitsuba XML → Sionna RT
 ```
 
+![한양대 캠퍼스 디지털 트윈 — 항공 텍스처 임포트 렌더](website/assets/hero_campus.jpg)
+
+| | |
+|---|---|
+| ![캠퍼스 정사 뷰](website/assets/campus_top.jpg) | ![Sample Demo (TX/RX 배치)](website/assets/sample_demo.jpg) |
+| ![SEAM-Agent 멀티뷰 캡처 (드론 매핑 FTC)](website/assets/ftc_building.jpg) | ![재질 세그멘테이션 오버레이](website/assets/seg_overlay.jpg) |
+
+▶ 소개 페이지: <https://jaewoo4200.github.io/SEAM/>
+
 ---
 
 ## Quickstart (3 commands)
@@ -243,6 +252,19 @@ cd frontend && npm run build                          # 타입체크 + 빌드
 
 ## License / Credits
 
-[Apache License 2.0](LICENSE)로 배포됩니다. [Sionna RT](https://github.com/NVlabs/sionna-rt)
-(NVlabs) 위에 구축되었으며, AODT 뷰어 정렬은 `reference-bundle/`
-참조 번들(28 GHz FTC/랩룸 ISAC 디지털 트윈)을 따릅니다.
+[Apache License 2.0](LICENSE)로 배포됩니다 (서드파티 고지: [NOTICE](NOTICE)).
+[Sionna RT](https://github.com/NVlabs/sionna-rt) (NVlabs) 위에 구축되었으며,
+AODT 뷰어 정렬은 `reference-bundle/` 참조 번들(28 GHz FTC/랩룸 ISAC 디지털
+트윈)을 따릅니다.
+
+**지도 데이터 어트리뷰션** — OSM 임포트는 건물 풋프린트를
+[Overpass API](https://overpass-api.de/)로, 지오코딩을 Nominatim으로
+가져옵니다. 해당 데이터는 **© OpenStreetMap contributors**,
+[ODbL 1.0](https://www.openstreetmap.org/copyright) 라이선스입니다 — OSM
+임포트로 생성한 씬을 재배포할 때도 같은 어트리뷰션이 필요합니다. 임포트
+다이얼로그의 지도는 [Leaflet](https://leafletjs.com/)(BSD-2) + OSM 표준
+타일을 사용합니다.
+
+Developed at **Wireless Systems Laboratory (WSL), Hanyang University** ·
+**BEYOND-G Global Innovation Center**.
+GitHub: <https://github.com/jaewoo4200/SEAM>

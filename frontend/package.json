@@ -30,5 +30,10 @@
     "vite": "^5.4.8"
   },
   "description": "SEAM Studio frontend - RF digital-twin workbench UI",
-  "license": "Apache-2.0"
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jaewoo4200/SEAM.git"
+  },
+  "homepage": "https://jaewoo4200.github.io/SEAM/"
 }
