@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Start the SionnaTwin Studio backend (uvicorn :8000) and frontend (vite :5173)
+# Start the SEAM Studio backend (uvicorn :8000) and frontend (vite :5173)
 # together, print the URLs, and shut both down cleanly on Ctrl+C.
 #
 # Usage:  bash scripts/start.sh
@@ -36,7 +36,7 @@ pids+=($!)
 cat <<'EOF'
 
 ==================================================================
- SionnaTwin Studio is running.
+ SEAM Studio is running.
    Backend  : http://127.0.0.1:8000   (API + /api/health)
    Frontend : http://localhost:5173    <- open this
 ==================================================================

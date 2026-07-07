@@ -1,4 +1,4 @@
-"""Typed contracts for SionnaTwin Studio.
+"""Typed contracts for SEAM Studio.
 
 Import from submodules (``app.schemas.scene``); this package re-exports the
 most commonly used models for convenience.

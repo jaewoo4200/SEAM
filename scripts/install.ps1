@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  SionnaTwin Studio one-command installer (Windows / PowerShell).
+  SEAM Studio one-command installer (Windows / PowerShell).
 
   Idempotent: re-running is safe. Creates backend/.venv if missing, installs the
   backend (editable, with dev extras), installs the frontend, regenerates the
@@ -105,7 +105,7 @@ if (Test-Path (Join-Path $RepoRoot "reference-bundle\outdoor_material_assigned_c
 # ------------------------------------------------------------ done
 Write-Host ""
 Write-Host "==================================================================" -ForegroundColor Green
-Write-Host " SionnaTwin Studio install complete." -ForegroundColor Green
+Write-Host " SEAM Studio install complete." -ForegroundColor Green
 Write-Host "==================================================================" -ForegroundColor Green
 Write-Host ""
 Write-Host " Next steps:"

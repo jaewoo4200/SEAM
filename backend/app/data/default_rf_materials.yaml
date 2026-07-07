@@ -1,4 +1,4 @@
-# Default RF material library shipped with SionnaTwin Studio.
+# Default RF material library shipped with SEAM Studio.
 # Copied into each new project as rf/materials.yaml (projects may edit/extend).
 #
 # model: itu_frequency_dependent -> parameters follow ITU-R P.2040 at the

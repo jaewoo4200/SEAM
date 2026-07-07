@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "SEAM Studio backend - unified RF-visual scene authoring, validation, and Sionna RT compilation"
 requires-python = ">=3.11"
 license = { file = "../LICENSE" }
-authors = [{ name = "SEAM Studio contributors" }]
+authors = [{ name = "Jaewoo Lee", email = "doni04164@gmail.com" }]
 dependencies = [
     "fastapi>=0.111",
     "python-multipart>=0.0.9",

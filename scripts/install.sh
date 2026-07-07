@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# SionnaTwin Studio one-command installer (Linux / macOS).
+# SEAM Studio one-command installer (Linux / macOS).
 #
 # Idempotent: re-running is safe. Creates backend/.venv if missing, installs the
 # backend (editable, with dev extras), installs the frontend, regenerates the
@@ -78,7 +78,7 @@ fi
 cat <<'EOF'
 
 ==================================================================
- SionnaTwin Studio install complete.
+ SEAM Studio install complete.
 ==================================================================
 
  Next steps:

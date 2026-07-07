@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Start the SionnaTwin Studio backend (uvicorn :8000) and frontend (vite :5173)
+  Start the SEAM Studio backend (uvicorn :8000) and frontend (vite :5173)
   in two separate windows, then print the URLs.
 
 .EXAMPLE
@@ -41,7 +41,7 @@ Start-Process powershell -ArgumentList @(
 
 Write-Host ""
 Write-Host "==================================================================" -ForegroundColor Green
-Write-Host " SionnaTwin Studio is starting in two new windows." -ForegroundColor Green
+Write-Host " SEAM Studio is starting in two new windows." -ForegroundColor Green
 Write-Host "   Backend  : http://127.0.0.1:8000   (API + /api/health)"
 Write-Host "   Frontend : http://localhost:5173    <- open this"
 Write-Host "==================================================================" -ForegroundColor Green

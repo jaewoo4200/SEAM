@@ -3,7 +3,7 @@
 AODT exports its ClickHouse ground-truth tables (raypaths, radio maps, ...) as
 Parquet. This service reads those files and normalizes them into our
 backend-neutral result schemas (:class:`RayPath`, :class:`RadioMapResultSet`)
-so an AODT-solved scene can be viewed and post-processed in SionnaTwin Studio.
+so an AODT-solved scene can be viewed and post-processed in SEAM Studio.
 
 Column naming: AODT and our exporter use overlapping-but-different names. We
 accept BOTH - our own field names AND the AODT names documented in
