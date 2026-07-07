@@ -1367,6 +1367,60 @@ function selectionBox(
   return box;
 }
 
+/** Registers the store's downward surface probe: highest walkable scene
+ *  surface at (x, y) with z <= belowZ. Powers the device inspector's
+ *  "height above surface" readout (RX over terrain, TX over the rooftop
+ *  beneath it) without an API round-trip. Candidates are meshes only —
+ *  drei Line overlays extend Mesh AND read raycaster.camera in raycast, so
+ *  they must be excluded explicitly (same rule as the trajectory drape). */
+function SurfaceProbe() {
+  const three = useThree((s) => s.scene);
+  const registerSurfaceProbe = useAppStore((s) => s.registerSurfaceProbe);
+  useEffect(() => {
+    const ray = new THREE.Raycaster();
+    const probe = (x: number, y: number, belowZ?: number): number | null => {
+      const isOverlay = (obj: THREE.Object3D): boolean => {
+        for (let cur: THREE.Object3D | null = obj; cur; cur = cur.parent) {
+          if (cur.userData.__noFit) return true;
+        }
+        return false;
+      };
+      const candidates: THREE.Object3D[] = [];
+      let top = -Infinity;
+      three.traverse((obj) => {
+        const m = obj as THREE.Mesh & { isLineSegments2?: boolean };
+        if (m.isMesh && !m.isLineSegments2 && m.visible && !isOverlay(m)) {
+          candidates.push(m);
+          if (m.geometry.boundingSphere === null) m.geometry.computeBoundingSphere();
+          const bs = m.geometry.boundingSphere;
+          if (bs) {
+            const worldZ = m.localToWorld(bs.center.clone()).z + bs.radius;
+            if (worldZ > top) top = worldZ;
+          }
+        }
+      });
+      if (candidates.length === 0) return null;
+      ray.set(new THREE.Vector3(x, y, top + 10), new THREE.Vector3(0, 0, -1));
+      const hits = ray.intersectObjects(candidates, false);
+      let best: number | null = null;
+      for (const h of hits) {
+        // Walkable = upward-facing; and when belowZ is given, only surfaces
+        // at/under the device (a canopy above it is not its ground).
+        const n = h.face?.normal
+          ?.clone()
+          .transformDirection(h.object.matrixWorld);
+        if (n && n.z <= 0.1) continue;
+        if (belowZ !== undefined && h.point.z > belowZ + 0.01) continue;
+        if (best === null || h.point.z > best) best = h.point.z;
+      }
+      return best;
+    };
+    registerSurfaceProbe(probe);
+    return () => registerSurfaceProbe(null);
+  }, [three, registerSurfaceProbe]);
+  return null;
+}
+
 /** Blender's "orbit around selection": while enabled, selecting an object
  *  re-pivots the orbit target to it (camera position untouched, so the view
  *  direction eases onto the new pivot without a jump-cut). */
@@ -2218,6 +2272,7 @@ export default function Viewer3D() {
         {/* zoomToCursor = Blender-style wheel zoom toward the pointer. */}
         <OrbitControls makeDefault target={[0, 0, 0]} zoomToCursor={viewport.zoomToCursor} />
         <OrbitSelectionPivot />
+        <SurfaceProbe />
         {/* Distance fog (Blender mist): far geometry fades into the background;
             range scales with the scene so it works in a room and on a campus. */}
         {viewport.fogEnabled && (

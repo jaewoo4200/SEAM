@@ -106,9 +106,23 @@ function draftFromDevice(d: Device): DeviceDraft {
 function DeviceCard({ device }: { device: Device }) {
   const updateDevice = useAppStore((s) => s.updateDevice);
   const deleteDevice = useAppStore((s) => s.deleteDevice);
+  const surfaceZAt = useAppStore((s) => s.surfaceZAt);
   const busy = useAppStore((s) => s.busy);
   const [draft, setDraft] = useState<DeviceDraft>(() => draftFromDevice(device));
   const [err, setErr] = useState<string | null>(null);
+  const [aglDraft, setAglDraft] = useState("");
+
+  // Live height-above-surface for the DRAFT position: raycast straight down
+  // from (x, y) onto the scene mesh below the device (RX -> terrain, TX ->
+  // the rooftop it stands on). null = no surface there / viewer not mounted.
+  const dx = Number(draft.x);
+  const dy = Number(draft.y);
+  const dz = Number(draft.z);
+  const surfaceZ =
+    Number.isFinite(dx) && Number.isFinite(dy) && Number.isFinite(dz)
+      ? surfaceZAt(dx, dy, dz)
+      : null;
+  const agl = surfaceZ !== null && Number.isFinite(dz) ? dz - surfaceZ : null;
 
   // Reset the form when a different device is selected or the device changes.
   useEffect(() => {
@@ -184,6 +198,13 @@ function DeviceCard({ device }: { device: Device }) {
         </span>
       </Row>
       {device.name && <Row label="Name">{device.name}</Row>}
+      {agl !== null && (
+        <Row label="Above surface">
+          <span className="mono" title="height over the mesh directly below (terrain or rooftop)">
+            {agl.toFixed(2)} m
+          </span>
+        </Row>
+      )}
 
       <div className="mat-editor" style={{ marginTop: 10 }}>
         <h4>Edit device</h4>
@@ -200,6 +221,33 @@ function DeviceCard({ device }: { device: Device }) {
           {numInput("x", "X (m)", 0.1, POS_HINT)}
           {numInput("y", "Y (m)", 0.1, POS_HINT)}
           {numInput("z", "Z (m)", 0.1, POS_HINT)}
+          <label
+            title={
+              "Height above the scene surface directly below (X, Y): terrain " +
+              "for a ground device, the rooftop for one placed on a building. " +
+              "Type a height and press Enter (or blur) to set Z = surface + height."
+            }
+          >
+            Above surface (m)
+            <input
+              type="number"
+              step={0.1}
+              placeholder={agl !== null ? agl.toFixed(2) : "no surface below"}
+              value={aglDraft}
+              disabled={disabled || surfaceZ === null}
+              onChange={(e) => setAglDraft(e.target.value)}
+              onBlur={() => {
+                const h = Number(aglDraft);
+                if (aglDraft.trim() !== "" && Number.isFinite(h) && surfaceZ !== null) {
+                  setDraft({ ...draft, z: String(Number((surfaceZ + h).toFixed(3))) });
+                }
+                setAglDraft("");
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+              }}
+            />
+          </label>
           {device.kind === "tx" && numInput("power_dbm", "Power (dBm)", 1)}
           <label>
             Antenna pattern

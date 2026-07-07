@@ -514,6 +514,13 @@ interface AppState {
    *  mesh with that name is not in the live scene. */
   registerAgentCapture: (fn: ((meshName: string) => AgentView[]) | null) => void;
   captureAgentViews: (meshName: string) => AgentView[];
+  /** Viewer3D registers a downward surface probe: highest walkable scene
+   *  surface at (x, y) with z <= belowZ (device AGL readouts). null = no
+   *  surface there / viewer not mounted. */
+  registerSurfaceProbe: (
+    fn: ((x: number, y: number, belowZ?: number) => number | null) | null,
+  ) => void;
+  surfaceZAt: (x: number, y: number, belowZ?: number) => number | null;
 
   dismissError: () => void;
   dismissNotice: () => void;
@@ -828,6 +835,8 @@ export const useAppStore = create<AppState>()((set, get) => {
   let multiViewCapture: (() => string[]) | null = null;
   // SEAM-Agent multi-view + tri-id capture fn, registered by Viewer3D.
   let agentCapture: ((meshName: string) => AgentView[]) | null = null;
+  let surfaceProbe: ((x: number, y: number, belowZ?: number) => number | null) | null =
+    null;
   // Cancelable handle for the active agent-trace poll loop (2.5s interval).
   let agentPollTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -2365,6 +2374,11 @@ export const useAppStore = create<AppState>()((set, get) => {
       if (shots.length > 0) set({ lastViewportShot: shots[0] });
       return shots;
     },
+
+    registerSurfaceProbe: (fn) => {
+      surfaceProbe = fn;
+    },
+    surfaceZAt: (x, y, belowZ) => (surfaceProbe ? surfaceProbe(x, y, belowZ) : null),
 
     registerAgentCapture: (fn) => {
       agentCapture = fn;
