@@ -748,7 +748,7 @@ function PrimCard({ prim }: { prim: Prim }) {
 
       {/* Multi-material split: only for prims backed by a texture atlas (the
           mask sources classify texels / render tiles from that texture). */}
-      {prim.visual?.base_color_texture && <SegmentationPanel prim={prim} />}
+      {prim.mesh_ref && <SegmentationPanel prim={prim} />}
 
       {primIssues.length > 0 && (
         <div className="insp-issues">

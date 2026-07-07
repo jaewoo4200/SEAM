@@ -31,8 +31,10 @@ const MASK_SOURCES: { value: MaskSource; label: string; hint: string }[] = [
 
 const TILE_COUNTS = [16, 36, 64];
 
-/** "Split by material…" tools for the selected prim (rendered inside PrimCard,
- *  gated by the caller on prim.visual.base_color_texture). */
+/** Mesh-splitting tools for the selected prim (rendered inside PrimCard):
+ *  "Split by material…" (needs a texture atlas) and "Split into connected
+ *  parts…" (any mesh — breaks a merged multi-building blob into per-part
+ *  prims that inherit the source RF binding). */
 export default function SegmentationPanel({ prim }: { prim: Prim }) {
   const materials = useAppStore((s) => s.materials);
   const busy = useAppStore((s) => s.busy);
@@ -42,10 +44,14 @@ export default function SegmentationPanel({ prim }: { prim: Prim }) {
   const lastSegApply = useAppStore((s) => s.lastSegApply);
   const runPreview = useAppStore((s) => s.runSegmentationPreview);
   const applySeg = useAppStore((s) => s.applySegmentation);
+  const doSplitParts = useAppStore((s) => s.splitParts);
   const undoSeg = useAppStore((s) => s.undoSegmentation);
   const clearSeg = useAppStore((s) => s.clearSegPreview);
 
+  const hasTexture = Boolean(prim.visual?.base_color_texture);
   const [open, setOpen] = useState(false);
+  const [partsOpen, setPartsOpen] = useState(false);
+  const [minFaces, setMinFaces] = useState(200);
   const [maskSource, setMaskSource] = useState<MaskSource>("color_heuristic");
   const [flipV, setFlipV] = useState(true);
   const [tileCount, setTileCount] = useState(64);
@@ -103,15 +109,17 @@ export default function SegmentationPanel({ prim }: { prim: Prim }) {
 
   return (
     <div className="seg-section" style={{ marginTop: 12 }}>
-      <button
-        className={"seg-expander" + (open ? " open" : "")}
-        onClick={() => setOpen((o) => !o)}
-        title="Split this textured mesh into per-material sub-prims"
-      >
-        {open ? "▾" : "▸"} Split by material…
-      </button>
+      {hasTexture && (
+        <button
+          className={"seg-expander" + (open ? " open" : "")}
+          onClick={() => setOpen((o) => !o)}
+          title="Split this textured mesh into per-material sub-prims"
+        >
+          {open ? "▾" : "▸"} Split by material…
+        </button>
+      )}
 
-      {open && (
+      {hasTexture && open && (
         <div className="seg-body">
           {/* Mask source */}
           <div className="seg-sources">
@@ -306,6 +314,60 @@ export default function SegmentationPanel({ prim }: { prim: Prim }) {
                     {id}
                   </span>
                 ))}
+              </div>
+              <button
+                className="on-reject"
+                disabled={disabled}
+                onClick={() => void undoSeg(lastSegApply.batchId)}
+              >
+                Undo split
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Connected-parts split: any mesh, no texture needed. Breaks a merged
+          multi-building blob into per-part prims (RF binding inherited). */}
+      <button
+        className={"seg-expander" + (partsOpen ? " open" : "")}
+        onClick={() => setPartsOpen((o) => !o)}
+        title="Split a merged mesh into its connected components (one prim per part)"
+      >
+        {partsOpen ? "▾" : "▸"} Split into connected parts…
+      </button>
+      {partsOpen && (
+        <div className="seg-body">
+          <p className="hint">
+            City exports often merge many buildings into one mesh; this breaks
+            it into disconnected pieces. Parts smaller than the face threshold
+            pool into a single &quot;rest&quot; prim. New prims inherit this
+            prim&apos;s RF material and texture; undo is available after.
+          </p>
+          <label className="solver-field">
+            <span className="solver-field-label">Min faces / part</span>
+            <input
+              type="number"
+              min={1}
+              step={50}
+              value={minFaces}
+              disabled={disabled}
+              onChange={(e) => setMinFaces(Math.max(1, Number(e.target.value) || 1))}
+            />
+          </label>
+          <div className="panel-actions">
+            <button
+              className="primary"
+              disabled={disabled || !projectId}
+              onClick={() => void doSplitParts(prim.id, minFaces)}
+            >
+              Split into parts
+            </button>
+          </div>
+          {applyHere && lastSegApply && (
+            <div className="seg-applied">
+              <div className="seg-applied-note">
+                ✓ Last split made {lastSegApply.addedPrimIds.length} prim(s)
               </div>
               <button
                 className="on-reject"

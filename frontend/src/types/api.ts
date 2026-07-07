@@ -989,6 +989,22 @@ export interface SegmentationApplyResponse {
   batch_id: string;
 }
 
+export interface SplitPartsRequest {
+  prim_id: string;
+  // Components below min_faces (and beyond the max_parts largest) pool into
+  // one "rest" sub-mesh; new prims inherit the source RF binding verbatim.
+  min_faces?: number;
+  max_parts?: number;
+}
+
+export interface SplitPartsResponse {
+  added_prim_ids: string[];
+  removed_prim_id: string;
+  backup_glb: string;
+  batch_id: string;
+  part_face_counts: Record<string, number>;
+}
+
 export interface SegmentationUndoRequest {
   batch_id: string;
 }

@@ -23,6 +23,8 @@ from app.schemas.segmentation import (
     SegmentationPreviewResponse,
     SegmentationUndoRequest,
     SegmentationUndoResponse,
+    SplitPartsRequest,
+    SplitPartsResponse,
 )
 from app.services import material_segmentation as seg
 
@@ -176,6 +178,40 @@ def segmentation_apply(
         backup_glb=info["backup_glb"],
         batch_id=info["batch_id"],
     )
+
+
+@router.post(
+    "/projects/{project_id}/segmentation/split-parts",
+    response_model=SplitPartsResponse,
+)
+def segmentation_split_parts(
+    project_id: str, request: SplitPartsRequest
+) -> SplitPartsResponse:
+    """Split a merged mesh into connected components (per-building prims)."""
+    store = get_store()
+    scene = load_scene_or_404(store, project_id)
+    project_dir = store.resolve(project_id)
+    try:
+        scene, info = seg.split_connected_parts(
+            project_dir,
+            scene,
+            request.prim_id,
+            min_faces=request.min_faces,
+            max_parts=request.max_parts,
+        )
+    except seg.SegmentationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    store.save_scene(project_id, scene)
+    store.append_provenance(
+        project_id,
+        {
+            "type": "segmentation_split_parts",
+            "prim_id": request.prim_id,
+            "added_prim_ids": info["added_prim_ids"],
+            "backup_glb": info["backup_glb"],
+        },
+    )
+    return SplitPartsResponse(**info)
 
 
 @router.post(

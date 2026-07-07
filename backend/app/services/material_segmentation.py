@@ -240,34 +240,42 @@ def assign_face_materials(mesh, labels, flip_v: bool = True):
     return labels[y, x]
 
 
-def split_by_face_material(mesh, face_materials) -> dict[str, "object"]:
-    """One sub-mesh per non-empty material class; strict partition.
+def _subset_mesh(mesh, face_indices):
+    """Sub-mesh of the given faces, vertices re-indexed, visuals carried.
 
-    Vertices are re-indexed per split (np.unique inverse); UVs and the texture
-    material ride along so split prims keep their photo texture in the viewer
-    and AI evidence crops keep working per region.
+    UVs + texture material ride along when present so split prims keep their
+    photo texture in the viewer (and AI evidence crops keep working per
+    region); untextured meshes keep plain geometry.
     """
     import numpy as np
     import trimesh
 
-    uv = np.asarray(mesh.visual.uv)
-    material = getattr(mesh.visual, "material", None)
+    faces_global = mesh.faces[face_indices]
+    used, inverse = np.unique(faces_global.ravel(), return_inverse=True)
+    sub = trimesh.Trimesh(
+        vertices=mesh.vertices[used],
+        faces=inverse.reshape(-1, 3),
+        process=False,
+    )
+    uv = getattr(mesh.visual, "uv", None)
+    if uv is not None and len(uv) == len(mesh.vertices):
+        sub.visual = trimesh.visual.texture.TextureVisuals(
+            uv=np.asarray(uv)[used],
+            material=getattr(mesh.visual, "material", None),
+        )
+    return sub
+
+
+def split_by_face_material(mesh, face_materials) -> dict[str, "object"]:
+    """One sub-mesh per non-empty material class; strict partition."""
+    import numpy as np
+
     out: dict[str, object] = {}
     for mat in DEFAULT_MATERIALS:
         sel = np.nonzero(face_materials == mat.id)[0]
         if len(sel) == 0:
             continue
-        faces_global = mesh.faces[sel]
-        used, inverse = np.unique(faces_global.ravel(), return_inverse=True)
-        sub = trimesh.Trimesh(
-            vertices=mesh.vertices[used],
-            faces=inverse.reshape(-1, 3),
-            process=False,
-        )
-        sub.visual = trimesh.visual.texture.TextureVisuals(
-            uv=uv[used], material=material
-        )
-        out[mat.name] = sub
+        out[mat.name] = _subset_mesh(mesh, sel)
     total = sum(len(m.faces) for m in out.values())
     if total != len(mesh.faces):  # pragma: no cover - partition invariant
         raise SegmentationError(
@@ -279,22 +287,11 @@ def split_by_face_material(mesh, face_materials) -> dict[str, "object"]:
 # ---------------------------------------------------------------- orchestration
 
 
-def _resolve_textured_prim(project_dir: Path, scene: Scene, prim_id: str):
-    """(prim, trimesh geometry, PIL texture) for a textured, UV-carrying prim."""
-    from PIL import Image
-
+def _resolve_prim_geometry(project_dir: Path, scene: Scene, prim_id: str):
+    """(prim, trimesh geometry) for any mesh prim (no texture requirement)."""
     prim = scene.prim_by_id(prim_id)
     if prim is None or prim.mesh_ref is None:
         raise SegmentationError(f"prim not found or has no mesh: {prim_id}")
-    tex_rel = prim.visual.base_color_texture if prim.visual else None
-    if not tex_rel:
-        raise SegmentationError(
-            f"prim {prim_id} has no persisted texture (visual.base_color_texture); "
-            "segmentation needs the original texture atlas"
-        )
-    tex_path = (project_dir / tex_rel).resolve()
-    if not tex_path.is_file() or not tex_path.is_relative_to(project_dir.resolve()):
-        raise SegmentationError(f"texture file missing: {tex_rel}")
     tm_scene = mesh_tools.load_visual_scene(project_dir, prim.mesh_ref.asset_uri)
     if tm_scene is None:
         raise SegmentationError("visual scene GLB could not be loaded")
@@ -308,6 +305,23 @@ def _resolve_textured_prim(project_dir: Path, scene: Scene, prim_id: str):
                 break
     if geom is None:
         raise SegmentationError(f"mesh {prim.mesh_ref.mesh_name} not found in GLB")
+    return prim, geom
+
+
+def _resolve_textured_prim(project_dir: Path, scene: Scene, prim_id: str):
+    """(prim, trimesh geometry, PIL texture) for a textured, UV-carrying prim."""
+    from PIL import Image
+
+    prim, geom = _resolve_prim_geometry(project_dir, scene, prim_id)
+    tex_rel = prim.visual.base_color_texture if prim.visual else None
+    if not tex_rel:
+        raise SegmentationError(
+            f"prim {prim_id} has no persisted texture (visual.base_color_texture); "
+            "segmentation needs the original texture atlas"
+        )
+    tex_path = (project_dir / tex_rel).resolve()
+    if not tex_path.is_file() or not tex_path.is_relative_to(project_dir.resolve()):
+        raise SegmentationError(f"texture file missing: {tex_rel}")
     if getattr(geom.visual, "uv", None) is None:
         raise SegmentationError(f"mesh {prim.mesh_ref.mesh_name} has no UVs")
     img = Image.open(tex_path)
@@ -426,10 +440,60 @@ def apply_split(
             "mask assigns every face to one material; nothing to split"
         )
 
+    def make_prim(cls_name: str, node: str) -> Prim:
+        mat = _BY_NAME[cls_name]
+        return Prim(
+            id=f"{prim.id}_{cls_name}",
+            name=f"{prim.name}_{cls_name}",
+            type="mesh_primitive",
+            semantic_tags=[cls_name],
+            mesh_ref=MeshRef(
+                asset_uri=prim.mesh_ref.asset_uri, mesh_name=node, face_group=None
+            ),
+            visual=VisualBinding(
+                material_name=f"segmentation:{cls_name}",
+                base_color_rgba=[c / 255 for c in mat.color_rgb] + [1.0],
+                base_color_texture=(
+                    prim.visual.base_color_texture if prim.visual else None
+                ),
+            ),
+            rf=RFBinding(
+                material_id=mat.rf_material_id,
+                assignment_status="rule_suggested",
+                assignment_sources=[f"segmentation:{mask_path.parent.name}"],
+                confidence=0.5,
+            ),
+        )
+
+    return _bake_submeshes(
+        project_dir,
+        scene,
+        prim,
+        submeshes,
+        batch=mask_path.parent.name,
+        make_prim=make_prim,
+        undo_extra={"mask_ref": mask_ref, "flip_v": flip_v},
+    )
+
+
+def _bake_submeshes(
+    project_dir: Path,
+    scene: Scene,
+    prim: Prim,
+    submeshes: dict[str, "object"],
+    batch: str,
+    make_prim,
+    undo_extra: Optional[dict] = None,
+) -> tuple[Scene, dict]:
+    """Rewrite the GLB (source mesh -> named sub-meshes) and swap the prims.
+
+    Shared by the material split and the connected-parts split: backs up the
+    prior GLB (visual/scene.pre-split-<batch>.glb), writes undo.json under
+    ai/segmentation/<batch>/, and returns (updated scene, summary info).
+    """
     uri = prim.mesh_ref.asset_uri
     tm_scene = mesh_tools.load_visual_scene(project_dir, uri)
     mesh_name = prim.mesh_ref.mesh_name
-    # Replace the source geometry with the per-material splits.
     if mesh_name in tm_scene.geometry:
         tm_scene.delete_geometry(mesh_name)
     new_names: dict[str, str] = {}
@@ -439,7 +503,6 @@ def apply_split(
         new_names[cls_name] = node
 
     glb_path = project_dir / uri
-    batch = mask_path.parent.name
     backup = project_dir / "visual" / f"scene.pre-split-{batch}.glb"
     backup.parent.mkdir(parents=True, exist_ok=True)
     backup.write_bytes(glb_path.read_bytes())
@@ -447,50 +510,114 @@ def apply_split(
     # load_visual_scene reads fresh per call and terrain's cache keys on
     # mtime, so the rewritten GLB is picked up without explicit invalidation.
 
-    # Scene prims: remove the source, add one prim per material region.
     removed = prim.model_dump(mode="json")
-    scene.prims = [p for p in scene.prims if p.id != prim_id]
+    scene.prims = [p for p in scene.prims if p.id != prim.id]
     added_ids: list[str] = []
     for cls_name, node in new_names.items():
-        mat = _BY_NAME[cls_name]
-        new_id = f"{prim.id}_{cls_name}"
-        added_ids.append(new_id)
-        scene.prims.append(
-            Prim(
-                id=new_id,
-                name=f"{prim.name}_{cls_name}",
-                type="mesh_primitive",
-                semantic_tags=[cls_name],
-                mesh_ref=MeshRef(asset_uri=uri, mesh_name=node, face_group=None),
-                visual=VisualBinding(
-                    material_name=f"segmentation:{cls_name}",
-                    base_color_rgba=[c / 255 for c in mat.color_rgb] + [1.0],
-                    base_color_texture=(
-                        prim.visual.base_color_texture if prim.visual else None
-                    ),
-                ),
-                rf=RFBinding(
-                    material_id=mat.rf_material_id,
-                    assignment_status="rule_suggested",
-                    assignment_sources=[f"segmentation:{batch}"],
-                    confidence=0.5,
-                ),
-            )
-        )
+        new_prim = make_prim(cls_name, node)
+        added_ids.append(new_prim.id)
+        scene.prims.append(new_prim)
+
+    batch_dir = project_dir / "ai" / "segmentation" / batch
+    batch_dir.mkdir(parents=True, exist_ok=True)
     undo = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "removed_prim": removed,
         "added_prim_ids": added_ids,
         "backup_glb": f"visual/{backup.name}",
-        "mask_ref": mask_ref,
-        "flip_v": flip_v,
+        **(undo_extra or {}),
     }
-    (mask_path.parent / "undo.json").write_text(json.dumps(undo, indent=2), encoding="utf-8")
+    (batch_dir / "undo.json").write_text(json.dumps(undo, indent=2), encoding="utf-8")
     info = {
         "added_prim_ids": added_ids,
-        "removed_prim_id": prim_id,
+        "removed_prim_id": prim.id,
         "backup_glb": f"visual/{backup.name}",
         "batch_id": batch,
+    }
+    return scene, info
+
+
+def split_connected_parts(
+    project_dir: Path,
+    scene: Scene,
+    prim_id: str,
+    min_faces: int = 200,
+    max_parts: int = 64,
+) -> tuple[Scene, dict]:
+    """Split a merged multi-building mesh into its connected components.
+
+    City exports often concatenate many buildings into ONE mesh; per-building
+    prims are what material assignment (and per-region segmentation) need.
+    Components are found over face adjacency; parts below ``min_faces`` (and
+    everything beyond the ``max_parts`` largest) are pooled into a single
+    ``rest`` sub-mesh so street furniture cannot explode into thousands of
+    prims. Every new prim inherits the source prim's RF binding and texture.
+    """
+    import numpy as np
+    import trimesh
+
+    prim, geom = _resolve_prim_geometry(project_dir, scene, prim_id)
+    labels = trimesh.graph.connected_component_labels(
+        geom.face_adjacency, node_count=len(geom.faces)
+    )
+    ids, counts = np.unique(labels, return_counts=True)
+    if len(ids) < 2:
+        raise SegmentationError(
+            "mesh is a single connected component; nothing to split"
+        )
+    order = np.argsort(-counts)
+    keep = [
+        int(ids[i])
+        for i in order
+        if counts[i] >= min_faces
+    ][: max_parts - 1]
+    if not keep:
+        raise SegmentationError(
+            f"no connected component reaches min_faces={min_faces}; "
+            "lower the threshold"
+        )
+    submeshes: dict[str, object] = {}
+    kept_mask = np.isin(labels, keep)
+    for n, comp in enumerate(keep):
+        submeshes[f"part_{n:02d}"] = _subset_mesh(
+            geom, np.nonzero(labels == comp)[0]
+        )
+    rest_idx = np.nonzero(~kept_mask)[0]
+    if len(rest_idx):
+        submeshes["rest"] = _subset_mesh(geom, rest_idx)
+    if len(submeshes) < 2:
+        raise SegmentationError(
+            "split produced a single part; nothing to gain"
+        )
+
+    batch, _out_dir = _batch_dir(project_dir)
+
+    def make_prim(cls_name: str, node: str) -> Prim:
+        return Prim(
+            id=f"{prim.id}_{cls_name}",
+            name=f"{prim.name}_{cls_name}",
+            type="mesh_primitive",
+            semantic_tags=list(prim.semantic_tags),
+            mesh_ref=MeshRef(
+                asset_uri=prim.mesh_ref.asset_uri, mesh_name=node, face_group=None
+            ),
+            # Parts inherit the source prim's look and RF binding verbatim -
+            # this split changes granularity, not assignments.
+            visual=prim.visual.model_copy(deep=True) if prim.visual else None,
+            rf=prim.rf.model_copy(deep=True),
+        )
+
+    scene, info = _bake_submeshes(
+        project_dir,
+        scene,
+        prim,
+        submeshes,
+        batch=batch,
+        make_prim=make_prim,
+        undo_extra={"split": "connected_parts", "min_faces": min_faces},
+    )
+    info["part_face_counts"] = {
+        name: int(len(sub.faces)) for name, sub in submeshes.items()
     }
     return scene, info
 

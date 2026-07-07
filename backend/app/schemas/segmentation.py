@@ -75,6 +75,27 @@ class SegmentationApplyResponse(StrictModel):
     batch_id: str
 
 
+class SplitPartsRequest(StrictModel):
+    """Split a merged multi-building mesh into its connected components.
+
+    Parts below ``min_faces`` (and beyond the ``max_parts`` largest) pool into
+    one ``rest`` sub-mesh. New prims inherit the source prim's RF binding and
+    texture verbatim; undo works via the returned batch_id like any split.
+    """
+
+    prim_id: str
+    min_faces: int = Field(default=200, ge=1, le=1_000_000)
+    max_parts: int = Field(default=64, ge=2, le=256)
+
+
+class SplitPartsResponse(StrictModel):
+    added_prim_ids: list[str]
+    removed_prim_id: str
+    backup_glb: str
+    batch_id: str
+    part_face_counts: dict[str, int]
+
+
 class SegmentationUndoRequest(StrictModel):
     batch_id: str
 

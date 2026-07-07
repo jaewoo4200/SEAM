@@ -348,6 +348,9 @@ interface AppState {
   /** Physically bake the current preview's split into the visual GLB, refresh
    *  the scene + GLB, remember the batch for undo, and clear segPreview. */
   applySegmentation: () => Promise<void>;
+  /** Split a merged multi-building mesh into its connected components (one
+   *  prim per part, RF binding/texture inherited); undo via the batch. */
+  splitParts: (primId: string, minFaces: number) => Promise<void>;
   /** Reverse an applied split (restores the source prim + GLB backup). */
   undoSegmentation: (batchId: string) => Promise<void>;
   /** Drop the active preview (Cancel); the 3D tint + overlay clear. */
@@ -1727,6 +1730,34 @@ export const useAppStore = create<AppState>()((set, get) => {
         await revalidateIfOpen();
       });
       // New geometry: invalidate stale results and fire enabled auto-recomputes.
+      afterSceneEdit();
+    },
+
+    splitParts: async (primId, minFaces) => {
+      const pid = get().projectId;
+      if (!pid) return;
+      await run("Splitting into connected parts…", async () => {
+        const resp = await api.splitParts(pid, {
+          prim_id: primId,
+          min_faces: minFaces,
+        });
+        // Same GLB-rewrite semantics as the material split: refresh the scene
+        // and bump glbEpoch so the viewer reloads past useGLTF's URL cache.
+        await refetchSceneInner();
+        set({
+          lastSegApply: {
+            batchId: resp.batch_id,
+            primId,
+            addedPrimIds: resp.added_prim_ids,
+          },
+          glbEpoch: get().glbEpoch + 1,
+          selection: get().selection.filter((id) => id !== resp.removed_prim_id),
+          notice:
+            `Split ${resp.removed_prim_id} into ${resp.added_prim_ids.length} part(s): ` +
+            resp.added_prim_ids.join(", "),
+        });
+        await revalidateIfOpen();
+      });
       afterSceneEdit();
     },
 

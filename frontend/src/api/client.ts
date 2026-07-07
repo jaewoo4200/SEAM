@@ -57,6 +57,8 @@ import type {
   SegmentationUndoRequest,
   SegmentationUndoResponse,
   SimulateRequest,
+  SplitPartsRequest,
+  SplitPartsResponse,
   SuggestMaterialsRequest,
   TrajectoryResultSet,
   TrajectorySimulateRequest,
@@ -194,6 +196,8 @@ export const api = {
     postForm<MaskUploadResponse>(`/projects/${pid}/segmentation/upload-mask`, form),
   applySegmentation: (pid: string, req: SegmentationApplyRequest) =>
     request<SegmentationApplyResponse>("POST", `/projects/${pid}/segmentation/apply`, req),
+  splitParts: (pid: string, req: SplitPartsRequest) =>
+    request<SplitPartsResponse>("POST", `/projects/${pid}/segmentation/split-parts`, req),
   undoSegmentation: (pid: string, req: SegmentationUndoRequest) =>
     request<SegmentationUndoResponse>("POST", `/projects/${pid}/segmentation/undo`, req),
 
