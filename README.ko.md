@@ -19,11 +19,12 @@ Unified RF-Visual Scene Graph          (scene.sionnatwin.json - source of truth)
 ```
 
 ![한양대 캠퍼스 디지털 트윈 — 항공 텍스처 임포트 렌더](website/assets/hero_campus.jpg)
+*한양대 캠퍼스 트윈 — 드론/항공 텍스처 임포트를 연속 지형 위에, SEAM Studio 렌더.*
 
 | | |
 |---|---|
-| ![Sionna RT 레이트레이싱 — LOS와 반사 경로가 씬 위에 표시](website/assets/rays_demo.jpg) | ![캠퍼스 정사 뷰](website/assets/campus_top.jpg) |
-| ![Sample Demo — TX/RX 배치와 지표고도 편집](website/assets/sample_demo.jpg) | ![SEAM-Agent 멀티뷰 캡처 (드론 매핑 FTC 건물)](website/assets/ftc_building.jpg) |
+| ![Sionna RT 레이트레이싱 — LOS와 반사 경로가 씬 위에 표시](website/assets/rays_demo.jpg)<br>**Sionna RT 레이트레이싱** — TX 1기·RX 2기 사이 39개 경로(LOS 시안 · 반사 마젠타), 실제 Sionna 백엔드 솔브. | ![캠퍼스 정사 뷰](website/assets/campus_top.jpg)<br>**캠퍼스 트윈 정사 뷰** — 연속 지형 위 항공 텍스처, 뷰 스냅(1/3/7)과 무한 그리드. |
+| ![Sample Demo — TX/RX 배치와 지표고도 편집](website/assets/sample_demo.jpg)<br>**Sample Demo** — TX/RX 배치와 지표고도(AGL) 편집, Mock 백엔드만으로 동작하는 튜토리얼 씬. | ![SEAM-Agent 멀티뷰 캡처 (드론 매핑 FTC 건물)](website/assets/ftc_building.jpg)<br>**드론 매핑 FTC 건물** — SEAM-Agent가 추론에 쓰는 직교 멀티뷰 캡처. |
 
 ---
 

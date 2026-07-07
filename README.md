@@ -20,11 +20,12 @@ Unified RF-Visual Scene Graph          (scene.sionnatwin.json - source of truth)
 ```
 
 ![Hanyang University campus digital twin — aerial-textured import render](website/assets/hero_campus.jpg)
+*The Hanyang University campus twin — a drone/aerial-textured import on continuous terrain, rendered in SEAM Studio.*
 
 | | |
 |---|---|
-| ![Sionna RT ray tracing — LOS and reflection paths drawn on the scene](website/assets/rays_demo.jpg) | ![Top-down orthographic campus view](website/assets/campus_top.jpg) |
-| ![Sample demo — TX/RX placement with height-above-surface editing](website/assets/sample_demo.jpg) | ![SEAM-Agent multi-view capture of a drone-mapped building](website/assets/ftc_building.jpg) |
+| ![Sionna RT ray tracing — LOS and reflection paths drawn on the scene](website/assets/rays_demo.jpg)<br>**Sionna RT ray tracing** — 39 paths between one TX and two RXs (LOS cyan · reflections magenta), solved by the real Sionna backend. | ![Top-down orthographic campus view](website/assets/campus_top.jpg)<br>**Campus twin, top-down** — aerial textures on continuous terrain, view snaps (1/3/7) and an infinite grid. |
+| ![Sample demo — TX/RX placement with height-above-surface editing](website/assets/sample_demo.jpg)<br>**Sample Demo** — TX/RX placement and height-above-surface (AGL) editing; runs on the Mock backend alone. | ![SEAM-Agent multi-view capture of a drone-mapped building](website/assets/ftc_building.jpg)<br>**Drone-mapped FTC building** — the orthographic multi-view capture that SEAM-Agent reasons over. |
 
 ---
 
