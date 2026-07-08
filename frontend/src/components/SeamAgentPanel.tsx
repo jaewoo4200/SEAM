@@ -23,6 +23,17 @@ const STEP_ICON: Record<"running" | "done" | "error", string> = {
   error: "✕",
 };
 
+/** Human labels for the pipeline stages reported in trace.progress. */
+const STAGE_LABEL: Record<string, string> = {
+  inspect: "inspecting mesh",
+  decode: "decoding views",
+  retrieve: "gathering web evidence",
+  views: "analyzing views",
+  refine: "refining low-confidence regions",
+  aggregate: "aggregating votes",
+  segments: "building segments",
+};
+
 function StepIcon({ status }: { status: "running" | "done" | "error" }) {
   return (
     <span className={"agent-step-icon agent-step-" + status} aria-hidden>
@@ -73,6 +84,7 @@ export default function SeamAgentPanel({ prim }: { prim: Prim }) {
   const startAgentJob = useAppStore((s) => s.startAgentJob);
   const applyAgentSegments = useAppStore((s) => s.applyAgentSegments);
   const clearAgentJob = useAppStore((s) => s.clearAgentJob);
+  const cancelAgentJob = useAppStore((s) => s.cancelAgentJob);
   const undoSeg = useAppStore((s) => s.undoSegmentation);
 
   const [open, setOpen] = useState(false);
@@ -88,6 +100,9 @@ export default function SeamAgentPanel({ prim }: { prim: Prim }) {
   const [elapsed, setElapsed] = useState(0);
 
   const traceRef = useRef<HTMLDivElement>(null);
+  // Stick-to-bottom auto-scroll: follow new steps unless the user scrolled up
+  // to read something (resumes once they return near the bottom).
+  const stickRef = useRef(true);
 
   const disabled = busy !== null;
   // A job/trace belongs to a specific prim; only surface it on that prim's card.
@@ -115,11 +130,12 @@ export default function SeamAgentPanel({ prim }: { prim: Prim }) {
     return () => clearInterval(t);
   }, [startedAt, running]);
 
-  // Auto-scroll the activity trace to the latest step as steps stream in.
+  // Auto-scroll the activity trace to the latest step as steps stream in
+  // (only while the user hasn't scrolled up to read earlier steps).
   const stepCount = traceHere?.steps.length ?? 0;
   useEffect(() => {
     const el = traceRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (el && stickRef.current) el.scrollTop = el.scrollHeight;
   }, [stepCount, traceHere?.steps]);
 
   // Seed the accept checkboxes once per job's segment set (default-check by
@@ -202,9 +218,19 @@ export default function SeamAgentPanel({ prim }: { prim: Prim }) {
             <button className="primary" disabled={runDisabled} onClick={doRun}>
               {running ? "Running…" : "Run agent"}
             </button>
-            {jobHere && (
+            {jobHere && running && (
+              <button
+                className="on-reject"
+                disabled={disabled}
+                onClick={() => void cancelAgentJob()}
+                title="Ask the agent to stop at the next step (the trace settles as cancelled)"
+              >
+                ■ Stop
+              </button>
+            )}
+            {jobHere && !running && (
               <button disabled={disabled} onClick={() => clearAgentJob()}>
-                {running ? "Stop" : "Clear"}
+                Clear
               </button>
             )}
           </div>
@@ -228,8 +254,47 @@ export default function SeamAgentPanel({ prim }: { prim: Prim }) {
                 )}
               </div>
 
+              {/* Live progress: stage + measured ETA from the backend. */}
+              {running && traceHere?.progress && (
+                <div className="agent-progress">
+                  <div className="agent-progress-bar">
+                    <span
+                      style={{
+                        width: `${(() => {
+                          const p = traceHere.progress!;
+                          const total = p.total_stages || 7;
+                          const idx = Math.max((p.stage_index || 1) - 1, 0);
+                          const inStage =
+                            p.stage === "views" && (p.views_total ?? 0) > 0
+                              ? (p.views_done ?? 0) / (p.views_total ?? 1)
+                              : 0;
+                          return Math.min(100, Math.round(((idx + inStage) / total) * 100));
+                        })()}%`,
+                      }}
+                    />
+                  </div>
+                  <span className="agent-progress-label">
+                    {STAGE_LABEL[traceHere.progress.stage] ?? traceHere.progress.stage}
+                    {traceHere.progress.stage === "views" &&
+                      (traceHere.progress.views_total ?? 0) > 0 &&
+                      ` ${traceHere.progress.views_done ?? 0}/${traceHere.progress.views_total}`}
+                    {traceHere.progress.eta_sec != null &&
+                      traceHere.progress.eta_sec > 0 &&
+                      ` · ~${Math.ceil(traceHere.progress.eta_sec)}s left`}
+                  </span>
+                </div>
+              )}
+
               {traceHere && traceHere.steps.length > 0 && (
-                <div className="agent-trace" ref={traceRef}>
+                <div
+                  className="agent-trace"
+                  ref={traceRef}
+                  onScroll={(e) => {
+                    const el = e.currentTarget;
+                    stickRef.current =
+                      el.scrollHeight - el.scrollTop - el.clientHeight < 24;
+                  }}
+                >
                   {traceHere.steps.map((step) => (
                     <div key={step.step_id} className="agent-step">
                       <StepIcon status={step.status} />
@@ -252,6 +317,31 @@ export default function SeamAgentPanel({ prim }: { prim: Prim }) {
 
               {running && (!traceHere || traceHere.steps.length === 0) && (
                 <p className="hint">Waiting for the agent to report activity…</p>
+              )}
+
+              {/* The captured renders the VLM reasoned over (click to open). */}
+              {projectId && traceHere && (traceHere.views?.length ?? 0) > 0 && (
+                <div className="agent-evidence">
+                  <div className="agent-subhead">Views the agent saw</div>
+                  <div className="agent-views-strip">
+                    {traceHere.views!.map((v) => (
+                      <img
+                        key={v.view_id}
+                        className="agent-view-thumb"
+                        src={api.assetUrl(projectId, v.asset_path)}
+                        alt={`captured view ${v.view_id}`}
+                        loading="lazy"
+                        onClick={() =>
+                          window.open(
+                            api.assetUrl(projectId, v.asset_path),
+                            "_blank",
+                            "noreferrer",
+                          )
+                        }
+                      />
+                    ))}
+                  </div>
+                </div>
               )}
 
               {/* Evidence cards */}
@@ -329,7 +419,27 @@ export default function SeamAgentPanel({ prim }: { prim: Prim }) {
                               />
                             </td>
                             <td title={altTitle}>
-                              {seg.semantic_label}
+                              <span className="agent-seg-label">
+                                {/* "Show me the faces you mean": tinted render
+                                    crop of exactly this segment's coverage. */}
+                                {seg.preview_asset_path && projectId && (
+                                  <img
+                                    className="agent-seg-preview"
+                                    src={api.assetUrl(projectId, seg.preview_asset_path)}
+                                    alt={`${seg.semantic_label} coverage preview`}
+                                    loading="lazy"
+                                    title="Click to open the full preview"
+                                    onClick={() =>
+                                      window.open(
+                                        api.assetUrl(projectId, seg.preview_asset_path!),
+                                        "_blank",
+                                        "noreferrer",
+                                      )
+                                    }
+                                  />
+                                )}
+                                {seg.semantic_label}
+                              </span>
                               {evThumbs.length > 0 && projectId && (
                                 <span className="agent-seg-thumbs">
                                   {evThumbs.slice(0, 3).map((e) => (
@@ -389,6 +499,12 @@ export default function SeamAgentPanel({ prim }: { prim: Prim }) {
 
               {settled && segments.length === 0 && (
                 <p className="hint">The agent returned no material segments.</p>
+              )}
+
+              {status === "cancelled" && (
+                <p className="hint">
+                  Stopped by request — nothing was applied. Run again anytime.
+                </p>
               )}
             </div>
           )}

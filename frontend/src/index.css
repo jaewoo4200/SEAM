@@ -3065,3 +3065,88 @@ button.picking {
   font-size: 11px;
   color: var(--muted);
 }
+
+/* SEAM-Agent v2: live progress bar + ETA under the trace head. */
+.agent-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 6px;
+}
+.agent-progress-bar {
+  flex: 1;
+  height: 6px;
+  background: var(--panel-3);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.agent-progress-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.4s ease;
+}
+.agent-progress-label {
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.agent-status-cancelled {
+  color: var(--muted);
+}
+
+/* Per-segment coverage preview (tinted render crop) in the proposal table. */
+.agent-seg-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.agent-seg-preview {
+  width: 44px;
+  height: 32px;
+  object-fit: cover;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  cursor: zoom-in;
+  flex: none;
+}
+
+/* Strip of the captured multi-view renders the VLM reasoned over. */
+.agent-views-strip {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.agent-view-thumb {
+  width: 64px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  cursor: zoom-in;
+}
+
+/* Sequential multi-building batch (AI Assist mode). */
+.agent-batch-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 12.5px;
+  border-bottom: 1px solid var(--border);
+}
+.agent-batch-item:last-child {
+  border-bottom: none;
+}
+.agent-batch-status {
+  font-family: "Cascadia Code", Consolas, monospace;
+  font-size: 11px;
+  min-width: 92px;
+}
+.agent-batch-status.st-queued { color: var(--muted); }
+.agent-batch-status.st-running { color: var(--accent); }
+.agent-batch-status.st-needs_review { color: #7bd88f; }
+.agent-batch-status.st-error { color: var(--danger, #e5534b); }
+.agent-batch-status.st-cancelled,
+.agent-batch-status.st-skipped { color: var(--muted); }

@@ -134,6 +134,38 @@ export interface LastSegApply {
   addedPrimIds: string[];
 }
 
+/** One building in a sequential SEAM-Agent batch run. */
+export interface AgentBatchItem {
+  primId: string;
+  meshName: string | null;
+  status:
+    | "queued"
+    | "running"
+    | "needs_review"
+    | "done"
+    | "error"
+    | "cancelled"
+    | "skipped";
+  jobId: string | null;
+  detail?: string;
+  /** Segment count once the job settles (quick review summary). */
+  segments?: number;
+}
+
+/** Snapshot of the RF bindings the last applyDecisions overwrote, for a
+ *  one-click revert (cleared on the next apply / project switch). */
+export interface LastDecisionApply {
+  items: {
+    primId: string;
+    prev: {
+      materialId: string | null;
+      status: string;
+      sources: string[];
+      confidence: number | null;
+    };
+  }[];
+}
+
 /** How the 3D viewer colors ray path polylines. */
 export type ColorBy = "type" | "power" | "depth";
 
@@ -305,6 +337,12 @@ interface AppState {
   /** Latest polled trace for the active job (live activity/steps/evidence/
    *  segments). Polled every 2.5s while status === "running". */
   agentTrace: AgentTrace | null;
+  /** Sequential multi-building agent run (one job at a time — the backend
+   *  enforces one live job per project). Null = no batch. */
+  agentBatch: { running: boolean; items: AgentBatchItem[] } | null;
+  /** Previous RF bindings of the prims changed by the last applyDecisions,
+   *  so approved AI suggestions can be reverted in one click. */
+  lastDecisionApply: LastDecisionApply | null;
 
   /** Destination of the last successful RFData export (null = none this
    *  session / project). Surfaced durably as a dismissible row so the path
@@ -407,6 +445,22 @@ interface AppState {
   applyAgentSegments: (segmentIds: string[]) => Promise<void>;
   /** Drop the active agent job + trace, cancel any in-flight poll. */
   clearAgentJob: () => void;
+  /** Request cooperative cancellation of the running agent job (the backend
+   *  stops at the next step boundary; the trace settles as "cancelled"). */
+  cancelAgentJob: () => Promise<void>;
+  /** Run the agent over several buildings SEQUENTIALLY (capture → start →
+   *  poll-to-settle per prim). Results stay reviewable per prim. */
+  runAgentBatch: (
+    primIds: string[],
+    opts: { userHint: string | null; allowWeb: boolean; model: string | null },
+  ) => Promise<void>;
+  /** Stop the batch: cancels the in-flight job and skips the queue rest. */
+  stopAgentBatch: () => void;
+  /** Re-open one settled batch item for review (selects the prim and loads
+   *  its persisted trace into the agent panel). */
+  reviewAgentBatchItem: (primId: string) => Promise<void>;
+  /** Restore the RF bindings recorded by the last applyDecisions. */
+  revertDecisions: () => Promise<void>;
 
   // viewport pick mode
   requestPick: (req: Omit<PickRequest, "id">) => number;
@@ -1042,6 +1096,8 @@ export const useAppStore = create<AppState>()((set, get) => {
 
     agentJob: null,
     agentTrace: null,
+    agentBatch: null,
+    lastDecisionApply: null,
 
     lastRfdataExport: null,
 
@@ -1166,10 +1222,12 @@ export const useAppStore = create<AppState>()((set, get) => {
           segJobProgress: null,
           lastSegApply: null,
           glbEpoch: 0,
-          // SEAM-Agent job/trace belong to one project's mesh; reset per open
-          // (any in-flight poll is stopped just below).
+          // SEAM-Agent job/trace/batch belong to one project's mesh; reset per
+          // open (any in-flight poll is stopped just below).
           agentJob: null,
           agentTrace: null,
+          agentBatch: null,
+          lastDecisionApply: null,
           // Fresh epoch per project; persisted results are epoch-0 (fresh).
           sceneEpoch: 0,
           resultEpochs: {},
@@ -1283,6 +1341,8 @@ export const useAppStore = create<AppState>()((set, get) => {
             sceneBounds: null,
             agentJob: null,
             agentTrace: null,
+            agentBatch: null,
+            lastDecisionApply: null,
             notice: `Deleted project ${pid} (no projects remaining)`,
           });
         }
@@ -1738,9 +1798,28 @@ export const useAppStore = create<AppState>()((set, get) => {
 
     applyDecisions: async () => {
       const pid = get().projectId;
-      const { decisions, suggestions } = get();
+      const { decisions, suggestions, scene } = get();
       const list = Object.values(decisions);
       if (!pid || list.length === 0 || !suggestions) return;
+      // Snapshot the current RF bindings of every decided prim BEFORE the
+      // apply so the user can revert an approval in one click.
+      const snapshot: LastDecisionApply = {
+        items: Object.keys(decisions).flatMap((primId) => {
+          const prim = scene?.prims.find((p) => p.id === primId);
+          if (!prim) return [];
+          return [
+            {
+              primId,
+              prev: {
+                materialId: prim.rf.material_id,
+                status: prim.rf.assignment_status,
+                sources: prim.rf.assignment_sources,
+                confidence: prim.rf.confidence,
+              },
+            },
+          ];
+        }),
+      };
       await run("Applying suggestion decisions…", async () => {
         const resp = await api.applySuggestions(pid, {
           decisions: list,
@@ -1752,9 +1831,45 @@ export const useAppStore = create<AppState>()((set, get) => {
         set({
           suggestions: null,
           decisions: {},
+          lastDecisionApply: snapshot.items.length > 0 ? snapshot : null,
           notice:
             `Applied ${list.length} decision(s): ${resp.updated_prim_ids.length} prim(s) updated` +
             (resp.warnings.length > 0 ? ` · ${resp.warnings.join(" · ")}` : ""),
+        });
+        await revalidateIfOpen();
+      });
+      afterSceneEdit();
+    },
+
+    revertDecisions: async () => {
+      const pid = get().projectId;
+      const last = get().lastDecisionApply;
+      if (!pid || !last || last.items.length === 0) return;
+      await run("Reverting applied suggestions…", async () => {
+        // Prims that HAD a material go back to it (original status/sources);
+        // previously-unassigned (or rejected-without-material) prims are
+        // cleared back to 'unassigned'.
+        const toClear = last.items
+          .filter((it) => it.prev.materialId === null)
+          .map((it) => it.primId);
+        const toAssign = last.items.filter((it) => it.prev.materialId !== null);
+        for (const it of toAssign) {
+          await api.assign(pid, {
+            prim_ids: [it.primId],
+            rf_material_id: it.prev.materialId!,
+            assignment_status:
+              it.prev.status as AssignRequest["assignment_status"],
+            sources: it.prev.sources.length > 0 ? it.prev.sources : ["user"],
+            ...(it.prev.confidence !== null
+              ? { confidence: it.prev.confidence }
+              : {}),
+          });
+        }
+        if (toClear.length > 0) await api.unassign(pid, toClear);
+        await refetchSceneInner();
+        set({
+          lastDecisionApply: null,
+          notice: `Reverted ${last.items.length} prim(s) to their previous RF binding`,
         });
         await revalidateIfOpen();
       });
@@ -2003,6 +2118,145 @@ export const useAppStore = create<AppState>()((set, get) => {
     clearAgentJob: () => {
       stopAgentPoll();
       set({ agentJob: null, agentTrace: null });
+    },
+
+    cancelAgentJob: async () => {
+      const pid = get().projectId;
+      const job = get().agentJob;
+      if (!pid || !job) return;
+      try {
+        const resp = await api.agentCancel(pid, job.jobId);
+        set({
+          notice:
+            resp.status === "accepted"
+              ? "Stop requested — the agent halts at the next step"
+              : "The job is no longer running",
+        });
+        // The regular trace poll keeps running and settles as "cancelled".
+      } catch (err) {
+        set({ error: err instanceof Error ? err.message : String(err) });
+      }
+    },
+
+    runAgentBatch: async (primIds, opts) => {
+      const pid = get().projectId;
+      if (!pid || primIds.length === 0) return;
+      if (get().agentBatch?.running || get().agentTrace?.status === "running") {
+        set({ error: "An agent job/batch is already running — stop it first." });
+        return;
+      }
+      stopAgentPoll();
+      const scene = get().scene;
+      const items: AgentBatchItem[] = primIds.map((primId) => {
+        const prim = scene?.prims.find((p) => p.id === primId);
+        const meshName = prim?.mesh_ref?.mesh_name ?? null;
+        return meshName
+          ? { primId, meshName, status: "queued", jobId: null }
+          : {
+              primId,
+              meshName: null,
+              status: "skipped",
+              jobId: null,
+              detail: "no mesh_ref",
+            };
+      });
+      set({
+        agentBatch: { running: true, items },
+        agentJob: null,
+        agentTrace: null,
+        notice: `SEAM-Agent batch: ${items.filter((i) => i.status === "queued").length} building(s) queued (sequential)`,
+      });
+      const patch = (idx: number, p: Partial<AgentBatchItem>) => {
+        const b = get().agentBatch;
+        if (!b) return;
+        const next = b.items.slice();
+        next[idx] = { ...next[idx], ...p };
+        set({ agentBatch: { ...b, items: next } });
+      };
+      for (let i = 0; i < items.length; i++) {
+        if (get().projectId !== pid) return; // project switched: abandon
+        if (!get().agentBatch?.running) break; // user stopped the batch
+        const it = get().agentBatch!.items[i];
+        if (it.status !== "queued" || !it.meshName) continue;
+        patch(i, { status: "running" });
+        try {
+          const views = agentCapture ? agentCapture(it.meshName) : [];
+          if (views.length === 0) {
+            throw new Error("mesh not loaded in the 3D viewer");
+          }
+          const resp = await api.agentStart(pid, {
+            prim_id: it.primId,
+            user_hint: opts.userHint,
+            allow_web: opts.allowWeb,
+            model: opts.model,
+            views,
+          });
+          patch(i, { jobId: resp.job_id });
+          // Mirror the running item into the single-job slot so the prim's
+          // SeamAgentPanel shows the live trace while the batch advances.
+          set({ agentJob: { jobId: resp.job_id, primId: it.primId }, agentTrace: null });
+          let cancelSent = false;
+          for (;;) {
+            await new Promise((r) => setTimeout(r, 2500));
+            if (get().projectId !== pid) return;
+            if (!get().agentBatch?.running && !cancelSent) {
+              cancelSent = true;
+              void api.agentCancel(pid, resp.job_id).catch(() => undefined);
+            }
+            let trace: AgentTrace;
+            try {
+              trace = await api.agentTrace(pid, resp.job_id);
+            } catch {
+              continue; // transient poll failure
+            }
+            if (get().agentJob?.jobId === resp.job_id) set({ agentTrace: trace });
+            if (trace.status !== "running") {
+              patch(i, {
+                status: trace.status === "done" ? "needs_review" : trace.status,
+                detail: trace.detail ?? undefined,
+                segments: trace.segments?.length,
+              });
+              break;
+            }
+          }
+        } catch (err) {
+          patch(i, {
+            status: "error",
+            detail: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+      const b = get().agentBatch;
+      if (b) {
+        const ready = b.items.filter((x) => x.status === "needs_review").length;
+        set({
+          agentBatch: { ...b, running: false },
+          notice: `SEAM-Agent batch finished — ${ready}/${b.items.length} building(s) ready for review`,
+        });
+      }
+    },
+
+    stopAgentBatch: () => {
+      const b = get().agentBatch;
+      if (!b) return;
+      // The batch loop sees running=false, cancels the in-flight job and
+      // stops dequeuing; already-settled items stay reviewable.
+      set({ agentBatch: { ...b, running: false } });
+    },
+
+    reviewAgentBatchItem: async (primId) => {
+      const pid = get().projectId;
+      const item = get().agentBatch?.items.find((x) => x.primId === primId);
+      if (!pid || !item?.jobId) return;
+      stopAgentPoll();
+      get().selectPrim(primId);
+      set({ agentJob: { jobId: item.jobId, primId }, agentTrace: null });
+      try {
+        const trace = await api.agentTrace(pid, item.jobId);
+        if (get().agentJob?.jobId === item.jobId) set({ agentTrace: trace });
+      } catch (err) {
+        set({ error: err instanceof Error ? err.message : String(err) });
+      }
     },
 
     // ---------------------------------------------------- environment

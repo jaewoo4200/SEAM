@@ -28,6 +28,8 @@ class AgentBudgetRequest(StrictModel):
     max_web_searches: int = Field(default=6, ge=0, le=20)
     max_image_searches: int = Field(default=4, ge=0, le=20)
     max_vlm_calls: int = Field(default=40, ge=1, le=200)
+    # Zoomed re-queries for low-confidence regions (0 disables refinement).
+    max_refine_calls: int = Field(default=3, ge=0, le=10)
     max_runtime_sec: int = Field(default=600, ge=30, le=3600)
 
 
@@ -79,14 +81,46 @@ class AgentSegment(StrictModel):
     confidence: float
     alternatives: list[AgentAlternative] = Field(default_factory=list)
     evidence_ids: list[str] = Field(default_factory=list)
+    # Tinted render crop showing exactly which faces this segment covers
+    # (servable via GET /projects/{id}/assets/{path}).
+    preview_asset_path: Optional[str] = None
+
+
+class AgentProgress(StrictModel):
+    """Live pipeline progress for the FE bar (stage + counters + ETA)."""
+
+    stage: str
+    stage_index: int = 0
+    total_stages: int = 0
+    views_done: int = 0
+    views_total: int = 0
+    vlm_calls: int = 0
+    elapsed_sec: float = 0.0
+    # Measured per-view VLM time × remaining views (+ fixed tail); None until
+    # the pipeline can estimate.
+    eta_sec: Optional[float] = None
+
+
+class AgentViewAsset(StrictModel):
+    view_id: str
+    asset_path: str
 
 
 class AgentTrace(StrictModel):
-    status: Literal["running", "needs_review", "done", "error"]
+    status: Literal["running", "needs_review", "done", "error", "cancelled"]
     detail: Optional[str] = None
     steps: list[AgentTraceStep] = Field(default_factory=list)
     evidence: list[AgentEvidence] = Field(default_factory=list)
     segments: Optional[list[AgentSegment]] = None
+    progress: Optional[AgentProgress] = None
+    # Saved per-view renders (reviewable evidence of what the VLM saw).
+    views: list[AgentViewAsset] = Field(default_factory=list)
+
+
+class AgentCancelResponse(StrictModel):
+    # accepted = cancellation requested (job settles as "cancelled" shortly);
+    # not_running = job already settled or unknown to this process.
+    status: Literal["accepted", "not_running"]
 
 
 class AgentApplyRequest(StrictModel):

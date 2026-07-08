@@ -844,6 +844,37 @@ export interface GenerateRulesRequest {
   model?: string | null;
 }
 
+/** One name-match rule: any prim whose name contains one of
+ *  `match_name_contains` gets `rf_material_id`. */
+export interface AssignmentRule {
+  id: string;
+  match_name_contains: string[];
+  rf_material_id: string;
+  note?: string | null;
+}
+
+export interface GenerateRulesResponse {
+  rules: AssignmentRule[];
+  provider: string;
+  model?: string | null;
+  warnings: string[];
+}
+
+/** POST /ai/apply-rules — evaluate edited rules into reviewable suggestions
+ *  (nothing touches the scene until the user applies decisions). */
+export interface ApplyRulesRequest {
+  rules: AssignmentRule[];
+}
+
+/** POST /ai/explain-validation — plain-language walk-through of the current
+ *  validation report (read-only). */
+export interface ExplainValidationResponse {
+  explanation: string;
+  provider: string;
+  model?: string | null;
+  warnings: string[];
+}
+
 // -------------------------------------------------- calibration (RF disambig)
 
 /** One measured link: RX position + measured path gain (dB). */
@@ -1072,6 +1103,8 @@ export interface AgentBudget {
   max_web_searches?: number;
   max_image_searches?: number;
   max_vlm_calls?: number;
+  /** Zoomed re-queries for low-confidence regions (0 disables refinement). */
+  max_refine_calls?: number;
   max_runtime_sec?: number;
 }
 
@@ -1089,7 +1122,7 @@ export interface AgentStartResponse {
   job_id: string;
 }
 
-export type AgentStatus = "running" | "needs_review" | "error" | "done";
+export type AgentStatus = "running" | "needs_review" | "error" | "done" | "cancelled";
 
 /** One step in the agent's activity trace (the "thinking" visibility). */
 export interface AgentStep {
@@ -1121,6 +1154,26 @@ export interface AgentSegment {
   confidence: number;
   alternatives?: { rf_material_id: string; confidence: number }[];
   evidence_ids: string[];
+  /** Tinted render crop showing exactly which faces this segment covers. */
+  preview_asset_path?: string | null;
+}
+
+/** Live pipeline progress (stage + counters + measured ETA). */
+export interface AgentProgress {
+  stage: string;
+  stage_index?: number;
+  total_stages?: number;
+  views_done?: number;
+  views_total?: number;
+  vlm_calls?: number;
+  elapsed_sec?: number;
+  eta_sec?: number | null;
+}
+
+/** A per-view render the agent saved for review (what the VLM saw). */
+export interface AgentViewAsset {
+  view_id: string;
+  asset_path: string;
 }
 
 export interface AgentTrace {
@@ -1129,6 +1182,12 @@ export interface AgentTrace {
   steps: AgentStep[];
   evidence: AgentEvidence[];
   segments?: AgentSegment[];
+  progress?: AgentProgress | null;
+  views?: AgentViewAsset[];
+}
+
+export interface AgentCancelResponse {
+  status: "accepted" | "not_running";
 }
 
 export interface AgentApplyRequest {

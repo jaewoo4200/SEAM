@@ -772,8 +772,12 @@ function PrimCard({ prim }: { prim: Prim }) {
         </div>
       </div>
 
-      <div style={{ marginTop: 12 }}>
-        <h4>Assign RF material</h4>
+      {/* One home for every way to author this prim's RF material: manual
+          assign, AI suggestion (jumps to AI Assist), texture-mask split, and
+          the SEAM-Agent — so RF Materials vs AI Assist stops feeling like two
+          disconnected places to do the same job. */}
+      <div className="authoring-section" style={{ marginTop: 12 }}>
+        <h4>Material authoring</h4>
         <MaterialSelect
           library={materials}
           value={prim.rf.material_id}
@@ -793,15 +797,28 @@ function PrimCard({ prim }: { prim: Prim }) {
             ? `Applies to all ${selection.length} selected prims as user_confirmed.`
             : "Saved to the scene as user_confirmed."}
         </p>
+        <div className="panel-actions" style={{ marginTop: 4 }}>
+          <button
+            disabled={busy !== null}
+            title="Ask the AI provider to suggest an RF material for this prim (opens AI Assist for review)"
+            onClick={() => {
+              selectPrim(prim.id);
+              useAppStore.getState().setMode("ai");
+              void useAppStore.getState().suggestMaterials();
+            }}
+          >
+            ✨ Suggest with AI
+          </button>
+        </div>
+
+        {/* Multi-material split: only for prims backed by a texture atlas (the
+            mask sources classify texels / render tiles from that texture). */}
+        {prim.mesh_ref && <SegmentationPanel prim={prim} />}
+
+        {/* SEAM-Agent: AI material authoring over multi-view captures of this
+            prim's mesh (gated on mesh_ref like the split above). */}
+        {prim.mesh_ref && <SeamAgentPanel prim={prim} />}
       </div>
-
-      {/* Multi-material split: only for prims backed by a texture atlas (the
-          mask sources classify texels / render tiles from that texture). */}
-      {prim.mesh_ref && <SegmentationPanel prim={prim} />}
-
-      {/* SEAM-Agent: AI material authoring over multi-view captures of this
-          prim's mesh (gated on mesh_ref like the split above). */}
-      {prim.mesh_ref && <SeamAgentPanel prim={prim} />}
 
       {primIssues.length > 0 && (
         <div className="insp-issues">

@@ -101,6 +101,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/import-osm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import Osm */
+        post: operations["import_osm_api_projects_import_osm_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{project_id}": {
         parameters: {
             query?: never;
@@ -125,6 +142,74 @@ export interface paths {
          *     call), so there is nothing to invalidate beyond the folder itself.
          */
         delete: operations["delete_project_api_projects__project_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/agent/material-assignment/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Agent Start */
+        post: operations["agent_start_api_projects__project_id__agent_material_assignment_start_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/agent/material-assignment/{job_id}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Agent Apply */
+        post: operations["agent_apply_api_projects__project_id__agent_material_assignment__job_id__apply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/agent/material-assignment/{job_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Agent Cancel */
+        post: operations["agent_cancel_api_projects__project_id__agent_material_assignment__job_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/agent/material-assignment/{job_id}/trace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Agent Trace */
+        get: operations["agent_trace_api_projects__project_id__agent_material_assignment__job_id__trace_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -192,6 +277,30 @@ export interface paths {
         put?: never;
         /** Generate Rules */
         post: operations["generate_rules_api_projects__project_id__ai_generate_rules_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/ai/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Ai Models
+         * @description Selectable models per model-bearing provider for the picker.
+         *
+         *     Covers local_openai + ollama_text (rule_based/disabled omitted); each entry
+         *     mirrors the provider probe state and lists the models discovered on its
+         *     server.
+         */
+        get: operations["ai_models_api_projects__project_id__ai_models_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -414,6 +523,31 @@ export interface paths {
         /** Generate Dataset */
         post: operations["generate_dataset_api_projects__project_id__datasets_generate_post"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/datasets/{dataset_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Dataset
+         * @description Permanently remove a generated dataset directory.
+         *
+         *     404 on an unknown project (via load_scene_or_404) or an unknown dataset;
+         *     ``dataset_id`` is validated against path traversal the same way the file
+         *     download route validates it, so it can never point removal outside the
+         *     project's datasets root.
+         */
+        delete: operations["delete_dataset_api_projects__project_id__datasets__dataset_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -779,6 +913,118 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{project_id}/segmentation/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Segmentation Apply */
+        post: operations["segmentation_apply_api_projects__project_id__segmentation_apply_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/segmentation/jobs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Segmentation Job */
+        get: operations["segmentation_job_api_projects__project_id__segmentation_jobs__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/segmentation/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Segmentation Preview */
+        post: operations["segmentation_preview_api_projects__project_id__segmentation_preview_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/segmentation/split-parts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Segmentation Split Parts
+         * @description Split a merged mesh into connected components (per-building prims).
+         */
+        post: operations["segmentation_split_parts_api_projects__project_id__segmentation_split_parts_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/segmentation/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Segmentation Undo */
+        post: operations["segmentation_undo_api_projects__project_id__segmentation_undo_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/segmentation/upload-mask": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload Mask
+         * @description Stage an externally produced id-mask PNG under the project.
+         *
+         *     Size/id validation happens at preview time against the target prim's
+         *     texture; here we only confirm it decodes as an image and persist it.
+         *     Sync on purpose: image decode runs in the threadpool, not the event loop.
+         */
+        post: operations["upload_mask_api_projects__project_id__segmentation_upload_mask_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{project_id}/simulate/beamforming": {
         parameters: {
             query?: never;
@@ -894,10 +1140,29 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * AIModelInfo
+         * @description One selectable model on a provider's server.
+         */
+        AIModelInfo: {
+            /** Id */
+            id: string;
+            /** Is Default */
+            is_default: boolean;
+            /** Label */
+            label: string;
+        };
+        /** AIModelsResponse */
+        AIModelsResponse: {
+            /** Providers */
+            providers: components["schemas"]["ProviderModels"][];
+        };
         /** AIProviderStatus */
         AIProviderStatus: {
             /** Available */
             available: boolean;
+            /** Available Models */
+            available_models?: string[];
             /**
              * Detail
              * @default
@@ -979,6 +1244,216 @@ export interface components {
             mode?: ("once" | "loop" | "pingpong") | null;
             /** Waypoints */
             waypoints?: number[][];
+        };
+        /** AgentAlternative */
+        AgentAlternative: {
+            /** Confidence */
+            confidence: number;
+            /** Rf Material Id */
+            rf_material_id: string;
+        };
+        /** AgentApplyRequest */
+        AgentApplyRequest: {
+            /** Segment Ids */
+            segment_ids: string[];
+        };
+        /** AgentApplyResponse */
+        AgentApplyResponse: {
+            /** Added Prim Ids */
+            added_prim_ids: string[];
+            /** Backup Glb */
+            backup_glb: string;
+            /** Batch Id */
+            batch_id: string;
+            /** Removed Prim Id */
+            removed_prim_id: string;
+        };
+        /** AgentBudgetRequest */
+        AgentBudgetRequest: {
+            /**
+             * Max Image Searches
+             * @default 4
+             */
+            max_image_searches: number;
+            /**
+             * Max Refine Calls
+             * @default 3
+             */
+            max_refine_calls: number;
+            /**
+             * Max Runtime Sec
+             * @default 600
+             */
+            max_runtime_sec: number;
+            /**
+             * Max Vlm Calls
+             * @default 40
+             */
+            max_vlm_calls: number;
+            /**
+             * Max Web Searches
+             * @default 6
+             */
+            max_web_searches: number;
+        };
+        /** AgentCancelResponse */
+        AgentCancelResponse: {
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "accepted" | "not_running";
+        };
+        /** AgentEvidence */
+        AgentEvidence: {
+            /** Claim */
+            claim: string;
+            /** Evidence Id */
+            evidence_id: string;
+            /** Page Url */
+            page_url?: string | null;
+            /** Query */
+            query?: string | null;
+            /** Source Url */
+            source_url?: string | null;
+            /** Thumb Asset Path */
+            thumb_asset_path?: string | null;
+            /** Type */
+            type: string;
+        };
+        /**
+         * AgentProgress
+         * @description Live pipeline progress for the FE bar (stage + counters + ETA).
+         */
+        AgentProgress: {
+            /**
+             * Elapsed Sec
+             * @default 0
+             */
+            elapsed_sec: number;
+            /** Eta Sec */
+            eta_sec?: number | null;
+            /** Stage */
+            stage: string;
+            /**
+             * Stage Index
+             * @default 0
+             */
+            stage_index: number;
+            /**
+             * Total Stages
+             * @default 0
+             */
+            total_stages: number;
+            /**
+             * Views Done
+             * @default 0
+             */
+            views_done: number;
+            /**
+             * Views Total
+             * @default 0
+             */
+            views_total: number;
+            /**
+             * Vlm Calls
+             * @default 0
+             */
+            vlm_calls: number;
+        };
+        /** AgentSegment */
+        AgentSegment: {
+            /** Alternatives */
+            alternatives?: components["schemas"]["AgentAlternative"][];
+            /** Confidence */
+            confidence: number;
+            /** Evidence Ids */
+            evidence_ids?: string[];
+            /** Face Count */
+            face_count: number;
+            /** Preview Asset Path */
+            preview_asset_path?: string | null;
+            /** Rf Material Id */
+            rf_material_id: string;
+            /** Segment Id */
+            segment_id: string;
+            /** Semantic Label */
+            semantic_label: string;
+        };
+        /** AgentStartRequest */
+        AgentStartRequest: {
+            /**
+             * Allow Web
+             * @default false
+             */
+            allow_web: boolean;
+            budget?: components["schemas"]["AgentBudgetRequest"] | null;
+            /** Model */
+            model?: string | null;
+            /** Prim Id */
+            prim_id: string;
+            /** User Hint */
+            user_hint?: string | null;
+            /** Views */
+            views: components["schemas"]["AgentView"][];
+        };
+        /** AgentStartResponse */
+        AgentStartResponse: {
+            /** Job Id */
+            job_id: string;
+        };
+        /** AgentTrace */
+        AgentTrace: {
+            /** Detail */
+            detail?: string | null;
+            /** Evidence */
+            evidence?: components["schemas"]["AgentEvidence"][];
+            progress?: components["schemas"]["AgentProgress"] | null;
+            /** Segments */
+            segments?: components["schemas"]["AgentSegment"][] | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "running" | "needs_review" | "done" | "error" | "cancelled";
+            /** Steps */
+            steps?: components["schemas"]["AgentTraceStep"][];
+            /** Views */
+            views?: components["schemas"]["AgentViewAsset"][];
+        };
+        /** AgentTraceStep */
+        AgentTraceStep: {
+            /** Queries */
+            queries?: string[] | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "running" | "done" | "error";
+            /** Step Id */
+            step_id: string;
+            /** Summary */
+            summary: string;
+        };
+        /** AgentView */
+        AgentView: {
+            /** Height */
+            height: number;
+            /** Rgb Data Url */
+            rgb_data_url: string;
+            /** Tri Id Png Data Url */
+            tri_id_png_data_url: string;
+            /** View Id */
+            view_id: string;
+            /** Width */
+            width: number;
+        };
+        /** AgentViewAsset */
+        AgentViewAsset: {
+            /** Asset Path */
+            asset_path: string;
+            /** View Id */
+            view_id: string;
         };
         /** Antenna */
         Antenna: {
@@ -1249,6 +1724,11 @@ export interface components {
             /** Project Id */
             project_id: string;
         };
+        /** Body_upload_mask_api_projects__project_id__segmentation_upload_mask_post */
+        Body_upload_mask_api_projects__project_id__segmentation_upload_mask_post: {
+            /** File */
+            file: string;
+        };
         /** CalibrationReport */
         CalibrationReport: {
             after: components["schemas"]["CalibrationStats"];
@@ -1488,6 +1968,13 @@ export interface components {
              */
             units: "meters";
         };
+        /** DatasetDeleteResponse */
+        DatasetDeleteResponse: {
+            /** Dataset Id */
+            dataset_id: string;
+            /** Deleted */
+            deleted: boolean;
+        };
         /** DatasetGenerateRequest */
         DatasetGenerateRequest: {
             config?: components["schemas"]["SimulationConfig"] | null;
@@ -1711,6 +2198,19 @@ export interface components {
             /** Engines */
             engines?: components["schemas"]["EngineInfo"][];
         };
+        /**
+         * EvidenceImage
+         * @description A persisted copy of an image the provider actually saw (reproducibility).
+         *
+         *     ``asset_path`` is project-relative (ai/evidence/<batch>/<prim>.jpg) and
+         *     servable via GET /projects/{id}/assets/{asset_path}.
+         */
+        EvidenceImage: {
+            /** Asset Path */
+            asset_path: string;
+            /** Prim Id */
+            prim_id: string;
+        };
         /** ExplainValidationResponse */
         ExplainValidationResponse: {
             /** Explanation */
@@ -1776,6 +2276,53 @@ export interface components {
         ImportAodtResponse: {
             /** Imported */
             imported?: components["schemas"]["ImportedResult"][];
+            /** Warnings */
+            warnings?: string[];
+        };
+        /** ImportOSMRequest */
+        ImportOSMRequest: {
+            /**
+             * Default Building Height M
+             * @default 10
+             */
+            default_building_height_m: number;
+            /**
+             * Default Building Material
+             * @default itu_concrete
+             */
+            default_building_material: string;
+            /**
+             * Ground Material
+             * @default ground_28ghz
+             */
+            ground_material: string;
+            /**
+             * Height M
+             * @default 500
+             */
+            height_m: number;
+            /** Lat */
+            lat: number;
+            /** Lon */
+            lon: number;
+            /** Name */
+            name: string;
+            /** Project Id */
+            project_id?: string | null;
+            /**
+             * Width M
+             * @default 500
+             */
+            width_m: number;
+        };
+        /** ImportOSMResponse */
+        ImportOSMResponse: {
+            /** Num Buildings */
+            num_buildings: number;
+            /** Num Skipped */
+            num_skipped: number;
+            /** Project Id */
+            project_id: string;
             /** Warnings */
             warnings?: string[];
         };
@@ -1858,6 +2405,15 @@ export interface components {
             /** Timestamp */
             timestamp?: string | null;
         };
+        /** MaskUploadResponse */
+        MaskUploadResponse: {
+            /** Height */
+            height: number;
+            /** Mask Asset Path */
+            mask_asset_path: string;
+            /** Width */
+            width: number;
+        };
         /** MaterialAlternative */
         MaterialAlternative: {
             /** Confidence */
@@ -1868,12 +2424,23 @@ export interface components {
         /**
          * MaterialGroup
          * @description Geometry grouped by RF material for export (HANDOFF.md Mode 2).
+         *
+         *     Prims sharing a material but carrying different per-prim RF overrides
+         *     (thickness/scattering/XPD) split into override variant groups: group_id
+         *     becomes "<material_id>__ovr_<hash>" and `overrides` records the honored
+         *     values. Plain groups keep group_id == rf_material_id (None here).
          */
         MaterialGroup: {
             /** Face Count */
             face_count?: number | null;
+            /** Group Id */
+            group_id?: string | null;
             /** Mesh File */
             mesh_file?: string | null;
+            /** Overrides */
+            overrides?: {
+                [key: string]: number;
+            } | null;
             /** Prim Ids */
             prim_ids?: string[];
             /** Rf Material Id */
@@ -1956,6 +2523,8 @@ export interface components {
         };
         /** MaterialSuggestionResponse */
         MaterialSuggestionResponse: {
+            /** Evidence Images */
+            evidence_images?: components["schemas"]["EvidenceImage"][] | null;
             /** Model */
             model?: string | null;
             /** Prompt Version */
@@ -2222,9 +2791,9 @@ export interface components {
             /**
              * Template
              * @default empty
-             * @enum {string}
+             * @constant
              */
-            template: "empty" | "demo";
+            template: "empty";
         };
         /** ProjectInfo */
         ProjectInfo: {
@@ -2240,6 +2809,29 @@ export interface components {
             project_id: string;
             /** Scene Id */
             scene_id?: string | null;
+        };
+        /**
+         * ProviderModels
+         * @description The models a single provider offers for the model picker.
+         *
+         *     ``available`` mirrors the provider probe state; ``models`` is discovered
+         *     from the server (empty when unreachable). ``default_model`` is the settings
+         *     default the provider falls back to when no explicit model is requested.
+         */
+        ProviderModels: {
+            /** Available */
+            available: boolean;
+            /** Default Model */
+            default_model?: string | null;
+            /**
+             * Detail
+             * @default
+             */
+            detail: string;
+            /** Models */
+            models?: components["schemas"]["AIModelInfo"][];
+            /** Provider */
+            provider: string;
         };
         /**
          * RFBinding
@@ -2543,6 +3135,10 @@ export interface components {
         RuleGenerationRequest: {
             /** Instruction */
             instruction: string;
+            /** Model */
+            model?: string | null;
+            /** Provider */
+            provider?: string | null;
         };
         /** RuleGenerationResponse */
         RuleGenerationResponse: {
@@ -2673,6 +3269,126 @@ export interface components {
             /** Min */
             min: number[];
         };
+        /** SegmentationApplyRequest */
+        SegmentationApplyRequest: {
+            /**
+             * Flip V
+             * @default true
+             */
+            flip_v: boolean;
+            /** Mask Ref */
+            mask_ref: string;
+            /** Prim Id */
+            prim_id: string;
+        };
+        /** SegmentationApplyResponse */
+        SegmentationApplyResponse: {
+            /** Added Prim Ids */
+            added_prim_ids: string[];
+            /** Backup Glb */
+            backup_glb: string;
+            /** Batch Id */
+            batch_id: string;
+            /** Removed Prim Id */
+            removed_prim_id: string;
+        };
+        /** SegmentationJobStart */
+        SegmentationJobStart: {
+            /** Job Id */
+            job_id: string;
+        };
+        /** SegmentationJobStatus */
+        SegmentationJobStatus: {
+            /**
+             * Detail
+             * @default
+             */
+            detail: string;
+            /**
+             * Progress
+             * @default 0
+             */
+            progress: number;
+            result?: components["schemas"]["SegmentationPreviewResponse"] | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "running" | "done" | "error";
+            /**
+             * Total
+             * @default 0
+             */
+            total: number;
+        };
+        /** SegmentationPreviewRequest */
+        SegmentationPreviewRequest: {
+            /**
+             * Flip V
+             * @default true
+             */
+            flip_v: boolean;
+            /** Mask Asset Path */
+            mask_asset_path?: string | null;
+            /**
+             * Mask Source
+             * @default color_heuristic
+             * @enum {string}
+             */
+            mask_source: "color_heuristic" | "vlm_tile_vote" | "user_png";
+            /**
+             * Max Tiles
+             * @default 64
+             */
+            max_tiles: number;
+            /** Model */
+            model?: string | null;
+            /** Prim Id */
+            prim_id: string;
+            /**
+             * Tile Px
+             * @default 512
+             */
+            tile_px: number;
+        };
+        /** SegmentationPreviewResponse */
+        SegmentationPreviewResponse: {
+            /** Batch Id */
+            batch_id: string;
+            /** Face Materials */
+            face_materials: number[];
+            /** Manifest */
+            manifest: components["schemas"]["SegmentationRegion"][];
+            /** Mask Ref */
+            mask_ref: string;
+            /** Overlay Asset Path */
+            overlay_asset_path: string;
+            /** Total Faces */
+            total_faces: number;
+        };
+        /** SegmentationRegion */
+        SegmentationRegion: {
+            /** Face Count */
+            face_count: number;
+            /** Material Id */
+            material_id: number;
+            /** Name */
+            name: string;
+            /** Rf Material Id */
+            rf_material_id: string;
+        };
+        /** SegmentationUndoRequest */
+        SegmentationUndoRequest: {
+            /** Batch Id */
+            batch_id: string;
+        };
+        /** SegmentationUndoResponse */
+        SegmentationUndoResponse: {
+            /** Removed Prim Ids */
+            removed_prim_ids: string[];
+            /** Restored Prim Id */
+            restored_prim_id: string;
+        };
         /**
          * SimulateRequest
          * @description Body for POST /simulate/paths and /simulate/radio-map.
@@ -2782,6 +3498,43 @@ export interface components {
             /** Tx Ids */
             tx_ids?: string[] | null;
         };
+        /**
+         * SplitPartsRequest
+         * @description Split a merged multi-building mesh into its connected components.
+         *
+         *     Parts below ``min_faces`` (and beyond the ``max_parts`` largest) pool into
+         *     one ``rest`` sub-mesh. New prims inherit the source prim's RF binding and
+         *     texture verbatim; undo works via the returned batch_id like any split.
+         */
+        SplitPartsRequest: {
+            /**
+             * Max Parts
+             * @default 64
+             */
+            max_parts: number;
+            /**
+             * Min Faces
+             * @default 200
+             */
+            min_faces: number;
+            /** Prim Id */
+            prim_id: string;
+        };
+        /** SplitPartsResponse */
+        SplitPartsResponse: {
+            /** Added Prim Ids */
+            added_prim_ids: string[];
+            /** Backup Glb */
+            backup_glb: string;
+            /** Batch Id */
+            batch_id: string;
+            /** Part Face Counts */
+            part_face_counts: {
+                [key: string]: number;
+            };
+            /** Removed Prim Id */
+            removed_prim_id: string;
+        };
         /** SuggestMaterialsRequest */
         SuggestMaterialsRequest: {
             /**
@@ -2789,6 +3542,8 @@ export interface components {
              * @default false
              */
             attach_texture_crops: boolean;
+            /** Model */
+            model?: string | null;
             /** Prim Ids */
             prim_ids?: string[] | null;
             /** Provider */
@@ -2871,11 +3626,22 @@ export interface components {
         /**
          * TrajectorySimulateRequest
          * @description Body for POST /simulate/trajectory: move one RX along waypoints.
+         *
+         *     Multi-UE: when ``routes`` is set, the legacy single-UE fields
+         *     (ue_id/waypoints/start_m/end_m) are ignored; every route is resampled to
+         *     ``num_points`` steps along its polyline by arc length, all routed UEs move
+         *     together per step, and one solve per step yields the per-UE metrics.
+         *     ``dt_s`` and ``follow_terrain`` apply to all routes.
          */
         TrajectorySimulateRequest: {
             config?: components["schemas"]["SimulationConfig"] | null;
             /** Config Id */
             config_id?: string | null;
+            /**
+             * Drape Fill Gaps
+             * @default true
+             */
+            drape_fill_gaps: boolean;
             /**
              * Dt S
              * @default 0.1
@@ -2903,6 +3669,8 @@ export interface components {
              * @default 8
              */
             num_points: number;
+            /** Routes */
+            routes?: components["schemas"]["UERoute"][] | null;
             /** Serving Tx Id */
             serving_tx_id?: string | null;
             /** Start M */
@@ -2920,6 +3688,18 @@ export interface components {
             scale?: number[];
             /** Translation */
             translation?: number[];
+        };
+        /**
+         * UERoute
+         * @description One routed UE for a multi-UE trajectory: an rx device id and the
+         *     waypoint polyline it walks. The polyline is resampled to the request's
+         *     num_points steps by arc length at solve time.
+         */
+        UERoute: {
+            /** Ue Id */
+            ue_id: string;
+            /** Waypoints */
+            waypoints: number[][];
         };
         /**
          * UnassignRequest
@@ -3165,6 +3945,39 @@ export interface operations {
             };
         };
     };
+    import_osm_api_projects_import_osm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImportOSMRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportOSMResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_project_api_projects__project_id__get: {
         parameters: {
             query?: never;
@@ -3216,6 +4029,141 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    agent_start_api_projects__project_id__agent_material_assignment_start_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentStartRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentStartResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    agent_apply_api_projects__project_id__agent_material_assignment__job_id__apply_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AgentApplyRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentApplyResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    agent_cancel_api_projects__project_id__agent_material_assignment__job_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentCancelResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    agent_trace_api_projects__project_id__agent_material_assignment__job_id__trace_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AgentTrace"];
                 };
             };
             /** @description Validation Error */
@@ -3352,6 +4300,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RuleGenerationResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ai_models_api_projects__project_id__ai_models_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AIModelsResponse"];
                 };
             };
             /** @description Validation Error */
@@ -3753,6 +4732,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DatasetInfo"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_dataset_api_projects__project_id__datasets__dataset_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DatasetDeleteResponse"];
                 };
             };
             /** @description Validation Error */
@@ -4460,6 +5471,213 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ValidationReport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    segmentation_apply_api_projects__project_id__segmentation_apply_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SegmentationApplyRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SegmentationApplyResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    segmentation_job_api_projects__project_id__segmentation_jobs__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SegmentationJobStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    segmentation_preview_api_projects__project_id__segmentation_preview_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SegmentationPreviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SegmentationPreviewResponse"] | components["schemas"]["SegmentationJobStart"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    segmentation_split_parts_api_projects__project_id__segmentation_split_parts_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SplitPartsRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SplitPartsResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    segmentation_undo_api_projects__project_id__segmentation_undo_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SegmentationUndoRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SegmentationUndoResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_mask_api_projects__project_id__segmentation_upload_mask_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_mask_api_projects__project_id__segmentation_upload_mask_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaskUploadResponse"];
                 };
             };
             /** @description Validation Error */

@@ -1,12 +1,61 @@
 {
   "components": {
     "schemas": {
+      "AIModelInfo": {
+        "additionalProperties": false,
+        "description": "One selectable model on a provider's server.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "is_default": {
+            "title": "Is Default",
+            "type": "boolean"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "is_default"
+        ],
+        "title": "AIModelInfo",
+        "type": "object"
+      },
+      "AIModelsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "providers": {
+            "items": {
+              "$ref": "#/components/schemas/ProviderModels"
+            },
+            "title": "Providers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "providers"
+        ],
+        "title": "AIModelsResponse",
+        "type": "object"
+      },
       "AIProviderStatus": {
         "additionalProperties": false,
         "properties": {
           "available": {
             "title": "Available",
             "type": "boolean"
+          },
+          "available_models": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Available Models",
+            "type": "array"
           },
           "detail": {
             "default": "",
@@ -241,6 +290,566 @@
           }
         },
         "title": "ActorTrajectory",
+        "type": "object"
+      },
+      "AgentAlternative": {
+        "additionalProperties": false,
+        "properties": {
+          "confidence": {
+            "title": "Confidence",
+            "type": "number"
+          },
+          "rf_material_id": {
+            "title": "Rf Material Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rf_material_id",
+          "confidence"
+        ],
+        "title": "AgentAlternative",
+        "type": "object"
+      },
+      "AgentApplyRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "segment_ids": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Segment Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "segment_ids"
+        ],
+        "title": "AgentApplyRequest",
+        "type": "object"
+      },
+      "AgentApplyResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "added_prim_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Added Prim Ids",
+            "type": "array"
+          },
+          "backup_glb": {
+            "title": "Backup Glb",
+            "type": "string"
+          },
+          "batch_id": {
+            "title": "Batch Id",
+            "type": "string"
+          },
+          "removed_prim_id": {
+            "title": "Removed Prim Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "added_prim_ids",
+          "removed_prim_id",
+          "backup_glb",
+          "batch_id"
+        ],
+        "title": "AgentApplyResponse",
+        "type": "object"
+      },
+      "AgentBudgetRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "max_image_searches": {
+            "default": 4,
+            "maximum": 20.0,
+            "minimum": 0.0,
+            "title": "Max Image Searches",
+            "type": "integer"
+          },
+          "max_refine_calls": {
+            "default": 3,
+            "maximum": 10.0,
+            "minimum": 0.0,
+            "title": "Max Refine Calls",
+            "type": "integer"
+          },
+          "max_runtime_sec": {
+            "default": 600,
+            "maximum": 3600.0,
+            "minimum": 30.0,
+            "title": "Max Runtime Sec",
+            "type": "integer"
+          },
+          "max_vlm_calls": {
+            "default": 40,
+            "maximum": 200.0,
+            "minimum": 1.0,
+            "title": "Max Vlm Calls",
+            "type": "integer"
+          },
+          "max_web_searches": {
+            "default": 6,
+            "maximum": 20.0,
+            "minimum": 0.0,
+            "title": "Max Web Searches",
+            "type": "integer"
+          }
+        },
+        "title": "AgentBudgetRequest",
+        "type": "object"
+      },
+      "AgentCancelResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "enum": [
+              "accepted",
+              "not_running"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "AgentCancelResponse",
+        "type": "object"
+      },
+      "AgentEvidence": {
+        "additionalProperties": false,
+        "properties": {
+          "claim": {
+            "title": "Claim",
+            "type": "string"
+          },
+          "evidence_id": {
+            "title": "Evidence Id",
+            "type": "string"
+          },
+          "page_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Url"
+          },
+          "query": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Query"
+          },
+          "source_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Url"
+          },
+          "thumb_asset_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thumb Asset Path"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "evidence_id",
+          "type",
+          "claim"
+        ],
+        "title": "AgentEvidence",
+        "type": "object"
+      },
+      "AgentProgress": {
+        "additionalProperties": false,
+        "description": "Live pipeline progress for the FE bar (stage + counters + ETA).",
+        "properties": {
+          "elapsed_sec": {
+            "default": 0.0,
+            "title": "Elapsed Sec",
+            "type": "number"
+          },
+          "eta_sec": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Eta Sec"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          },
+          "stage_index": {
+            "default": 0,
+            "title": "Stage Index",
+            "type": "integer"
+          },
+          "total_stages": {
+            "default": 0,
+            "title": "Total Stages",
+            "type": "integer"
+          },
+          "views_done": {
+            "default": 0,
+            "title": "Views Done",
+            "type": "integer"
+          },
+          "views_total": {
+            "default": 0,
+            "title": "Views Total",
+            "type": "integer"
+          },
+          "vlm_calls": {
+            "default": 0,
+            "title": "Vlm Calls",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "stage"
+        ],
+        "title": "AgentProgress",
+        "type": "object"
+      },
+      "AgentSegment": {
+        "additionalProperties": false,
+        "properties": {
+          "alternatives": {
+            "items": {
+              "$ref": "#/components/schemas/AgentAlternative"
+            },
+            "title": "Alternatives",
+            "type": "array"
+          },
+          "confidence": {
+            "title": "Confidence",
+            "type": "number"
+          },
+          "evidence_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Evidence Ids",
+            "type": "array"
+          },
+          "face_count": {
+            "title": "Face Count",
+            "type": "integer"
+          },
+          "preview_asset_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Preview Asset Path"
+          },
+          "rf_material_id": {
+            "title": "Rf Material Id",
+            "type": "string"
+          },
+          "segment_id": {
+            "title": "Segment Id",
+            "type": "string"
+          },
+          "semantic_label": {
+            "title": "Semantic Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "segment_id",
+          "semantic_label",
+          "face_count",
+          "rf_material_id",
+          "confidence"
+        ],
+        "title": "AgentSegment",
+        "type": "object"
+      },
+      "AgentStartRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "allow_web": {
+            "default": false,
+            "title": "Allow Web",
+            "type": "boolean"
+          },
+          "budget": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentBudgetRequest"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "prim_id": {
+            "title": "Prim Id",
+            "type": "string"
+          },
+          "user_hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "User Hint"
+          },
+          "views": {
+            "items": {
+              "$ref": "#/components/schemas/AgentView"
+            },
+            "maxItems": 12,
+            "minItems": 1,
+            "title": "Views",
+            "type": "array"
+          }
+        },
+        "required": [
+          "prim_id",
+          "views"
+        ],
+        "title": "AgentStartRequest",
+        "type": "object"
+      },
+      "AgentStartResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id"
+        ],
+        "title": "AgentStartResponse",
+        "type": "object"
+      },
+      "AgentTrace": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/AgentEvidence"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "progress": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentProgress"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "segments": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/AgentSegment"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Segments"
+          },
+          "status": {
+            "enum": [
+              "running",
+              "needs_review",
+              "done",
+              "error",
+              "cancelled"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/AgentTraceStep"
+            },
+            "title": "Steps",
+            "type": "array"
+          },
+          "views": {
+            "items": {
+              "$ref": "#/components/schemas/AgentViewAsset"
+            },
+            "title": "Views",
+            "type": "array"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "AgentTrace",
+        "type": "object"
+      },
+      "AgentTraceStep": {
+        "additionalProperties": false,
+        "properties": {
+          "queries": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Queries"
+          },
+          "status": {
+            "enum": [
+              "running",
+              "done",
+              "error"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "step_id": {
+            "title": "Step Id",
+            "type": "string"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "step_id",
+          "status",
+          "summary"
+        ],
+        "title": "AgentTraceStep",
+        "type": "object"
+      },
+      "AgentView": {
+        "additionalProperties": false,
+        "properties": {
+          "height": {
+            "title": "Height",
+            "type": "integer"
+          },
+          "rgb_data_url": {
+            "title": "Rgb Data Url",
+            "type": "string"
+          },
+          "tri_id_png_data_url": {
+            "title": "Tri Id Png Data Url",
+            "type": "string"
+          },
+          "view_id": {
+            "title": "View Id",
+            "type": "string"
+          },
+          "width": {
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "view_id",
+          "rgb_data_url",
+          "tri_id_png_data_url",
+          "width",
+          "height"
+        ],
+        "title": "AgentView",
+        "type": "object"
+      },
+      "AgentViewAsset": {
+        "additionalProperties": false,
+        "properties": {
+          "asset_path": {
+            "title": "Asset Path",
+            "type": "string"
+          },
+          "view_id": {
+            "title": "View Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "view_id",
+          "asset_path"
+        ],
+        "title": "AgentViewAsset",
         "type": "object"
       },
       "Antenna": {
@@ -851,6 +1460,20 @@
           "name"
         ],
         "title": "Body_import_project_api_projects_import_post",
+        "type": "object"
+      },
+      "Body_upload_mask_api_projects__project_id__segmentation_upload_mask_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_mask_api_projects__project_id__segmentation_upload_mask_post",
         "type": "object"
       },
       "CalibrationReport": {
@@ -1614,6 +2237,25 @@
         "title": "CoordinateSystem",
         "type": "object"
       },
+      "DatasetDeleteResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "dataset_id": {
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "deleted": {
+            "title": "Deleted",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "deleted",
+          "dataset_id"
+        ],
+        "title": "DatasetDeleteResponse",
+        "type": "object"
+      },
       "DatasetGenerateRequest": {
         "additionalProperties": false,
         "properties": {
@@ -2220,6 +2862,26 @@
         "title": "EngineListResponse",
         "type": "object"
       },
+      "EvidenceImage": {
+        "additionalProperties": false,
+        "description": "A persisted copy of an image the provider actually saw (reproducibility).\n\n``asset_path`` is project-relative (ai/evidence/<batch>/<prim>.jpg) and\nservable via GET /projects/{id}/assets/{asset_path}.",
+        "properties": {
+          "asset_path": {
+            "title": "Asset Path",
+            "type": "string"
+          },
+          "prim_id": {
+            "title": "Prim Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "prim_id",
+          "asset_path"
+        ],
+        "title": "EvidenceImage",
+        "type": "object"
+      },
       "ExplainValidationResponse": {
         "additionalProperties": false,
         "properties": {
@@ -2390,6 +3052,108 @@
           }
         },
         "title": "ImportAodtResponse",
+        "type": "object"
+      },
+      "ImportOSMRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "default_building_height_m": {
+            "default": 10.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Default Building Height M",
+            "type": "number"
+          },
+          "default_building_material": {
+            "default": "itu_concrete",
+            "title": "Default Building Material",
+            "type": "string"
+          },
+          "ground_material": {
+            "default": "ground_28ghz",
+            "title": "Ground Material",
+            "type": "string"
+          },
+          "height_m": {
+            "default": 500.0,
+            "maximum": 3000.0,
+            "minimum": 50.0,
+            "title": "Height M",
+            "type": "number"
+          },
+          "lat": {
+            "maximum": 90.0,
+            "minimum": -90.0,
+            "title": "Lat",
+            "type": "number"
+          },
+          "lon": {
+            "maximum": 180.0,
+            "minimum": -180.0,
+            "title": "Lon",
+            "type": "number"
+          },
+          "name": {
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9_\\-]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
+          },
+          "width_m": {
+            "default": 500.0,
+            "maximum": 3000.0,
+            "minimum": 50.0,
+            "title": "Width M",
+            "type": "number"
+          }
+        },
+        "required": [
+          "name",
+          "lat",
+          "lon"
+        ],
+        "title": "ImportOSMRequest",
+        "type": "object"
+      },
+      "ImportOSMResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "num_buildings": {
+            "title": "Num Buildings",
+            "type": "integer"
+          },
+          "num_skipped": {
+            "title": "Num Skipped",
+            "type": "integer"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "project_id",
+          "num_buildings",
+          "num_skipped"
+        ],
+        "title": "ImportOSMResponse",
         "type": "object"
       },
       "ImportedResult": {
@@ -2609,6 +3373,30 @@
         "title": "LiveStateUpdate",
         "type": "object"
       },
+      "MaskUploadResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "height": {
+            "title": "Height",
+            "type": "integer"
+          },
+          "mask_asset_path": {
+            "title": "Mask Asset Path",
+            "type": "string"
+          },
+          "width": {
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "mask_asset_path",
+          "width",
+          "height"
+        ],
+        "title": "MaskUploadResponse",
+        "type": "object"
+      },
       "MaterialAlternative": {
         "additionalProperties": false,
         "properties": {
@@ -2632,7 +3420,7 @@
       },
       "MaterialGroup": {
         "additionalProperties": false,
-        "description": "Geometry grouped by RF material for export (HANDOFF.md Mode 2).",
+        "description": "Geometry grouped by RF material for export (HANDOFF.md Mode 2).\n\nPrims sharing a material but carrying different per-prim RF overrides\n(thickness/scattering/XPD) split into override variant groups: group_id\nbecomes \"<material_id>__ovr_<hash>\" and `overrides` records the honored\nvalues. Plain groups keep group_id == rf_material_id (None here).",
         "properties": {
           "face_count": {
             "anyOf": [
@@ -2645,6 +3433,17 @@
             ],
             "title": "Face Count"
           },
+          "group_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Group Id"
+          },
           "mesh_file": {
             "anyOf": [
               {
@@ -2655,6 +3454,20 @@
               }
             ],
             "title": "Mesh File"
+          },
+          "overrides": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overrides"
           },
           "prim_ids": {
             "items": {
@@ -2911,6 +3724,20 @@
       "MaterialSuggestionResponse": {
         "additionalProperties": false,
         "properties": {
+          "evidence_images": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/EvidenceImage"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence Images"
+          },
           "model": {
             "anyOf": [
               {
@@ -3644,11 +4471,8 @@
             "title": "Project Id"
           },
           "template": {
+            "const": "empty",
             "default": "empty",
-            "enum": [
-              "empty",
-              "demo"
-            ],
             "title": "Template",
             "type": "string"
           }
@@ -3714,6 +4538,49 @@
           "path"
         ],
         "title": "ProjectInfo",
+        "type": "object"
+      },
+      "ProviderModels": {
+        "additionalProperties": false,
+        "description": "The models a single provider offers for the model picker.\n\n``available`` mirrors the provider probe state; ``models`` is discovered\nfrom the server (empty when unreachable). ``default_model`` is the settings\ndefault the provider falls back to when no explicit model is requested.",
+        "properties": {
+          "available": {
+            "title": "Available",
+            "type": "boolean"
+          },
+          "default_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Model"
+          },
+          "detail": {
+            "default": "",
+            "title": "Detail",
+            "type": "string"
+          },
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/AIModelInfo"
+            },
+            "title": "Models",
+            "type": "array"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "available"
+        ],
+        "title": "ProviderModels",
         "type": "object"
       },
       "RFBinding": {
@@ -4508,6 +5375,28 @@
             "minLength": 1,
             "title": "Instruction",
             "type": "string"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
           }
         },
         "required": [
@@ -4856,6 +5745,295 @@
         "title": "SceneBounds",
         "type": "object"
       },
+      "SegmentationApplyRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "flip_v": {
+            "default": true,
+            "title": "Flip V",
+            "type": "boolean"
+          },
+          "mask_ref": {
+            "title": "Mask Ref",
+            "type": "string"
+          },
+          "prim_id": {
+            "title": "Prim Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "prim_id",
+          "mask_ref"
+        ],
+        "title": "SegmentationApplyRequest",
+        "type": "object"
+      },
+      "SegmentationApplyResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "added_prim_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Added Prim Ids",
+            "type": "array"
+          },
+          "backup_glb": {
+            "title": "Backup Glb",
+            "type": "string"
+          },
+          "batch_id": {
+            "title": "Batch Id",
+            "type": "string"
+          },
+          "removed_prim_id": {
+            "title": "Removed Prim Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "added_prim_ids",
+          "removed_prim_id",
+          "backup_glb",
+          "batch_id"
+        ],
+        "title": "SegmentationApplyResponse",
+        "type": "object"
+      },
+      "SegmentationJobStart": {
+        "additionalProperties": false,
+        "properties": {
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id"
+        ],
+        "title": "SegmentationJobStart",
+        "type": "object"
+      },
+      "SegmentationJobStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "default": "",
+            "title": "Detail",
+            "type": "string"
+          },
+          "progress": {
+            "default": 0,
+            "title": "Progress",
+            "type": "integer"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SegmentationPreviewResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "enum": [
+              "running",
+              "done",
+              "error"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "total": {
+            "default": 0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "SegmentationJobStatus",
+        "type": "object"
+      },
+      "SegmentationPreviewRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "flip_v": {
+            "default": true,
+            "title": "Flip V",
+            "type": "boolean"
+          },
+          "mask_asset_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mask Asset Path"
+          },
+          "mask_source": {
+            "default": "color_heuristic",
+            "enum": [
+              "color_heuristic",
+              "vlm_tile_vote",
+              "user_png"
+            ],
+            "title": "Mask Source",
+            "type": "string"
+          },
+          "max_tiles": {
+            "default": 64,
+            "maximum": 256.0,
+            "minimum": 4.0,
+            "title": "Max Tiles",
+            "type": "integer"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "prim_id": {
+            "title": "Prim Id",
+            "type": "string"
+          },
+          "tile_px": {
+            "default": 512,
+            "maximum": 2048.0,
+            "minimum": 64.0,
+            "title": "Tile Px",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "prim_id"
+        ],
+        "title": "SegmentationPreviewRequest",
+        "type": "object"
+      },
+      "SegmentationPreviewResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "batch_id": {
+            "title": "Batch Id",
+            "type": "string"
+          },
+          "face_materials": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Face Materials",
+            "type": "array"
+          },
+          "manifest": {
+            "items": {
+              "$ref": "#/components/schemas/SegmentationRegion"
+            },
+            "title": "Manifest",
+            "type": "array"
+          },
+          "mask_ref": {
+            "title": "Mask Ref",
+            "type": "string"
+          },
+          "overlay_asset_path": {
+            "title": "Overlay Asset Path",
+            "type": "string"
+          },
+          "total_faces": {
+            "title": "Total Faces",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "batch_id",
+          "mask_ref",
+          "overlay_asset_path",
+          "manifest",
+          "face_materials",
+          "total_faces"
+        ],
+        "title": "SegmentationPreviewResponse",
+        "type": "object"
+      },
+      "SegmentationRegion": {
+        "additionalProperties": false,
+        "properties": {
+          "face_count": {
+            "title": "Face Count",
+            "type": "integer"
+          },
+          "material_id": {
+            "title": "Material Id",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "rf_material_id": {
+            "title": "Rf Material Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "material_id",
+          "name",
+          "rf_material_id",
+          "face_count"
+        ],
+        "title": "SegmentationRegion",
+        "type": "object"
+      },
+      "SegmentationUndoRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "batch_id": {
+            "title": "Batch Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "batch_id"
+        ],
+        "title": "SegmentationUndoRequest",
+        "type": "object"
+      },
+      "SegmentationUndoResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "removed_prim_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Removed Prim Ids",
+            "type": "array"
+          },
+          "restored_prim_id": {
+            "title": "Restored Prim Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "restored_prim_id",
+          "removed_prim_ids"
+        ],
+        "title": "SegmentationUndoResponse",
+        "type": "object"
+      },
       "SimulateRequest": {
         "additionalProperties": false,
         "description": "Body for POST /simulate/paths and /simulate/radio-map.",
@@ -5032,6 +6210,75 @@
         "title": "SimulationConfig",
         "type": "object"
       },
+      "SplitPartsRequest": {
+        "additionalProperties": false,
+        "description": "Split a merged multi-building mesh into its connected components.\n\nParts below ``min_faces`` (and beyond the ``max_parts`` largest) pool into\none ``rest`` sub-mesh. New prims inherit the source prim's RF binding and\ntexture verbatim; undo works via the returned batch_id like any split.",
+        "properties": {
+          "max_parts": {
+            "default": 64,
+            "maximum": 256.0,
+            "minimum": 2.0,
+            "title": "Max Parts",
+            "type": "integer"
+          },
+          "min_faces": {
+            "default": 200,
+            "maximum": 1000000.0,
+            "minimum": 1.0,
+            "title": "Min Faces",
+            "type": "integer"
+          },
+          "prim_id": {
+            "title": "Prim Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "prim_id"
+        ],
+        "title": "SplitPartsRequest",
+        "type": "object"
+      },
+      "SplitPartsResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "added_prim_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Added Prim Ids",
+            "type": "array"
+          },
+          "backup_glb": {
+            "title": "Backup Glb",
+            "type": "string"
+          },
+          "batch_id": {
+            "title": "Batch Id",
+            "type": "string"
+          },
+          "part_face_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Part Face Counts",
+            "type": "object"
+          },
+          "removed_prim_id": {
+            "title": "Removed Prim Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "added_prim_ids",
+          "removed_prim_id",
+          "backup_glb",
+          "batch_id",
+          "part_face_counts"
+        ],
+        "title": "SplitPartsResponse",
+        "type": "object"
+      },
       "SuggestMaterialsRequest": {
         "additionalProperties": false,
         "properties": {
@@ -5039,6 +6286,17 @@
             "default": false,
             "title": "Attach Texture Crops",
             "type": "boolean"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
           },
           "prim_ids": {
             "anyOf": [
@@ -5312,7 +6570,7 @@
       },
       "TrajectorySimulateRequest": {
         "additionalProperties": false,
-        "description": "Body for POST /simulate/trajectory: move one RX along waypoints.",
+        "description": "Body for POST /simulate/trajectory: move one RX along waypoints.\n\nMulti-UE: when ``routes`` is set, the legacy single-UE fields\n(ue_id/waypoints/start_m/end_m) are ignored; every route is resampled to\n``num_points`` steps along its polyline by arc length, all routed UEs move\ntogether per step, and one solve per step yields the per-UE metrics.\n``dt_s`` and ``follow_terrain`` apply to all routes.",
         "properties": {
           "config": {
             "anyOf": [
@@ -5334,6 +6592,11 @@
               }
             ],
             "title": "Config Id"
+          },
+          "drape_fill_gaps": {
+            "default": true,
+            "title": "Drape Fill Gaps",
+            "type": "boolean"
           },
           "dt_s": {
             "default": 0.1,
@@ -5377,6 +6640,20 @@
             "minimum": 2.0,
             "title": "Num Points",
             "type": "integer"
+          },
+          "routes": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/UERoute"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Routes"
           },
           "serving_tx_id": {
             "anyOf": [
@@ -5467,6 +6744,33 @@
           }
         },
         "title": "Transform",
+        "type": "object"
+      },
+      "UERoute": {
+        "additionalProperties": false,
+        "description": "One routed UE for a multi-UE trajectory: an rx device id and the\nwaypoint polyline it walks. The polyline is resampled to the request's\nnum_points steps by arc length at solve time.",
+        "properties": {
+          "ue_id": {
+            "title": "Ue Id",
+            "type": "string"
+          },
+          "waypoints": {
+            "items": {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "minItems": 2,
+            "title": "Waypoints",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ue_id",
+          "waypoints"
+        ],
+        "title": "UERoute",
         "type": "object"
       },
       "UnassignRequest": {
@@ -5884,6 +7188,47 @@
         ]
       }
     },
+    "/api/projects/import-osm": {
+      "post": {
+        "operationId": "import_osm_api_projects_import_osm_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportOSMRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportOSMResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Import Osm",
+        "tags": [
+          "projects"
+        ]
+      }
+    },
     "/api/projects/{project_id}": {
       "delete": {
         "description": "Permanently remove a project folder from disk.\n\nThe project id is resolved through the store (which only ever yields\ndirectories that live under a configured project root), so a caller can\nnever point deletion at an arbitrary path via id traversal. The sionna\nbackend's scene caches are keyed by generated-XML path + mtime and\nself-heal, so nothing here needs to touch them; the store keeps no\nin-memory project listing cache (``list_projects`` rescans the roots each\ncall), so there is nothing to invalidate beyond the folder itself.",
@@ -5966,6 +7311,221 @@
         "summary": "Get Project",
         "tags": [
           "projects"
+        ]
+      }
+    },
+    "/api/projects/{project_id}/agent/material-assignment/start": {
+      "post": {
+        "operationId": "agent_start_api_projects__project_id__agent_material_assignment_start_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentStartRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentStartResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Agent Start",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/projects/{project_id}/agent/material-assignment/{job_id}/apply": {
+      "post": {
+        "operationId": "agent_apply_api_projects__project_id__agent_material_assignment__job_id__apply_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentApplyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Agent Apply",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/projects/{project_id}/agent/material-assignment/{job_id}/cancel": {
+      "post": {
+        "operationId": "agent_cancel_api_projects__project_id__agent_material_assignment__job_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentCancelResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Agent Cancel",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/projects/{project_id}/agent/material-assignment/{job_id}/trace": {
+      "get": {
+        "operationId": "agent_trace_api_projects__project_id__agent_material_assignment__job_id__trace_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentTrace"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Agent Trace",
+        "tags": [
+          "agent"
         ]
       }
     },
@@ -6162,6 +7722,49 @@
           }
         },
         "summary": "Generate Rules",
+        "tags": [
+          "ai"
+        ]
+      }
+    },
+    "/api/projects/{project_id}/ai/models": {
+      "get": {
+        "description": "Selectable models per model-bearing provider for the picker.\n\nCovers local_openai + ollama_text (rule_based/disabled omitted); each entry\nmirrors the provider probe state and lists the models discovered on its\nserver.",
+        "operationId": "ai_models_api_projects__project_id__ai_models_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AIModelsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Ai Models",
         "tags": [
           "ai"
         ]
@@ -6758,6 +8361,58 @@
           }
         },
         "summary": "Generate Dataset",
+        "tags": [
+          "datasets"
+        ]
+      }
+    },
+    "/api/projects/{project_id}/datasets/{dataset_id}": {
+      "delete": {
+        "description": "Permanently remove a generated dataset directory.\n\n404 on an unknown project (via load_scene_or_404) or an unknown dataset;\n``dataset_id`` is validated against path traversal the same way the file\ndownload route validates it, so it can never point removal outside the\nproject's datasets root.",
+        "operationId": "delete_dataset_api_projects__project_id__datasets__dataset_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetDeleteResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Dataset",
         "tags": [
           "datasets"
         ]
@@ -7871,6 +9526,327 @@
         "summary": "Validate Project Scene",
         "tags": [
           "scene"
+        ]
+      }
+    },
+    "/api/projects/{project_id}/segmentation/apply": {
+      "post": {
+        "operationId": "segmentation_apply_api_projects__project_id__segmentation_apply_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SegmentationApplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SegmentationApplyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Segmentation Apply",
+        "tags": [
+          "segmentation"
+        ]
+      }
+    },
+    "/api/projects/{project_id}/segmentation/jobs/{job_id}": {
+      "get": {
+        "operationId": "segmentation_job_api_projects__project_id__segmentation_jobs__job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SegmentationJobStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Segmentation Job",
+        "tags": [
+          "segmentation"
+        ]
+      }
+    },
+    "/api/projects/{project_id}/segmentation/preview": {
+      "post": {
+        "operationId": "segmentation_preview_api_projects__project_id__segmentation_preview_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SegmentationPreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/SegmentationPreviewResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SegmentationJobStart"
+                    }
+                  ],
+                  "title": "Response Segmentation Preview Api Projects  Project Id  Segmentation Preview Post"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Segmentation Preview",
+        "tags": [
+          "segmentation"
+        ]
+      }
+    },
+    "/api/projects/{project_id}/segmentation/split-parts": {
+      "post": {
+        "description": "Split a merged mesh into connected components (per-building prims).",
+        "operationId": "segmentation_split_parts_api_projects__project_id__segmentation_split_parts_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SplitPartsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SplitPartsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Segmentation Split Parts",
+        "tags": [
+          "segmentation"
+        ]
+      }
+    },
+    "/api/projects/{project_id}/segmentation/undo": {
+      "post": {
+        "operationId": "segmentation_undo_api_projects__project_id__segmentation_undo_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SegmentationUndoRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SegmentationUndoResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Segmentation Undo",
+        "tags": [
+          "segmentation"
+        ]
+      }
+    },
+    "/api/projects/{project_id}/segmentation/upload-mask": {
+      "post": {
+        "description": "Stage an externally produced id-mask PNG under the project.\n\nSize/id validation happens at preview time against the target prim's\ntexture; here we only confirm it decodes as an image and persist it.\nSync on purpose: image decode runs in the threadpool, not the event loop.",
+        "operationId": "upload_mask_api_projects__project_id__segmentation_upload_mask_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_mask_api_projects__project_id__segmentation_upload_mask_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaskUploadResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Upload Mask",
+        "tags": [
+          "segmentation"
         ]
       }
     },

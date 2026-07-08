@@ -1,14 +1,20 @@
 """SEAM-Agent endpoints (retrieval-augmented RF material authoring).
 
 POST /projects/{id}/agent/material-assignment/start          spawn a job
+                                                             (409 while one is
+                                                             already running)
 GET  /projects/{id}/agent/material-assignment/{jid}/trace    activity trace
+                                                             (memory, or disk
+                                                             after a restart)
+POST /projects/{id}/agent/material-assignment/{jid}/cancel   cooperative stop
 POST /projects/{id}/agent/material-assignment/{jid}/apply    bake accepted
                                                              segments (undo
                                                              via segmentation
                                                              /undo)
 
 The trace is the user-visible "thinking": bounded steps, search queries,
-evidence cards and segment proposals - never raw chain-of-thought.
+evidence cards, live progress/ETA and segment proposals - never raw
+chain-of-thought.
 """
 
 from fastapi import APIRouter, HTTPException
@@ -17,6 +23,7 @@ from app.api.deps import get_store, load_scene_or_404
 from app.schemas.seam_agent import (
     AgentApplyRequest,
     AgentApplyResponse,
+    AgentCancelResponse,
     AgentStartRequest,
     AgentStartResponse,
     AgentTrace,
@@ -42,18 +49,24 @@ def agent_start(project_id: str, request: AgentStartRequest) -> AgentStartRespon
         max_web_searches=b.max_web_searches if b else 6,
         max_image_searches=b.max_image_searches if b else 4,
         max_vlm_calls=b.max_vlm_calls if b else 40,
+        max_refine_calls=b.max_refine_calls if b else 3,
         max_runtime_sec=b.max_runtime_sec if b else 600,
     )
-    job_id = seam_agent.start_job(
-        project_dir,
-        scene,
-        request.prim_id,
-        [v.model_dump() for v in request.views],
-        request.user_hint,
-        request.allow_web,
-        request.model,
-        budget,
-    )
+    try:
+        job_id = seam_agent.start_job(
+            project_dir,
+            scene,
+            request.prim_id,
+            [v.model_dump() for v in request.views],
+            request.user_hint,
+            request.allow_web,
+            request.model,
+            budget,
+        )
+    except seam_agent.AgentBusyError as exc:
+        # One job per project (and a small global cap): multi-building runs
+        # are sequential by design — the FE queues and retries.
+        raise HTTPException(status_code=409, detail=str(exc))
     return AgentStartResponse(job_id=job_id)
 
 
@@ -64,7 +77,10 @@ def agent_start(project_id: str, request: AgentStartRequest) -> AgentStartRespon
 def agent_trace(project_id: str, job_id: str) -> AgentTrace:
     store = get_store()
     load_scene_or_404(store, project_id)
-    job = seam_agent.get_job(job_id)
+    project_dir = store.resolve(project_id)
+    # Live jobs from memory; finished jobs rehydrate from ai/agent/<id>/ so
+    # traces stay reviewable after a backend restart.
+    job = seam_agent.resolve_job(project_dir, job_id)
     if job is None:
         raise HTTPException(status_code=404, detail=f"unknown job: {job_id}")
     return AgentTrace(
@@ -73,7 +89,20 @@ def agent_trace(project_id: str, job_id: str) -> AgentTrace:
         steps=job.steps,  # type: ignore[arg-type]
         evidence=job.evidence,  # type: ignore[arg-type]
         segments=job.segments,  # type: ignore[arg-type]
+        progress=(job.progress or None),  # type: ignore[arg-type]
+        views=job.view_assets,  # type: ignore[arg-type]
     )
+
+
+@router.post(
+    "/projects/{project_id}/agent/material-assignment/{job_id}/cancel",
+    response_model=AgentCancelResponse,
+)
+def agent_cancel(project_id: str, job_id: str) -> AgentCancelResponse:
+    store = get_store()
+    load_scene_or_404(store, project_id)
+    accepted = seam_agent.cancel_job(job_id)
+    return AgentCancelResponse(status="accepted" if accepted else "not_running")
 
 
 @router.post(
@@ -86,7 +115,7 @@ def agent_apply(
     store = get_store()
     scene = load_scene_or_404(store, project_id)
     project_dir = store.resolve(project_id)
-    job = seam_agent.get_job(job_id)
+    job = seam_agent.resolve_job(project_dir, job_id)
     if job is None:
         raise HTTPException(status_code=404, detail=f"unknown job: {job_id}")
     # GLB + scene JSON must move together; same per-project write lock as the

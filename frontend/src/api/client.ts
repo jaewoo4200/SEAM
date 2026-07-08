@@ -9,14 +9,19 @@
 import type {
   AgentApplyRequest,
   AgentApplyResponse,
+  AgentCancelResponse,
   AgentStartRequest,
   AgentStartResponse,
   AgentTrace,
   AIModelsResponse,
   AIProviderStatus,
+  ApplyRulesRequest,
   ApplySuggestionsRequest,
   AssignRequest,
   AssignResponse,
+  ExplainValidationResponse,
+  GenerateRulesRequest,
+  GenerateRulesResponse,
   BackendCapabilities,
   EngineListResponse,
   BatchAssignRequest,
@@ -182,6 +187,17 @@ export const api = {
   aiStatus: (pid: string) => request<AIProviderStatus[]>("GET", `/projects/${pid}/ai/status`),
   // Per-provider selectable models (drives the model picker in the AI panel).
   aiModels: (pid: string) => request<AIModelsResponse>("GET", `/projects/${pid}/ai/models`),
+  // AI rule authoring + validation explains (natural-language flows).
+  aiGenerateRules: (pid: string, req: GenerateRulesRequest) =>
+    request<GenerateRulesResponse>("POST", `/projects/${pid}/ai/generate-rules`, req),
+  aiApplyRules: (pid: string, req: ApplyRulesRequest) =>
+    request<MaterialSuggestionResponse>("POST", `/projects/${pid}/ai/apply-rules`, req),
+  aiExplainValidation: (pid: string) =>
+    request<ExplainValidationResponse>(
+      "POST",
+      `/projects/${pid}/ai/explain-validation`,
+      {},
+    ),
   suggestMaterials: (pid: string, req: SuggestMaterialsRequest) =>
     request<MaterialSuggestionResponse>("POST", `/projects/${pid}/ai/suggest-materials`, req),
   applySuggestions: (pid: string, req: ApplySuggestionsRequest) =>
@@ -214,6 +230,11 @@ export const api = {
     request<AgentStartResponse>("POST", `/projects/${pid}/agent/material-assignment/start`, req),
   agentTrace: (pid: string, jobId: string) =>
     request<AgentTrace>("GET", `/projects/${pid}/agent/material-assignment/${jobId}/trace`),
+  agentCancel: (pid: string, jobId: string) =>
+    request<AgentCancelResponse>(
+      "POST",
+      `/projects/${pid}/agent/material-assignment/${jobId}/cancel`,
+    ),
   agentApply: (pid: string, jobId: string, req: AgentApplyRequest) =>
     request<AgentApplyResponse>(
       "POST",

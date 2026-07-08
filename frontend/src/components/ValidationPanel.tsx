@@ -1,21 +1,10 @@
 import { useState } from "react";
 import { useAppStore } from "../store/appStore";
+import { api } from "../api/client";
 import { SEVERITY_COLORS } from "./common";
 import type { Severity, ValidationIssue } from "../types/api";
 
 const SEVERITY_ORDER: Severity[] = ["error", "warning", "info"];
-
-// The AI explain-validation route is not (yet) on the shared `api` client
-// (api/client.ts is owned by a sibling). Call it directly with the same
-// relative-"/api" base the client uses so the dev/prod proxy routes it.
-const API_BASE = "/api";
-
-interface ExplainValidationResponse {
-  explanation: string;
-  provider: string;
-  model?: string | null;
-  warnings: string[];
-}
 
 /** Suggested next actions the backend attaches to an issue. Read defensively:
  *  `ValidationIssue.suggested_actions` lands via a sibling contract this wave
@@ -80,30 +69,17 @@ function ExplainWithAI() {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE}/projects/${projectId}/ai/explain-validation`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
-      if (!res.ok) {
-        if (res.status === 409) {
-          throw new Error(
-            "No local LLM available — start a provider (e.g. Ollama) to explain validation.",
-          );
-        }
-        let detail = `${res.status} ${res.statusText}`;
-        try {
-          const data = (await res.json()) as { detail?: unknown };
-          if (typeof data.detail === "string") detail = data.detail;
-        } catch {
-          /* non-JSON */
-        }
-        throw new Error(detail);
-      }
-      const data = (await res.json()) as ExplainValidationResponse;
+      const data = await api.aiExplainValidation(projectId);
       setExplanation(data.explanation);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      const status = (err as { status?: number }).status;
+      setError(
+        status === 409
+          ? "No local LLM available — start a provider (e.g. Ollama) to explain validation."
+          : err instanceof Error
+            ? err.message
+            : String(err),
+      );
     } finally {
       setBusy(false);
     }

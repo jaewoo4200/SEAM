@@ -4,84 +4,14 @@ import { api } from "../api/client";
 import { MaterialSelect, Swatch, materialById } from "./common";
 import { LineChart } from "../charts";
 import type {
+  AssignmentRule,
   DisambiguationReport,
   GenerateRulesRequest,
   MaterialImpactReport,
   MaterialSuggestion,
-  MaterialSuggestionResponse,
   MeasurementSample,
   Vec3,
 } from "../types/api";
-
-// ------------------------------------------------------- ai fetch helper
-//
-// The three AI-rule endpoints are not (yet) on the shared `api` client
-// (api/client.ts is owned by a sibling). Until they land there we call them
-// directly, mirroring the client's base-URL resolution: every URL is the
-// relative "/api/..." path so the Vite dev proxy / prod reverse proxy routes
-// it to FastAPI without CORS (see api/client.ts `const BASE = "/api"`).
-
-const API_BASE = "/api";
-
-/** POST JSON and parse JSON, surfacing the backend `detail` on non-2xx.
- *  Kept local (not on the shared client) — see note above. */
-async function postJson<T>(path: string, body: unknown): Promise<T> {
-  let res: Response;
-  try {
-    res = await fetch(API_BASE + path, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-  } catch (err) {
-    const e = new Error(
-      `backend unreachable: ${err instanceof Error ? err.message : String(err)}`,
-    ) as Error & { status: number };
-    e.status = 0;
-    throw e;
-  }
-  if (!res.ok) {
-    let detail = `${res.status} ${res.statusText}`;
-    try {
-      const data: unknown = await res.json();
-      if (data !== null && typeof data === "object" && "detail" in data) {
-        const d = (data as { detail: unknown }).detail;
-        if (typeof d === "string") detail = d;
-        else if (d !== null && typeof d === "object" && "message" in d) {
-          detail = String((d as { message: unknown }).message);
-        } else detail = JSON.stringify(d);
-      }
-    } catch {
-      /* non-JSON error body; keep the status text */
-    }
-    const e = new Error(detail) as Error & { status: number };
-    e.status = res.status;
-    throw e;
-  }
-  return (await res.json()) as T;
-}
-
-// ---------------------------------------------- assignment-rule generation
-//
-// Local mirror of the sibling contract (backend AssignmentRule + the two AI
-// rule routes). Defined here rather than in types/api.ts because that file is
-// owned by another agent this wave; keep in sync with their Pydantic model.
-
-/** One name-match rule: any prim whose name contains one of `match_name_contains`
- *  gets `rf_material_id`. */
-interface AssignmentRule {
-  id: string;
-  match_name_contains: string[];
-  rf_material_id: string;
-  note?: string | null;
-}
-
-interface GenerateRulesResponse {
-  rules: AssignmentRule[];
-  provider: string;
-  model?: string | null;
-  warnings: string[];
-}
 
 // ------------------------------------------------------- RF disambiguation
 
@@ -685,10 +615,7 @@ function RuleGenerationSection() {
         // null = the provider default model (same convention as suggest).
         model: aiModel,
       };
-      const resp = await postJson<GenerateRulesResponse>(
-        `/projects/${projectId}/ai/generate-rules`,
-        body,
-      );
+      const resp = await api.aiGenerateRules(projectId, body);
       setRules(resp.rules);
       setMeta({ provider: resp.provider, model: resp.model });
       setWarnings(resp.warnings ?? []);
@@ -704,10 +631,7 @@ function RuleGenerationSection() {
     setApplyBusy(true);
     setError(null);
     try {
-      const resp = await postJson<MaterialSuggestionResponse>(
-        `/projects/${projectId}/ai/apply-rules`,
-        { rules },
-      );
+      const resp = await api.aiApplyRules(projectId, { rules });
       // Hand off to the normal suggestion-review flow (resets any decisions);
       // nothing is committed to the scene until the user clicks Apply decisions.
       useAppStore.getState().setSuggestions(resp);
@@ -817,9 +741,142 @@ function RuleGenerationSection() {
   );
 }
 
-/** Message from a thrown error (postJson attaches a numeric `status`). */
+/** Message from a thrown error (the shared client's ApiError carries a
+ *  numeric `status` when callers need it). */
 function errMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
+}
+
+// ------------------------------------------------- SEAM-Agent batch (multi)
+//
+// Run the agent over SEVERAL buildings sequentially (one live job per project
+// is enforced server-side). Each settled building stays reviewable: "Review"
+// re-opens its persisted trace on the prim's inspector card.
+
+function AgentBatchSection() {
+  const scene = useAppStore((s) => s.scene);
+  const busy = useAppStore((s) => s.busy);
+  const agentBatch = useAppStore((s) => s.agentBatch);
+  const runAgentBatch = useAppStore((s) => s.runAgentBatch);
+  const stopAgentBatch = useAppStore((s) => s.stopAgentBatch);
+  const reviewAgentBatchItem = useAppStore((s) => s.reviewAgentBatchItem);
+  const aiModel = useAppStore((s) => s.aiModel);
+
+  const [open, setOpen] = useState(false);
+  const [checked, setChecked] = useState<Record<string, boolean>>({});
+  const [hint, setHint] = useState("");
+  const [allowWeb, setAllowWeb] = useState(false);
+
+  // Buildings = mesh-backed prims (same gate as the per-prim agent card).
+  const candidates = (scene?.prims ?? []).filter((p) => p.mesh_ref?.mesh_name);
+  const selectedIds = candidates.filter((p) => checked[p.id]).map((p) => p.id);
+  const running = agentBatch?.running ?? false;
+
+  return (
+    <div className="rules-section">
+      <button
+        className={"seg-expander" + (open ? " open" : "")}
+        onClick={() => setOpen((o) => !o)}
+        title="Run SEAM-Agent over several buildings, one after another"
+      >
+        {open ? "▾" : "▸"} SEAM-Agent batch (multi-building)…
+      </button>
+      {open && (
+        <>
+          <p className="hint">
+            Pick buildings, then the agent runs them <b>sequentially</b> (capture →
+            analyze → propose). Review each result on its prim card afterwards.
+          </p>
+          <div className="agent-batch-picker">
+            {candidates.length === 0 && (
+              <div className="hint">No mesh-backed prims in this scene.</div>
+            )}
+            {candidates.map((p) => (
+              <label key={p.id} className="solver-check">
+                <input
+                  type="checkbox"
+                  checked={checked[p.id] ?? false}
+                  disabled={running}
+                  onChange={(e) =>
+                    setChecked((c) => ({ ...c, [p.id]: e.target.checked }))
+                  }
+                />
+                <span className="mono">{p.name}</span>
+              </label>
+            ))}
+          </div>
+          <label className="solver-field">
+            <span className="solver-field-label">Hint</span>
+            <input
+              type="text"
+              value={hint}
+              disabled={running}
+              placeholder="shared site hint, e.g. 한양대학교 서울캠퍼스"
+              onChange={(e) => setHint(e.target.value)}
+            />
+          </label>
+          <label
+            className="solver-check"
+            title="Let the agent search the web for exterior photos as evidence"
+          >
+            <input
+              type="checkbox"
+              checked={allowWeb}
+              disabled={running}
+              onChange={(e) => setAllowWeb(e.target.checked)}
+            />
+            Allow web evidence
+          </label>
+          <div className="panel-actions">
+            <button
+              className="primary"
+              disabled={busy !== null || running || selectedIds.length === 0}
+              onClick={() =>
+                void runAgentBatch(selectedIds, {
+                  userHint: hint.trim() || null,
+                  allowWeb,
+                  model: aiModel,
+                })
+              }
+            >
+              Run {selectedIds.length} building(s) sequentially
+            </button>
+            {running && (
+              <button className="on-reject" onClick={() => stopAgentBatch()}>
+                ■ Stop batch
+              </button>
+            )}
+          </div>
+          {agentBatch && agentBatch.items.length > 0 && (
+            <div className="agent-batch-list">
+              {agentBatch.items.map((it) => (
+                <div key={it.primId} className="agent-batch-item">
+                  <span className={`agent-batch-status st-${it.status}`}>
+                    {it.status === "needs_review" ? "needs review" : it.status}
+                  </span>
+                  <span className="mono" style={{ flex: 1 }} title={it.detail}>
+                    {it.primId}
+                  </span>
+                  {typeof it.segments === "number" && (
+                    <span className="hint">{it.segments} seg</span>
+                  )}
+                  {it.jobId && it.status !== "queued" && it.status !== "running" && (
+                    <button
+                      disabled={busy !== null}
+                      onClick={() => void reviewAgentBatchItem(it.primId)}
+                      title="Open this building's proposals on its prim card"
+                    >
+                      Review
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------- model picker
@@ -904,6 +961,8 @@ export default function AISuggestionPanel() {
   const aiProvider = useAppStore((s) => s.aiProvider);
   const setAiProvider = useAppStore((s) => s.setAiProvider);
   const applyDecisions = useAppStore((s) => s.applyDecisions);
+  const lastDecisionApply = useAppStore((s) => s.lastDecisionApply);
+  const revertDecisions = useAppStore((s) => s.revertDecisions);
   const projectId = useAppStore((s) => s.projectId);
   const busy = useAppStore((s) => s.busy);
 
@@ -994,6 +1053,8 @@ export default function AISuggestionPanel() {
 
       <RuleGenerationSection />
 
+      <AgentBatchSection />
+
       {suggestions && (
         <>
           <div className="results-meta">
@@ -1042,6 +1103,24 @@ export default function AISuggestionPanel() {
             </button>
           </div>
         </>
+      )}
+
+      {/* One-click revert of the last applied decisions (previous RF bindings
+          were snapshotted at apply time). */}
+      {lastDecisionApply && !suggestions && (
+        <div className="seg-applied">
+          <div className="seg-applied-note">
+            ✓ Applied {lastDecisionApply.items.length} suggestion decision(s).
+          </div>
+          <button
+            className="on-reject"
+            disabled={busy !== null}
+            onClick={() => void revertDecisions()}
+            title="Restore every affected prim to the RF binding it had before the apply"
+          >
+            ↩ Revert
+          </button>
+        </div>
       )}
 
       <ImpactSection />
