@@ -50,7 +50,7 @@ def _scenario_meta(scene: Scene, config: SimulationConfig, created_at: str) -> d
             end_s = max(end_s, 1.0)  # placeholder; refined from trajectory below
     return {
         "scenario_name": scene.name or scene.scene_id,
-        "description": f"SionnaTwin export of {scene.scene_id}",
+        "description": f"SEAM Studio export of {scene.scene_id}",
         "unit": "meter",
         "unreal_unit": "centimeter",
         "frequency_hz": config.frequency_hz,
@@ -153,20 +153,33 @@ def _trajectory_csv(
                  fmt(s.rss_dbm), fmt(s.sinr_db), fmt(s.path_gain_db)]
             )
     elif paths and paths.paths:
-        # No trajectory result: one row per receiver from the path snapshot.
+        # No trajectory result: one row per (tx, rx) LINK from the path snapshot.
+        # Grouping by (tx_id, rx_id) - not just rx_id - keeps multi-TX scenes
+        # honest: each row is a single link's signal, never a blend of the
+        # serving TX with interferers, and its path gain is referenced to that
+        # link's own TX power (not an arbitrary txs[0]). A single-TX scene has
+        # exactly one link per RX, so this stays identical to the old output.
         import math
 
-        txs = [d for d in scene.devices if d.kind == "tx"]
-        tx_power = txs[0].power_dbm if txs else 0.0
-        by_rx: dict[str, list] = {}
+        tx_power_by_id = {d.id: d.power_dbm for d in scene.devices if d.kind == "tx"}
+        by_pair: dict[tuple[str, str], list] = {}
         for p in paths.paths:
-            by_rx.setdefault(p.rx_id, []).append(p)
-        for ue_id, plist in by_rx.items():
+            by_pair.setdefault((p.tx_id, p.rx_id), []).append(p)
+        for (tx_id, ue_id), plist in by_pair.items():
             dev = scene.device_by_id(ue_id)
             pos = dev.position if dev else [0.0, 0.0, 0.0]
             lin = sum(10.0 ** (p.power_dbm / 10.0) for p in plist)
             rss = 10.0 * math.log10(lin) if lin > 0 else None
-            gain = (rss - tx_power) if rss is not None else None
+            # Path gain from the per-path gains when the backend supplied them
+            # for every path in the link (linear-sum, same domain as rss);
+            # otherwise fall back to rss minus THIS link's TX power.
+            if plist and all(p.path_gain_db is not None for p in plist):
+                gain_lin = sum(10.0 ** (p.path_gain_db / 10.0) for p in plist)
+                gain = 10.0 * math.log10(gain_lin) if gain_lin > 0 else None
+            elif rss is not None and tx_id in tx_power_by_id:
+                gain = rss - tx_power_by_id[tx_id]
+            else:
+                gain = None
             sinr = (rss - noise_floor) if rss is not None else None
             w.writerow(
                 [0.0, ue_id, *[round(c, 4) for c in pos], fmt(rss), fmt(sinr), fmt(gain)]
@@ -196,6 +209,8 @@ def _radio_map_csv(rm: Optional[RadioMapResultSet], config: SimulationConfig) ->
                 if rm.metric == "rss_dbm":
                     cells[0] = round(v, 3)
                     cells[1] = round(v - noise_floor, 3)  # sinr_db (SNR)
+                elif rm.metric == "sinr_db":
+                    cells[1] = round(v, 3)  # value is already dB; no noise math
                 elif rm.metric == "path_gain_db":
                     cells[2] = round(v, 3)
                 w.writerow([round(x, 3), round(y, 3), round(z, 3), *cells])

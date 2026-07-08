@@ -32,6 +32,7 @@ from __future__ import annotations
 import base64
 import io
 import json
+import os
 import re
 import threading
 import uuid
@@ -89,6 +90,28 @@ def project_write_lock(project_dir: Path) -> threading.Lock:
             lock = threading.Lock()
             _project_locks[key] = lock
         return lock
+
+
+def _atomic_write_bytes(path: Path, data: bytes) -> None:
+    """Write ``data`` to ``path`` atomically: temp sibling + ``os.replace``.
+
+    The active visual/scene.glb is overwritten in place during a split/undo; a
+    crash mid-write would otherwise leave a truncated, unloadable GLB. Writing
+    to a sibling temp in the SAME directory and then ``os.replace`` makes the
+    swap atomic on one filesystem (including Windows), so a reader ever only
+    sees the old or the new file whole. The temp is cleaned on failure.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    try:
+        tmp.write_bytes(data)
+        os.replace(tmp, path)
+    finally:
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
 
 
 # ---------------------------------------------------------------- masks
@@ -525,7 +548,7 @@ def _bake_submeshes(
     backup = project_dir / "visual" / f"scene.pre-split-{batch}.glb"
     backup.parent.mkdir(parents=True, exist_ok=True)
     backup.write_bytes(glb_path.read_bytes())
-    glb_path.write_bytes(tm_scene.export(file_type="glb"))
+    _atomic_write_bytes(glb_path, tm_scene.export(file_type="glb"))
     # load_visual_scene reads fresh per call and terrain's cache keys on
     # mtime, so the rewritten GLB is picked up without explicit invalidation.
 
@@ -654,7 +677,7 @@ def undo_split(project_dir: Path, scene: Scene, batch_id: str) -> tuple[Scene, d
         raise SegmentationError(f"backup GLB missing: {undo['backup_glb']}")
     original = Prim.model_validate(undo["removed_prim"])
     uri = original.mesh_ref.asset_uri if original.mesh_ref else "visual/scene.glb"
-    (project_dir / uri).write_bytes(backup.read_bytes())
+    _atomic_write_bytes(project_dir / uri, backup.read_bytes())
     scene.prims = [p for p in scene.prims if p.id not in set(undo["added_prim_ids"])]
     scene.prims.append(original)
     undo_path.unlink()

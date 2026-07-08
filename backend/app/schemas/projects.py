@@ -9,7 +9,7 @@ from .common import StrictModel
 
 
 class ProjectInfo(StrictModel):
-    # Folder name without the .sionnatwin suffix.
+    # Folder name without the .seam suffix (legacy .sionnatwin projects keep loading).
     project_id: str
     name: str
     # Absolute path of the project folder on this machine.
@@ -23,7 +23,8 @@ class ProjectCreateRequest(StrictModel):
     name: str = Field(min_length=1)
     # Derived from name when omitted (lowercased, non-alnum -> "_").
     project_id: Optional[str] = Field(default=None, pattern=r"^[a-z0-9_\-]+$")
-    template: Literal["empty", "demo"] = "empty"
+    # Only "empty" is materialized today; the API always creates an empty project.
+    template: Literal["empty"] = "empty"
 
 
 class HealthBackendStatus(StrictModel):

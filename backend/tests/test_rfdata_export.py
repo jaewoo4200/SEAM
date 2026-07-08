@@ -8,8 +8,10 @@ from pathlib import Path
 import pytest
 
 from app.schemas.devices import Device
+from app.schemas.results import PathResultSet, RayPath
 from app.schemas.scene import MeshRef, Prim, RFBinding, Scene
 from app.schemas.simulation import (
+    RadioMapGridConfig,
     SimulationConfig,
     TrajectorySimulateRequest,
     UERoute,
@@ -248,6 +250,106 @@ def test_export_tolerates_missing_results(tmp_path: Path):
     # paths.json still exists with an empty frame list.
     pj = json.loads((tmp_path / "export" / "rfdata" / "paths.json").read_text())
     assert pj["paths_by_time"] == []
+
+
+def test_radio_map_csv_sinr_metric_populates_sinr_column(tmp_path: Path):
+    """A sinr_db radio map must write its values into the sinr_db column (the
+    value is already dB): previously only rss_dbm/path_gain_db maps filled a
+    column and a sinr_db map fell through to all-blank cells."""
+    scene = _scene()
+    library = load_default_library()
+    cfg = SimulationConfig(
+        id="default",
+        backend="mock",
+        radio_map=RadioMapGridConfig(metric="sinr_db"),
+    )
+    radio_map = MockBackend().simulate_radio_map(tmp_path, scene, library, cfg)
+    assert radio_map.metric == "sinr_db"
+
+    export_rfdata(
+        tmp_path, scene, cfg, created_at="2026-07-02T00:00:00+00:00",
+        radio_map=radio_map,
+    )
+    rows = list(csv.reader(io.StringIO(
+        (tmp_path / "export" / "rfdata" / "radio_map.csv").read_text()
+    )))
+    assert rows[0] == ["x_m", "y_m", "z_m", "rss_dbm", "sinr_db", "path_gain_db"]
+    data = rows[1:]
+    assert len(data) > 1
+    # Every emitted cell fills sinr_db (col 4) and leaves rss_dbm (3) /
+    # path_gain_db (5) blank; before the fix all three were blank.
+    for r in data:
+        assert r[3] == "" and r[5] == ""
+        assert r[4] != ""
+        float(r[4])  # parses as a number
+
+
+def _two_tx_scene() -> Scene:
+    """Base scene + a second, weaker TX so the path-only fallback has to keep
+    the two links (and their TX powers) apart."""
+    s = _scene()
+    s.devices.append(
+        Device(id="tx_002", name="TX2", kind="tx", position=[0.0, 40.0, 10.0], power_dbm=20.0)
+    )
+    return s
+
+
+def test_trajectory_fallback_two_tx_rows_do_not_mix_tx_powers(tmp_path: Path):
+    """Path-only fallback (no trajectory result) must emit one row per (tx, rx)
+    link, power-summing only that link's paths and referencing path gain to
+    that link's own TX power - never blending a second TX's signal in or reusing
+    txs[0]'s power for every link."""
+    scene = _two_tx_scene()  # tx_001=30 dBm, tx_002=20 dBm, rx_001=[20,0,1.5]
+    cfg = SimulationConfig(id="default", backend="mock")
+
+    def _ray(pid, tx, power, gain):
+        return RayPath(
+            path_id=pid, tx_id=tx, rx_id="rx_001", path_type="los",
+            vertices=[[0.0, 0.0, 10.0], [20.0, 0.0, 1.5]],
+            power_dbm=power, path_gain_db=gain, delay_ns=0.0,
+        )
+
+    # tx_001 link: two paths WITH per-path gains -> exercises the linear-sum
+    # branch. tx_002 link: one path with no gain -> exercises the
+    # rss - tx_power_by_id[tx_id] fallback (must use tx_002's 20 dBm).
+    paths = PathResultSet(
+        result_id="p", backend="mock", simulation_config_id="default",
+        paths=[
+            _ray("p1", "tx_001", -60.0, -90.0),
+            _ray("p2", "tx_001", -63.0, -93.0),
+            _ray("p3", "tx_002", -70.0, None),
+        ],
+    )
+
+    export_rfdata(
+        tmp_path, scene, cfg, created_at="2026-07-02T00:00:00+00:00", paths=paths,
+    )
+    rows = list(csv.reader(io.StringIO(
+        (tmp_path / "export" / "rfdata" / "trajectory.csv").read_text()
+    )))
+    assert rows[0] == ["time_s", "ue_id", "x_m", "y_m", "z_m", "rss_dbm", "sinr_db", "path_gain_db"]
+    data = rows[1:]
+    # Two links -> two rows (both for rx_001), not one blended row.
+    assert len(data) == 2
+    assert [r[1] for r in data] == ["rx_001", "rx_001"]
+    # Both rows sit at the RX position (fixed AODT schema; time_s = 0).
+    for r in data:
+        assert [float(c) for c in r[2:5]] == pytest.approx([20.0, 0.0, 1.5])
+
+    tx1, tx2 = data  # pair order follows path order (tx_001 links, then tx_002)
+
+    # tx_001 link: rss = 10log10(1e-6 + 10^-6.3) = -58.236 dBm; the second TX's
+    # -70 dBm path is NOT summed in. path_gain = linear-sum of the per-path
+    # gains = -88.236 dB (== rss - 30, tx_001's power).
+    assert float(tx1[5]) == pytest.approx(-58.236, abs=1e-3)   # rss_dbm
+    assert float(tx1[7]) == pytest.approx(-88.236, abs=1e-3)   # path_gain_db
+
+    # tx_002 link: single -70 dBm path, no per-path gain -> fallback references
+    # tx_002's own 20 dBm power: gain = -70 - 20 = -90 dB. The pre-fix bug used
+    # txs[0].power_dbm (30) for every link, which would give -100.
+    assert float(tx2[5]) == pytest.approx(-70.0)               # rss_dbm
+    assert float(tx2[7]) == pytest.approx(-90.0)               # path_gain_db
+    assert float(tx2[7]) != pytest.approx(-100.0)
 
 
 # --------------------------------------------------------------------- API

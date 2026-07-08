@@ -71,15 +71,23 @@ class TestAssignMaterials:
         assert response.updated_prim_ids == [WINDOW]
         assert any("/does/not/exist" in w for w in response.warnings)
 
-    def test_group_prim_is_assignable(self, library: RFMaterialLibrary):
+    def test_group_prim_is_skipped_with_warning(self, library: RFMaterialLibrary):
         scene = make_demo_scene()
+        assert scene.prim_by_id(GROUP).type == "group"
         response = assign_materials(
             scene,
             AssignRequest(prim_ids=[GROUP], rf_material_id="itu_concrete"),
             library,
         )
-        assert response.updated_prim_ids == [GROUP]
-        assert scene.prim_by_id(GROUP).rf.material_id == "itu_concrete"
+        # Group prims are not compiled to RF, so they are skipped, not updated,
+        # and the binding is left untouched.
+        assert response.updated_prim_ids == []
+        assert response.skipped_prim_ids == [GROUP]
+        assert any(
+            GROUP in w and "group prims are not compiled" in w
+            for w in response.warnings
+        )
+        assert scene.prim_by_id(GROUP).rf.material_id is None
 
     def test_overrides_applied_and_cleared(self, library: RFMaterialLibrary):
         scene = make_demo_scene()

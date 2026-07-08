@@ -1,8 +1,10 @@
 """RF material assignment onto canonical scene prims.
 
 Assignment mutates the scene in place; persistence is the caller's job (the
-API route saves the scene and appends a provenance event). Group prims are
-assignable too - the RF compiler decides how bindings propagate to geometry.
+API route saves the scene and appends a provenance event). Only
+mesh_primitive prims are assignable; group prims are skipped with a warning
+because the RF compiler only compiles mesh geometry, so a binding on a group
+would silently have no RF effect.
 """
 
 from app.schemas.materials import (
@@ -37,6 +39,16 @@ def assign_materials(
         if prim is None:
             skipped.append(prim_id)
             warnings.append(f"prim not found: {prim_id}")
+            continue
+        if prim.type != "mesh_primitive":
+            # The RF compiler only compiles mesh_primitive prims, so a binding
+            # on a group prim would silently have no RF effect. Skip it and
+            # steer the caller to the child mesh prims instead.
+            skipped.append(prim.id)
+            warnings.append(
+                f"{prim.id}: group prims are not compiled to RF; "
+                "assign the child mesh prims instead"
+            )
             continue
         # Build a fresh binding instead of mutating field-by-field: RFBinding
         # validates material/status consistency as a whole, so an incremental

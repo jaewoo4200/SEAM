@@ -94,7 +94,7 @@ def _apply_custom_materials(scene, manifest_path, warnings: list) -> None:
             continue
         for src_key, attr in (
             ("relative_permittivity", "relative_permittivity"),
-            ("conductivity_s_m", "conductivity"),
+            ("conductivity_s_per_m", "conductivity"),
             ("scattering_coefficient", "scattering_coefficient"),
             ("xpd_coefficient", "xpd_coefficient"),
         ):

@@ -440,3 +440,56 @@ def test_routes_result_roundtrips_through_save_load_with_ue_ids():
     ]
     # And a numeric metric survives unchanged (sanity that samples aren't lost).
     assert loaded.samples[0].rss_dbm == pytest.approx(result.samples[0].rss_dbm)
+
+
+# ------------------------------------------------- config.tx_ids device filter
+
+
+def _two_tx_scene() -> Scene:
+    """The single-TX multi-UE scene plus a second TX. The mock backend loads no
+    geometry, so appending a device is enough to exercise the TX filter."""
+    scene = _multi_ue_scene()
+    scene.devices.append(
+        Device(id="tx_002", name="TX2", kind="tx", position=[20.0, 0.0, 10.0], power_dbm=30.0)
+    )
+    return scene
+
+
+def test_trajectory_tx_ids_filter_selects_serving_tx():
+    """With two TXs in the scene but config.tx_ids=['tx_002'], only tx_002 is an
+    active transmitter: the default serving TX becomes the first ACTIVE tx
+    (tx_002), so the serving-link metrics are populated (not the None/zero they'd
+    be if serving defaulted to the filtered-out tx_001), no tx_001 ray survives,
+    and there is no interference (tx_002 is the sole active TX)."""
+    scene = _two_tx_scene()
+    lib = load_default_library()
+    cfg = SimulationConfig(id="default", backend="mock", tx_ids=["tx_002"])
+    req = TrajectorySimulateRequest(
+        ue_id="rx_001", start_m=[5.0, 0.0, 1.5], end_m=[40.0, 0.0, 1.5],
+        num_points=3, dt_s=0.1, include_paths=True,
+    )
+    result = run_trajectory(MockBackend(), Path("."), scene, lib, cfg, req)
+
+    assert result.samples
+    for s in result.samples:
+        assert s.rss_dbm is not None  # serving TX (tx_002) produced paths
+        assert s.path_count > 0
+        assert s.interference_dbm is None  # tx_002 is the only active TX
+        # No tx_001 contribution appears in the rendered rays.
+        assert s.paths is not None
+        assert all(p.tx_id == "tx_002" for p in s.paths)
+        assert not any(p.tx_id == "tx_001" for p in s.paths)
+
+
+def test_trajectory_serving_tx_id_rejected_when_excluded_by_tx_ids():
+    """serving_tx_id is validated against the ACTIVE (tx_ids-filtered) TXs, so
+    naming tx_001 while config.tx_ids=['tx_002'] excludes it raises ValueError."""
+    scene = _two_tx_scene()
+    lib = load_default_library()
+    cfg = SimulationConfig(id="default", backend="mock", tx_ids=["tx_002"])
+    req = TrajectorySimulateRequest(
+        ue_id="rx_001", start_m=[5.0, 0.0, 1.5], end_m=[40.0, 0.0, 1.5],
+        num_points=2, dt_s=0.1, serving_tx_id="tx_001",
+    )
+    with pytest.raises(ValueError):
+        run_trajectory(MockBackend(), Path("."), scene, lib, cfg, req)

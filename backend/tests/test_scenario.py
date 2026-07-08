@@ -288,6 +288,30 @@ def test_scenario_two_tx_per_link_interference(project, library) -> None:
         assert link.sinr_db < (link.rss_dbm - noise) - 1.0
 
 
+def test_scenario_tx_ids_filter_limits_link_tables(project, library) -> None:
+    """config.tx_ids restricts which transmitters appear in the frame link
+    tables: with two TXs in the scene but tx_ids=['tx_001'], every frame's links
+    cover only tx_001 (matching the backend's solved tx->rx pairs)."""
+    from app.schemas.devices import Device
+
+    backend = MockBackend()
+    scene = _scene_with_actor()
+    scene.devices.append(
+        Device(id="tx_002", kind="tx", position=[50.0, -20.0, 10.0])
+    )
+    config = SimulationConfig(backend="mock", tx_ids=["tx_001"])
+    request = ScenarioSimulateRequest(num_frames=2, dt_s=0.5)
+    result = run_scenario(backend, project, scene, library, config, request)
+
+    for frame in result.frames:
+        link_txs = {link.tx_id for link in frame.links}
+        assert link_txs == {"tx_001"}
+        assert "tx_002" not in link_txs
+        # One link per active-tx x rx pair (1 x 1 here) — the excluded TX adds
+        # no rows.
+        assert len(frame.links) == 1
+
+
 def test_scenario_include_paths_toggle(project, library) -> None:
     backend = MockBackend()
     config = SimulationConfig(backend="mock")

@@ -22,12 +22,16 @@ from fastapi.testclient import TestClient
 from app.api import channel as channel_api
 from app.api import deps
 from app.core.config import get_settings
+import math
+
 from app.schemas.material_impact import MaterialImpactRequest
+from app.schemas.results import RayPath
 from app.schemas.scene import Device, MeshRef, Prim, RFBinding, Scene
 from app.schemas.simulation import SimulationConfig
-from app.services.material_impact import material_impact
+from app.services.material_impact import _capacity_mbps, _cfr, material_impact
 from app.services.project_store import load_default_library
 from app.services.simulation_backends.mock_backend import MockBackend
+from app.services.simulation_backends.sionna_backend import noise_floor_dbm
 
 
 def _scene() -> Scene:
@@ -56,6 +60,73 @@ def _scene() -> Scene:
         ],
         simulation_configs=[SimulationConfig(id="default", frequency_hz=28e9)],
     )
+
+
+# ----------------------------------------------------- capacity regression
+#
+# Regression guard for the TX-power double-count bug: _cfr must build H(f)
+# from the per-path CHANNEL GAIN (dimensionless), so _capacity_mbps applies
+# P_tx exactly once. Before the fix, _cfr used the absolute received power
+# (power_dbm) and capacity multiplied P_tx in AGAIN -> ~1000x (30 dB) too big.
+
+
+def test_capacity_applies_tx_power_once():
+    """Single synthetic path with a known channel gain: the Shannon proxy must
+    equal B*log2(1+SNR) with SNR = 10^((gain + P_tx - N)/10), and must NOT be
+    the ~1000x-inflated value the old received-power CFR produced."""
+    tx_power_dbm = 30.0
+    path_gain_db = -160.0
+    config = SimulationConfig(bandwidth_hz=20e6, noise_figure_db=7.0)
+    noise = noise_floor_dbm(config)  # -174 + 10log10(20e6) + 7
+
+    path = RayPath(
+        path_id="p0",
+        tx_id="tx_001",
+        rx_id="rx_001",
+        path_type="los",
+        vertices=[[0.0, 0.0, 10.0], [20.0, 0.0, 1.5]],
+        power_dbm=path_gain_db + tx_power_dbm,  # absolute received power
+        path_gain_db=path_gain_db,
+        delay_ns=0.0,
+        phase_rad=0.0,
+    )
+
+    # Single CFR point -> f=0 -> |H| is exactly the single tap gain amplitude.
+    _, h = _cfr([path], config.bandwidth_hz, 1, tx_power_dbm)
+    cap = _capacity_mbps(h, tx_power_dbm, noise, config.bandwidth_hz)
+
+    snr = 10.0 ** ((path_gain_db + tx_power_dbm - noise) / 10.0)
+    expected = config.bandwidth_hz * math.log2(1.0 + snr) / 1e6
+    assert cap == pytest.approx(expected, rel=1e-6)
+
+    # The old bug fed received power (power_dbm) into H, then multiplied P_tx
+    # again -> SNR inflated by P_tx (10^3). Assert that value is NOT produced.
+    snr_buggy = 10.0 ** (tx_power_dbm / 10.0) * 10.0 ** (path.power_dbm / 10.0) / 10.0 ** (noise / 10.0)
+    buggy = config.bandwidth_hz * math.log2(1.0 + snr_buggy) / 1e6
+    assert buggy > 100.0 * expected  # sanity: the bug really is ~1000x larger
+    assert cap < buggy / 100.0
+
+
+def test_cfr_fallback_gain_matches_explicit_path_gain():
+    """When path_gain_db is None, _cfr must fall back to power_dbm - tx_power,
+    yielding the identical channel and capacity as the explicit-gain path."""
+    tx_power_dbm = 23.0
+    config = SimulationConfig(bandwidth_hz=20e6, noise_figure_db=7.0)
+    noise = noise_floor_dbm(config)
+
+    def _path(gain_field):
+        return RayPath(
+            path_id="p", tx_id="tx", rx_id="rx", path_type="los",
+            vertices=[[0.0, 0.0, 10.0], [20.0, 0.0, 1.5]],
+            power_dbm=-140.0 + tx_power_dbm, path_gain_db=gain_field,
+            delay_ns=5.0, phase_rad=0.3,
+        )
+
+    _, h_explicit = _cfr([_path(-140.0)], config.bandwidth_hz, 8, tx_power_dbm)
+    _, h_fallback = _cfr([_path(None)], config.bandwidth_hz, 8, tx_power_dbm)
+    cap_explicit = _capacity_mbps(h_explicit, tx_power_dbm, noise, config.bandwidth_hz)
+    cap_fallback = _capacity_mbps(h_fallback, tx_power_dbm, noise, config.bandwidth_hz)
+    assert cap_fallback == pytest.approx(cap_explicit, rel=1e-12)
 
 
 # ------------------------------------------------------------- service level

@@ -197,7 +197,14 @@ def _run_trajectory_routes(
         if uid not in rx_ids:
             raise ValueError(f"unknown rx device: {uid}")
 
-    txs = [d for d in scene.devices if d.kind == "tx"]
+    # Honor the config's TX filter: only devices selected by tx_ids are active
+    # transmitters, so the default serving TX is the first ACTIVE one and a
+    # serving_tx_id excluded by the filter is rejected (mirrors the backend,
+    # whose solved paths already carry only these TXs).
+    txs = [
+        d for d in scene.devices
+        if d.kind == "tx" and (config.tx_ids is None or d.id in config.tx_ids)
+    ]
     serving_tx = next(
         (d for d in txs if d.id == request.serving_tx_id),
         txs[0] if txs else None,
@@ -334,9 +341,14 @@ def run_trajectory(
         raise ValueError(f"unknown rx device: {ue_id}")
 
     waypoints = resolve_waypoints(request)
-    txs = [d for d in scene.devices if d.kind == "tx"]
-    # Serving TX: explicit id or the first TX. Every OTHER TX's power at the
-    # UE counts as co-channel interference in the per-sample SINR.
+    # Honor the config's TX filter: only tx_ids-selected devices are active
+    # transmitters (mirrors the backend's solved paths).
+    txs = [
+        d for d in scene.devices
+        if d.kind == "tx" and (config.tx_ids is None or d.id in config.tx_ids)
+    ]
+    # Serving TX: explicit id or the first ACTIVE TX. Every OTHER active TX's
+    # power at the UE counts as co-channel interference in the per-sample SINR.
     serving_tx = next(
         (d for d in txs if d.id == request.serving_tx_id),
         txs[0] if txs else None,

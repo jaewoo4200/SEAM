@@ -12,6 +12,13 @@ quantify the difference per position:
 
 H(f_k) = sum_l g_l exp(-j 2 pi f_k tau_l) is the same tap model as the
 channel-analysis panel, so the numbers agree with what the UI shows.
+
+CFR convention: g_l (hence H(f)) is a DIMENSIONLESS per-path CHANNEL GAIN
+(path_gain_db = power_dbm - tx_power_dbm), NOT the received amplitude. The
+transmit power P_tx therefore enters exactly once, in the capacity proxy
+above; it must not also be baked into H. NMSE / cos_sim / dRSS / global NMSE
+are ratio metrics in which the constant P_tx factor cancels, so their values
+are independent of this convention.
 """
 
 from __future__ import annotations
@@ -32,14 +39,24 @@ from app.services.simulation_backends.base import RayTracingBackend
 from app.services.simulation_backends.sionna_backend import noise_floor_dbm
 
 
-def _cfr(paths: list[RayPath], bandwidth_hz: float, k: int):
-    """Complex H(f) on k offsets across [-B/2, +B/2] from path gains."""
+def _cfr(paths: list[RayPath], bandwidth_hz: float, k: int, tx_power_dbm: float):
+    """Complex H(f) on k offsets across [-B/2, +B/2] from per-path CHANNEL GAIN.
+
+    Each tap amplitude is sqrt(10^(gain_db/10)) where gain_db is the path's
+    dimensionless channel gain (path_gain_db when the backend supplies it,
+    else power_dbm - tx_power_dbm). Using the gain rather than the received
+    power keeps H(f) free of the transmit power, so capacity applies P_tx
+    exactly once (see module docstring)."""
     import numpy as np
 
     freqs = np.linspace(-bandwidth_hz / 2.0, bandwidth_hz / 2.0, k)
     if not paths:
         return freqs, np.zeros(k, dtype=np.complex128)
-    amps = np.asarray([math.sqrt(10.0 ** (p.power_dbm / 10.0)) for p in paths])
+    gains_db = [
+        p.path_gain_db if p.path_gain_db is not None else p.power_dbm - tx_power_dbm
+        for p in paths
+    ]
+    amps = np.asarray([math.sqrt(10.0 ** (g / 10.0)) for g in gains_db])
     phases = np.asarray([p.phase_rad for p in paths])
     taus = np.asarray([p.delay_ns * 1e-9 for p in paths])
     gains = amps * np.exp(1j * phases)
@@ -47,7 +64,11 @@ def _cfr(paths: list[RayPath], bandwidth_hz: float, k: int):
 
 
 def _capacity_mbps(h, tx_power_dbm: float, noise_dbm: float, bandwidth_hz: float):
-    """Shannon proxy T = B * mean_f log2(1 + P|h|^2/N), in Mbps."""
+    """Shannon proxy T = B * mean_f log2(1 + P|h|^2/N), in Mbps.
+
+    ``h`` is the dimensionless channel gain from ``_cfr`` (TX power NOT baked
+    in), so multiplying by P here applies the transmit power exactly once:
+    P * |h|^2 recovers the received power over the noise N."""
     import numpy as np
 
     p_lin = 10.0 ** (tx_power_dbm / 10.0)
@@ -125,8 +146,8 @@ def material_impact(
 
     k = request.num_cfr_points
     for pos, pm, pb in zip(positions, mat_paths, base_paths):
-        _, h_mat = _cfr(pm, config.bandwidth_hz, k)
-        _, h_base = _cfr(pb, config.bandwidth_hz, k)
+        _, h_mat = _cfr(pm, config.bandwidth_hz, k, tx.power_dbm)
+        _, h_base = _cfr(pb, config.bandwidth_hz, k, tx.power_dbm)
         e_mat = float(np.sum(np.abs(h_mat) ** 2))
         e_base = float(np.sum(np.abs(h_base) ** 2))
         row = PositionImpact(position=[float(c) for c in pos])

@@ -291,8 +291,16 @@ def run_scenario(
     config: SimulationConfig,
     request: ScenarioSimulateRequest,
 ) -> ScenarioResultSet:
-    txs = [d for d in scene.devices if d.kind == "tx"]
-    rxs = [d for d in scene.devices if d.kind == "rx"]
+    # Honor the config's device filters so the frame link tables cover exactly
+    # the solved tx->rx pairs (the backend already filters by tx_ids/rx_ids).
+    txs = [
+        d for d in scene.devices
+        if d.kind == "tx" and (config.tx_ids is None or d.id in config.tx_ids)
+    ]
+    rxs = [
+        d for d in scene.devices
+        if d.kind == "rx" and (config.rx_ids is None or d.id in config.rx_ids)
+    ]
     tx_power = {d.id: d.power_dbm for d in txs}
     noise_floor = noise_floor_dbm(config)
 

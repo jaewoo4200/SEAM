@@ -30,6 +30,8 @@ canonical scene.
 import json
 import os
 import re
+import threading
+import uuid
 import warnings
 from datetime import datetime, timezone
 from pathlib import Path
@@ -74,11 +76,44 @@ def _utcnow() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+# Per-project append lock, keyed on the resolved project dir. Serializes the
+# read-modify-write of provenance.json (and appends to jsonl logs) so that
+# concurrent writers - FastAPI sync endpoints run in a threadpool - never lose
+# events to a lost update. Kept deliberately SEPARATE from
+# material_segmentation.project_write_lock (which is non-reentrant and held by
+# GLB-mutating API routes): acquiring this one inside the store can never
+# deadlock a caller already holding that other lock. The whole fix lives here
+# so all call sites are covered without touching the API routes.
+_append_locks: dict[str, threading.Lock] = {}
+_append_locks_guard = threading.Lock()
+
+
+def _append_lock(project_dir: Path) -> threading.Lock:
+    key = str(project_dir.resolve())
+    with _append_locks_guard:
+        lock = _append_locks.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _append_locks[key] = lock
+        return lock
+
+
 def _atomic_write_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(text, encoding="utf-8")
-    os.replace(tmp, path)
+    # Unique tmp suffix (pid + thread id + uuid) so two concurrent atomic
+    # writers to the same target never share - and clobber - one tmp file.
+    tmp = path.with_suffix(
+        f"{path.suffix}.{os.getpid()}.{threading.get_ident()}.{uuid.uuid4().hex}.tmp"
+    )
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, path)
+    finally:
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
 
 
 def load_default_library() -> RFMaterialLibrary:
@@ -300,17 +335,20 @@ class ProjectStore:
         )
 
     def append_jsonl(self, project_id: str, relative: str, record: dict) -> None:
+        project_dir = self.resolve(project_id)
         path = self.asset_path(project_id, relative)
         path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        with _append_lock(project_dir):
+            with path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
     def append_provenance(self, project_id: str, event: dict) -> None:
         project_dir = self.resolve(project_id)
         prov_file = project_dir / "provenance.json"
-        try:
-            data = json.loads(prov_file.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            data = {"created_at": _utcnow(), "events": []}
-        data.setdefault("events", []).append({"timestamp": _utcnow(), **event})
-        _atomic_write_text(prov_file, json.dumps(data, indent=2))
+        with _append_lock(project_dir):
+            try:
+                data = json.loads(prov_file.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                data = {"created_at": _utcnow(), "events": []}
+            data.setdefault("events", []).append({"timestamp": _utcnow(), **event})
+            _atomic_write_text(prov_file, json.dumps(data, indent=2))
