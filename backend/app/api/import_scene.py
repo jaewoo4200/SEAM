@@ -16,8 +16,8 @@ POST /projects/import (multipart/form-data):
 The heavy lifting (XML parse -> canonical scene + combined visual trimesh
 scene) is done by ``app.services.mitsuba_import.import_mitsuba_scene``; the
 persistence layout mirrors ``examples/scripts/import_bundle_scene.py`` (canonical
-scene.sionnatwin.json, visual/scene.glb, rf/materials.yaml, provenance.json, a
-default 28 GHz SimulationConfig). Bitmap textures referenced by the XML are
+scene.seam.json (legacy scene.sionnatwin.json), visual/scene.glb,
+rf/materials.yaml, provenance.json, a default 28 GHz SimulationConfig). Bitmap textures referenced by the XML are
 copied into the project under ``visual/textures/`` (full resolution, for AI
 evidence crops) and baked into the GLB (downscaled, for the viewer).
 
@@ -303,7 +303,7 @@ def import_project(
             json.dumps(
                 {
                     "created_at": datetime.now(timezone.utc).isoformat(),
-                    "created_by": f"sionnatwin-studio/{APP_VERSION} (import)",
+                    "created_by": f"seam-studio/{APP_VERSION} (import)",
                     "source_upload": upload_name,
                     "source_xml": source_xml,
                     "environment": environment,

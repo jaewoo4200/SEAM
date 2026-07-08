@@ -1319,7 +1319,8 @@ def get_provider_statuses() -> list[AIProviderStatus]:
                     model=settings.openai_model,
                     detail=(
                         f"{settings.openai_url} ({settings.openai_model}): "
-                        "disabled (SIONNATWIN_AI_ENABLED=off)"
+                        "disabled (SEAM_AI_ENABLED=off; legacy alias: "
+                        "SIONNATWIN_AI_ENABLED)"
                     ),
                 )
             )
@@ -1328,7 +1329,8 @@ def get_provider_statuses() -> list[AIProviderStatus]:
                     name="ollama_text",
                     available=False,
                     model=settings.text_model,
-                    detail=f"{settings.base_url}: disabled (SIONNATWIN_AI_ENABLED=off)",
+                    detail=f"{settings.base_url}: disabled (SEAM_AI_ENABLED=off; "
+                    "legacy alias: SIONNATWIN_AI_ENABLED)",
                 )
             )
         else:
@@ -1363,7 +1365,8 @@ def get_provider_statuses() -> list[AIProviderStatus]:
                 available=off,
                 model=None,
                 detail=(
-                    "AI assistance disabled (SIONNATWIN_AI_ENABLED=off)"
+                    "AI assistance disabled (SEAM_AI_ENABLED=off; legacy alias: "
+                    "SIONNATWIN_AI_ENABLED)"
                     if off
                     else "inactive (AI assistance is enabled)"
                 ),
@@ -1429,14 +1432,14 @@ def get_provider_models() -> AIModelsResponse:
                     available=False,
                     default_model=settings.openai_model,
                     discovered=[],
-                    detail="disabled (SIONNATWIN_AI_ENABLED=off)",
+                    detail="disabled (SEAM_AI_ENABLED=off; legacy alias: SIONNATWIN_AI_ENABLED)",
                 ),
                 _provider_models_entry(
                     "ollama_text",
                     available=False,
                     default_model=settings.text_model,
                     discovered=[],
-                    detail="disabled (SIONNATWIN_AI_ENABLED=off)",
+                    detail="disabled (SEAM_AI_ENABLED=off; legacy alias: SIONNATWIN_AI_ENABLED)",
                 ),
             ]
         )
@@ -1619,7 +1622,8 @@ def _select_text_provider(provider: Optional[str] = None) -> tuple[str, str]:
     settings = get_settings().ai
     if settings.enabled == "off":
         raise NoTextProviderError(
-            "AI assistance is disabled (SIONNATWIN_AI_ENABLED=off)"
+            "AI assistance is disabled (SEAM_AI_ENABLED=off; legacy alias: "
+            "SIONNATWIN_AI_ENABLED)"
         )
     if provider == "local_openai":
         if LocalOpenAIProvider().is_available():

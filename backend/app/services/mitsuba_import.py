@@ -1,4 +1,4 @@
-"""Import a Sionna/Mitsuba scene XML into a canonical SionnaTwin scene.
+"""Import a Sionna/Mitsuba scene XML into a canonical SEAM scene.
 
 Handles the two bsdf forms the FTC bundle uses:
 - ``<bsdf type="twosided"><bsdf type="diffuse"><rgb name="reflectance"/>`` with

@@ -10,10 +10,10 @@
 컴파일한 뒤 레이 경로·라디오맵 결과를 다시 같은 뷰포트 위에 겹쳐 보여줍니다.
 
 GPU, Sionna, LLM 어느 것도 **필수가 아닙니다** — 셋 모두 선택적 업그레이드이며,
-기본 **Mock 백엔드만으로도 CPU에서 모든 기능이 동작**합니다.
+**핵심 워크플로와 데모는 Mock 백엔드만으로 CPU에서 동작합니다(일부 기능은 Sionna 필요)**.
 
 ```text
-Unified RF-Visual Scene Graph          (scene.sionnatwin.json - source of truth)
+Unified RF-Visual Scene Graph          (scene.seam.json - source of truth; legacy scene.sionnatwin.json)
   ├─ Visual Projection  →  GLB / textures / Three.js viewer
   └─ RF Projection      →  PLY material groups + Mitsuba XML → Sionna RT
 ```
@@ -71,7 +71,7 @@ bash scripts/start.sh     # 2. 백엔드+프론트 실행
 | **ML 데이터셋** 생성 (npz + metadata) | ❌ | ✅ |
 | **Sionna 엔진 버전 교체** (별도 venv) | ❌ | ✅ |
 | 웹 UI (브라우저) | ❌ (데스크톱) | ✅ |
-| 인뷰어 디바이스-궤적 재생 / 이동 기즈모 | ✅ | 🚧 로드맵 |
+| 인뷰어 디바이스-궤적 재생 / 이동 기즈모 | ✅ | ✅ |
 
 ---
 
@@ -124,8 +124,8 @@ bash scripts/start.sh     # 2. 백엔드+프론트 실행
   비교(`/analyze/material-impact`, KICS 2026)해 "이 재질이 링크에 얼마나 중요한지"를
   정량화합니다.
 - **AoA/AoD 각도 분석** — 각 레이 경로가 출발각(AoD)·도착각(AoA)의
-  `[방위각, 고각]`과 per-path `path_gain_db`를 실어, 논문 스타일 극좌표 산점도
-  (방위각=각, 파워=반경, AoD 채움·AoA 빈 마커, 고각은 CSV·툴팁)로 렌더됩니다.
+  `[방위각, 고도각]`과 per-path `path_gain_db`를 실어, 논문 스타일 극좌표 산점도
+  (방위각=각, 파워=반경, AoD 채움·AoA 빈 마커, 고도각은 CSV·툴팁)로 렌더됩니다.
 - **메시 라디오맵 + 영역 정밀화** — 수평 평면 대신 벽면·바닥·도로 **표면 위**에
   삼각형 단위로 커버리지를 칠하고(`/simulate/mesh-radio-map`), 관심 영역만
   `center_xy`/`size_xy` + 작은 셀로 재계산하는 영역 정밀화, 다중 TX `sinr_db`
@@ -145,13 +145,15 @@ bash scripts/start.sh     # 2. 백엔드+프론트 실행
   저장됩니다. OpenStreetMap은 지도에서 사각형을 드래그하거나 좌표·검색으로
   건물을 바로 불러옵니다.
 - **재질 세그멘테이션 + 연결 성분 분할** — 통짜 건물 메시를 텍스처 마스크
-  (컬러 휴리스틱 / 로컬 VLM 타일 보트 / 외부 SAM2 마스크 업로드)로 면 단위
+  (컬러 휴리스틱 / 로컬 VLM 타일 투표 / 외부 SAM2 마스크 업로드)로 면 단위
   재질 분할하고, 병합된 다중 건물 메시는 연결 성분으로 건물별 분리합니다.
   모든 분할은 GLB 백업과 함께 **undo** 가능합니다.
 - **SEAM-Agent (검색증강 로컬 AI 재질 저작)** — "이 건물은 한양대 FTC" 같은 힌트
-  하나로 웹에서 실제 외관 사진을 찾고, 로컬 VLM이 멀티뷰 관찰(triangle-id 역투영)과
-  결합해 wall/window/roof 세그먼트별 재질 후보를 confidence·증거 카드와 함께
-  제안합니다. 전 과정이 activity trace로 보이고, 적용은 항상 사용자 승인 후입니다.
+  하나로 웹에서 실제 외관 사진을 찾고, 로컬 VLM이 멀티뷰 관찰(triangle-id 버퍼를 통한
+  영역/박스→메시 역투영)과 결합해 wall/window/roof 세그먼트별 재질 후보를 confidence·증거
+  카드와 함께 제안합니다. SAM 스타일 픽셀 마스크는 별도의 세그멘테이션 업로드 경로입니다
+  (위 재질 세그멘테이션 참조). 전 과정이 activity trace로 보이고, 적용은 항상 사용자 승인
+  후입니다.
 - **Blender식 뷰포트** — 커서 중심 줌, 1/3/7 뷰 스냅, 선택 중심 회전, 무한 그리드,
   거리 안개, 사진 텍스처용 unlit 셰이딩 토글.
 - **지형 추종** — UE 궤적이 지형·지붕 표면을 따라 드레이프되고(언덕 관통 방지),
@@ -220,7 +222,8 @@ curl/스크립트로 프로그래매틱하게** 호출한다(백엔드는 기본
 
 ## Architecture (one-liner)
 
-Pydantic v2 스키마의 캐노니컬 씬(`scene.sionnatwin.json`)을 진실의 원천으로 삼아,
+Pydantic v2 스키마의 캐노니컬 씬(`scene.seam.json`, 레거시 `scene.sionnatwin.json`)을
+진실의 원천으로 삼아,
 FastAPI 백엔드가 이를 Visual(GLB) / RF(Mitsuba XML + PLY 그룹) 두 프로젝션으로
 컴파일하고, React + react-three-fiber 프론트엔드가 snake_case 와이어 포맷을
 그대로 미러링하며 결과를 같은 Z-up ENU 미터 좌표계 씬 위에 되돌려 그립니다.
@@ -264,11 +267,11 @@ cd frontend && npm run build                          # 타입체크 + 빌드
 AODT 뷰어 정렬은 `reference-bundle/` 참조 번들(28 GHz FTC/랩룸 ISAC 디지털
 트윈)을 따릅니다.
 
-**지도 데이터 어트리뷰션** — OSM 임포트는 건물 풋프린트를
+**지도 데이터 저작자 표시(어트리뷰션)** — OSM 임포트는 건물 풋프린트를
 [Overpass API](https://overpass-api.de/)로, 지오코딩을 Nominatim으로
 가져옵니다. 해당 데이터는 **© OpenStreetMap contributors**,
 [ODbL 1.0](https://www.openstreetmap.org/copyright) 라이선스입니다 — OSM
-임포트로 생성한 씬을 재배포할 때도 같은 어트리뷰션이 필요합니다. 임포트
+임포트로 생성한 씬을 재배포할 때도 같은 저작자 표시가 필요합니다. 임포트
 다이얼로그의 지도는 [Leaflet](https://leafletjs.com/)(BSD-2) + OSM 표준
 타일을 사용합니다.
 

@@ -9,8 +9,8 @@ or generated output.
 ## Project folder layout
 
 ```text
-sample_demo.sionnatwin/
-├─ scene.sionnatwin.json      canonical unified scene (source of truth)
+<project_id>.seam/
+├─ scene.seam.json            canonical unified scene (source of truth)
 ├─ visual/
 │  ├─ scene.glb               visual projection source (named meshes, PBR)
 │  └─ textures/               optional
@@ -28,12 +28,20 @@ sample_demo.sionnatwin/
 ```
 
 The backend discovers projects by scanning its configured roots
-(`SIONNATWIN_PROJECT_ROOTS`, defaulting to `projects/` and
-`examples/demo_project/`) for folders containing `scene.sionnatwin.json`.
-The project id is the folder name without the `.sionnatwin` suffix. All
+(`SEAM_PROJECT_ROOTS`, legacy `SIONNATWIN_PROJECT_ROOTS`; defaulting to
+`projects/` and `examples/demo_project/`) for folders containing
+`scene.seam.json` (or the legacy `scene.sionnatwin.json`). The project id is
+the folder name without the `.seam` (or legacy `.sionnatwin`) suffix. All
 writes are atomic (temp file + rename), so a crash never corrupts the scene.
 
-## scene.sionnatwin.json
+### Legacy `.sionnatwin` layout
+
+Projects created before the SEAM rename use a `<project_id>.sionnatwin` folder
+with `scene.sionnatwin.json` inside. These remain fully supported — the store
+loads and saves them in place — but new projects use `.seam` / `scene.seam.json`
+as shown above.
+
+## scene.seam.json
 
 Serialized `Scene` model (`backend/app/schemas/scene.py`). All models reject
 unknown keys, so schema drift fails loudly at load time. All coordinates are

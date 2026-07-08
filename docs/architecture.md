@@ -7,13 +7,17 @@ local extras (Sionna RT, Ollama) that degrade gracefully when absent.
 
 ## Unified scene graph and its two projections
 
-There is exactly one source of truth per project: `scene.sionnatwin.json`,
+There is exactly one source of truth per project: `scene.seam.json`,
 the canonical unified scene graph (`app.schemas.scene.Scene`). The visual
 and RF sides are *projections* compiled from it — never independent files
 that can drift.
 
+> **Legacy `.sionnatwin`.** Projects created before the SEAM rename use
+> `scene.sionnatwin.json` inside a `<id>.sionnatwin` folder; they keep loading
+> and saving in place. `scene.seam.json` is the current canonical name.
+
 ```text
-                 scene.sionnatwin.json  (canonical Scene)
+                 scene.seam.json  (canonical Scene)
                  prims / devices / configs / result refs
                  each prim: mesh_ref + visual binding + rf binding
                         │

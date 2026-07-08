@@ -10,11 +10,12 @@ and RF for electromagnetic simulation. The canonical scene compiles into a
 Sionna-compatible RF projection, and ray paths / radio maps come back as
 overlays on the very same viewport.
 
-No GPU, no Sionna, no LLM required — all three are **optional upgrades**; the
-built-in **Mock backend runs everything on CPU**.
+No GPU, no Sionna, no LLM required — all three are **optional upgrades**; core
+workflows and demos run on the **Mock backend (CPU)** — Sionna-only features
+need the real backend.
 
 ```text
-Unified RF-Visual Scene Graph          (scene.sionnatwin.json - source of truth)
+Unified RF-Visual Scene Graph          (scene.seam.json - source of truth; legacy scene.sionnatwin.json)
   ├─ Visual Projection  →  GLB / textures / Three.js viewer
   └─ RF Projection      →  PLY material groups + Mitsuba XML → Sionna RT
 ```
@@ -72,7 +73,7 @@ Studio builds on the same Sionna RT engine and adds:
 | **ML dataset** generation (npz + metadata) | ❌ | ✅ |
 | **Swappable Sionna engine versions** (separate venvs) | ❌ | ✅ |
 | Web UI (browser) | ❌ (desktop) | ✅ |
-| In-viewer device trajectory playback / move gizmo | ✅ | 🚧 roadmap |
+| In-viewer device trajectory playback / move gizmo | ✅ | ✅ |
 
 ---
 
@@ -153,9 +154,11 @@ Studio builds on the same Sionna RT engine and adds:
 - **SEAM-Agent (retrieval-augmented local AI material authoring)** — give one
   hint like "this is the Hanyang FTC building" and the agent retrieves real
   exterior photos from the web, fuses them with multi-view mesh observations
-  (triangle-id back-projection), and proposes per-segment RF materials
-  (wall/window/roof/frame) with confidence and evidence cards. Everything is an
-  observable activity trace, and nothing applies without your approval.
+  (region/box-to-mesh back-projection via triangle-id buffers), and proposes
+  per-segment RF materials (wall/window/roof/frame) with confidence and evidence
+  cards. SAM-style pixel masks are a separate segmentation-upload path (see
+  material segmentation above). Everything is an observable activity trace, and
+  nothing applies without your approval.
 - **Blender-grade viewport** — zoom-to-cursor, 1/3/7 view snaps, orbit around
   selection, infinite grid, distance fog, and an unlit-texture toggle for
   photo-textured scenes.
@@ -213,8 +216,9 @@ curl/scripts (backend defaults to `http://127.0.0.1:8000`):
 
 ## Architecture (one-liner)
 
-A canonical Pydantic v2 scene (`scene.sionnatwin.json`) is the single source of
-truth; the FastAPI backend compiles it into Visual (GLB) and RF (Mitsuba XML +
+A canonical Pydantic v2 scene (`scene.seam.json`, legacy `scene.sionnatwin.json`)
+is the single source of truth; the FastAPI backend compiles it into Visual (GLB)
+and RF (Mitsuba XML +
 PLY groups) projections, and the React + react-three-fiber frontend mirrors the
 snake_case wire format, drawing results back onto the same Z-up ENU-meters
 scene.

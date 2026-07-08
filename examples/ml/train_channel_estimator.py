@@ -1,4 +1,4 @@
-"""Channel-estimation demo on a SionnaTwin ML dataset.
+"""Channel-estimation demo on a SEAM ML dataset.
 
 Task: estimate the full CFR H[N,K] from noisy pilot observations at a subset
 of subcarriers - the canonical use of ray-traced ground truth (AODT-style).

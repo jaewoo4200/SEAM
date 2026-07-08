@@ -1,4 +1,4 @@
-"""Shared primitive types used across all SionnaTwin schemas."""
+"""Shared primitive types used across all SEAM schemas."""
 
 from typing import Annotated, Literal
 
