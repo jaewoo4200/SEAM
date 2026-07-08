@@ -1,5 +1,6 @@
 [build-system]
-requires = ["setuptools>=68"]
+# >=77 for PEP 639 SPDX license expressions (CI installs from a clean env).
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,7 +8,9 @@ name = "seam-backend"
 version = "0.1.0"
 description = "SEAM Studio backend - unified RF-visual scene authoring, validation, and Sionna RT compilation"
 requires-python = ">=3.11"
-license = { file = "../LICENSE" }
+# SPDX expression (the license text lives at the repo root; a ../LICENSE file
+# reference breaks modern setuptools, which forbids paths outside the project).
+license = "Apache-2.0"
 authors = [{ name = "Jaewoo Lee", email = "doni04164@gmail.com" }]
 dependencies = [
     "fastapi>=0.111",
