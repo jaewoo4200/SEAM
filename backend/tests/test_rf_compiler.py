@@ -268,3 +268,122 @@ def test_extract_prim_mesh_applies_node_transform(tmp_path: Path) -> None:
 
 def test_load_visual_scene_missing_file(tmp_path: Path) -> None:
     assert mesh_tools.load_visual_scene(tmp_path, "visual/scene.glb") is None
+
+
+# ------------------------------------------------- per-prim override grouping
+
+
+def _override_scene() -> Scene:
+    """Two walls sharing one constant material but different thickness
+    overrides, plus one ITU prim with a thickness override."""
+    return Scene(
+        scene_id="override_test",
+        name="Override Test",
+        prims=[
+            Prim(
+                id="/a/thin",
+                name="thin",
+                mesh_ref=MeshRef(mesh_name="wall_box"),
+                rf=RFBinding(
+                    material_id="asphalt_custom",
+                    assignment_status="user_confirmed",
+                    assignment_sources=["user"],
+                    thickness_m=0.05,
+                ),
+            ),
+            Prim(
+                id="/a/thick",
+                name="thick",
+                mesh_ref=MeshRef(mesh_name="glass_box"),
+                rf=RFBinding(
+                    material_id="asphalt_custom",
+                    assignment_status="user_confirmed",
+                    assignment_sources=["user"],
+                    thickness_m=0.30,
+                ),
+            ),
+            Prim(
+                id="/a/plain",
+                name="plain",
+                mesh_ref=MeshRef(mesh_name="wall_box"),
+                rf=RFBinding(
+                    material_id="asphalt_custom",
+                    assignment_status="user_confirmed",
+                    assignment_sources=["user"],
+                ),
+            ),
+        ],
+    )
+
+
+def test_override_variants_split_groups(project: Path, library: RFMaterialLibrary) -> None:
+    result = compile_project(project, _override_scene(), library)
+    assert result.ok is True
+    # plain + two thickness variants of the same material = 3 groups.
+    assert len(result.material_groups) == 3
+    by_prims = {tuple(g.prim_ids): g for g in result.material_groups}
+    plain = by_prims[("/a/plain",)]
+    thin = by_prims[("/a/thin",)]
+    thick = by_prims[("/a/thick",)]
+    assert plain.group_id is None and plain.overrides is None
+    assert thin.group_id and thin.group_id.startswith("asphalt_custom__ovr_")
+    assert thick.group_id and thick.group_id != thin.group_id
+    assert thin.overrides == {"thickness_m": 0.05}
+    assert thick.overrides == {"thickness_m": 0.30}
+    # Every group exported its own mesh file named by its group id.
+    assert thin.mesh_file == f"rf/meshes/{thin.group_id}.ply"
+    assert (project / thin.mesh_file).is_file()
+
+    # XML: variant bsdfs carry the EFFECTIVE thickness.
+    root = ET.parse(project / "rf" / "generated_scene.xml").getroot()
+    bsdfs = {b.attrib["id"]: b for b in root.findall("bsdf")}
+    thin_bsdf = bsdfs[f"mat-{thin.group_id}"]
+    assert thin_bsdf.attrib["type"] == "radio-material"
+    thickness = {
+        f.attrib["name"]: f.attrib["value"] for f in thin_bsdf.findall("float")
+    }["thickness"]
+    assert float(thickness) == pytest.approx(0.05)
+
+    # Manifest: variant entries publish group_id + effective custom params.
+    manifest = json.loads((project / "rf" / "compile_manifest.json").read_text())
+    entries = {e["group_id"]: e for e in manifest["groups"]}
+    assert entries[thin.group_id]["custom_material"]["thickness_m"] == pytest.approx(0.05)
+    assert entries["asphalt_custom"]["overrides"] is None
+
+
+def test_same_override_values_share_one_group(
+    project: Path, library: RFMaterialLibrary
+) -> None:
+    scene = _override_scene()
+    scene.prims[1].rf.thickness_m = 0.05  # now identical to /a/thin
+    result = compile_project(project, scene, library)
+    variant = [g for g in result.material_groups if g.overrides]
+    assert len(variant) == 1
+    assert sorted(variant[0].prim_ids) == ["/a/thick", "/a/thin"]
+
+
+def test_itu_thickness_override_uses_itu_plugin(
+    project: Path, library: RFMaterialLibrary
+) -> None:
+    scene = _build_scene()
+    scene.prims[0].rf.thickness_m = 0.42  # itu_concrete wall
+    result = compile_project(project, scene, library)
+    wall = next(g for g in result.material_groups if g.prim_ids == [WALL_ID])
+    assert wall.group_id and wall.group_id.startswith("itu_concrete__ovr_")
+    root = ET.parse(project / "rf" / "generated_scene.xml").getroot()
+    bsdf = next(b for b in root.findall("bsdf") if b.attrib["id"] == f"mat-{wall.group_id}")
+    assert bsdf.attrib["type"] == "itu-radio-material"
+    assert bsdf.find("string").attrib["value"] == "concrete"
+    thickness = next(f for f in bsdf.findall("float") if f.attrib["name"] == "thickness")
+    assert float(thickness.attrib["value"]) == pytest.approx(0.42)
+
+
+def test_itu_scattering_override_warns_and_stays_plain(
+    project: Path, library: RFMaterialLibrary
+) -> None:
+    scene = _build_scene()
+    scene.prims[0].rf.scattering_coefficient = 0.7  # not representable for ITU
+    result = compile_project(project, scene, library)
+    wall = next(g for g in result.material_groups if WALL_ID in g.prim_ids)
+    assert wall.group_id is None and wall.overrides is None
+    assert any("not representable for ITU" in w for w in result.warnings)

@@ -882,7 +882,9 @@ class SionnaBackend(RayTracingBackend):
             if not isinstance(entry, dict):
                 continue
             custom = entry.get("custom_material")
-            mat_id = entry.get("rf_material_id")
+            # Override variants publish their own group_id (= bsdf id without
+            # the "mat-" prefix); plain groups fall back to the material id.
+            mat_id = entry.get("group_id") or entry.get("rf_material_id")
             if not mat_id or not isinstance(custom, dict):
                 continue
             try:
@@ -1167,7 +1169,12 @@ class SionnaBackend(RayTracingBackend):
         warnings: list[str] = self._frequency_warnings(scene, library, config)
         xml_path = self._ensure_projection(project_dir, scene, library, warnings)
 
-        txs = [d for d in scene.devices if d.kind == "tx"]
+        # Honor the config's TX filter like the mock backend and simulate_paths
+        # do — serving/interference semantics must match the user's selection.
+        txs = [
+            d for d in scene.devices
+            if d.kind == "tx" and (config.tx_ids is None or d.id in config.tx_ids)
+        ]
         if not txs:
             raise RuntimeError("scene has no transmitters; cannot compute a radio map")
 

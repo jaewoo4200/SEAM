@@ -15,6 +15,7 @@ assets or unextractable meshes degrade to skipped prims plus warnings - a
 compile never crashes because the visual projection is incomplete.
 """
 
+import hashlib
 import json
 import math
 import xml.etree.ElementTree as ET
@@ -147,7 +148,7 @@ def compile_project(
         return CompileResult(ok=False, errors=errors, validation=validation)
 
     candidates, skipped = _collect_candidates(scene, library, warnings)
-    grouped = _extract_grouped_meshes(project_dir, candidates, skipped, warnings)
+    grouped = _extract_grouped_meshes(project_dir, candidates, library, skipped, warnings)
 
     generated: list[str] = []
     material_groups = _export_group_meshes(project_dir, grouped, generated)
@@ -233,26 +234,66 @@ def _collect_candidates(
             )
             continue
         candidates.append(prim)
-        if (
-            prim.rf.thickness_m is not None
-            or prim.rf.scattering_coefficient is not None
-            or prim.rf.xpd_coefficient is not None
-        ):
-            warnings.append(
-                f"prim {prim.id} has per-prim RF overrides; Mode 2 grouped "
-                "export cannot represent them yet and uses the library "
-                "material's parameters"
-            )
     return candidates, skipped
+
+
+def _override_plan(
+    prim: Prim, material: Optional[RFMaterial], warnings: list[str]
+) -> tuple[str, dict[str, float]]:
+    """Resolve a prim's grouping key and its honored per-prim RF overrides.
+
+    Constant-model materials honor thickness/scattering/XPD overrides via a
+    dedicated radio-material bsdf. ITU-backed materials can only honor
+    thickness (the itu-radio-material plugin's sole tunable — same path the
+    actor export uses); scattering/XPD overrides on ITU materials are ignored
+    with a warning. Prims with identical honored overrides share one variant
+    group, so output stays deterministic.
+    """
+    rf = prim.rf
+    requested: dict[str, float] = {}
+    if rf.thickness_m is not None:
+        requested["thickness_m"] = float(rf.thickness_m)
+    if rf.scattering_coefficient is not None:
+        requested["scattering_coefficient"] = float(rf.scattering_coefficient)
+    if rf.xpd_coefficient is not None:
+        requested["xpd_coefficient"] = float(rf.xpd_coefficient)
+    if not requested:
+        return rf.material_id, {}
+
+    is_itu = bool(material and material.model == "itu_frequency_dependent" and material.itu_name)
+    honored = dict(requested)
+    if is_itu:
+        dropped = [k for k in ("scattering_coefficient", "xpd_coefficient") if k in honored]
+        for k in dropped:
+            honored.pop(k)
+        if dropped:
+            warnings.append(
+                f"prim {prim.id}: {', '.join(dropped)} override(s) are not "
+                f"representable for ITU material {rf.material_id!r} "
+                "(Sionna built-in tables); ignored"
+            )
+        if not honored:
+            return rf.material_id, {}
+
+    digest = hashlib.sha256(
+        json.dumps(honored, sort_keys=True).encode("utf-8")
+    ).hexdigest()[:8]
+    return f"{rf.material_id}__ovr_{digest}", honored
 
 
 def _extract_grouped_meshes(
     project_dir: Path,
     candidates: list[Prim],
+    library: RFMaterialLibrary,
     skipped: list[str],
     warnings: list[str],
-) -> dict[str, list[tuple[Prim, trimesh.Trimesh]]]:
-    """Group extracted world-space meshes by RF material id (Mode 2)."""
+) -> dict[str, dict]:
+    """Group extracted world-space meshes by RF material id (Mode 2).
+
+    Prims with honored per-prim overrides form separate variant groups (see
+    _override_plan); the returned buckets carry the material id and override
+    dict alongside the (prim, mesh) pairs.
+    """
     asset_scenes: dict[str, Optional[trimesh.Scene]] = {}
     for uri in sorted({prim.mesh_ref.asset_uri for prim in candidates}):
         tm_scene = mesh_tools.load_visual_scene(project_dir, uri)
@@ -263,7 +304,7 @@ def _extract_grouped_meshes(
             )
         asset_scenes[uri] = tm_scene
 
-    grouped: dict[str, list[tuple[Prim, trimesh.Trimesh]]] = {}
+    grouped: dict[str, dict] = {}
     for prim in candidates:
         tm_scene = asset_scenes[prim.mesh_ref.asset_uri]
         if tm_scene is None:
@@ -290,7 +331,14 @@ def _extract_grouped_meshes(
                 f"in {prim.mesh_ref.asset_uri}; skipped"
             )
             continue
-        grouped.setdefault(prim.rf.material_id, []).append((prim, mesh))
+        group_id, overrides = _override_plan(
+            prim, library.get(prim.rf.material_id), warnings
+        )
+        bucket = grouped.setdefault(
+            group_id,
+            {"material_id": prim.rf.material_id, "overrides": overrides, "items": []},
+        )
+        bucket["items"].append((prim, mesh))
     return grouped
 
 
@@ -299,7 +347,7 @@ def _extract_grouped_meshes(
 
 def _export_group_meshes(
     project_dir: Path,
-    grouped: dict[str, list[tuple[Prim, trimesh.Trimesh]]],
+    grouped: dict[str, dict],
     generated: list[str],
 ) -> list[MaterialGroup]:
     mesh_dir = project_dir / MESH_DIR_REL
@@ -307,20 +355,25 @@ def _export_group_meshes(
 
     material_groups: list[MaterialGroup] = []
     current_files: set[str] = set()
-    for material_id in sorted(grouped):
-        prim_meshes = grouped[material_id]
+    for group_id in sorted(grouped):
+        bucket = grouped[group_id]
+        prim_meshes = bucket["items"]
         combined = mesh_tools.concatenate_meshes([mesh for _, mesh in prim_meshes])
         # RF meshes are pure geometry: drop visual attributes (vertex colors
         # trigger Mitsuba loader warnings and bloat the PLY).
         combined.visual = trimesh.visual.ColorVisuals(mesh=combined)
-        filename = f"{material_id}.ply"
+        filename = f"{group_id}.ply"
         rel = f"{MESH_DIR_REL}/{filename}"
         (mesh_dir / filename).write_bytes(combined.export(file_type="ply"))
         current_files.add(filename)
         generated.append(rel)
         material_groups.append(
             MaterialGroup(
-                rf_material_id=material_id,
+                rf_material_id=bucket["material_id"],
+                # Plain groups keep group_id == material id (None marker);
+                # override variants carry their derived id + honored values.
+                group_id=None if group_id == bucket["material_id"] else group_id,
+                overrides=bucket["overrides"] or None,
                 prim_ids=sorted(prim.id for prim, _ in prim_meshes),
                 mesh_file=rel,
                 face_count=int(len(combined.faces)),
@@ -565,8 +618,78 @@ def _mitsuba_xml(
         emitted.add(bsdf_id)
         _emit_bsdf(root, bsdf_id, material)
 
+    def emit_variant_bsdf(group: MaterialGroup) -> str:
+        """A unique bsdf per override variant carrying the EFFECTIVE params.
+
+        Constant-model variants embed library values with the prim overrides
+        applied on top (radio-material plugin). ITU-backed variants use the
+        itu-radio-material plugin with the thickness override — the same path
+        the actor export uses, so Sionna keeps its frequency-dependent tables.
+        """
+        material = library.get(group.rf_material_id)
+        bsdf_id = f"mat-{group.group_id}"
+        if bsdf_id in emitted:
+            return bsdf_id
+        emitted.add(bsdf_id)
+        ovr = group.overrides or {}
+        if (
+            material is not None
+            and material.model == "itu_frequency_dependent"
+            and material.itu_name
+        ):
+            bsdf = ET.SubElement(
+                root, "bsdf", {"type": "itu-radio-material", "id": bsdf_id}
+            )
+            itu_class = material.itu_name.removeprefix("itu_")
+            ET.SubElement(bsdf, "string", {"name": "type", "value": itu_class})
+            thickness = ovr.get("thickness_m", material.thickness_m)
+            if thickness:
+                ET.SubElement(
+                    bsdf, "float", {"name": "thickness", "value": f"{thickness:g}"}
+                )
+            ET.SubElement(
+                bsdf,
+                "rgb",
+                {"name": "color", "value": _hex_to_rgb01(material.preview_color)},
+            )
+            return bsdf_id
+        bsdf = ET.SubElement(root, "bsdf", {"type": "radio-material", "id": bsdf_id})
+        props: list[tuple[str, Optional[float]]] = [
+            (
+                "relative_permittivity",
+                material.relative_permittivity if material else None,
+            ),
+            ("conductivity", material.conductivity_s_per_m if material else None),
+            (
+                "scattering_coefficient",
+                ovr.get(
+                    "scattering_coefficient",
+                    material.scattering_coefficient if material else None,
+                ),
+            ),
+            (
+                "xpd_coefficient",
+                ovr.get(
+                    "xpd_coefficient", material.xpd_coefficient if material else None
+                ),
+            ),
+            ("thickness", ovr.get("thickness_m", material.thickness_m if material else None)),
+        ]
+        for name, value in props:
+            if value is not None:
+                ET.SubElement(bsdf, "float", {"name": name, "value": f"{value:g}"})
+        return bsdf_id
+
+    group_bsdf_ids: dict[str, str] = {}
     for group in material_groups:
-        emit_bsdf_for(group.rf_material_id)
+        gid = group.group_id or group.rf_material_id
+        if group.overrides:
+            group_bsdf_ids[gid] = emit_variant_bsdf(group)
+        else:
+            emit_bsdf_for(group.rf_material_id)
+            group_bsdf_ids[gid] = _bsdf_id(
+                library.get(group.rf_material_id), group.rf_material_id
+            )
     actor_bsdf_ids: dict[str, str] = {}
     for actor in actor_exports:
         actor_bsdf_ids[actor.actor_id] = _emit_actor_bsdf(
@@ -574,18 +697,14 @@ def _mitsuba_xml(
         )
 
     for group in material_groups:
-        material = library.get(group.rf_material_id)
-        shape = ET.SubElement(
-            root, "shape", {"type": "ply", "id": f"shape-{group.rf_material_id}"}
-        )
+        gid = group.group_id or group.rf_material_id
+        shape = ET.SubElement(root, "shape", {"type": "ply", "id": f"shape-{gid}"})
         ET.SubElement(
             shape,
             "string",
-            {"name": "filename", "value": f"meshes/{group.rf_material_id}.ply"},
+            {"name": "filename", "value": f"meshes/{gid}.ply"},
         )
-        ET.SubElement(
-            shape, "ref", {"id": _bsdf_id(material, group.rf_material_id), "name": "bsdf"}
-        )
+        ET.SubElement(shape, "ref", {"id": group_bsdf_ids[gid], "name": "bsdf"})
         ET.SubElement(shape, "boolean", {"name": "face_normals", "value": "true"})
 
     for actor in actor_exports:
@@ -609,15 +728,20 @@ def _mitsuba_xml(
 # ---------------------------------------------------------- manifest / maps
 
 
-def _custom_material(material: Optional[RFMaterial]) -> Optional[dict]:
+def _custom_material(
+    material: Optional[RFMaterial], overrides: Optional[dict[str, float]] = None
+) -> Optional[dict]:
     if material is None or material.model != "constant":
         return None
+    ovr = overrides or {}
     return {
         "relative_permittivity": material.relative_permittivity,
         "conductivity_s_per_m": material.conductivity_s_per_m,
-        "thickness_m": material.thickness_m,
-        "scattering_coefficient": material.scattering_coefficient,
-        "xpd_coefficient": material.xpd_coefficient,
+        "thickness_m": ovr.get("thickness_m", material.thickness_m),
+        "scattering_coefficient": ovr.get(
+            "scattering_coefficient", material.scattering_coefficient
+        ),
+        "xpd_coefficient": ovr.get("xpd_coefficient", material.xpd_coefficient),
     }
 
 
@@ -635,13 +759,21 @@ def _manifest(
         groups.append(
             {
                 "rf_material_id": group.rf_material_id,
+                # Override variants get their own group id (bsdf/shape/mesh
+                # names derive from it); plain groups repeat the material id
+                # so older manifest consumers keep working.
+                "group_id": group.group_id or group.rf_material_id,
+                "overrides": group.overrides,
                 # itu_name lets backends resolve ITU built-ins whose library
                 # id differs from the Sionna material name (e.g. "metal").
                 "itu_name": material.itu_name if material else None,
                 "prim_ids": group.prim_ids,
                 "mesh_file": group.mesh_file,
                 "face_count": group.face_count,
-                "custom_material": _custom_material(material),
+                # Effective (override-applied) constant params so backends'
+                # defensive re-sync pushes the variant's values, not the
+                # library defaults.
+                "custom_material": _custom_material(material, group.overrides),
             }
         )
     # Actors: individual shapes the backend moves per frame. Also carry any

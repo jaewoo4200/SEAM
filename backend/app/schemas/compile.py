@@ -9,9 +9,19 @@ from .validation import ValidationReport
 
 
 class MaterialGroup(StrictModel):
-    """Geometry grouped by RF material for export (HANDOFF.md Mode 2)."""
+    """Geometry grouped by RF material for export (HANDOFF.md Mode 2).
+
+    Prims sharing a material but carrying different per-prim RF overrides
+    (thickness/scattering/XPD) split into override variant groups: group_id
+    becomes "<material_id>__ovr_<hash>" and `overrides` records the honored
+    values. Plain groups keep group_id == rf_material_id (None here).
+    """
 
     rf_material_id: str
+    # None means the group is the plain library material (id == material id).
+    group_id: Optional[str] = None
+    # Honored per-prim overrides baked into this variant's bsdf.
+    overrides: Optional[dict[str, float]] = None
     prim_ids: list[str] = Field(default_factory=list)
     # Path relative to project folder, e.g. "rf/meshes/itu_concrete.ply".
     # None when mesh extraction was not possible (placeholder compile).
