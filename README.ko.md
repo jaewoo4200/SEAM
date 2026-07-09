@@ -173,7 +173,9 @@ curl/스크립트로 프로그래매틱하게** 호출한다(백엔드는 기본
 - **`POST /api/projects/{id}/live/state`** — **외부 실세계 위치 주입.**
   GPS/모캡/로그의 디바이스·액터 위치를 로드된 씬에 밀어 넣는다. UI의 *Live sync*
   폴링이 이 상태를 그대로 반영하므로, 외부 소스가 이 엔드포인트로 계속 밀면 뷰어가
-  실시간으로 따라 움직인다. `persist=true` 로 씬에 저장, `resimulate=true` 로 즉시
+  실시간으로 따라 움직인다. `persist=false`(기본)면 위치가 인메모리 라이브 오버레이에
+  담겨 `GET /scene`·주기적 재계산이 읽을 때 반영되고(디스크에 쓰지 않으며, 권한적
+  저장 시 비워짐), `persist=true` 면 저장된 씬에 기록된다. `resimulate=true` 로 즉시
   경로를 다시 풀어 최신 링크 지표를 돌려받아 measure → sync → predict 루프를 돌릴 수
   있다.
 

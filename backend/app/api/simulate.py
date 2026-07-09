@@ -22,7 +22,7 @@ from typing import Literal, Optional, Union
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import Field
 
-from app.api.deps import get_store, load_scene_or_404
+from app.api.deps import get_store, load_scene_live, load_scene_or_404
 from app.schemas.actors import ScenarioResultSet
 from app.schemas.common import StrictModel
 from app.schemas.results import (
@@ -206,7 +206,7 @@ def _run_simulation(
 
     publish_event(project_id, {"type": "simulation_started", "kind": kind})
     store = get_store()
-    scene = load_scene_or_404(store, project_id)
+    scene = load_scene_live(store, project_id)
     library = store.load_materials(project_id)
     config = _resolve_config(scene, request or SimulateRequest())
 
@@ -229,7 +229,7 @@ def _run_simulation(
 
 def _load_result(project_id: str, kind: ResultKind, result_id: Optional[str]) -> dict:
     store = get_store()
-    scene = load_scene_or_404(store, project_id)
+    scene = load_scene_live(store, project_id)
     refs = [ref for ref in scene.result_sets if ref.kind == kind]
     if result_id is None:
         if not refs:
@@ -283,7 +283,7 @@ def simulate_mesh_radio_map(
 
     publish_event(project_id, {"type": "simulation_started", "kind": "mesh_radio_map"})
     store = get_store()
-    scene = load_scene_or_404(store, project_id)
+    scene = load_scene_live(store, project_id)
     library = store.load_materials(project_id)
     config = _resolve_config(
         scene, SimulateRequest(config_id=request.config_id, config=request.config)
@@ -344,7 +344,7 @@ def prune_results(project_id: str, request: Optional[ResultsPruneRequest] = None
     """
     request = request or ResultsPruneRequest()
     store = get_store()
-    scene = load_scene_or_404(store, project_id)
+    scene = load_scene_live(store, project_id)
     project_dir = store.resolve(project_id)
 
     scope = set(request.kinds) if request.kinds is not None else set(RESULT_KINDS)
@@ -409,7 +409,7 @@ def simulate_trajectory(
 
     publish_event(project_id, {"type": "simulation_started", "kind": "trajectory"})
     store = get_store()
-    scene = load_scene_or_404(store, project_id)
+    scene = load_scene_live(store, project_id)
     library = store.load_materials(project_id)
     config = _resolve_config(
         scene, SimulateRequest(config_id=request.config_id, config=request.config)
@@ -452,7 +452,7 @@ def simulate_beamforming(
     demand and returned directly (not stored as a result set)."""
     request = request or BeamformingRequest()
     store = get_store()
-    scene = load_scene_or_404(store, project_id)
+    scene = load_scene_live(store, project_id)
     # Explicit ids must resolve (audit M3): silently falling back to the first
     # device returned plausible-but-wrong numbers for a typo. Matches the
     # 400 contract of analyze/channel and simulate/trajectory.

@@ -599,3 +599,75 @@ def test_trajectory_serving_tx_id_rejected_when_excluded_by_tx_ids():
     )
     with pytest.raises(ValueError):
         run_trajectory(MockBackend(), Path("."), scene, lib, cfg, req)
+
+
+# ----------------------------------------- per-waypoint orientation (P2 fix)
+
+from app.services.trajectory import resample_orientations  # noqa: E402
+
+
+def test_resample_orientations_nearest_waypoint():
+    # 3 waypoints along +x at 0, 10, 20 m with distinct yaws; resample to 5
+    # steps (every 5 m). Each step takes the NEAREST waypoint's orientation.
+    wps = [[0.0, 0.0, 0.0], [10.0, 0.0, 0.0], [20.0, 0.0, 0.0]]
+    oris = [[0.0, 0.0, 0.0], [90.0, 0.0, 0.0], [180.0, 0.0, 0.0]]
+    out = resample_orientations(wps, oris, 5)
+    # steps at 0,5,10,15,20 m; nearest wp indices 0,(tie->0.5 uses seg+1 at 5m),1,...,2
+    assert out[0] == [0.0, 0.0, 0.0]     # 0 m -> wp0
+    assert out[2] == [90.0, 0.0, 0.0]    # 10 m -> wp1
+    assert out[4] == [180.0, 0.0, 0.0]   # 20 m -> wp2
+
+
+def test_resample_orientations_none_when_absent():
+    wps = [[0.0, 0.0, 0.0], [10.0, 0.0, 0.0]]
+    assert resample_orientations(wps, [], 4) == [None, None, None, None]
+    assert resample_orientations(wps, [None, None], 3) == [None, None, None]
+
+
+def test_resample_orientations_fills_null_gap():
+    # Middle waypoint has no orientation -> falls back to a segment endpoint.
+    wps = [[0.0, 0.0, 0.0], [10.0, 0.0, 0.0], [20.0, 0.0, 0.0]]
+    oris = [[10.0, 0.0, 0.0], None, [30.0, 0.0, 0.0]]
+    out = resample_orientations(wps, oris, 3)
+    assert all(o is not None for o in out)  # no None leaks through
+
+
+def test_routes_orientation_sets_device_per_step():
+    """The routed UE's antenna orientation is set per step from the route's
+    per-waypoint orientation (proves the plumbing Sionna reads for beam aim)."""
+    scene = _multi_ue_scene()
+    lib = load_default_library()
+    backend = _CapturingBackend()
+    route = UERoute(
+        ue_id="rx_001",
+        waypoints=[[0.0, 0.0, 1.5], [20.0, 0.0, 1.5]],
+        orientations_deg=[[0.0, 0.0, 0.0], [90.0, 0.0, 0.0]],
+    )
+    req = TrajectorySimulateRequest(routes=[route], num_points=3, dt_s=0.1)
+    run_trajectory(backend, Path("."), scene, lib, _cfg(), req)
+
+    # 3 step scenes captured; rx_001's orientation follows the nearest waypoint:
+    # step 0 (0 m) -> [0,0,0], step 2 (20 m) -> [90,0,0].
+    def rx1_orient(step_scene):
+        return next(d.orientation_deg for d in step_scene.devices if d.id == "rx_001")
+
+    assert len(backend.calls) == 3
+    assert rx1_orient(backend.calls[0][0]) == [0.0, 0.0, 0.0]
+    assert rx1_orient(backend.calls[2][0]) == [90.0, 0.0, 0.0]
+
+
+def test_routes_without_orientation_keep_authored():
+    """No per-waypoint orientation -> the device keeps its authored value."""
+    scene = _multi_ue_scene()
+    scene.devices[1].orientation_deg = [45.0, 0.0, 0.0]  # rx_001 authored yaw
+    lib = load_default_library()
+    backend = _CapturingBackend()
+    req = TrajectorySimulateRequest(
+        routes=[UERoute(ue_id="rx_001", waypoints=[[0.0, 0.0, 1.5], [20.0, 0.0, 1.5]])],
+        num_points=2,
+        dt_s=0.1,
+    )
+    run_trajectory(backend, Path("."), scene, lib, _cfg(), req)
+    for step_scene, _cfg_used in backend.calls:
+        rx1 = next(d for d in step_scene.devices if d.id == "rx_001")
+        assert rx1.orientation_deg == [45.0, 0.0, 0.0]

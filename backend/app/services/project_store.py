@@ -285,6 +285,12 @@ class ProjectStore:
         # project keeps its scene.sionnatwin.json (never silently migrated).
         scene_file = scene_file_in(project_dir) or (project_dir / SCENE_FILENAME)
         _atomic_write_text(scene_file, scene.model_dump_json(indent=2))
+        # This authoritative write is now the truth: drop any non-persisted
+        # live-state overlay so it can never resurrect stale positions on top
+        # of the saved scene (see services/live_state.py).
+        from app.services import live_state
+
+        live_state.clear(project_id)
 
     # -------------------------------------------------------- materials I/O
 

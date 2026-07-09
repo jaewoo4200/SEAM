@@ -141,18 +141,31 @@ Request:
   "ue_id": "ue_01",          // optional; echoed back, not resolved against the scene
   "agl_m": 1.5,              // optional default height for points lacking z/agl (null => z = 0)
   "points": [
-    { "x": 0, "y": 0, "agl_m": 1.5 },
-    { "lat": 37.5560, "lon": 127.0450, "agl_m": 1.5 },
-    [30.0, 5.0, 1.5]
+    { "x": 0, "y": 0, "agl_m": 1.5, "orientation_deg": [0, 0, 0] },   // per-waypoint antenna aim
+    { "lat": 37.5560, "lon": 127.0450, "agl_m": 1.5, "orientation_deg": [90, 0, 0] },
+    [30.0, 5.0, 1.5]         // bare arrays carry no orientation
   ]
 }
 ```
 
+An object waypoint may carry `orientation_deg` (`[yaw, pitch, roll]` degrees).
+Each solved step aims the moving UE's antenna to the **nearest waypoint's**
+orientation (piecewise-constant between waypoints), so a turning UE's beam
+turns with it — Sionna honors it; the Mock backend is isotropic and unaffected.
+Waypoints with no orientation keep the device's authored orientation.
+
 Response:
 
 ```json
-{ "ue_id": "ue_01", "waypoints": [[0,0,1.5],[12.3,-4.1,1.5],[30,5,1.5]], "warnings": [] }
+{ "ue_id": "ue_01",
+  "waypoints": [[0,0,1.5],[12.3,-4.1,1.5],[30,5,1.5]],
+  "orientations_deg": [[0,0,0],[90,0,0],null],
+  "warnings": [] }
 ```
+
+`orientations_deg` is parallel to `waypoints` (null where a point gave none),
+or omitted entirely when no waypoint carried an orientation. The frontend feeds
+it into `UERoute.orientations_deg` for the trajectory solve.
 
 ```bash
 curl -X POST http://localhost:8000/api/projects/my_project/import/trajectory \

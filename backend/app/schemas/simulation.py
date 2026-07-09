@@ -125,6 +125,12 @@ class UERoute(StrictModel):
 
     ue_id: str
     waypoints: list[list[float]] = Field(min_length=2)
+    # Optional per-waypoint [yaw, pitch, roll] degrees (parallel to
+    # ``waypoints``; entries may be null). When present, each solved step sets
+    # the UE's antenna orientation to the nearest waypoint's value, so a
+    # turning UE's beam turns with it (Sionna aims the Receiver by this angle).
+    # None = keep the device's authored orientation for the whole route.
+    orientations_deg: Optional[list[Optional[list[float]]]] = None
 
 
 class TrajectorySimulateRequest(StrictModel):

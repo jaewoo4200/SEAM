@@ -431,3 +431,32 @@ def test_templates_endpoint_returns_both_examples(api_client):
     assert isinstance(body["field_reference"], dict)
     assert "coordinate_systems" in body["field_reference"]
     assert "agl_m" in body["field_reference"]
+
+
+# ------------------------------------- trajectory waypoint orientation (P2)
+
+
+def test_trajectory_import_carries_per_waypoint_orientation(tmp_path: Path):
+    from app.services.point_import import resolve_trajectory
+
+    scene = Scene(scene_id="t", name="t")
+    points = [
+        {"x": 0.0, "y": 0.0, "z": 1.5, "orientation_deg": [0, 0, 0]},
+        {"x": 10.0, "y": 0.0, "z": 1.5, "orientation_deg": [90, 0, 0]},
+        [20.0, 0.0, 1.5],  # bare array: no orientation
+    ]
+    wps, oris, warnings = resolve_trajectory(
+        tmp_path, scene, points, default_agl=1.5, ue_id="ue_01"
+    )
+    assert wps == [[0.0, 0.0, 1.5], [10.0, 0.0, 1.5], [20.0, 0.0, 1.5]]
+    assert oris == [[0.0, 0.0, 0.0], [90.0, 0.0, 0.0], None]
+
+
+def test_trajectory_import_no_orientation_returns_all_none(tmp_path: Path):
+    from app.services.point_import import resolve_trajectory
+
+    scene = Scene(scene_id="t", name="t")
+    wps, oris, _w = resolve_trajectory(
+        tmp_path, scene, [[0.0, 0.0, 1.5], [5.0, 0.0, 1.5]], default_agl=1.5, ue_id=None
+    )
+    assert oris == [None, None]

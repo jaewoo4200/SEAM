@@ -382,6 +382,18 @@ def import_devices(
 # ------------------------------------------------------- trajectory import
 
 
+def _point_orientation(raw: Any) -> Optional[list[float]]:
+    """Per-waypoint [yaw, pitch, roll] from an object point (arrays have none)."""
+    o = raw.get("orientation_deg") if isinstance(raw, dict) else getattr(raw, "orientation_deg", None)
+    if o is None:
+        return None
+    try:
+        vals = [float(a) for a in o]
+    except (TypeError, ValueError):
+        return None
+    return vals if len(vals) == 3 else None
+
+
 def resolve_waypoints(
     project_dir: Path,
     scene: Scene,
@@ -395,8 +407,29 @@ def resolve_waypoints(
     Returns ``(waypoints, warnings)``. Raises the same errors as
     :func:`resolve_point`.
     """
+    waypoints, _orientations, warnings = resolve_trajectory(
+        project_dir, scene, points, default_agl=default_agl, ue_id=ue_id
+    )
+    return waypoints, warnings
+
+
+def resolve_trajectory(
+    project_dir: Path,
+    scene: Scene,
+    points: list[Any],
+    *,
+    default_agl: Optional[float],
+    ue_id: Optional[str],
+) -> tuple[list[list[float]], list[Optional[list[float]]], list[str]]:
+    """Resolve trajectory points to cartesian waypoints AND per-waypoint
+    orientations (``[yaw, pitch, roll]`` or None, parallel to the waypoints).
+
+    Returns ``(waypoints, orientations, warnings)``. Raises the same errors as
+    :func:`resolve_point`.
+    """
     warnings: list[str] = []
     waypoints: list[list[float]] = []
+    orientations: list[Optional[list[float]]] = []
     who = f" of trajectory '{ue_id}'" if ue_id else ""
     for i, raw in enumerate(points):
         label = f"waypoint {i + 1}{who}"
@@ -405,7 +438,8 @@ def resolve_waypoints(
                 project_dir, scene, raw, default_agl=default_agl, label=label, warnings=warnings
             )
         )
-    return waypoints, warnings
+        orientations.append(_point_orientation(raw))
+    return waypoints, orientations, warnings
 
 
 # --------------------------------------------------------------- templates
@@ -450,8 +484,8 @@ IMPORT_TEMPLATES: dict[str, Any] = {
         "ue_id": "ue_01",
         "agl_m": 1.5,
         "points": [
-            {"x": 0, "y": 0, "agl_m": 1.5},
-            {"lat": 37.5560, "lon": 127.0450, "agl_m": 1.5},
+            {"x": 0, "y": 0, "agl_m": 1.5, "orientation_deg": [0, 0, 0]},
+            {"lat": 37.5560, "lon": 127.0450, "agl_m": 1.5, "orientation_deg": [90, 0, 0]},
             [30.0, 5.0, 1.5],
         ],
     },
@@ -494,5 +528,12 @@ IMPORT_TEMPLATES: dict[str, Any] = {
         "trajectories[].ue_id": "Optional UE id the waypoints belong to; "
         "echoed back, not resolved against the scene.",
         "trajectories[].points": "List of points (any form) for the trajectory.",
+        "trajectories[].points[].orientation_deg": (
+            "Optional per-waypoint [yaw, pitch, roll] degrees (object points "
+            "only). The moving UE's antenna is aimed to the nearest waypoint's "
+            "orientation at each solved step (Sionna honors it; the mock "
+            "backend is isotropic). Omit to keep the device's authored "
+            "orientation for the whole route."
+        ),
     },
 }

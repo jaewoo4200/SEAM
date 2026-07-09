@@ -31,7 +31,9 @@ _MEDIA_TYPES = {
 
 @router.get("/projects/{project_id}/scene", response_model=Scene)
 def get_scene(project_id: str) -> Scene:
-    return deps.load_scene_or_404(deps.get_store(), project_id)
+    # Live overlay applied so the viewer's Live sync polling follows external
+    # (persist=false) /live/state pushes without the scene file changing.
+    return deps.load_scene_live(deps.get_store(), project_id)
 
 
 @router.get("/projects/{project_id}/scene/bounds", response_model=SceneBounds)

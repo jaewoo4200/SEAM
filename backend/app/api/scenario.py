@@ -79,9 +79,14 @@ def apply_live_state(project_id: str, update: LiveStateUpdate) -> LiveStateRespo
     """Apply an external real-world state push to the scene.
 
     Matching devices/actors are moved; unknown ids are reported (never fatal).
-    With persist=True the new positions are written into the stored scene; with
-    resimulate=True a quick path solve runs and fresh LinkMetrics are returned
-    so a measure -> sync -> predict loop can continue.
+    With persist=True the new positions are written into the stored scene.
+    With persist=False they are recorded in an in-memory live overlay
+    (services/live_state.py) that GET /scene and periodic re-solves apply on
+    read, so the viewer's Live sync polling follows the external positions in
+    real time WITHOUT permanently writing them; any authoritative save clears
+    the overlay. With resimulate=True a quick path solve runs on the just-moved
+    positions and fresh LinkMetrics are returned so a measure -> sync -> predict
+    loop can continue.
     """
     store = get_store()
     scene = load_scene_or_404(store, project_id)
@@ -128,7 +133,33 @@ def apply_live_state(project_id: str, update: LiveStateUpdate) -> LiveStateRespo
             dev.position = [float(dev.position[i]) + delta[i] for i in range(3)]
 
     if update.persist:
+        # Authoritative write (also clears any prior live overlay for this id set).
         store.save_scene(project_id, scene)
+    else:
+        # Ephemeral: record the moved positions so GET /scene polling and
+        # periodic re-solves follow them without writing to disk (the README
+        # "viewer follows in real time" example uses persist=false).
+        from app.services import live_state
+
+        dev_positions = {
+            dev_id: device_by_id[dev_id].position
+            for dev_id in applied_devices
+        }
+        # Attached devices moved by the actor delta also need the overlay.
+        for actor_state in actor_states:
+            actor = actor_by_id[actor_state.id]
+            for dev_id in actor.attached_device_ids:
+                if dev_id in device_by_id and dev_id not in dev_positions:
+                    dev_positions[dev_id] = device_by_id[dev_id].position
+        act_overlay = {
+            a_state.id: {
+                "position": actor_by_id[a_state.id].position,
+                "orientation_deg": actor_by_id[a_state.id].orientation_deg,
+            }
+            for a_state in actor_states
+        }
+        if dev_positions or act_overlay:
+            live_state.record(project_id, dev_positions, act_overlay)
 
     links: list[LinkMetrics] = []
     if update.resimulate:

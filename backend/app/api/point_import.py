@@ -32,7 +32,7 @@ from app.services.point_import import (
     DeviceIdCollisionError,
     GeoAnchorMissingError,
     import_devices,
-    resolve_waypoints,
+    resolve_trajectory,
 )
 
 router = APIRouter(tags=["import"])
@@ -83,7 +83,7 @@ def import_trajectory_route(
     scene = deps.load_scene_or_404(store, project_id)
     project_dir = store.resolve(project_id)
     try:
-        waypoints, warnings = resolve_waypoints(
+        waypoints, orientations, warnings = resolve_trajectory(
             project_dir,
             scene,
             request.points,
@@ -94,7 +94,11 @@ def import_trajectory_route(
         raise HTTPException(status_code=400, detail=str(exc))
 
     return TrajectoryImportResponse(
-        ue_id=request.ue_id, waypoints=waypoints, warnings=warnings
+        ue_id=request.ue_id,
+        waypoints=waypoints,
+        # Only surface orientations when at least one waypoint carried one.
+        orientations_deg=(orientations if any(o is not None for o in orientations) else None),
+        warnings=warnings,
     )
 
 

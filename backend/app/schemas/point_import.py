@@ -32,6 +32,10 @@ class PointObject(StrictModel):
     x: Optional[float] = None
     y: Optional[float] = None
     z: Optional[float] = None
+    # Optional [yaw, pitch, roll] degrees (ENU) — for trajectory waypoints, the
+    # UE's antenna orientation at this point; ignored for device points (a
+    # device carries its own orientation_deg field).
+    orientation_deg: Optional[list[float]] = None
     # Geographic (WGS84 degrees + absolute altitude in meters).
     lat: Optional[float] = None
     lon: Optional[float] = None
@@ -100,4 +104,9 @@ class TrajectoryImportResponse(StrictModel):
     ue_id: Optional[str] = None
     # Fully cartesian waypoints [[x, y, z], ...] for the trajectory-routes UI.
     waypoints: list[Vec3] = Field(default_factory=list)
+    # Parallel to waypoints: per-waypoint [yaw, pitch, roll] degrees, or null
+    # where a point gave no orientation. Fed into UERoute.orientations_deg so
+    # the moving UE's antenna turns with it. Omitted entirely (None) when no
+    # waypoint carried an orientation.
+    orientations_deg: Optional[list[Optional[Vec3]]] = None
     warnings: list[str] = Field(default_factory=list)

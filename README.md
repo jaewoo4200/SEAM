@@ -181,9 +181,11 @@ curl/scripts (backend defaults to `http://127.0.0.1:8000`):
 - **`POST /api/projects/{id}/live/state`** — **inject real-world positions.**
   Push device/actor positions from GPS/mocap/logs into the loaded scene. The
   UI's *Live sync* polling mirrors this state, so a steady stream of posts makes
-  the viewer follow in real time. `persist=true` writes to the scene,
-  `resimulate=true` re-solves paths immediately for a
-  measure → sync → predict loop.
+  the viewer follow in real time. With `persist=false` (default) the positions
+  live in an ephemeral in-memory overlay that `GET /scene` and periodic
+  re-solves apply on read (no disk write; cleared on any authoritative save);
+  `persist=true` writes them into the stored scene. `resimulate=true` re-solves
+  paths immediately for a measure → sync → predict loop.
 
 - **`POST /api/projects/{id}/calibrate/materials`** — **measurement-driven
   material calibration.** Provide measured per-link path gains and one RF

@@ -656,9 +656,14 @@ export interface paths {
          * @description Apply an external real-world state push to the scene.
          *
          *     Matching devices/actors are moved; unknown ids are reported (never fatal).
-         *     With persist=True the new positions are written into the stored scene; with
-         *     resimulate=True a quick path solve runs and fresh LinkMetrics are returned
-         *     so a measure -> sync -> predict loop can continue.
+         *     With persist=True the new positions are written into the stored scene.
+         *     With persist=False they are recorded in an in-memory live overlay
+         *     (services/live_state.py) that GET /scene and periodic re-solves apply on
+         *     read, so the viewer's Live sync polling follows the external positions in
+         *     real time WITHOUT permanently writing them; any authoritative save clears
+         *     the overlay. With resimulate=True a quick path solve runs on the just-moved
+         *     positions and fresh LinkMetrics are returned so a measure -> sync -> predict
+         *     loop can continue.
          */
         post: operations["apply_live_state_api_projects__project_id__live_state_post"];
         delete?: never;
@@ -2877,6 +2882,8 @@ export interface components {
             lat?: number | null;
             /** Lon */
             lon?: number | null;
+            /** Orientation Deg */
+            orientation_deg?: number[] | null;
             /** X */
             x?: number | null;
             /** Y */
@@ -3722,6 +3729,8 @@ export interface components {
         };
         /** TrajectoryImportResponse */
         TrajectoryImportResponse: {
+            /** Orientations Deg */
+            orientations_deg?: (number[] | null)[] | null;
             /** Ue Id */
             ue_id?: string | null;
             /** Warnings */
@@ -3865,6 +3874,8 @@ export interface components {
          *     num_points steps by arc length at solve time.
          */
         UERoute: {
+            /** Orientations Deg */
+            orientations_deg?: (number[] | null)[] | null;
             /** Ue Id */
             ue_id: string;
             /** Waypoints */

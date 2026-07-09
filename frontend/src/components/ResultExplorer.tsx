@@ -373,11 +373,18 @@ export function TrajectorySection() {
       }
       setRoutes((rs) => [
         ...rs.filter((r) => r.ue_id !== drawUe),
-        { ue_id: drawUe, waypoints: resp.waypoints },
+        {
+          ue_id: drawUe,
+          waypoints: resp.waypoints,
+          // Carry per-waypoint orientation through to the solve when present.
+          ...(resp.orientations_deg ? { orientations_deg: resp.orientations_deg } : {}),
+        },
       ]);
+      const oriented = resp.orientations_deg?.some((o) => o !== null) ?? false;
       useAppStore.setState({
         notice:
           `Imported ${resp.waypoints.length} waypoint(s) for ${drawUe}` +
+          (oriented ? " (with orientation)" : "") +
           (resp.warnings.length > 0 ? ` · ⚠ ${resp.warnings.join(" · ")}` : ""),
       });
     } catch (err) {

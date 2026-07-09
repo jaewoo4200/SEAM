@@ -4603,6 +4603,20 @@
             ],
             "title": "Lon"
           },
+          "orientation_deg": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Orientation Deg"
+          },
           "x": {
             "anyOf": [
               {
@@ -6785,6 +6799,32 @@
       "TrajectoryImportResponse": {
         "additionalProperties": false,
         "properties": {
+          "orientations_deg": {
+            "anyOf": [
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "items": {
+                        "type": "number"
+                      },
+                      "maxItems": 3,
+                      "minItems": 3,
+                      "type": "array"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Orientations Deg"
+          },
           "ue_id": {
             "anyOf": [
               {
@@ -7186,6 +7226,30 @@
         "additionalProperties": false,
         "description": "One routed UE for a multi-UE trajectory: an rx device id and the\nwaypoint polyline it walks. The polyline is resampled to the request's\nnum_points steps by arc length at solve time.",
         "properties": {
+          "orientations_deg": {
+            "anyOf": [
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "items": {
+                        "type": "number"
+                      },
+                      "type": "array"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Orientations Deg"
+          },
           "ue_id": {
             "title": "Ue Id",
             "type": "string"
@@ -9101,7 +9165,7 @@
     },
     "/api/projects/{project_id}/live/state": {
       "post": {
-        "description": "Apply an external real-world state push to the scene.\n\nMatching devices/actors are moved; unknown ids are reported (never fatal).\nWith persist=True the new positions are written into the stored scene; with\nresimulate=True a quick path solve runs and fresh LinkMetrics are returned\nso a measure -> sync -> predict loop can continue.",
+        "description": "Apply an external real-world state push to the scene.\n\nMatching devices/actors are moved; unknown ids are reported (never fatal).\nWith persist=True the new positions are written into the stored scene.\nWith persist=False they are recorded in an in-memory live overlay\n(services/live_state.py) that GET /scene and periodic re-solves apply on\nread, so the viewer's Live sync polling follows the external positions in\nreal time WITHOUT permanently writing them; any authoritative save clears\nthe overlay. With resimulate=True a quick path solve runs on the just-moved\npositions and fresh LinkMetrics are returned so a measure -> sync -> predict\nloop can continue.",
         "operationId": "apply_live_state_api_projects__project_id__live_state_post",
         "parameters": [
           {

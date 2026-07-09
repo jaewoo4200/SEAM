@@ -61,6 +61,54 @@ def resample_polyline(waypoints: list[list[float]], n: int) -> list[list[float]]
     return out
 
 
+def resample_orientations(
+    waypoints: list[list[float]],
+    orientations: list[Optional[list[float]]],
+    n: int,
+) -> list[Optional[list[float]]]:
+    """Resample per-waypoint orientations to ``n`` steps, matched to the SAME
+    arc-length parameterization ``resample_polyline`` uses for positions.
+
+    Orientation is authored discretely per waypoint (a UE points a certain way
+    AT each waypoint), so each resampled step inherits the orientation of the
+    NEAREST original waypoint by arc length — piecewise-constant, no yaw
+    wrap-around interpolation artifacts. Returns a list of length ``n`` of
+    ``[yaw, pitch, roll]`` or None (None where the nearest waypoints carried
+    no orientation)."""
+    if not orientations or all(o is None for o in orientations):
+        return [None] * max(n, 1)
+    if n <= 1:
+        return [orientations[0]]
+    wps = [[float(c) for c in wp] for wp in waypoints]
+    cum = [0.0]
+    for a, b in zip(wps, wps[1:]):
+        cum.append(cum[-1] + math.dist(a, b))
+    total = cum[-1]
+    if total <= 0.0:
+        return [orientations[0] for _ in range(n)]
+
+    def pick(near: int, seg: int) -> Optional[list[float]]:
+        # Nearest endpoint's orientation, falling back to the other endpoint of
+        # the segment when the nearer one is null.
+        for idx in (near, seg, seg + 1):
+            o = orientations[idx] if 0 <= idx < len(orientations) else None
+            if o is not None:
+                return [float(a) for a in o]
+        return None
+
+    out: list[Optional[list[float]]] = []
+    seg = 0
+    for i in range(n):
+        target = total * i / (n - 1)
+        while seg < len(cum) - 2 and cum[seg + 1] < target:
+            seg += 1
+        span = cum[seg + 1] - cum[seg]
+        t = (target - cum[seg]) / span if span > 0.0 else 0.0
+        near = seg if t < 0.5 else seg + 1
+        out.append(pick(near, seg))
+    return out
+
+
 def _aggregate(powers_dbm: list[float], delays_ns: list[float], tx_power_dbm: float):
     """RSS, path gain, RMS delay spread from per-path power/delay."""
     if not powers_dbm:
@@ -221,6 +269,14 @@ def _run_trajectory_routes(
     positions: list[list[list[float]]] = [
         resample_polyline(r.waypoints, n) for r in routes
     ]
+    # Per-step orientation for each route (None list when a route carries no
+    # per-waypoint orientation). A step's orientation aims the moving UE's
+    # antenna for that solve (Sionna honors device orientation; the mock
+    # backend is isotropic and unaffected).
+    orientations: list[list[Optional[list[float]]]] = [
+        resample_orientations(r.waypoints, r.orientations_deg or [], n)
+        for r in routes
+    ]
     warnings: list[str] = []
     # Sionna applies ONE scene-level rx_array, taken from the FIRST selected RX
     # device's antenna (sionna_backend._apply_arrays: rt_scene.rx_array =
@@ -285,10 +341,14 @@ def _run_trajectory_routes(
         for u in range(len(routes)):
             uid = ue_ids[u]
             vel = _waypoint_velocity(positions[u], step, request.dt_s)
+            orient = orientations[u][step]
             for dev in step_scene.devices:
                 if dev.id == uid:
                     dev.position = [float(c) for c in positions[u][step]]
                     dev.velocity_m_s = vel
+                    # Aim the moving UE's antenna per waypoint when supplied.
+                    if orient is not None:
+                        dev.orientation_deg = [float(a) for a in orient]
         step_cfg = config.model_copy(update={"rx_ids": solve_rx_ids})
         result = backend.simulate_paths(project_dir, step_scene, library, step_cfg)
         if step == 0:

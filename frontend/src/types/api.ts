@@ -498,6 +498,9 @@ export interface OsmImportResponse {
 export interface UERoute {
   ue_id: string;
   waypoints: number[][];
+  /** Optional per-waypoint [yaw, pitch, roll] degrees (parallel to waypoints;
+   *  entries may be null). Aims the moving UE's antenna per step. */
+  orientations_deg?: (number[] | null)[] | null;
 }
 
 export interface TrajectorySimulateRequest {
@@ -1209,6 +1212,9 @@ export interface TrajectoryImportResponse {
   ue_id: string | null;
   /** Fully-cartesian Z-up waypoints, ready for the trajectory routes UI. */
   waypoints: Vec3[];
+  /** Per-waypoint [yaw, pitch, roll] degrees (parallel to waypoints; null
+   *  where a point gave none). Null when no waypoint carried an orientation. */
+  orientations_deg?: (Vec3 | null)[] | null;
   warnings: string[];
 }
 
