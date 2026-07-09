@@ -1,6 +1,6 @@
 # 설치 가이드 (INSTALL)
 
-> 🌐 [English](INSTALL.md) · **한국어**
+> [English](INSTALL.md) · **한국어**
 
 SEAM Studio는 **로컬 우선(local-first)** 워크벤치입니다. GPU도, Sionna
 설치도, LLM도 **필수가 아닙니다** — 세 가지 모두 선택적 업그레이드일 뿐이고,

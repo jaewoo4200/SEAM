@@ -1,6 +1,6 @@
 # History of Sionna Features, Materials, and Modeling by Version (Verified Literature)
 
-> 🌐 **English** · [한국어](sionna_versions.ko.md)
+> **English** · [한국어](sionna_versions.ko.md)
 
 This document is a verified reference summarizing the evolution of features, materials, and physical modeling across versions of Sionna and Sionna RT, intended for wireless communication researchers. The evidence is limited to official sources (NVIDIA/NVlabs GitHub release notes and Discussions, official documentation, PyPI metadata, the `pyproject.toml` of each tag, and original arXiv papers and technical reports), and every claim has gone through an adversarial fact-checking procedure that re-fetches primary sources. Claims judged WRONG during verification were adopted only in their corrected form, and items that could not be confirmed against official sources are included in the body but explicitly marked "(unverified)". Dates use absolute dates (YYYY-MM-DD), and release dates are based, as a rule, on the PyPI upload time.
 

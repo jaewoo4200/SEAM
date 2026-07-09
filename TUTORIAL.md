@@ -1,6 +1,6 @@
 # 15-Minute First Session Tutorial (TUTORIAL)
 
-> 🌐 **English** · [한국어](TUTORIAL.ko.md)
+> **English** · [한국어](TUTORIAL.ko.md)
 
 A hands-on guide that takes a first-time SEAM Studio user through a full loop
 **in 15 minutes**: scene exploration → material assignment → path
@@ -133,9 +133,9 @@ cosine≈1·dRSS≈0, it means the geometry/LoS dominates the link and the mater
 
 ---
 
-## 3. Path simulation (Simulate Paths) (2 min)
+## 3. Path simulation (Simulate paths) (2 min)
 
-1. Press the blue **Simulate Paths** button on the right of the toolbar. (Or **Results** mode
+1. Press the blue **Simulate paths** button on the right of the toolbar. (Or **Results** mode
    → **Simulation** panel on the right → **Compute paths** in the **Paths** section.)
 2. After a moment, TX→RX ray polylines are overlaid on the 3D scene. AODT-style legend:
    **LOS cyan / reflection magenta / diffraction orange**, TX red / RX blue markers.
@@ -263,13 +263,13 @@ comparison** charts are laid out.
   as a bitmap/vector or extract the raw data as CSV.
 - There is also an **export-all** button that gets the entire KPI table as a `metric,value,unit` CSV.
 
-### Viewport export buttons — 📸 vs 🎞
+### Viewport export buttons — Snapshot vs Render
 
 The two buttons on the right of the viewport save scene images:
 
-- **📸** — **save PNG as you see it (WYSIWYG).** Exports the current screen (including rays·markers·overlays)
+- **Snapshot** (camera icon) — **save PNG as you see it (WYSIWYG).** Exports the current screen (including rays·markers·overlays)
   at the full canvas resolution. Suitable for paper/slide snapshots.
-- **🎞** — **Mitsuba offline render.** Renders (slowly, but) a physically shaded image separately via
+- **Render** (film icon) — **Mitsuba offline render.** Renders (slowly, but) a physically shaded image separately via
   physically based path tracing. Note that this is not the real-time view you see on screen but an
   offline render result.
 
@@ -305,7 +305,7 @@ its own RF geometry and moves per frame.
 
 1. In the **Trajectory** section of **Results** mode, set the movement segment (**start / end**),
    **num_points**, **dt**. You can enter start/end directly as numbers, or press
-   **🎯 Pick start → end in viewport** to specify them by **clicking two points in the viewport** —
+   **⌖ Pick start → end in viewport** to specify them by **clicking two points in the viewport** —
    the first click becomes start, the second becomes end, and you can plot the path while looking
    at the scene geometry as if drawing it.
 2. While picking, a **dashed preview line** connecting start→end is drawn in the viewport

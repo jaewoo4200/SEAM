@@ -1,6 +1,6 @@
 # AI assistant
 
-> 🌐 **English** · [한국어](ai_assistant.ko.md)
+> **English** · [한국어](ai_assistant.ko.md)
 
 The AI assistant suggests RF materials for prims from visual evidence:
 object names, GLB material names, semantic tags, texture names. It is

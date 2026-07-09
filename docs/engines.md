@@ -1,6 +1,6 @@
 # Compute engines (Swapping the Sionna version)
 
-> 🌐 **English** · [한국어](engines.ko.md)
+> **English** · [한국어](engines.ko.md)
 
 SEAM Studio can **swap the Sionna engine version** used to run path solves.
 For per-version differences in features, materials, and physics models, and for

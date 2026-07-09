@@ -1,6 +1,6 @@
 # Point / Device / Trajectory Import
 
-> 🌐 **English** · [한국어](point_import.ko.md)
+> **English** · [한국어](point_import.ko.md)
 
 Import radio devices and UE trajectory waypoints from a single JSON schema a
 user can hand-author or export from a GPS tool. Points may be **cartesian**

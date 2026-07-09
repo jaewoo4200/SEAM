@@ -1,6 +1,6 @@
 # 아키텍처
 
-> 🌐 [English](architecture.md) · **한국어**
+> [English](architecture.md) · **한국어**
 
 SEAM Studio는 Sionna RT 위에서 RF 인식형 디지털 트윈을 저작하는 로컬 우선(local-first)
 워크벤치입니다. 전체 스택이 일반 소비자용 머신에서 돌아갑니다. 평범한 프로젝트 폴더 위에서

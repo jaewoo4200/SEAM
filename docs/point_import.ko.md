@@ -1,6 +1,6 @@
 # Point / Device / Trajectory Import
 
-> 🌐 [English](point_import.md) · **한국어**
+> [English](point_import.md) · **한국어**
 
 > **요약 (Korean)**
 > 표준 JSON 하나로 디바이스(TX/RX/UE)와 UE 궤적 웨이포인트를 가져온다.

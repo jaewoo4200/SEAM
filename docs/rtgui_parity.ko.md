@@ -1,6 +1,6 @@
 # Sionna RT GUI 대비 기능 패리티 매트릭스
 
-> 🌐 [English](rtgui_parity.md) · **한국어**
+> [English](rtgui_parity.md) · **한국어**
 
 기준: NVlabs/sionna-rt-gui **v0.1.1** 전수 소스 분석 (2026-07-03, 커밋
 `6d37a26`). **RT GUI의 엔진은 `sionna-rt==1.2.2` 정확 핀**

@@ -1,6 +1,6 @@
 # Installation Guide (INSTALL)
 
-> 🌐 **English** · [한국어](INSTALL.ko.md)
+> **English** · [한국어](INSTALL.ko.md)
 
 SEAM Studio is a **local-first** workbench. A GPU, a Sionna
 installation, and an LLM are all **not required** — all three are merely optional

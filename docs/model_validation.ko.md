@@ -1,6 +1,6 @@
 # 모델 검증 (Model Validation)
 
-> 🌐 [English](model_validation.md) · **한국어**
+> [English](model_validation.md) · **한국어**
 
 본 문서는 SEAM Studio에 구현된 통신 채널/전파 모델을 공식 표준·교과서·피어리뷰 문헌과 대조 검증한 결과, 업계 표준 검증 관행, 그리고 본 리포지토리에 바로 적용 가능한 실무 검증 체크리스트를 정리한다.
 

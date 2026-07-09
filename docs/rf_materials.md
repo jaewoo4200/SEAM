@@ -1,6 +1,6 @@
 # RF materials
 
-> 🌐 **English** · [한국어](rf_materials.ko.md)
+> **English** · [한국어](rf_materials.ko.md)
 
 RF materials are electromagnetic surface descriptions consumed by the RF
 projection and the ray-tracing backends. They are deliberately disjoint from

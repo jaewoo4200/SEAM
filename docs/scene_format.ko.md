@@ -1,6 +1,6 @@
 # 씬 및 프로젝트 형식
 
-> 🌐 [English](scene_format.md) · **한국어**
+> [English](scene_format.md) · **한국어**
 
 SEAM 프로젝트는 압축·공유·재현이 가능한 평범한 폴더입니다(관례상
 `<project_id>.seam`로 명명하며, 기존 `<project_id>.sionnatwin` 폴더도 그대로 로드됩니다).

@@ -1,6 +1,6 @@
 # Model Validation
 
-> 🌐 **English** · [한국어](model_validation.ko.md)
+> **English** · [한국어](model_validation.ko.md)
 
 This document summarizes the results of cross-checking the communication channel/propagation models implemented in SEAM Studio against official standards, textbooks, and peer-reviewed literature, together with industry-standard validation practices and a practical validation checklist that can be applied directly to this repository.
 

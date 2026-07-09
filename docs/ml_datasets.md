@@ -1,6 +1,6 @@
 # ML Ground-Truth Datasets (AODT-style research loop)
 
-> 🌐 **English** · [한국어](ml_datasets.ko.md)
+> **English** · [한국어](ml_datasets.ko.md)
 
 The core reason communications researchers use AODT — **training and validating AI
 algorithms (channel estimation, beam prediction, LOS classification, localization)

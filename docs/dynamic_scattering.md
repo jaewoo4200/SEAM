@@ -1,6 +1,6 @@
 # Dynamic Scattering
 
-> 🌐 **English** · [한국어](dynamic_scattering.ko.md)
+> **English** · [한국어](dynamic_scattering.ko.md)
 
 This document covers (1) what "dynamic scattering" actually is in real channel physics (source-based), (2) how commercial/research tools model it, (3) a step-by-step plan for implementing it in this repository (SEAM Studio) with the exact sionna-rt 2.0.1 API (including an effect/cost ranking), and (4) empirically verified Doppler how-to snippets.
 

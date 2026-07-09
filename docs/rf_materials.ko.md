@@ -1,6 +1,6 @@
 # RF 재질
 
-> 🌐 [English](rf_materials.md) · **한국어**
+> [English](rf_materials.md) · **한국어**
 
 RF 재질은 RF 투영(projection)과 레이 트레이싱 백엔드가 사용하는 전자기적
 표면 정의입니다. 시각/PBR 재질과는 의도적으로 분리돼 있으며, RF 재질이 갖는

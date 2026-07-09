@@ -2,14 +2,14 @@
 
 **SEAM** — Scene-to-Electromagnetic Authoring and Mapping for Wireless Digital Twins
 
-> 🇬🇧 **English README: [README.md](README.md)** · 🌐 소개 페이지: <https://jaewoo4200.github.io/SEAM/ko/>
+> **English README: [README.md](README.md)** · 소개 페이지: <https://jaewoo4200.github.io/SEAM/ko/>
 
-**Sionna RT 기반의 로컬 우선 RF 디지털 트윈 워크벤치**입니다. 하나의 텍스처 3D
-씬 안에서 모든 메시가 **두 개의 재질 바인딩**(렌더링용 visual/PBR + 전자기
+**Sionna RT 기반의 로컬 우선 RF 디지털 트윈 워크벤치**입니다. 텍스처를 입힌 3D
+씬 하나에서 모든 메시가 **두 개의 재질 바인딩**(렌더링용 visual/PBR + 전자기
 시뮬레이션용 RF)을 함께 갖고, 캐노니컬 씬을 Sionna 호환 RF 프로젝션으로
 컴파일한 뒤 레이 경로·라디오맵 결과를 다시 같은 뷰포트 위에 겹쳐 보여줍니다.
 
-GPU, Sionna, LLM 어느 것도 **필수가 아닙니다** — 셋 모두 선택적 업그레이드이며,
+GPU, Sionna, LLM 어느 것도 **필수가 아닙니다**. 셋 모두 선택적 업그레이드이며,
 **핵심 워크플로와 데모는 Mock 백엔드만으로 CPU에서 동작합니다(일부 기능은 Sionna 필요)**.
 
 ```text
@@ -19,14 +19,14 @@ Unified RF-Visual Scene Graph          (scene.seam.json - source of truth; legac
 ```
 
 ![한양대 캠퍼스 디지털 트윈 — 항공 텍스처 임포트 렌더](website/assets/hero_campus.jpg)
-*한양대 캠퍼스 트윈 — 드론/항공 텍스처 임포트를 연속 지형 위에, SEAM Studio 렌더.*
+*한양대 캠퍼스 트윈 — 드론/항공 텍스처를 연속 지형 위에 임포트해 SEAM Studio에서 렌더링.*
 
 ![SEAM Studio — 전체 워크벤치: 3D 뷰포트, 모드 패널, 라이브 통신 메트릭 대시보드](website/assets/workbench.jpg)
-*SEAM Studio 한 화면 — 3D 씬 뷰포트와 Materials / Validation / AI Assist / Results 모드, 라이브 링크 메트릭 대시보드.*
+*SEAM Studio 한 화면 — 3D 씬 뷰포트와 Visual / RF Materials / Validation / AI Assist / Results 모드, 라이브 통신 메트릭 대시보드.*
 
 | | |
 |---|---|
-| ![Sionna RT 레이트레이싱 — LOS와 반사 경로가 씬 위에 표시](website/assets/rays_demo.jpg)<br>**Sionna RT 레이트레이싱** — TX 1기·RX 2기 사이 39개 경로(LOS 시안 · 반사 마젠타), 실제 Sionna 백엔드 솔브. | ![캠퍼스 정사 뷰](website/assets/campus_top.jpg)<br>**캠퍼스 트윈 정사 뷰** — 연속 지형 위 항공 텍스처, 뷰 스냅(1/3/7)과 무한 그리드. |
+| ![Sionna RT 레이트레이싱 — LOS와 반사 경로가 씬 위에 표시](website/assets/rays_demo.jpg)<br>**Sionna RT 레이트레이싱** — TX 1기·RX 2기 사이 39개 경로(LOS 시안 · 반사 마젠타), 실제 Sionna 백엔드로 계산. | ![캠퍼스 정사 뷰](website/assets/campus_top.jpg)<br>**캠퍼스 트윈 정사 뷰** — 연속 지형 위 항공 텍스처, 뷰 스냅(1/3/7)과 무한 그리드. |
 | ![Sample Demo — TX/RX 배치와 지표고도 편집](website/assets/sample_demo.jpg)<br>**Sample Demo** — TX/RX 배치와 지표고도(AGL) 편집, Mock 백엔드만으로 동작하는 튜토리얼 씬. | ![SEAM-Agent 멀티뷰 캡처 (드론 매핑 FTC 건물)](website/assets/ftc_building.jpg)<br>**드론 매핑 FTC 건물** — SEAM-Agent가 추론에 쓰는 직교 멀티뷰 캡처. |
 
 ---
@@ -34,8 +34,8 @@ Unified RF-Visual Scene Graph          (scene.seam.json - source of truth; legac
 ## Quickstart (3 commands)
 
 > **사전 요구사항:** **Python 3.11/3.12**와 **Node.js 20+**가 PATH에 있어야 합니다
-> (3.13+는 미검증). 그 외엔 아무것도 필요 없습니다 — 기본 **Mock 백엔드는 CPU만으로
-> 동작**합니다. 실제 레이 트레이싱은 `sionna-rt` 패키지를 **별도 설치**해야 하고
+> (3.13+는 미검증). 그 외엔 아무것도 필요 없습니다. 기본 **Mock 백엔드는 CPU만으로
+> 동작**합니다. 실제 레이트레이싱은 `sionna-rt` 패키지를 **별도 설치**해야 하고
 > (`pip install -e "backend[sionna]"`), GPU·로컬 LLM은 그 위에 얹는 선택 업그레이드입니다.
 > 전체 목록은 [INSTALL.md 사전 요구사항](INSTALL.ko.md#사전-요구사항-prerequisites) 참조.
 
@@ -102,8 +102,8 @@ bash scripts/start.sh     # 2. 백엔드+프론트 실행
 - **Metrics dashboard + 논문용 내보내기** — 링크 KPI(RSS/RSRP/RSSI/RSRQ/SNR/
   Shannon 용량/지연확산/도플러…)와 CIR·CFR·도플러·경로손실 차트를 한 패널에서
   한눈에. 모든 그림은 흰 배경 Times New Roman(serif) 논문 스타일이며, 차트마다
-  **PNG/SVG/CSV export** 버튼이 내장됩니다. 뷰포트 **📸**(보이는 그대로 PNG) /
-  **🎞**(Mitsuba 오프라인 렌더)로 씬 이미지도 저장.
+  **PNG/SVG/CSV export** 버튼이 내장됩니다. 뷰포트의 **Snapshot**(보이는 그대로
+  PNG)·**Render**(Mitsuba 오프라인 렌더) 버튼으로 씬 이미지도 저장.
 - **라이브 채널 파라미터 튜닝 + 3GPP 측정량** — Channel 패널의 Live parameters
   에서 주파수/대역폭/TX 파워/잡음지수/SCS(부반송파 간격)를 즉시 조정하면 자동
   재분석되고, **TS 38.215 스타일 RSRP/RSSI/RSRQ**(요청 SCS의 OFDM 자원격자 기준)

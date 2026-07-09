@@ -1,6 +1,6 @@
 # Sionna RT GUI Feature Parity Matrix
 
-> 🌐 **English** · [한국어](rtgui_parity.ko.md)
+> **English** · [한국어](rtgui_parity.ko.md)
 
 Baseline: full source analysis of NVlabs/sionna-rt-gui **v0.1.1** (2026-07-03, commit
 `6d37a26`). **RT GUI's engine is pinned exactly to `sionna-rt==1.2.2`**

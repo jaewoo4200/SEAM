@@ -1,6 +1,6 @@
 # ML Ground-Truth Datasets (AODT-style 연구 루프)
 
-> 🌐 [English](ml_datasets.md) · **한국어**
+> [English](ml_datasets.md) · **한국어**
 
 통신 연구자가 AODT를 쓰는 핵심 이유 — **시뮬레이션 ground truth로 AI 알고리즘
 (채널 추정, 빔 예측, LOS 분류, 위치추정)을 훈련·검증** — 를 이 툴에서

@@ -2,17 +2,17 @@
 
 **SEAM** — Scene-to-Electromagnetic Authoring and Mapping for Wireless Digital Twins
 
-> 🇰🇷 **한국어 README: [README.ko.md](README.ko.md)** · 🌐 Project page: <https://jaewoo4200.github.io/SEAM/en/>
+> **한국어 README: [README.ko.md](README.ko.md)** · Project page: <https://jaewoo4200.github.io/SEAM/en/>
 
 A **local-first RF digital twin workbench on Sionna RT**. In one textured 3D
 scene, every mesh carries **two material bindings** — visual/PBR for rendering
 and RF for electromagnetic simulation. The canonical scene compiles into a
 Sionna-compatible RF projection, and ray paths / radio maps come back as
-overlays on the very same viewport.
+overlays in the same viewport.
 
-No GPU, no Sionna, no LLM required — all three are **optional upgrades**; core
-workflows and demos run on the **Mock backend (CPU)** — Sionna-only features
-need the real backend.
+No GPU, no Sionna, no LLM required — all three are **optional upgrades**.
+Core workflows and demos run on the **Mock backend (CPU)**; only
+Sionna-specific features need the real backend.
 
 ```text
 Unified RF-Visual Scene Graph          (scene.seam.json - source of truth; legacy scene.sionnatwin.json)
@@ -24,7 +24,7 @@ Unified RF-Visual Scene Graph          (scene.seam.json - source of truth; legac
 *The Hanyang University campus twin — a drone/aerial-textured import on continuous terrain, rendered in SEAM Studio.*
 
 ![SEAM Studio — the full workbench: 3D viewport, mode panels, and the live communication-metrics dashboard](website/assets/workbench.jpg)
-*SEAM Studio in one view — the 3D scene viewport with Materials / Validation / AI Assist / Results modes and a live link-metrics dashboard.*
+*SEAM Studio in one view — the 3D scene viewport with the Visual / RF Materials / Validation / AI Assist / Results modes and a live communication-metrics dashboard.*
 
 | | |
 |---|---|
@@ -105,8 +105,8 @@ Studio builds on the same Sionna RT engine and adds:
 - **Metrics dashboard + paper-ready export** — link KPIs (RSS/RSRP/RSSI/RSRQ/
   SNR/Shannon capacity/delay spread/Doppler…) and CIR·CFR·Doppler·path-loss
   charts in one panel; every figure is white-background Times New Roman with
-  built-in **PNG/SVG/CSV export**. Viewport 📸 (WYSIWYG PNG) / 🎞 (offline
-  Mitsuba render) capture the scene itself.
+  built-in **PNG/SVG/CSV export**. The viewport's **Snapshot** (WYSIWYG PNG) and
+  **Render** (offline Mitsuba) buttons capture the scene itself.
 - **Live channel tuning + 3GPP measurements** — adjust frequency/bandwidth/TX
   power/noise figure/SCS live with auto re-analysis, including **TS 38.215-style
   RSRP/RSSI/RSRQ** over the requested OFDM resource grid.

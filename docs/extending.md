@@ -1,6 +1,6 @@
 # Extending the tool (plugins & extension seams)
 
-> 🌐 **English** · [한국어](extending.ko.md)
+> **English** · [한국어](extending.ko.md)
 
 This document summarizes how researchers can extend SEAM Studio **without touching
 core code**. There are two tracks:

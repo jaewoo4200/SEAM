@@ -1,6 +1,6 @@
 # RT accuracy: concerns and mitigations
 
-> 🌐 **English** · [한국어](accuracy.ko.md)
+> **English** · [한국어](accuracy.ko.md)
 
 Communication researchers report that ray tracing (Sionna RT included) can be
 5–15 dB off from measurements when uncalibrated. This doc records the main

@@ -1,6 +1,6 @@
 # 도구 확장하기 (plugins & extension seams)
 
-> 🌐 [English](extending.md) · **한국어**
+> [English](extending.md) · **한국어**
 
 연구자가 **core 코드를 건드리지 않고** SEAM Studio를 확장하는 방법을
 정리한다. 두 갈래가 있다:

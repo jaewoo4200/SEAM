@@ -1,6 +1,6 @@
 # Compute engines (Sionna 버전 교체)
 
-> 🌐 [English](engines.md) · **한국어**
+> [English](engines.md) · **한국어**
 
 SEAM Studio는 경로(paths) 솔브를 실행할 **Sionna 엔진 버전을 교체**할 수
 있다. 버전별 기능·재질·물리 모델 차이와 "어떤 연구에 어떤 버전이 맞는가"는

@@ -1,6 +1,6 @@
 # Architecture
 
-> 🌐 **English** · [한국어](architecture.ko.md)
+> **English** · [한국어](architecture.ko.md)
 
 SEAM Studio is a local-first workbench for authoring RF-aware digital
 twins on top of Sionna RT. Everything runs on a consumer machine: a FastAPI

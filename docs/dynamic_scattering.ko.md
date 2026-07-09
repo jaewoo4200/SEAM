@@ -1,6 +1,6 @@
 # 동적 산란 (Dynamic Scattering)
 
-> 🌐 [English](dynamic_scattering.md) · **한국어**
+> [English](dynamic_scattering.md) · **한국어**
 
 본 문서는 (1) 실제 채널 물리에서 "동적 산란" 이 무엇인지(출처 기반), (2) 상용/연구 도구가 이를 어떻게 모델링하는지, (3) 본 리포지토리(SEAM Studio)에 sionna-rt 2.0.1 정확 API로 구현하는 단계별 계획(효과/비용 순위 포함), 그리고 (4) 실측 검증된 Doppler how-to 스니펫을 담는다.
 

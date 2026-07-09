@@ -1,6 +1,6 @@
 # AI 어시스턴트
 
-> 🌐 [English](ai_assistant.md) · **한국어**
+> [English](ai_assistant.md) · **한국어**
 
 AI 어시스턴트는 시각적 증거 — 객체 이름, GLB 재질 이름, 시맨틱 태그, 텍스처
 이름 — 를 근거로 prim의 RF 재질을 제안합니다. 어디까지나 선택 기능이라 앱은

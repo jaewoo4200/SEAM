@@ -1,6 +1,6 @@
 # Sionna 버전별 기능·재질·모델링 변천사 (검증 문헌)
 
-> 🌐 [English](sionna_versions.md) · **한국어**
+> [English](sionna_versions.md) · **한국어**
 
 본 문서는 Sionna 및 Sionna RT의 버전별 기능·재질·물리 모델링 변천사를 무선통신 연구자를 위해 정리한 검증 레퍼런스입니다. 근거는 공식 소스(NVIDIA/NVlabs GitHub 릴리스 노트·Discussion, 공식 문서, PyPI 메타데이터, 각 태그의 `pyproject.toml`, arXiv 원논문·기술보고서)로 한정했으며, 모든 클레임은 1차 소스를 재확인(re-fetch)하는 적대적 팩트체크 절차를 거쳤습니다. 검증에서 WRONG으로 판정된 클레임은 수정본만 채택했고, 공식 소스로 확인 불가능한 항목은 본문에 싣되 "(미검증)"으로 명시했습니다. 날짜는 절대날짜(YYYY-MM-DD)를 사용했으며, 릴리스 날짜는 원칙적으로 PyPI 업로드 시각을 기준으로 삼았습니다.
 

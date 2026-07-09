@@ -1,6 +1,6 @@
 # Scene and project format
 
-> 🌐 **English** · [한국어](scene_format.ko.md)
+> **English** · [한국어](scene_format.ko.md)
 
 A SEAM project is a plain folder (conventionally named
 `<project_id>.seam`; legacy `<project_id>.sionnatwin` folders keep loading)
