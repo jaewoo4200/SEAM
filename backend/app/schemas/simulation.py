@@ -2,7 +2,7 @@
 
 from typing import Literal, Optional
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from .common import StrictModel
 
@@ -131,6 +131,21 @@ class UERoute(StrictModel):
     # turning UE's beam turns with it (Sionna aims the Receiver by this angle).
     # None = keep the device's authored orientation for the whole route.
     orientations_deg: Optional[list[Optional[list[float]]]] = None
+
+    @model_validator(mode="after")
+    def _check_orientations(self) -> "UERoute":
+        if self.orientations_deg is not None:
+            if len(self.orientations_deg) != len(self.waypoints):
+                raise ValueError(
+                    "orientations_deg must be parallel to waypoints "
+                    f"({len(self.orientations_deg)} != {len(self.waypoints)})"
+                )
+            for i, o in enumerate(self.orientations_deg):
+                if o is not None and len(o) != 3:
+                    raise ValueError(
+                        f"orientations_deg[{i}] must be [yaw, pitch, roll] (3 values)"
+                    )
+        return self
 
 
 class TrajectorySimulateRequest(StrictModel):

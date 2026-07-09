@@ -279,18 +279,24 @@ class ProjectStore:
         raw = scene_file.read_text(encoding="utf-8")
         return Scene.model_validate_json(raw)
 
-    def save_scene(self, project_id: str, scene: Scene) -> None:
+    def save_scene(
+        self, project_id: str, scene: Scene, *, clear_live_overlay: bool = True
+    ) -> None:
         project_dir = self.resolve(project_id)
         # Write back to whichever scene file the project already has; a legacy
         # project keeps its scene.sionnatwin.json (never silently migrated).
         scene_file = scene_file_in(project_dir) or (project_dir / SCENE_FILENAME)
         _atomic_write_text(scene_file, scene.model_dump_json(indent=2))
-        # This authoritative write is now the truth: drop any non-persisted
-        # live-state overlay so it can never resurrect stale positions on top
-        # of the saved scene (see services/live_state.py).
-        from app.services import live_state
+        # An authoritative position edit is now the truth: drop any non-persisted
+        # live-state overlay so it can never resurrect stale positions on top of
+        # the saved scene. Callers that only append a result-set ref / prune
+        # results (NOT a position edit) pass clear_live_overlay=False so a solve
+        # never ends the live session — the overlay survives across periodic
+        # re-solves (see services/live_state.py and api/simulate._persist_result).
+        if clear_live_overlay:
+            from app.services import live_state
 
-        live_state.clear(project_id)
+            live_state.clear(project_id)
 
     # -------------------------------------------------------- materials I/O
 

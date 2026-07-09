@@ -143,17 +143,24 @@ def _persist_result(
 
     uri = f"results/{result.result_id}.json"
     store.save_json(project_id, uri, result.model_dump(mode="json"))
-    scene.result_sets.append(
-        ResultSetRef(
-            result_id=result.result_id,
-            kind=kind,
-            backend=backend_name,
-            simulation_config_id=config_id,
-            uri=uri,
-            created_at=result.created_at,
-        )
+    ref = ResultSetRef(
+        result_id=result.result_id,
+        kind=kind,
+        backend=backend_name,
+        simulation_config_id=config_id,
+        uri=uri,
+        created_at=result.created_at,
     )
-    store.save_scene(project_id, scene)
+    # The solved `scene` may carry an ephemeral live-state overlay (this solve
+    # loaded it via load_scene_live so the ray tracing followed external
+    # positions). Persisting the result ref must NOT write those overlaid
+    # positions to disk, so append the ref onto a freshly-loaded CLEAN scene
+    # and save that — and keep the overlay (clear_live_overlay=False) so a
+    # periodic/live re-solve keeps following the live feed.
+    scene.result_sets.append(ref)  # keep the in-memory scene consistent
+    clean = load_scene_or_404(store, project_id)
+    clean.result_sets.append(ref)
+    store.save_scene(project_id, clean, clear_live_overlay=False)
     store.append_provenance(
         project_id,
         {
@@ -344,7 +351,9 @@ def prune_results(project_id: str, request: Optional[ResultsPruneRequest] = None
     """
     request = request or ResultsPruneRequest()
     store = get_store()
-    scene = load_scene_live(store, project_id)
+    # Pruning only edits result_sets — never device/actor positions — so load
+    # the CLEAN scene (no live overlay) and keep any overlay intact on save.
+    scene = load_scene_or_404(store, project_id)
     project_dir = store.resolve(project_id)
 
     scope = set(request.kinds) if request.kinds is not None else set(RESULT_KINDS)
@@ -387,7 +396,9 @@ def prune_results(project_id: str, request: Optional[ResultsPruneRequest] = None
     survivors.reverse()  # restore chronological order
     kept_ids = [ref.result_id for ref in survivors]
     scene.result_sets = survivors
-    store.save_scene(project_id, scene)
+    # Not a position edit: keep any live overlay so a running live session
+    # is not ended by a housekeeping prune.
+    store.save_scene(project_id, scene, clear_live_overlay=False)
     store.append_provenance(
         project_id,
         {"type": "results_pruned", "removed_count": len(removed_ids)},

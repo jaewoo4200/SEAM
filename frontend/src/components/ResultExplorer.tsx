@@ -350,6 +350,9 @@ export function TrajectorySection() {
     [scene],
   );
   const [routes, setRoutes] = useState<UERoute[]>([]);
+  // Import warnings kept per UE so they persist on the route row (e.g. a
+  // waypoint that sits under the terrain surface), not just in the toast.
+  const [routeWarnings, setRouteWarnings] = useState<Record<string, string[]>>({});
   const [routeUe, setRouteUe] = useState<string>("");
   // Fixed + moving UEs in one solve (multi-UE routes only).
   const [includeStaticRx, setIncludeStaticRx] = useState(false);
@@ -380,6 +383,9 @@ export function TrajectorySection() {
           ...(resp.orientations_deg ? { orientations_deg: resp.orientations_deg } : {}),
         },
       ]);
+      // Persist any import warnings (e.g. underground waypoints) on the route
+      // row so they don't vanish with the toast.
+      setRouteWarnings((w) => ({ ...w, [drawUe]: resp.warnings }));
       const oriented = resp.orientations_deg?.some((o) => o !== null) ?? false;
       useAppStore.setState({
         notice:
@@ -625,11 +631,32 @@ export function TrajectorySection() {
             <div key={r.ue_id} className="traj-route-row">
               <span className="mono">{r.ue_id}</span>
               <span className="hint">{r.waypoints.length} pts</span>
+              {r.orientations_deg?.some((o) => o !== null) && (
+                <span className="hint" title="per-waypoint antenna orientation imported">
+                  · oriented
+                </span>
+              )}
+              {(routeWarnings[r.ue_id]?.length ?? 0) > 0 && (
+                <span
+                  className="field-error"
+                  style={{ fontSize: 11 }}
+                  title={routeWarnings[r.ue_id].join("\n")}
+                >
+                  ⚠ {routeWarnings[r.ue_id].length}
+                </span>
+              )}
               <button
                 className="row-del"
                 title="Remove this route"
                 disabled={disabled}
-                onClick={() => setRoutes((rs) => rs.filter((x) => x.ue_id !== r.ue_id))}
+                onClick={() => {
+                  setRoutes((rs) => rs.filter((x) => x.ue_id !== r.ue_id));
+                  setRouteWarnings((w) => {
+                    const next = { ...w };
+                    delete next[r.ue_id];
+                    return next;
+                  });
+                }}
               >
                 ×
               </button>

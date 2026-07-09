@@ -487,12 +487,32 @@ class SionnaBackend(RayTracingBackend):
             "edge_diffraction": True,
             "engines": True,  # alternate sionna-rt venvs via subprocess worker
         }
-        try:  # best-effort GPU probe; never let it break the listing
-            import drjit  # type: ignore[import-not-found]  # noqa: F401
+        # Honest GPU probe: report gpu=True ONLY when a CUDA Mitsuba variant is
+        # actually available (an active cuda_* variant, or a cuda_* offered by
+        # this build). A drjit import alone is NOT enough — the macOS/LLVM CPU
+        # wheels import drjit fine but have no CUDA variant, so reporting gpu on
+        # them would mislabel a CPU-only box (Codex finding). "compute" names the
+        # active backend so the UI can show CUDA vs LLVM (CPU).
+        caps["gpu"] = False
+        caps["compute"] = "unknown"
+        try:  # best-effort; never let it break the listing
+            import mitsuba as mi  # type: ignore[import-not-found]
 
-            caps["gpu"] = True  # dr.jit picks CUDA when present, LLVM otherwise
+            active = mi.variant()
+            if active:
+                caps["compute"] = "cuda" if active.startswith("cuda") else (
+                    "llvm" if active.startswith("llvm") else active
+                )
+                caps["gpu"] = active.startswith("cuda")
+            else:
+                variants = list(mi.variants())
+                has_cuda = any(v.startswith("cuda") for v in variants)
+                caps["gpu"] = has_cuda
+                caps["compute"] = "cuda" if has_cuda else (
+                    "llvm" if any(v.startswith("llvm") for v in variants) else "unknown"
+                )
         except Exception:  # noqa: BLE001
-            caps["gpu"] = False
+            pass
         return caps
 
     # ------------------------------------------------------------- paths

@@ -337,11 +337,13 @@ def _test_app() -> FastAPI:
     """Minimal app wiring the simulate + scenario routers (main.py wiring is
     the lead's job; this keeps the API tests self-contained)."""
     from app.api import scenario as scenario_api
+    from app.api import scene as scene_api
     from app.api import simulate as simulate_api
 
     app = FastAPI()
     app.include_router(simulate_api.router, prefix="/api")
     app.include_router(scenario_api.router, prefix="/api")
+    app.include_router(scene_api.router, prefix="/api")
     return app
 
 
@@ -413,6 +415,55 @@ def test_live_state_reports_unknown_ids(api_client) -> None:
     assert set(body["unknown_ids"]) == {"ghost_actor", "ghost_device"}
     assert body["applied_actors"] == []
     assert body["applied_devices"] == []
+
+
+def test_live_state_nonpersisted_survives_a_solve_without_touching_disk(api_client) -> None:
+    """Regression (Codex): a persist=false push must NOT leak to disk when a
+    later /simulate/* runs (those append a result ref and save the scene). The
+    solve follows the live positions, but the scene FILE keeps the pushed
+    positions out, and the live overlay survives so the next solve still
+    follows the feed."""
+    client, _root = api_client
+    from app.api.deps import get_store
+
+    disk_before = next(
+        d for d in get_store().load_scene("scenario_test").devices if d.id == "rx_001"
+    ).position
+
+    # Non-persisted push moves rx_001.
+    r = client.post(
+        "/api/projects/scenario_test/live/state",
+        json={"devices": [{"id": "rx_001", "position": [42.0, 0.0, 1.5]}], "persist": False},
+    )
+    assert r.status_code == 200
+
+    # GET /scene follows the overlay (viewer Live sync).
+    seen = client.get("/api/projects/scenario_test/scene").json()
+    assert next(d for d in seen["devices"] if d["id"] == "rx_001")["position"] == [42.0, 0.0, 1.5]
+
+    # A solve that appends a result ref must not persist the overlaid position.
+    sim = client.post("/api/projects/scenario_test/simulate/paths", json=MOCK_CFG)
+    assert sim.status_code == 200
+
+    disk_after = next(
+        d for d in get_store().load_scene("scenario_test").devices if d.id == "rx_001"
+    ).position
+    assert disk_after == disk_before  # the file never gained the live position
+    assert disk_after != [42.0, 0.0, 1.5]
+
+    # The overlay survives the solve, so a subsequent GET/solve still follows it.
+    seen2 = client.get("/api/projects/scenario_test/scene").json()
+    assert next(d for d in seen2["devices"] if d["id"] == "rx_001")["position"] == [42.0, 0.0, 1.5]
+
+    # An authoritative persist=true push DOES write it and clears the overlay.
+    client.post(
+        "/api/projects/scenario_test/live/state",
+        json={"devices": [{"id": "rx_001", "position": [7.0, 7.0, 1.5]}], "persist": True},
+    )
+    disk_final = next(
+        d for d in get_store().load_scene("scenario_test").devices if d.id == "rx_001"
+    ).position
+    assert disk_final == [7.0, 7.0, 1.5]
 
 
 def test_live_state_resimulate_returns_links(api_client) -> None:
