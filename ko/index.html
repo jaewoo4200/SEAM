@@ -5,22 +5,41 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script>(function(){try{var t=localStorage.getItem('seam-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
 <title>SEAM Studio — Scene-to-Electromagnetic Authoring and Mapping</title>
-<meta name="description" content="Sionna RT 기반의 로컬 우선 AI 지원 RF 디지털 트윈 워크벤치. 하나의 텍스처 씬, 두 개의 재질 바인딩 — 시각과 전자기.">
+<meta name="description" content="Sionna RT 기반의 로컬 우선 AI 지원 RF 디지털 트윈 워크벤치. 텍스처 씬 하나에 두 개의 재질 바인딩 — 시각과 전자기.">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Cdefs%3E%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%22%20x2%3D%221%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23173a8a%22/%3E%3Cstop%20offset%3D%22.5%22%20stop-color%3D%22%232fd0c0%22/%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23e2632e%22/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect%20width%3D%2264%22%20height%3D%2264%22%20rx%3D%2212%22%20fill%3D%22%230b111b%22/%3E%3Ctext%20x%3D%2232%22%20y%3D%2242%22%20font-family%3D%22Segoe%20UI%2CArial%2Csans-serif%22%20font-size%3D%2236%22%20font-weight%3D%22700%22%20fill%3D%22%232e9bff%22%20text-anchor%3D%22middle%22%3ES%3C/text%3E%3Crect%20x%3D%2214%22%20y%3D%2250%22%20width%3D%2236%22%20height%3D%225%22%20rx%3D%222.5%22%20fill%3D%22url%28%23g%29%22/%3E%3C/svg%3E">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="SEAM Studio">
+<meta property="og:title" content="SEAM Studio — Scene-to-Electromagnetic Authoring and Mapping">
+<meta property="og:description" content="Sionna RT 기반의 로컬 우선 AI 지원 RF 디지털 트윈 워크벤치. 텍스처 씬 하나에 두 개의 재질 바인딩 — 시각과 전자기.">
+<meta property="og:image" content="https://jaewoo4200.github.io/SEAM/assets/workbench.jpg">
+<meta property="og:url" content="https://jaewoo4200.github.io/SEAM/ko/">
+<meta property="og:locale" content="ko_KR">
+<meta property="og:image:width" content="1919">
+<meta property="og:image:height" content="1079">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="canonical" href="https://jaewoo4200.github.io/SEAM/ko/">
+<link rel="alternate" hreflang="ko" href="https://jaewoo4200.github.io/SEAM/ko/">
+<link rel="alternate" hreflang="en" href="https://jaewoo4200.github.io/SEAM/en/">
+<link rel="alternate" hreflang="x-default" href="https://jaewoo4200.github.io/SEAM/">
+<meta name="theme-color" content="#0b111b" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f4f7fc" media="(prefers-color-scheme: light)">
 <style>
 :root{
   --bg:#0b111b; --panel:#141d2b; --line:#233246; --ink:#e2eaf4; --mut:#8a9cb0;
   --acc:#2e9bff; --glass:#4a7cb0; --concrete:#69a98e; --metal:#d97706; --ground:#b0833e;
   --hero-fade:rgba(11,17,27,.96);
+  --mut2:#6f8299; --link-mut:#8fb4dd; --code-acc:#7bb8f5;
 }
 /* Light theme: forced via [data-theme=light], or auto-followed from the
    OS when no explicit choice is stored (prefers-color-scheme). A forced
    [data-theme=dark] keeps the base :root dark values. */
-:root[data-theme="light"]{ --bg:#f4f7fc; --panel:#ffffff; --line:#dde5ef; --ink:#17242f; --mut:#54677a; --acc:#1f77dd; --glass:#3f6f9e; --concrete:#4e8f74; --metal:#c26a05; --ground:#946a2e; --hero-fade:rgba(244,247,252,.96) }
+:root[data-theme="light"]{ --bg:#f4f7fc; --panel:#ffffff; --line:#dde5ef; --ink:#17242f; --mut:#54677a; --acc:#1f77dd; --glass:#3f6f9e; --concrete:#4e8f74; --metal:#c26a05; --ground:#946a2e; --hero-fade:rgba(244,247,252,.96); --mut2:#54677a; --link-mut:#3a6ea5; --code-acc:#2f6595 }
 @media (prefers-color-scheme: light){
-  :root:not([data-theme="dark"]){ --bg:#f4f7fc; --panel:#ffffff; --line:#dde5ef; --ink:#17242f; --mut:#54677a; --acc:#1f77dd; --glass:#3f6f9e; --concrete:#4e8f74; --metal:#c26a05; --ground:#946a2e; --hero-fade:rgba(244,247,252,.96) }
+  :root:not([data-theme="dark"]){ --bg:#f4f7fc; --panel:#ffffff; --line:#dde5ef; --ink:#17242f; --mut:#54677a; --acc:#1f77dd; --glass:#3f6f9e; --concrete:#4e8f74; --metal:#c26a05; --ground:#946a2e; --hero-fade:rgba(244,247,252,.96); --mut2:#54677a; --link-mut:#3a6ea5; --code-acc:#2f6595 }
 }
 *{box-sizing:border-box}
 html{scroll-behavior:smooth}
+section[id]{scroll-margin-top:32px}
 body{margin:0;background:var(--bg);color:var(--ink);
   font:16px/1.7 "Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,sans-serif}
 img{max-width:100%;display:block}
@@ -46,7 +65,12 @@ p.tag b{color:#eef3fb}
 .btn{display:inline-block;padding:11px 22px;border-radius:4px;font-weight:600;font-size:15px}
 .btn.primary{background:var(--acc);color:#04101f}
 .btn.ghost{border:1px solid rgba(210,224,240,.5);color:#eaf1fb;background:rgba(11,17,27,.5)}
-.hero-cap{position:absolute;right:18px;bottom:12px;font-size:11px;color:#7286a0;font-family:Consolas,monospace}
+.btn.primary:hover{filter:brightness(1.12)}
+.btn.ghost:hover{background:rgba(11,17,27,.75);border-color:#eaf1fb}
+.theme-sw button:not([aria-pressed="true"]):hover{color:#eaf1fb}
+p a:hover,.fineprint a:hover,.ev-cap a:hover,.lang a:hover{text-decoration:underline}
+a:focus-visible,button:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.hero-cap{position:absolute;right:18px;bottom:12px;font-size:11px;color:var(--mut2);font-family:Consolas,monospace}
 
 /* sections */
 section{padding:72px 0}
@@ -54,7 +78,7 @@ h2{font:600 13px/1 "Segoe UI",sans-serif;letter-spacing:.16em;text-transform:upp
 h3.sec{font:600 clamp(24px,3.2vw,32px)/1.25 "Segoe UI Variable Display","Segoe UI",sans-serif;margin:0 0 14px;text-wrap:balance}
 p.lead{color:var(--mut);max-width:68ch;margin:0 0 34px}
 
-.pillars{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}
+.pillars{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(280px,100%),1fr));gap:16px}
 .pillar{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:22px 22px 18px}
 .pillar .k{font-family:Consolas,monospace;font-size:12px;color:var(--acc);letter-spacing:.14em;text-transform:uppercase}
 .pillar h4{margin:8px 0 8px;font-size:18px}
@@ -63,9 +87,8 @@ p.lead{color:var(--mut);max-width:68ch;margin:0 0 34px}
 .pillar li{margin:3px 0}
 
 /* pipeline strip */
-.pipe{display:flex;flex-wrap:wrap;gap:0;align-items:stretch;border:1px solid var(--line);border-radius:6px;overflow:hidden}
-.pipe div{flex:1 1 160px;padding:16px 18px;background:var(--panel);border-right:1px solid var(--line)}
-.pipe div:last-child{border-right:0}
+.pipe{display:flex;flex-wrap:wrap;gap:1px;align-items:stretch;background:var(--line);border:1px solid var(--line);border-radius:6px;overflow:hidden}
+.pipe div{flex:1 1 160px;padding:16px 18px;background:var(--panel)}
 .pipe .st{font-family:Consolas,monospace;font-size:11px;color:var(--acc);letter-spacing:.12em;text-transform:uppercase}
 .pipe p{margin:6px 0 0;font-size:13px;color:var(--mut)}
 .chips{margin-top:8px;display:flex;gap:6px;flex-wrap:wrap}
@@ -85,7 +108,7 @@ p.lead{color:var(--mut);max-width:68ch;margin:0 0 34px}
 }
 
 /* gallery */
-.gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px}
+.gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr));gap:16px}
 figure{margin:0;background:var(--panel);border:1px solid var(--line);border-radius:6px;overflow:hidden}
 figure img{width:100%;aspect-ratio:4/3;object-fit:cover}
 figcaption{padding:10px 14px;font-size:13px;color:var(--mut)}
@@ -93,26 +116,26 @@ figcaption b{color:var(--ink);font-weight:600}
 /* full app screenshot showcase */
 .tool-shot{padding:40px 0 8px}
 .shot{margin:0;background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden;box-shadow:0 10px 34px rgba(4,10,20,.20)}
-.shot img{width:100%;height:auto;aspect-ratio:auto;object-fit:contain;display:block}
+.shot img{width:100%;height:auto;aspect-ratio:auto 1919/1079;object-fit:contain;display:block}
 .shot figcaption{padding:12px 16px;font-size:13px;color:var(--mut)}
 .shot figcaption b{color:var(--ink);font-weight:600}
 
 /* agent story */
-.story{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px;align-items:center}
+.story{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr));gap:16px;align-items:center}
 .story .ev{display:flex;gap:10px}
 .story .ev img{width:50%;border:1px solid var(--line);border-radius:4px;aspect-ratio:1/1;object-fit:cover}
 .trace{background:#111a27;border:1px solid #233246;border-radius:6px;padding:16px 18px;font-family:Consolas,monospace;font-size:12.5px;line-height:1.9;color:#93a4b8}
 .trace .ok{color:#7bd88f}
-.trace .q{color:var(--acc)}
-.ev-cap{font-size:11.5px;color:#6f8299;margin-top:8px;line-height:1.6}
-.ev-cap a{color:#8fb4dd}
+.trace .q{color:#2e9bff}
+.ev-cap{font-size:11.5px;color:var(--mut2);margin-top:8px;line-height:1.6}
+.ev-cap a{color:var(--link-mut)}
 
 /* quickstart */
-pre{background:#0e1622;border:1px solid var(--line);border-radius:6px;padding:18px 20px;overflow-x:auto;
+pre{background:#0e1622;border:1px solid #233246;border-radius:6px;padding:18px 20px;overflow-x:auto;
   font-family:"Cascadia Code",Consolas,monospace;font-size:13.5px;line-height:1.8;color:#cfe0f2;margin:0}
 pre .c{color:#5f7590}
 .qs-note{font-size:13px;color:var(--mut);margin-top:10px}
-.qs-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px}
+.qs-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(340px,100%),1fr));gap:14px}
 .qs-os{font-family:Consolas,monospace;font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--acc);margin:0 0 8px}
 
 /* language switch */
@@ -127,16 +150,16 @@ pre .c{color:#5f7590}
 .theme-sw button[aria-pressed="true"]{background:var(--acc);color:#04101f}
 @media (max-width:640px){ .theme-sw{right:14px;top:52px} }
 .lang a{color:#8fb4dd}
-.lang b{color:var(--ink)}
+.lang b{color:#eaf1fb}
 .lang span{margin:0 6px;color:#51637b}
 
 /* feature detail grid */
-.feats{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px 28px}
+.feats{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr));gap:18px 28px}
 .feat{border-top:1px solid var(--line);padding-top:14px}
 .feat h5{margin:0 0 6px;font-size:15.5px;font-weight:600;color:var(--ink);display:flex;align-items:center;gap:9px}
 .feat h5 svg{flex:none;width:17px;height:17px;color:var(--acc)}
 .feat p{margin:0;color:var(--mut);font-size:13.5px}
-.feat .mono{font-size:11.5px;color:#7bb8f5}
+.feat .mono{font-size:11.5px;color:var(--code-acc)}
 
 /* video */
 .vid{width:100%;border:1px solid var(--line);border-radius:6px;background:#000;display:block}
@@ -147,8 +170,8 @@ footer{margin-top:40px;border-top:1px solid var(--line)}
 .logos img{height:44px;width:auto}
 .logos a{display:inline-flex;align-items:center;transition:opacity .15s}
 .logos a:hover{opacity:.72}
-.fineprint{padding:0 0 48px;color:#6f8299;font-size:12.5px;line-height:1.8;text-align:center}
-.fineprint a{color:#8fb4dd}
+.fineprint{padding:0 0 48px;color:var(--mut2);font-size:12.5px;line-height:1.8;text-align:center}
+.fineprint a{color:var(--link-mut)}
 @media (prefers-reduced-motion: no-preference){
   .hero .wrap{animation:rise .7s ease-out both}
   @keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
@@ -158,14 +181,14 @@ footer{margin-top:40px;border-top:1px solid var(--line)}
 <body>
 
 <header class="hero">
-  <img src="../assets/hero_campus.jpg" alt="SEAM Studio에서 실제 항공 텍스처로 렌더링한 한양대학교 캠퍼스 디지털 트윈">
+  <img src="../assets/hero_campus.jpg" fetchpriority="high" alt="SEAM Studio에서 실제 항공 텍스처로 렌더링한 한양대학교 캠퍼스 디지털 트윈">
   <div class="shade"></div>
   <nav class="theme-sw" aria-label="테마"><button data-theme="auto">자동</button><button data-theme="light">라이트</button><button data-theme="dark">다크</button></nav>
   <nav class="lang" aria-label="Language"><b>KO</b><span>·</span><a href="../en/">EN</a></nav>
   <div class="wrap">
     <div class="eyebrow">Scene-to-Electromagnetic Authoring and Mapping</div>
     <h1 class="wordmark">SEAM <span class="studio">Studio</span></h1>
-    <p class="tag"><b>로컬 우선 AI 지원 RF 디지털 트윈 워크벤치.</b> 하나의 텍스처 3D 씬에서
+    <p class="tag"><b>로컬 우선 AI 지원 RF 디지털 트윈 워크벤치.</b> 텍스처를 입힌 3D 씬 하나에서
       모든 메시가 시각(PBR)과 전자기(RF) <b>두 개의 재질 바인딩</b>을 지니고, 캐노니컬 씬을
       Sionna RT 프로젝션으로 컴파일해 레이 경로와 라디오맵을 같은 뷰포트 위에 다시 얹습니다.
       GPU도, Sionna도, LLM도 필수가 아닙니다.</p>
@@ -181,8 +204,8 @@ footer{margin-top:40px;border-top:1px solid var(--line)}
 <section class="tool-shot">
   <div class="wrap">
     <figure class="shot">
-      <img src="../assets/workbench.jpg" alt="SEAM Studio 전체 화면 — 3D 뷰포트와 재질·검증·AI·결과 패널, 통신 메트릭 대시보드">
-      <figcaption><b>SEAM Studio, 한 화면에서</b> — 3D 씬 뷰포트, Materials / Validation / AI Assist / Results 모드, 라이브 통신 메트릭 대시보드까지 하나의 워크벤치로.</figcaption>
+      <img src="../assets/workbench.jpg" width="1919" height="1079" decoding="async" alt="SEAM Studio 전체 화면 — 3D 뷰포트와 Visual/RF Materials/Validation/AI Assist/Results 모드, 통신 메트릭 대시보드">
+      <figcaption><b>SEAM Studio, 한 화면에서</b> — 3D 씬 뷰포트, Visual / RF Materials / Validation / AI Assist / Results 모드, 라이브 통신 메트릭 대시보드까지 하나의 워크벤치로.</figcaption>
     </figure>
   </div>
 </section>
@@ -206,7 +229,7 @@ footer{margin-top:40px;border-top:1px solid var(--line)}
       </div>
       <div class="pillar"><span class="k">SEAM-Agent</span>
         <h4>검색증강 로컬 AI 재질 할당</h4>
-        <p>로컬 LLM/VLM 하네스가 건물을 멀티뷰로 관찰하고 웹 증거로 보강해 재질을 제안.</p>
+        <p>로컬 LLM/VLM 하네스가 건물을 멀티뷰로 관찰하고 웹 증거로 보강해 재질을 제안합니다.</p>
         <ul><li>triangle-id 역투영 → 면 단위 세그먼트</li><li>관측 가능한 activity trace + 증거 카드</li><li>confidence·provenance·사용자 승인</li></ul>
       </div>
     </div>
@@ -216,13 +239,13 @@ footer{margin-top:40px;border-top:1px solid var(--line)}
 <section style="padding-top:0">
   <div class="wrap">
     <h2>Pipeline</h2>
-    <h3 class="sec">unsegmented mesh → Sionna-ready RF scene</h3>
+    <h3 class="sec">Unsegmented mesh → Sionna-ready RF scene</h3>
     <div class="pipe">
       <div><span class="st">1 · Import</span><p>Mitsuba XML / zip / OSM. 텍스처는 뷰어 GLB와 AI 증거용 원본으로 이중 보존.</p></div>
       <div><span class="st">2 · Segment</span><p>휴리스틱 · 로컬 VLM · 외부 SAM2 마스크로 면 단위 분할.</p>
         <div class="chips"><span class="chip glass">glass</span><span class="chip concrete">concrete</span><span class="chip metal">metal</span><span class="chip ground">ground</span></div></div>
-      <div><span class="st">3 · Assign</span><p>SEAM-Agent 제안 + 사용자 리뷰. 모든 결정이 provenance에 기록.</p></div>
-      <div><span class="st">4 · Compile</span><p>재질 그룹별 PLY + 깨끗한 ITU bsdf의 Mitsuba XML 자동 생성.</p></div>
+      <div><span class="st">3 · Assign</span><p>SEAM-Agent 제안 + 사용자 리뷰. 모든 결정을 provenance에 기록.</p></div>
+      <div><span class="st">4 · Compile</span><p>재질 그룹별 PLY + ITU bsdf만 담은 깨끗한 Mitsuba XML 자동 생성.</p></div>
       <div><span class="st">5 · Solve</span><p>Sionna RT(또는 Mock) 경로·라디오맵 → 같은 뷰포트에 오버레이.</p></div>
     </div>
   </div>
@@ -233,13 +256,13 @@ footer{margin-top:40px;border-top:1px solid var(--line)}
     <h2>In action</h2>
     <h3 class="sec">실제 동작 화면</h3>
     <div class="gallery">
-      <figure><img src="../assets/rays_demo.jpg" alt="캠퍼스 트윈에서의 Sionna RT 레이트레이싱 — TX 1기와 RX 2기 사이의 39개 경로">
-        <figcaption><b>Sionna RT 레이트레이싱</b> — 캠퍼스 트윈에서 TX 1기·RX 2기 사이 39개 경로(LOS 시안 · 반사 마젠타)를 실제 Sionna 백엔드로 솔브.</figcaption></figure>
-      <figure><img src="../assets/campus_top.jpg" alt="연속 지형 위 텍스처 캠퍼스 트윈을 위에서 내려다본 뷰">
+      <figure><img loading="lazy" decoding="async" src="../assets/rays_demo.jpg" alt="캠퍼스 트윈에서의 Sionna RT 레이트레이싱 — TX 1기와 RX 2기 사이의 39개 경로">
+        <figcaption><b>Sionna RT 레이트레이싱</b> — 캠퍼스 트윈에서 TX 1기·RX 2기 사이 39개 경로(LOS 시안 · 반사 마젠타)를 실제 Sionna 백엔드로 계산.</figcaption></figure>
+      <figure><img loading="lazy" decoding="async" src="../assets/campus_top.jpg" alt="연속 지형 위 텍스처 캠퍼스 트윈을 위에서 내려다본 뷰">
         <figcaption><b>캠퍼스 트윈 정사 뷰</b> — 항공 텍스처와 연속 지형, 뷰 스냅(1/3/7)과 무한 그리드.</figcaption></figure>
-      <figure><img src="../assets/sample_demo.jpg" alt="TX·RX 디바이스가 배치된 Sample Demo 씬">
+      <figure><img loading="lazy" decoding="async" src="../assets/sample_demo.jpg" alt="TX·RX 디바이스가 배치된 Sample Demo 씬">
         <figcaption><b>Sample Demo</b> — TX/RX 배치, 지표고도(AGL) 편집, Mock 백엔드만으로 완주하는 튜토리얼 씬.</figcaption></figure>
-      <figure><img src="../assets/ftc_building.jpg" alt="SEAM-Agent가 사용하는 드론 매핑 FTC 건물의 멀티뷰 캡처">
+      <figure><img loading="lazy" decoding="async" src="../assets/ftc_building.jpg" alt="SEAM-Agent가 사용하는 드론 매핑 FTC 건물의 멀티뷰 캡처">
         <figcaption><b>드론 매핑 FTC 건물</b> — SEAM-Agent가 보는 직교 멀티뷰 캡처(triangle-id 버퍼 페어).</figcaption></figure>
     </div>
   </div>
@@ -263,15 +286,14 @@ footer{margin-top:40px;border-top:1px solid var(--line)}
       도구들이 들어 있습니다.</p>
     <div class="feats">
       <div class="feat"><h5><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4v5M6 15v5M12 4v9M12 19v1M18 4v1M18 11v9"/><circle cx="6" cy="12" r="2"/><circle cx="12" cy="16" r="2"/><circle cx="18" cy="8" r="2"/></svg>채널 분석 &amp; 라이브 튜닝</h5>
-        <p>링크버짓, CIR/CFR, K-factor, RMS 지연확산, 경험 경로손실 모델(3GPP 38.901 포함)과 RT 결과 비교.
-        주파수·대역폭·TX 파워·잡음지수·SCS를 바꾸면 즉시 재분석되고, TS 38.215 스타일
-        RSRP/RSSI/RSRQ가 함께 산출됩니다.</p></div>
+        <p>링크버짓, CIR/CFR, K-factor, RMS delay spread, 경험적 경로손실 모델(3GPP 38.901 포함)을
+        RT 결과와 비교합니다. 주파수·대역폭·TX 파워·잡음지수·SCS를 바꾸면 즉시 재분석되고,
+        TS 38.215 스타일 RSRP/RSSI/RSRQ가 함께 산출됩니다.</p></div>
       <div class="feat"><h5><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8a6 6 0 0 1 0 8.4M7.8 16.2a6 6 0 0 1 0-8.4M19.1 4.9a10 10 0 0 1 0 14.2M4.9 19.1a10 10 0 0 1 0-14.2"/></svg>다중 TX 간섭 · SINR</h5>
         <p>서빙 TX 이외 모든 TX의 레이트레이싱 수신전력을 동일채널 간섭으로 합산해
         SINR = S/(I+N)을 계산합니다. 서빙 셀 선택, SINR 라디오맵, 셀별 서빙 TX 지도까지.</p></div>
       <div class="feat"><h5><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21v-8"/><circle cx="12" cy="11" r="2"/><path d="M8.5 7.5a5 5 0 0 1 7 0M6 5a8.5 8.5 0 0 1 12 0"/></svg>MIMO 빔포밍</h5>
-        <p>코드북 스윕 / TX-MRT / SVD 빔포밍 이득을 실제 레이 채널 위에서 계산합니다
-        (4×4에서 ~12/24 dB 검증).</p></div>
+        <p>코드북 스윕 / TX-MRT / SVD 빔포밍 이득을 실제 레이 채널 위에서 계산합니다(4×4 기준 약 12/24 dB 검증).</p></div>
       <div class="feat"><h5><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="1.5"/><path d="M4 10h16M4 16h16M10 4v16M16 4v16"/></svg>메시 라디오맵 + 영역 정밀화</h5>
         <p>수평 평면이 아니라 벽·바닥·도로 표면 위 삼각형 단위로 커버리지를 칠하고,
         관심 영역만 더 작은 셀로 다시 계산합니다.</p></div>
@@ -286,13 +308,13 @@ footer{margin-top:40px;border-top:1px solid var(--line)}
         <p>실측 링크 CSV를 불러와 재질 파라미터를 그리드 피팅하고, 시각적으로 같은 재질을
         측정 path gain으로 판별하며, 재질 지정이 링크에 미치는 임팩트를 NMSE·용량으로 정량화합니다.</p></div>
       <div class="feat"><h5><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 20v-6M11 20V6M17 20v-9M3 20h18"/></svg>Metrics dashboard &amp; 논문용 내보내기</h5>
-        <p>링크 KPI와 CIR·CFR·도플러·경로손실 차트를 흰 배경 serif 논문 스타일로 —
-        차트마다 PNG/SVG/CSV 버튼 내장. 뷰포트 캡처와 Mitsuba 오프라인 렌더도 지원합니다.</p></div>
+        <p>링크 KPI와 CIR·CFR·도플러·경로손실 차트를 흰 배경 serif 논문 스타일로 그려내고,
+        차트마다 PNG/SVG/CSV 버튼을 내장했습니다. 뷰포트 캡처와 Mitsuba 오프라인 렌더도 지원합니다.</p></div>
       <div class="feat"><h5><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5.5" rx="8" ry="2.8"/><path d="M4 5.5v13c0 1.6 3.6 2.9 8 2.9s8-1.3 8-2.9v-13"/><path d="M4 12c0 1.6 3.6 2.9 8 2.9s8-1.3 8-2.9"/></svg>데이터셋 &amp; AODT 연동</h5>
-        <p>ML ground-truth 데이터셋(npz + metadata) 생성, AODT RFData 컨트랙트 내보내기,
-        NVIDIA AODT parquet 결과를 같은 스키마로 가져오기.</p></div>
+        <p>ML ground-truth 데이터셋(npz + metadata)을 생성하고, AODT RFData 컨트랙트를 내보내며,
+        NVIDIA AODT parquet 결과를 같은 스키마로 가져옵니다.</p></div>
       <div class="feat"><h5><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z"/><path d="M8 8h8M8 12h5"/></svg>자연어 규칙 &amp; 검증 설명</h5>
-        <p>"창문은 유리, concrete 벽은 itu_concrete" 한 문장을 검토 가능한 지정 규칙으로 바꿔
+        <p>"창문은 유리, 콘크리트 벽은 itu_concrete" 한 문장을 검토 가능한 지정 규칙으로 바꿔
         일괄 적용하고, 검증 경고를 평문으로 풀어 원클릭 조치와 함께 설명합니다.</p></div>
       <div class="feat"><h5><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 9h14M5 15h14M9.5 4 8 20M16 4l-1.5 16"/></svg>결과 재현성 &amp; 라이브 이벤트</h5>
         <p>모든 결과에 씬·지정·설정 해시와 config 스냅샷을 각인해 stale 결과를 배지로 알리고,
@@ -314,8 +336,8 @@ footer{margin-top:40px;border-top:1px solid var(--line)}
     <div class="story">
       <div>
         <div class="ev">
-          <img src="../assets/agent_ftc_photo.jpg" alt="에이전트가 웹에서 찾은 실제 한양대 FTC 건물 외관 사진">
-          <img src="../assets/agent_ftc_assigned.jpg" alt="드론 매핑 FTC 메시의 세그먼트별 RF 재질 할당 결과 — 유리 커튼월이 파랗게 표시됨">
+          <img loading="lazy" decoding="async" src="../assets/agent_ftc_photo.jpg" alt="에이전트가 웹에서 찾은 실제 한양대 FTC 건물 외관 사진">
+          <img loading="lazy" decoding="async" src="../assets/agent_ftc_assigned.jpg" alt="드론 매핑 FTC 메시의 세그먼트별 RF 재질 할당 결과 — 유리 커튼월이 파랗게 표시됨">
         </div>
         <div class="ev-cap">왼쪽: 에이전트가 웹에서 찾은 실제 FTC 외관 사진
           (<a href="https://commons.wikimedia.org/wiki/File:Hanyang_University_Fusion_Technology_Center.jpg">Modamoda,
@@ -352,8 +374,8 @@ bash scripts/install.sh
 bash scripts/start.sh   <span class="c"># → http://localhost:5173</span></pre>
       </div>
     </div>
-    <p class="qs-note"><b>사전 요구사항:</b> Python 3.11/3.12 · Node 20+ 가 PATH에 있으면 됩니다(3.13+는 미검증).
-      그 외엔 아무것도 필요 없이 Mock 백엔드가 CPU만으로 전 기능을 돌립니다. 실제 레이 트레이싱은
+    <p class="qs-note"><b>사전 요구사항:</b> Python 3.11/3.12(3.13+는 미검증) · Node.js 20+가 PATH에 있으면 됩니다.
+      그 외엔 아무것도 설치할 필요 없이 Mock 백엔드가 CPU만으로 전체 워크플로를 돌립니다. 실제 레이트레이싱은
       <span class="mono">sionna-rt</span> 패키지를 <b>별도 설치</b>(<span class="mono">pip install -e "backend[sionna]"</span>)해야 하고,
       NVIDIA GPU·로컬 LLM(LM Studio/Ollama)은 그 위에 얹는 선택 업그레이드입니다. 자세한 내용은
       <a href="https://github.com/jaewoo4200/SEAM/blob/master/INSTALL.ko.md">INSTALL.md</a> ·
@@ -364,8 +386,8 @@ bash scripts/start.sh   <span class="c"># → http://localhost:5173</span></pre>
 <footer>
   <div class="wrap">
     <div class="logos">
-      <a href="https://wsl.hanyang.ac.kr/" target="_blank" rel="noopener" title="Wireless Systems Laboratory (WSL), Hanyang University"><img src="../assets/wsl_logo.png" alt="Wireless Systems Laboratory, Hanyang University"></a>
-      <a href="https://beyond-g.hanyang.ac.kr/" target="_blank" rel="noopener" title="BEYOND-G Global Innovation Center"><img src="../assets/beyond_g_logo.png" alt="BEYOND-G Global Innovation Center"></a>
+      <a href="https://wsl.hanyang.ac.kr/" target="_blank" rel="noopener" title="Wireless Systems Laboratory (WSL), Hanyang University"><img loading="lazy" decoding="async" src="../assets/wsl_logo.png" alt="Wireless Systems Laboratory, Hanyang University"></a>
+      <a href="https://beyond-g.hanyang.ac.kr/" target="_blank" rel="noopener" title="BEYOND-G Global Innovation Center"><img loading="lazy" decoding="async" src="../assets/beyond_g_logo.png" alt="BEYOND-G Global Innovation Center"></a>
     </div>
     <div class="fineprint">
       SEAM Studio · Apache License 2.0 · <a href="https://github.com/jaewoo4200/SEAM">github.com/jaewoo4200/SEAM</a> · <a href="../en/">English page</a><br>
