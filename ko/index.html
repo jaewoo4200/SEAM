@@ -37,15 +37,15 @@ a{color:var(--acc);text-decoration:none}
 .hero .wrap{position:relative;padding-bottom:64px;padding-top:96px}
 .eyebrow{display:inline-block;font-family:Consolas,monospace;font-size:12px;letter-spacing:.22em;color:#9ecdf8;text-transform:uppercase;background:rgba(7,12,20,.72);padding:6px 12px 6px 14px;border-radius:4px;border:1px solid rgba(46,155,255,.28);backdrop-filter:blur(3px)}
 h1.wordmark{font:650 clamp(44px,7vw,84px)/1.02 "Segoe UI Variable Display","Segoe UI",sans-serif;
-  letter-spacing:-.02em;margin:10px 0 6px;text-shadow:0 2px 6px rgba(4,10,20,.6),0 6px 28px rgba(4,10,20,.5)}
+  letter-spacing:-.02em;color:#eaf1fb;margin:10px 0 6px;text-shadow:0 2px 6px rgba(4,10,20,.6),0 6px 28px rgba(4,10,20,.5)}
 h1 .studio{color:var(--acc)}
 p.tag{max-width:62ch;font-size:clamp(16px,2vw,19px);color:#c6d3e2;margin:14px 0 8px;text-wrap:balance;text-shadow:0 1px 3px rgba(4,10,20,.9),0 2px 12px rgba(4,10,20,.7)}
-p.tag b{color:var(--ink)}
+p.tag b{color:#eef3fb}
 .hero-rule{width:120px;margin:18px 0 22px}
 .cta{display:flex;gap:12px;flex-wrap:wrap}
 .btn{display:inline-block;padding:11px 22px;border-radius:4px;font-weight:600;font-size:15px}
 .btn.primary{background:var(--acc);color:#04101f}
-.btn.ghost{border:1px solid var(--line);color:var(--ink);background:rgba(11,17,27,.5)}
+.btn.ghost{border:1px solid rgba(210,224,240,.5);color:#eaf1fb;background:rgba(11,17,27,.5)}
 .hero-cap{position:absolute;right:18px;bottom:12px;font-size:11px;color:#7286a0;font-family:Consolas,monospace}
 
 /* sections */
@@ -72,6 +72,17 @@ p.lead{color:var(--mut);max-width:68ch;margin:0 0 34px}
 .chip{font-family:Consolas,monospace;font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--line)}
 .chip.glass{color:#9dc4ec;border-color:var(--glass)} .chip.concrete{color:#a8d8c3;border-color:var(--concrete)}
 .chip.metal{color:#f0b273;border-color:var(--metal)} .chip.ground{color:#d9b98a;border-color:var(--ground)}
+/* chip text: light pastels read on dark panels; use darker tones on light cards */
+:root[data-theme="light"] .chip.glass{color:#2f6595}
+:root[data-theme="light"] .chip.concrete{color:#2b7d5d}
+:root[data-theme="light"] .chip.metal{color:#a85e08}
+:root[data-theme="light"] .chip.ground{color:#7d5a24}
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]) .chip.glass{color:#2f6595}
+  :root:not([data-theme="dark"]) .chip.concrete{color:#2b7d5d}
+  :root:not([data-theme="dark"]) .chip.metal{color:#a85e08}
+  :root:not([data-theme="dark"]) .chip.ground{color:#7d5a24}
+}
 
 /* gallery */
 .gallery{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px}
@@ -128,6 +139,8 @@ pre .c{color:#5f7590}
 footer{margin-top:40px;border-top:1px solid var(--line)}
 .logos{background:#f4f7fb;border-radius:6px;margin:44px 0 20px;padding:22px 26px;display:flex;gap:36px;align-items:center;flex-wrap:wrap;justify-content:center}
 .logos img{height:44px;width:auto}
+.logos a{display:inline-flex;align-items:center;transition:opacity .15s}
+.logos a:hover{opacity:.72}
 .fineprint{padding:0 0 48px;color:#6f8299;font-size:12.5px;line-height:1.8;text-align:center}
 .fineprint a{color:#8fb4dd}
 @media (prefers-reduced-motion: no-preference){
@@ -328,16 +341,16 @@ bash scripts/start.sh   <span class="c"># → http://localhost:5173</span></pre>
       그 외엔 아무것도 필요 없이 Mock 백엔드가 CPU만으로 전 기능을 돌립니다. 실제 레이 트레이싱은
       <span class="mono">sionna-rt</span> 패키지를 <b>별도 설치</b>(<span class="mono">pip install -e "backend[sionna]"</span>)해야 하고,
       NVIDIA GPU·로컬 LLM(LM Studio/Ollama)은 그 위에 얹는 선택 업그레이드입니다. 자세한 내용은
-      <a href="https://github.com/jaewoo4200/SEAM/blob/master/INSTALL.md">INSTALL.md</a> ·
-      <a href="https://github.com/jaewoo4200/SEAM/blob/master/TUTORIAL.md">TUTORIAL.md</a>.</p>
+      <a href="https://github.com/jaewoo4200/SEAM/blob/master/INSTALL.ko.md">INSTALL.md</a> ·
+      <a href="https://github.com/jaewoo4200/SEAM/blob/master/TUTORIAL.ko.md">TUTORIAL.md</a>.</p>
   </div>
 </section>
 
 <footer>
   <div class="wrap">
     <div class="logos">
-      <img src="../assets/wsl_logo.png" alt="Wireless Systems Laboratory, Hanyang University">
-      <img src="../assets/beyond_g_logo.png" alt="BEYOND-G Global Innovation Center">
+      <a href="https://wsl.hanyang.ac.kr/" target="_blank" rel="noopener" title="Wireless Systems Laboratory (WSL), Hanyang University"><img src="../assets/wsl_logo.png" alt="Wireless Systems Laboratory, Hanyang University"></a>
+      <a href="https://beyond-g.hanyang.ac.kr/" target="_blank" rel="noopener" title="BEYOND-G Global Innovation Center"><img src="../assets/beyond_g_logo.png" alt="BEYOND-G Global Innovation Center"></a>
     </div>
     <div class="fineprint">
       SEAM Studio · Apache License 2.0 · <a href="https://github.com/jaewoo4200/SEAM">github.com/jaewoo4200/SEAM</a> · <a href="../en/">English page</a><br>
