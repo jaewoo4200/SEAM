@@ -214,6 +214,7 @@ curl/스크립트로 프로그래매틱하게** 호출한다(백엔드는 기본
 | [docs/model_validation.md](docs/model_validation.md) | 구현된 통신 모델·수식 전수 검증 문서 |
 | [docs/dynamic_scattering.md](docs/dynamic_scattering.md) | 동적 산란/도플러 조사·구현 노트 |
 | [docs/ml_datasets.md](docs/ml_datasets.md) | ML ground-truth 데이터셋 포맷·훈련 예제 |
+| [docs/point_import.md](docs/point_import.md) | 디바이스·궤적 JSON 임포트 포맷 (직교/지리 좌표) |
 | [docs/extending.md](docs/extending.md) | 플러그인 아키텍처·확장 가이드 |
 | [docs/accuracy.md](docs/accuracy.md) | RT-측정 오차와 완화책 |
 | [docs/roadmap.md](docs/roadmap.md) | MVP 이후 로드맵과 확장 포인트 |

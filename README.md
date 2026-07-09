@@ -187,11 +187,27 @@ curl/scripts (backend defaults to `http://127.0.0.1:8000`):
   `persist=true` writes them into the stored scene. `resimulate=true` re-solves
   paths immediately for a measure → sync → predict loop.
 
+  ```bash
+  curl -X POST http://127.0.0.1:8000/api/projects/sample_demo/live/state \
+    -H "Content-Type: application/json" \
+    -d '{"devices":[{"id":"rx_001","position":[10.0,5.0,1.5]}],"actors":[{"id":"veh_001","position":[20.0,0.0,0.0],"orientation_deg":[0.0,0.0,90.0]}],"resimulate":true,"persist":false}'
+  ```
+
 - **`POST /api/projects/{id}/calibrate/materials`** — **measurement-driven
   material calibration.** Provide measured per-link path gains and one RF
   material parameter is grid-search fitted to reduce RT-vs-measurement error,
   returning a before/after report. With `apply=true` the fitted value is written
   to the library and affected prims are promoted to `measurement_calibrated`.
+
+  ```bash
+  curl -X POST http://127.0.0.1:8000/api/projects/sample_demo/calibrate/materials \
+    -H "Content-Type: application/json" \
+    -d '{"measurements":[{"rx_position":[10.0,5.0,1.5],"measured_path_gain_db":-92.0}],"target_material_id":"concrete","param":"scattering_coefficient","apply":false}'
+  ```
+
+  Device/trajectory JSON import (`POST /import/devices`, `/import/trajectory`,
+  `GET /import/templates`) is documented in
+  [docs/point_import.md](docs/point_import.md).
 
 ---
 
@@ -206,12 +222,16 @@ curl/scripts (backend defaults to `http://127.0.0.1:8000`):
 | [docs/rf_materials.md](docs/rf_materials.md) | RF material library and models |
 | [docs/ai_assistant.md](docs/ai_assistant.md) | AI suggestion providers, rules, provenance |
 | [docs/engines.md](docs/engines.md) | swapping Sionna engine versions (separate venvs) |
+| [docs/sionna_versions.md](docs/sionna_versions.md) | Sionna feature/material/model history by version (vetted literature) |
 | [docs/rtgui_parity.md](docs/rtgui_parity.md) | NVlabs Sionna RT GUI feature-parity matrix |
 | [docs/model_validation.md](docs/model_validation.md) | verification of every implemented comms model |
+| [docs/dynamic_scattering.md](docs/dynamic_scattering.md) | dynamic scattering / Doppler survey & implementation notes |
 | [docs/ml_datasets.md](docs/ml_datasets.md) | ML ground-truth dataset format & training examples |
+| [docs/point_import.md](docs/point_import.md) | device/trajectory JSON import format (cartesian & geographic) |
 | [docs/extending.md](docs/extending.md) | plugin architecture & extension guide |
 | [docs/accuracy.md](docs/accuracy.md) | RT-vs-measurement error and mitigations |
 | [docs/roadmap.md](docs/roadmap.md) | post-MVP roadmap and extension points |
+| [docs/research_ideas.md](docs/research_ideas.md) | publishable research directions |
 | [HANDOFF.md](HANDOFF.md) | the operating specification this implementation follows |
 
 ---
@@ -228,6 +248,21 @@ scene.
 **Stack:** Python 3.11+ / FastAPI / Pydantic v2 / NumPy / trimesh backend;
 React + Vite + TypeScript + react-three-fiber + Zustand frontend; optional
 `sionna-rt` (Dr.Jit / Mitsuba 3) backend.
+
+---
+
+## Repository layout
+
+```text
+backend/    FastAPI app: schemas (Pydantic v2), project store, scene validator,
+            RF material assignment, RF projection compiler (trimesh),
+            simulation backends (Mock + optional Sionna RT), AI providers
+frontend/   React + Vite + TypeScript + react-three-fiber workbench
+examples/   demo project generators (sample_demo, lab_room import)
+scripts/    install / start scripts (PowerShell + bash)
+docs/       architecture, scene format, RF materials, AI, engines, accuracy, roadmap
+HANDOFF.md  operating specification this implementation follows
+```
 
 ---
 
