@@ -4,7 +4,7 @@
 
 SEAM 프로젝트는 압축·공유·재현이 가능한 평범한 폴더입니다(관례상
 `<project_id>.seam`로 명명하며, 기존 `<project_id>.sionnatwin` 폴더도 그대로 로드됩니다).
-이 안의 정식 씬 파일이 유일한 진실의 원천(single source of truth)이고,
+이 안의 정식 씬 파일이 유일한 single source of truth이고,
 나머지는 모두 입력 에셋이거나 생성된 출력입니다.
 
 ## 프로젝트 폴더 레이아웃

@@ -21,6 +21,9 @@ Unified RF-Visual Scene Graph          (scene.seam.json - source of truth; legac
 ![한양대 캠퍼스 디지털 트윈 — 항공 텍스처 임포트 렌더](website/assets/hero_campus.jpg)
 *한양대 캠퍼스 트윈 — 드론/항공 텍스처 임포트를 연속 지형 위에, SEAM Studio 렌더.*
 
+![SEAM Studio — 전체 워크벤치: 3D 뷰포트, 모드 패널, 라이브 통신 메트릭 대시보드](website/assets/SEAM_demo.png)
+*SEAM Studio 한 화면 — 3D 씬 뷰포트와 Materials / Validation / AI Assist / Results 모드, 라이브 링크 메트릭 대시보드.*
+
 | | |
 |---|---|
 | ![Sionna RT 레이트레이싱 — LOS와 반사 경로가 씬 위에 표시](website/assets/rays_demo.jpg)<br>**Sionna RT 레이트레이싱** — TX 1기·RX 2기 사이 39개 경로(LOS 시안 · 반사 마젠타), 실제 Sionna 백엔드 솔브. | ![캠퍼스 정사 뷰](website/assets/campus_top.jpg)<br>**캠퍼스 트윈 정사 뷰** — 연속 지형 위 항공 텍스처, 뷰 스냅(1/3/7)과 무한 그리드. |
@@ -236,7 +239,7 @@ curl/스크립트로 프로그래매틱하게** 호출한다(백엔드는 기본
 ## Architecture (one-liner)
 
 Pydantic v2 스키마의 캐노니컬 씬(`scene.seam.json`, 레거시 `scene.sionnatwin.json`)을
-진실의 원천으로 삼아,
+source of truth로 삼아,
 FastAPI 백엔드가 이를 Visual(GLB) / RF(Mitsuba XML + PLY 그룹) 두 프로젝션으로
 컴파일하고, React + react-three-fiber 프론트엔드가 snake_case 와이어 포맷을
 그대로 미러링하며 결과를 같은 Z-up ENU 미터 좌표계 씬 위에 되돌려 그립니다.

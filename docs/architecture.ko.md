@@ -9,7 +9,7 @@ SEAM Studio는 Sionna RT 위에서 RF 인식형 디지털 트윈을 저작하는
 
 ## 통합 씬 그래프와 두 개의 투영(projection)
 
-프로젝트마다 진실의 원천(source of truth)은 정확히 하나, 정규(canonical) 통합 씬 그래프인
+프로젝트마다 source of truth는 정확히 하나, 정규(canonical) 통합 씬 그래프인
 `scene.seam.json`(`app.schemas.scene.Scene`)뿐입니다. 시각·RF 양면은 여기서 컴파일해 낸
 *투영*일 뿐, 따로 놀며 어긋날 수 있는 독립 파일이 아닙니다.
 
