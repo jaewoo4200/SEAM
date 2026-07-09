@@ -2,9 +2,9 @@
 
 > 🌐 [English](scene_format.md) · **한국어**
 
-SEAM 프로젝트는 압축하고, 공유하고, 재현할 수 있는 일반 폴더입니다(관례상
-`<project_id>.seam`로 명명하며, 기존 `<project_id>.sionnatwin` 폴더도 계속 로드됩니다).
-그 안에 있는 정식 씬 파일이 단일 진실 공급원(single source of truth)이며,
+SEAM 프로젝트는 압축·공유·재현이 가능한 평범한 폴더입니다(관례상
+`<project_id>.seam`로 명명하며, 기존 `<project_id>.sionnatwin` 폴더도 그대로 로드됩니다).
+이 안의 정식 씬 파일이 유일한 진실의 원천(single source of truth)이고,
 나머지는 모두 입력 에셋이거나 생성된 출력입니다.
 
 ## 프로젝트 폴더 레이아웃
@@ -29,24 +29,24 @@ SEAM 프로젝트는 압축하고, 공유하고, 재현할 수 있는 일반 폴
 ```
 
 백엔드는 구성된 루트(`SEAM_PROJECT_ROOTS`, 기존 `SIONNATWIN_PROJECT_ROOTS`;
-기본값은 `projects/`와 `examples/demo_project/`)를 스캔하여
-`scene.seam.json`(또는 기존 `scene.sionnatwin.json`)을 포함한 폴더를 찾아
-프로젝트를 발견합니다. 프로젝트 id는 `.seam`(또는 기존 `.sionnatwin`) 접미사를
-제외한 폴더 이름입니다. 모든 쓰기는 원자적(임시 파일 + 이름 변경)이므로,
-충돌이 발생해도 씬이 손상되지 않습니다.
+기본값은 `projects/`와 `examples/demo_project/`)를 스캔해
+`scene.seam.json`(또는 기존 `scene.sionnatwin.json`)이 있는 폴더를 찾아
+프로젝트를 인식합니다. 프로젝트 id는 폴더 이름에서 `.seam`(또는 기존
+`.sionnatwin`) 접미사를 뗀 것입니다. 모든 쓰기는 원자적(임시 파일 + 이름
+변경)이라, 도중에 크래시가 나도 씬이 깨지지 않습니다.
 
 ### 기존 `.sionnatwin` 레이아웃
 
-SEAM 이름 변경 이전에 생성된 프로젝트는 내부에 `scene.sionnatwin.json`이 있는
-`<project_id>.sionnatwin` 폴더를 사용합니다. 이러한 프로젝트는 완전히 지원됩니다 —
-스토어가 해당 위치에서 로드하고 저장합니다 — 다만 새 프로젝트는 위에 표시된 대로
-`.seam` / `scene.seam.json`을 사용합니다.
+SEAM으로 이름을 바꾸기 전에 만든 프로젝트는 내부에 `scene.sionnatwin.json`이 든
+`<project_id>.sionnatwin` 폴더를 씁니다. 이런 프로젝트도 완전히 지원됩니다 —
+스토어가 그 자리에서 그대로 로드하고 저장합니다 — 다만 새 프로젝트는 위에서 본 대로
+`.seam` / `scene.seam.json`을 씁니다.
 
 ## scene.seam.json
 
-직렬화된 `Scene` 모델(`backend/app/schemas/scene.py`). 모든 모델은 알 수 없는 키를
-거부하므로, 스키마 드리프트는 로드 시점에 명확히 실패합니다. 모든 좌표는
-Z-up ENU 미터 단위입니다.
+직렬화된 `Scene` 모델(`backend/app/schemas/scene.py`). 모든 모델이 알 수 없는 키를
+거부하므로, 스키마 드리프트는 조용히 묻히지 않고 로드 시점에 곧바로 드러납니다. 모든
+좌표는 Z-up ENU 미터 단위입니다.
 
 ### 최상위
 
@@ -62,8 +62,8 @@ Z-up ENU 미터 단위입니다.
 | `simulation_configs` | SimulationConfig[] | 저장된 재사용 가능한 실행 구성 |
 | `result_sets` | ResultSetRef[] | 저장된 결과에 대한 정렬된 포인터 |
 
-중복된 prim id 또는 device id는 검증에서 단순히 플래그되는 것이 아니라
-파싱 시점에 거부됩니다(`Scene.model_validate` 오류).
+중복된 prim id나 device id는 검증에서 그냥 표시만 되는 게 아니라 파싱 시점에
+아예 거부됩니다(`Scene.model_validate` 오류).
 
 ### coordinate_system
 
@@ -82,9 +82,9 @@ Z-up ENU 미터 단위입니다.
 
 ### Prim
 
-객체, 서브메시, 또는 그룹화 노드마다 하나의 항목. Id는 절대적이며
-경로 형태입니다(`/buildings/b01/window_01`); 맨 앞 세그먼트는 구조 외에
-특별한 의미를 갖지 않습니다.
+객체·서브메시·그룹 노드마다 항목 하나. id는 절대 경로 형태이며
+(`/buildings/b01/window_01`), 맨 앞 세그먼트는 구조를 나타낼 뿐 특별한 의미는
+없습니다.
 
 | field | type | notes |
 |---|---|---|
@@ -107,17 +107,17 @@ Z-up ENU 미터 단위입니다.
 | `primitive_index` | int | 메시 내부의 glTF 프리미티브, 기본값 0 |
 | `face_group` | str \| null | 명명된 면 부분집합; null = 전체 메시 |
 
-- **모드 1 — 전체 명명된 메시**(`face_group: null`): GLB 메시당 하나의 prim,
-  전체에 대한 이중 재질 바인딩. 데모 프로젝트는 이 방식만 사용합니다.
-- **모드 2 — 면 그룹 분할**: 여러 prim이 하나의 `mesh_name`을 공유하고
-  `face_group`으로 분할합니다(예: 하나의 건물 메시 내 벽과 창문).
-  이 필드는 저장되고 왕복(round-trip)됩니다(`mapping/face_group_map.json`)만,
-  **면 부분집합 추출은 MVP에서 구현되지 않습니다**: 컴파일러는 전체 명명된 메시를
-  사용하고 경고를 발생시키므로, 메시를 공유하는 prim은 현재
-  하나의 RF 재질을 공유해야 합니다.
-- **모드 3 — RF 프록시 메시(향후)**: 하이폴리 비주얼 메시와 단순화된 RF 프록시를
-  쌍으로 구성. MeshRef에 `rf_proxy_uri`를 추가하게 됨; MVP에서는
-  구현되지 않았습니다.
+- **모드 1 — 전체 명명된 메시**(`face_group: null`): GLB 메시당 prim 하나,
+  메시 전체에 이중 재질 바인딩. 데모 프로젝트는 이 방식만 씁니다.
+- **모드 2 — 면 그룹 분할**: 여러 prim이 하나의 `mesh_name`을 공유하며
+  `face_group`으로 나눕니다(예: 한 건물 메시 안의 벽과 창문).
+  이 필드는 저장·왕복(round-trip)까지 되지만(`mapping/face_group_map.json`),
+  **면 부분집합 추출은 MVP에 아직 구현되어 있지 않습니다**: 컴파일러가 전체 명명된
+  메시를 쓰면서 경고를 내므로, 메시를 공유하는 prim은 현재 RF 재질도 하나로
+  공유해야 합니다.
+- **모드 3 — RF 프록시 메시(향후)**: 하이폴리 비주얼 메시에 단순화된 RF 프록시를
+  짝지음. MeshRef에 `rf_proxy_uri`를 추가할 예정이며, MVP에는 구현되어 있지
+  않습니다.
 
 ### VisualBinding
 
@@ -128,8 +128,7 @@ Z-up ENU 미터 단위입니다.
 | `base_color_texture` | str \| null | 프로젝트 상대 경로 텍스처 경로 |
 | `base_color_rgba` | [r,g,b,a] \| null | 0–1 float |
 
-비주얼 데이터는 렌더링 + 제안 증거일 뿐이며, RF 입력으로 사용되는 일은
-결코 없습니다.
+비주얼 데이터는 렌더링·제안용 증거일 뿐, RF 입력으로는 절대 쓰이지 않습니다.
 
 ### RFBinding
 
@@ -143,8 +142,9 @@ Z-up ENU 미터 단위입니다.
 | `assignment_sources` | str[] | 정렬된 출처, 예: `["rule_based"]`, `["ai:ollama/qwen3:8b", "user"]` |
 | `confidence` | float \| null | 0–1 |
 
-모델에 의해 강제되는 불변식: `assignment_status in {"unassigned", "rejected"}`인 경우에
-한하여(if and only if) `material_id == null`입니다.
+모델이 강제하는 불변식: `material_id == null`인 것과
+`assignment_status in {"unassigned", "rejected"}`인 것은 서로
+필요충분조건입니다(if and only if).
 
 ### 할당 상태 라이프사이클
 
@@ -163,11 +163,11 @@ user_confirmed
 measurement_calibrated
 ```
 
-순서는 신뢰도가 높아지는 것을 반영합니다. 제안되었지만 미확인 상태인 바인딩은
-사용 가능하지만(컴파일러가 이를 허용함) `UNCONFIRMED_SUGGESTION` 검증 경고를
-발생시킵니다. 데모 씬은 흥미로운 각 상태에 대한 예를 하나씩 제공합니다:
-`/terrain/ground`는 `user_confirmed`, `/roads/r01/surface`는
-`rule_suggested`, 그리고 건물/창문/나무는 `unassigned`입니다.
+위 순서는 신뢰도가 높아지는 방향입니다. 제안됐지만 아직 확인되지 않은 바인딩은
+쓸 수 있지만(컴파일러가 받아들입니다) `UNCONFIRMED_SUGGESTION` 검증 경고를 냅니다.
+데모 씬에는 주목할 만한 상태마다 예시가 하나씩 들어 있습니다. `/terrain/ground`는
+`user_confirmed`, `/roads/r01/surface`는 `rule_suggested`, 건물·창문·나무는
+`unassigned`입니다.
 
 ### Device
 
@@ -206,13 +206,13 @@ measurement_calibrated
 | `uri` | str | 프로젝트 상대 경로, `results/<result_id>.json` |
 | `created_at` | str \| null | ISO 8601 UTC |
 
-결과 파일은 불변입니다; 목록은 추가 전용(append-only)이며 정렬되어 있고,
-어떤 종류의 "최신" 결과는 해당 종류의 마지막 ref입니다.
+결과 파일은 불변입니다. 목록은 추가 전용(append-only)이자 정렬돼 있고, 어떤 종류의
+"최신" 결과는 그 종류의 마지막 ref입니다.
 
 ## 데모 프로젝트
 
 `examples/scripts/create_demo_project.py`는
 `examples/demo_project/sample_demo.sionnatwin`을 결정론적으로 재생성합니다:
-`visual/scene.glb` 내 8개의 명명된 메시(월드 변환이 정점에 베이크됨), 13개의
-prim(5개 그룹 + 8개 메시 프리미티브), 2개의 디바이스, 그리고 저장된 시뮬레이션
-구성 하나. 이는 이 페이지의 모든 관례에 대한 참조 예시 역할도 겸합니다.
+`visual/scene.glb` 안의 명명된 메시 8개(월드 변환이 정점에 베이크됨), prim 13개
+(그룹 5개 + 메시 프리미티브 8개), 디바이스 2개, 저장된 시뮬레이션 구성 하나. 이
+프로젝트는 이 페이지에서 설명하는 모든 관례의 참조 예시 역할도 겸합니다.
