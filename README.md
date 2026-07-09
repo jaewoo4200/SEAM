@@ -23,7 +23,7 @@ Unified RF-Visual Scene Graph          (scene.seam.json - source of truth; legac
 ![Hanyang University campus digital twin — aerial-textured import render](website/assets/hero_campus.jpg)
 *The Hanyang University campus twin — a drone/aerial-textured import on continuous terrain, rendered in SEAM Studio.*
 
-![SEAM Studio — the full workbench: 3D viewport, mode panels, and the live communication-metrics dashboard](website/assets/SEAM_demo.png)
+![SEAM Studio — the full workbench: 3D viewport, mode panels, and the live communication-metrics dashboard](website/assets/workbench.jpg)
 *SEAM Studio in one view — the 3D scene viewport with Materials / Validation / AI Assist / Results modes and a live link-metrics dashboard.*
 
 | | |

@@ -21,7 +21,7 @@ Unified RF-Visual Scene Graph          (scene.seam.json - source of truth; legac
 ![한양대 캠퍼스 디지털 트윈 — 항공 텍스처 임포트 렌더](website/assets/hero_campus.jpg)
 *한양대 캠퍼스 트윈 — 드론/항공 텍스처 임포트를 연속 지형 위에, SEAM Studio 렌더.*
 
-![SEAM Studio — 전체 워크벤치: 3D 뷰포트, 모드 패널, 라이브 통신 메트릭 대시보드](website/assets/SEAM_demo.png)
+![SEAM Studio — 전체 워크벤치: 3D 뷰포트, 모드 패널, 라이브 통신 메트릭 대시보드](website/assets/workbench.jpg)
 *SEAM Studio 한 화면 — 3D 씬 뷰포트와 Materials / Validation / AI Assist / Results 모드, 라이브 링크 메트릭 대시보드.*
 
 | | |
