@@ -30,6 +30,12 @@ Unified RF-Visual Scene Graph          (scene.seam.json - source of truth; legac
 
 ## Quickstart (3 commands)
 
+> **사전 요구사항:** **Python 3.11/3.12**와 **Node.js 20+**가 PATH에 있어야 합니다
+> (3.13+는 미검증). 그 외엔 아무것도 필요 없습니다 — 기본 **Mock 백엔드는 CPU만으로
+> 동작**합니다. 실제 레이 트레이싱은 `sionna-rt` 패키지를 **별도 설치**해야 하고
+> (`pip install -e "backend[sionna]"`), GPU·로컬 LLM은 그 위에 얹는 선택 업그레이드입니다.
+> 전체 목록은 [INSTALL.md 사전 요구사항](INSTALL.md#사전-요구사항-prerequisites) 참조.
+
 **Windows (PowerShell):**
 
 ```powershell

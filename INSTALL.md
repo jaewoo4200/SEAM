@@ -13,16 +13,40 @@ SEAM Studio는 **로컬 우선(local-first)** 워크벤치입니다. GPU도, Sio
 
 ## 사전 요구사항 (Prerequisites)
 
+**필수 (앱 실행에 반드시 필요):**
+
 | 항목 | 요구 버전 | 비고 |
 |---|---|---|
-| Python | **3.11 이상** | 백엔드(FastAPI). `python --version`으로 확인 |
+| Python | **3.11 / 3.12** | 백엔드(FastAPI). `python --version`으로 확인. **3.13+는 미검증**(Mitsuba/Sionna 휠 부재 가능) |
 | Node.js | **20 이상** (18+도 대체로 동작) | 프론트엔드(Vite). `node --version`으로 확인 |
 | OS | Windows 10/11, Linux, macOS | 스크립트는 Windows(PowerShell)/Unix(bash) 모두 제공 |
-| NVIDIA GPU + 드라이버 | **선택** | 실제 `sionna-rt` 엔진의 CUDA(Dr.Jit) 백엔드에만 필요. 없으면 Mock 백엔드 사용, 또는 Sionna의 LLVM(CPU) 백엔드 사용 |
 
-> **GPU가 없어도 됩니다.** GPU가 없으면 앱은 자동으로 Mock 백엔드로 동작하며,
-> 결정론적(deterministic) 예제 경로/라디오맵을 계산합니다. 실제 Sionna RT는
-> CUDA GPU 또는 LLVM CPU 백엔드 중 하나만 있으면 됩니다.
+> `python`·`npm`은 **PATH에 미리 있어야** 합니다(설치 스크립트가 없으면 즉시 중단).
+> 스크립트는 포터블 런타임을 설치하지 않습니다. `git`은 리포 클론에만 필요하고
+> 런타임 의존성은 아닙니다.
+
+**선택 (업그레이드 — 없어도 기본 Mock 백엔드로 전체 워크플로 동작):**
+
+| 항목 | 무엇 | 언제 필요 |
+|---|---|---|
+| **`sionna-rt` 패키지** | 실제 레이 트레이싱 엔진 (Mitsuba 3 / Dr.Jit 포함, 수백 MB) | 실측급 물리 결과가 필요할 때. **기본 설치에 포함되지 않음** — `pip install -e "backend[sionna]"`로 **별도 설치**. 검증 버전 `sionna-rt 2.0.x`. → [아래 섹션](#선택-실제-sionna-rt-엔진-설치) |
+| **NVIDIA GPU + 드라이버** | `sionna-rt`의 CUDA(Dr.Jit) 가속 | *패키지 설치 위에 얹는* 추가 레이어. 없으면 Sionna는 CPU/LLVM으로 동작(정상, 다만 느림). macOS는 Metal/MPS 백엔드가 없어 **항상 CPU/LLVM** |
+| **로컬 LLM 서버** | LM Studio(`:1234`) 또는 Ollama(`:11434`) + (VLM) 모델 | AI 재질 어시스트 / SEAM-Agent용. 없으면 규칙 기반으로 폴백. → [로컬 LLM 설정](#선택-로컬-llmvlm--ai-재질-제안) |
+
+> **핵심:** 세 가지 모두 **선택**입니다. Mock 백엔드는 아무 설치 없이 CPU만으로
+> 항상 동작하며 결정론적 예제 경로/라디오맵을 계산합니다. "실제 레이 트레이싱"의
+> 진짜 관문은 **GPU가 아니라 `sionna-rt` 패키지 설치**이며, GPU는 그 위에 얹는
+> 추가 가속 레이어입니다.
+>
+> **네이티브 라이브러리:** 기본 의존성 중 `rtree`(libspatialindex)·`shapely`(GEOS)는
+> C 라이브러리를 쓰지만, Windows/Linux/macOS 주류 환경에서는 **PyPI 휠에 번들**되어
+> 별도 시스템 설치가 필요 없습니다. 휠이 없는 특이 환경(비주류 아키텍처)에서 소스
+> 빌드할 때만 시스템 GEOS/libspatialindex가 필요합니다. **ffmpeg 등 외부 실행
+> 바이너리는 런타임에 전혀 필요하지 않습니다.**
+>
+> **디스크 여유:** 기본 설치 외에 `sionna-rt`+Mitsuba/Dr.Jit ≈ 수백 MB, (선택)
+> FTC 재질 오버레이 ≈ 120 MB, (선택) `reference-bundle/` 원본 씬 자산 ≈ 450 MB(git
+> 미포함).
 
 ---
 
@@ -73,9 +97,11 @@ backend/.venv/bin/python -m pip install --upgrade pip
 backend/.venv/bin/python -m pip install -e "backend[dev]"
 ```
 
-기본 의존성: `fastapi`, `uvicorn[standard]`, `pydantic`, `numpy`, `trimesh`,
-`pyyaml`, `httpx`, `pillow`, `networkx`, `python-multipart`(씬 임포트의 멀티파트
-업로드에 필요).
+기본 의존성(`backend/pyproject.toml` 기준): `fastapi`, `uvicorn[standard]`,
+`pydantic`, `numpy`, `scipy`, `trimesh`, `rtree`, `shapely`, `mapbox-earcut`,
+`pyyaml`, `httpx`, `pillow`, `ddgs`, `python-multipart`. `rtree`(libspatialindex)와
+`shapely`(GEOS)는 네이티브 C 라이브러리를 쓰지만 주류 플랫폼에서는 PyPI 휠에
+번들되어 별도 설치가 필요 없습니다.
 
 ### 2. 프론트엔드 설치
 

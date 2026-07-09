@@ -32,6 +32,13 @@ Unified RF-Visual Scene Graph          (scene.seam.json - source of truth; legac
 
 ## Quickstart (3 commands)
 
+> **Prerequisites:** **Python 3.11/3.12** and **Node.js 20+** must be on your PATH
+> (3.13+ is unverified). Nothing else is required — the default **Mock backend runs
+> on CPU alone**. Real ray tracing needs the `sionna-rt` package installed
+> **separately** (`pip install -e "backend[sionna]"`); a GPU and a local LLM are
+> optional upgrades layered on top of that. Full list:
+> [INSTALL.md → Prerequisites](INSTALL.md#사전-요구사항-prerequisites).
+
 **Windows (PowerShell):**
 
 ```powershell
