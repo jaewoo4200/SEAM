@@ -37,6 +37,13 @@ export default function App() {
     }
   }, [init]);
 
+  // Success notices auto-dismiss; errors stay until acted on (store contract).
+  useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => dismissNotice(), 5000);
+    return () => clearTimeout(t);
+  }, [notice, dismissNotice]);
+
   let rightPanel;
   switch (mode) {
     case "visual":

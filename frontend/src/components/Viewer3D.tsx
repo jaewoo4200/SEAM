@@ -1634,7 +1634,7 @@ function ViewerHotkeys() {
       const st = useAppStore.getState();
       if (st.mode === "results" && st.scenario !== null && st.scenario.frames.length > 0) {
         useAppStore.setState({
-          notice: "Placement blocked during scenario playback - clear the scenario first",
+          notice: "Placement blocked during scenario playback — clear the scenario first",
         });
         setPlacing(null);
         setGhost(null);
@@ -1760,7 +1760,7 @@ function ViewerHotkeys() {
           if (st.pick) return; // pick owns the viewport
           if (st.mode === "results" && st.scenario !== null && st.scenario.frames.length > 0) {
             useAppStore.setState({
-              notice: "Placement blocked during scenario playback - clear the scenario first",
+              notice: "Placement blocked during scenario playback — clear the scenario first",
             });
             return;
           }
@@ -1780,7 +1780,7 @@ function ViewerHotkeys() {
           // is disabled, so the hotkey explains instead of silently flipping
           // an invisible flag (audit finding).
           if (!useAppStore.getState().radioMap) {
-            useAppStore.setState({ notice: "No radio map yet - run Simulate radio map first" });
+            useAppStore.setState({ notice: "No radio map yet — run Simulate radio map first" });
             break;
           }
           toggleOverlay("radioMap");
@@ -2104,6 +2104,59 @@ function TrajPreviewLine() {
   );
 }
 
+// Monochrome stroke icons for the viewport corner buttons; they inherit the
+// button's currentColor so the .active accent tint applies to the glyph too.
+const iconProps = {
+  width: 15,
+  height: 15,
+  viewBox: "0 0 16 16",
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 1.5,
+  strokeLinecap: "round" as const,
+  strokeLinejoin: "round" as const,
+  "aria-hidden": true,
+};
+
+function SlidersIcon() {
+  return (
+    <svg {...iconProps}>
+      <path d="M2 4.5h6.2M11.8 4.5H14" />
+      <circle cx="10" cy="4.5" r="1.7" />
+      <path d="M2 11.5h2.2M7.8 11.5H14" />
+      <circle cx="6" cy="11.5" r="1.7" />
+    </svg>
+  );
+}
+
+function OverlayIcon() {
+  return (
+    <svg {...iconProps}>
+      <rect x="2" y="3" width="12" height="10" rx="1.2" />
+      <circle cx="5.6" cy="6.2" r="1.1" />
+      <path d="M2 11.2l3.8-3.3 2.9 2.5 2.4-1.9 2.9 2.7" />
+    </svg>
+  );
+}
+
+function CameraIcon() {
+  return (
+    <svg {...iconProps}>
+      <path d="M5.6 4.6l1-1.6h2.8l1 1.6h2.1a1 1 0 0 1 1 1v6.4a1 1 0 0 1-1 1H3.5a1 1 0 0 1-1-1V5.6a1 1 0 0 1 1-1h2.1z" />
+      <circle cx="8" cy="8.6" r="2.3" />
+    </svg>
+  );
+}
+
+function RenderIcon() {
+  return (
+    <svg {...iconProps}>
+      <rect x="2" y="3" width="12" height="10" rx="1.2" />
+      <path d="M2 6.2h12M4.6 3l1.4 3.2M7.7 3l1.4 3.2M10.8 3l1.4 3.2" />
+    </svg>
+  );
+}
+
 // ------------------------------------------------------------------ main
 
 export default function Viewer3D() {
@@ -2381,14 +2434,14 @@ export default function Viewer3D() {
         title="Place TX by clicking in the scene (K)"
         onClick={() => armPlacement("tx")}
       >
-        +TX@
+        +TX
       </button>
       <button
         className="viewport-gear viewport-place viewport-place-rx"
         title="Place RX by clicking (L)"
         onClick={() => armPlacement("rx")}
       >
-        +RX@
+        +RX
       </button>
       <button
         className={"viewport-gear viewport-help" + (legendOpen ? " active" : "")}
@@ -2414,39 +2467,43 @@ export default function Viewer3D() {
           </ul>
         </div>
       )}
-      <button
-        className={"viewport-gear viewport-settings-gear" + (panelOpen ? " active" : "")}
-        title="Viewport lighting & display"
-        onClick={() => setPanelOpen((o) => !o)}
-      >
-        ⚙
-      </button>
-      {overlayUri && (
-        // Quick toggle for the textured photogrammetry backdrop; the same
-        // switch lives in the viewport panel, this is the one-click version.
+      {/* Settings cluster: a flex row so the buttons pack with no gap when the
+          conditional overlay toggle is absent. */}
+      <div className="viewport-cluster">
         <button
-          className={"viewport-gear viewport-tex" + (viewport.showOverlay ? " active" : "")}
-          title={viewport.showOverlay ? "Hide textured overlay" : "Show textured overlay"}
-          onClick={() => setViewport({ showOverlay: !viewport.showOverlay })}
+          className={"viewport-gear" + (panelOpen ? " active" : "")}
+          title="Viewport lighting & display"
+          onClick={() => setPanelOpen((o) => !o)}
         >
-          🖼
+          <SlidersIcon />
         </button>
-      )}
-      <button
-        className="viewport-gear viewport-snap"
-        title="Save this exact view as a PNG (what you see, full resolution — paper-ready)"
-        onClick={saveView}
-      >
-        📸
-      </button>
-      <button
-        className={"viewport-gear viewport-render" + (rendering ? " active" : "")}
-        title="Offline path-traced render via Mitsuba (slower, physically shaded — not the on-screen view)"
-        disabled={rendering}
-        onClick={() => void doRender()}
-      >
-        🎞
-      </button>
+        {overlayUri && (
+          // Quick toggle for the textured photogrammetry backdrop; the same
+          // switch lives in the viewport panel, this is the one-click version.
+          <button
+            className={"viewport-gear" + (viewport.showOverlay ? " active" : "")}
+            title={viewport.showOverlay ? "Hide textured overlay" : "Show textured overlay"}
+            onClick={() => setViewport({ showOverlay: !viewport.showOverlay })}
+          >
+            <OverlayIcon />
+          </button>
+        )}
+        <button
+          className="viewport-gear"
+          title="Save this exact view as a PNG (what you see, full resolution — paper-ready)"
+          onClick={saveView}
+        >
+          <CameraIcon />
+        </button>
+        <button
+          className={"viewport-gear" + (rendering ? " active" : "")}
+          title="Offline path-traced render via Mitsuba (slower, physically shaded — not the on-screen view)"
+          disabled={rendering}
+          onClick={() => void doRender()}
+        >
+          <RenderIcon />
+        </button>
+      </div>
       {panelOpen && <ViewportPanel onClose={() => setPanelOpen(false)} />}
     </div>
   );

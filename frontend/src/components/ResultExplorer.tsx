@@ -40,7 +40,7 @@ export function StaleChip({
   return (
     <span
       className="stale-chip"
-      title="The scene was edited after this result was computed - re-run to refresh"
+      title="The scene was edited after this result was computed — re-run to refresh"
     >
       ⚠ stale
     </span>
@@ -537,7 +537,7 @@ export function TrajectorySection() {
   );
 
   const fmt = (v: number | null, unit: string, digits = 1) =>
-    v === null ? "n/a" : `${v.toFixed(digits)} ${unit}`;
+    v === null ? "—" : `${v.toFixed(digits)} ${unit}`;
 
   const picking = pickLabel === "Trajectory start → end";
   const drawing = pickLabel?.startsWith("Route for ") ?? false;
@@ -552,7 +552,7 @@ export function TrajectorySection() {
               title="Click two points in the 3D view: first the start, then the end (Esc cancels)"
               onClick={pickBoth}
             >
-              {picking ? "Click start, then end… (Esc)" : "🎯 Pick start → end in viewport"}
+              {picking ? "Click start, then end… (Esc)" : "⌖ Pick start → end in viewport"}
             </button>
             <button
               disabled={disabled}
@@ -608,7 +608,7 @@ export function TrajectorySection() {
           title="Click waypoints one by one in the 3D view; Esc finishes the route (>= 2 points)"
           onClick={drawRoute}
         >
-          {drawing ? "Click points… Esc finishes" : "✏️ Draw route (Esc finishes)"}
+          {drawing ? "Click points… Esc finishes" : "Draw route (Esc finishes)"}
         </button>
         <button
           disabled={disabled || !drawUe || !projectId}
@@ -663,7 +663,7 @@ export function TrajectorySection() {
             </div>
           ))}
           <p className="hint">
-            Each route is resampled to Num points steps; all UEs move together
+            Each route is resampled to the ‘Num points’ step count; all UEs move together
             per step (one solve per step). Remove every route to go back to the
             straight start → end line.
           </p>
@@ -843,7 +843,7 @@ function PlaybackTrajectory({
         <span className="mono">{trajectory.ue_id}</span>{" "}
         <span
           className="traj-kind"
-          title="Time-series over a MOVING receiver (each waypoint re-solved) - distinct from the fixed-device results above"
+          title="Time-series over a moving receiver (each waypoint re-solved) — distinct from the fixed-device results above"
         >
           moving UE
         </span>{" "}
@@ -1181,7 +1181,7 @@ export function ScenarioSection() {
       <p className="hint">
         Animates each actor along its own waypoint trajectory (set per actor
         in Visual mode) frame by frame. To sweep a single receiver along a
-        line, use UE trajectory instead. While the playback overlay is ON it
+        line, use UE trajectory instead. While the playback overlay is active it
         temporarily replaces the static device/actor markers.
       </p>
       <label className="solver-field">
@@ -1559,7 +1559,7 @@ export function MlDatasetSection() {
             >
               {pickLabel === "Dataset region (two corners)"
                 ? "Click 2 corners… (Esc)"
-                : "🎯 Pick region in viewport"}
+                : "⌖ Pick region in viewport"}
             </button>
             <button
               disabled={generating || !sceneBounds}
@@ -1651,7 +1651,7 @@ export function MlDatasetSection() {
             >
               {pickLabel === "Dataset path start → end"
                 ? "Click start, then end… (Esc)"
-                : "🎯 Pick path in viewport"}
+                : "⌖ Pick path in viewport"}
             </button>
           </div>
           {vecField("Start", start, (v) => {
@@ -1737,7 +1737,7 @@ export function MlDatasetSection() {
                       className="dataset-flag"
                       title={`${zero}/${d.num_samples} samples have zero paths (UE outside the scene or occluded)`}
                     >
-                      ⚠ {zero}∅
+                      ⚠ {zero} zero-path
                     </span>
                   )}
                 </td>
@@ -1790,7 +1790,7 @@ export function MlDatasetSection() {
  *  the analytic modes it shows the single-element reference and the mode gain. */
 function BeamformingCard({ beamforming: b }: { beamforming: BeamformingResult }) {
   const dB = (v: number | null, signed = true) =>
-    v === null ? "n/a" : `${signed && v >= 0 ? "+" : ""}${v.toFixed(1)} dB`;
+    v === null ? "—" : `${signed && v >= 0 ? "+" : ""}${v.toFixed(1)} dB`;
   const isSweep = b.mode === "codebook_sweep";
 
   return (
@@ -1802,7 +1802,7 @@ function BeamformingCard({ beamforming: b }: { beamforming: BeamformingResult })
       <div className="results-meta">
         single element{" "}
         <span className="mono">
-          {b.single_element_dbm === null ? "n/a" : `${b.single_element_dbm.toFixed(1)} dBm`}
+          {b.single_element_dbm === null ? "—" : `${b.single_element_dbm.toFixed(1)} dBm`}
         </span>{" "}
         {isSweep ? (
           <>
@@ -2004,7 +2004,7 @@ function MeshRadioMapSection() {
   return (
     <Collapsible title="Mesh radio map">
       <p className="hint">
-        Samples the RF metric on the triangles of the SELECTED surface prims and
+        Samples the RF metric on the triangles of the selected surface prims and
         drapes it on the geometry (distinct from the flat radio-map plane).
       </p>
       <label className="solver-field">

@@ -32,7 +32,7 @@ export function EpochStaleChip({ kind }: { kind: ResultKind }) {
   return (
     <span
       className="stale-chip"
-      title="The scene was edited after this result was computed - re-run to refresh"
+      title="The scene was edited after this result was computed — re-run to refresh"
     >
       ⚠ stale
     </span>

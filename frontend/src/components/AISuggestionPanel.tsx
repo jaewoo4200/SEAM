@@ -811,7 +811,7 @@ function AgentBatchSection() {
               type="text"
               value={hint}
               disabled={running}
-              placeholder="shared site hint, e.g. 한양대학교 서울캠퍼스"
+              placeholder="shared site hint, e.g. Hanyang University Seoul campus"
               onChange={(e) => setHint(e.target.value)}
             />
           </label>
@@ -1003,7 +1003,7 @@ export default function AISuggestionPanel() {
             checked={aiProvider === p.name}
             onChange={() => setAiProvider(p.name)}
           />
-          <span className="dot" style={{ background: p.available ? "#66bb6a" : "#78909c" }} />
+          <span className="dot" style={{ background: p.available ? "var(--ok)" : "var(--off)" }} />
           <span className="provider-name">{p.name}</span>
           {p.model && <span className="mono">{p.model}</span>}
           {p.detail && <span title={p.detail}>· {p.detail}</span>}

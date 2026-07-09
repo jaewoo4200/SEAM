@@ -47,6 +47,18 @@ function MaterialEditor({
   const [fieldError, setFieldError] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  // Two-step armed confirm for the permanent delete (mirrors the assign
+  // overwrite guard below — a hand-tuned material shouldn't die to one click).
+  const [deleteArmed, setDeleteArmed] = useState(false);
+  const deleteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const disarmDelete = () => {
+    if (deleteTimer.current) {
+      clearTimeout(deleteTimer.current);
+      deleteTimer.current = null;
+    }
+    setDeleteArmed(false);
+  };
+  useEffect(() => disarmDelete, []);
 
   const numField = (key: keyof DraftFields, label: string) => (
     <label>
@@ -123,8 +135,20 @@ function MaterialEditor({
           <button
             className="danger"
             disabled={disabled || deleting}
-            title="Delete this custom material from the project library"
+            title={
+              deleteArmed
+                ? "Click again to permanently delete this material"
+                : "Delete this custom material from the project library"
+            }
+            onBlur={disarmDelete}
             onClick={() => {
+              if (!deleteArmed) {
+                setDeleteError(null);
+                setDeleteArmed(true);
+                deleteTimer.current = setTimeout(() => setDeleteArmed(false), 4000);
+                return;
+              }
+              disarmDelete();
               setDeleteError(null);
               setDeleting(true);
               void onDelete()
@@ -132,7 +156,7 @@ function MaterialEditor({
                 .finally(() => setDeleting(false));
             }}
           >
-            {deleting ? "Deleting…" : "Delete material"}
+            {deleting ? "Deleting…" : deleteArmed ? "Confirm delete?" : "Delete material"}
           </button>
         )}
         {fieldError && <span className="field-error">{fieldError}</span>}
@@ -219,6 +243,27 @@ export default function RFMaterialPanel() {
     }
     doAssign();
   };
+
+  // Unassign guard: clearing a user_confirmed (or measurement_calibrated)
+  // binding discards the same manual decision the Assign overwrite guard
+  // protects, so Unassign gets its own two-step confirm when any is selected.
+  const confirmedCount = selection.filter((id) => {
+    const st = primById.get(id)?.rf?.assignment_status;
+    return st === "user_confirmed" || st === "measurement_calibrated";
+  }).length;
+  const [confirmUnassign, setConfirmUnassign] = useState(false);
+  const unassignTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const disarmUnassign = () => {
+    if (unassignTimer.current) {
+      clearTimeout(unassignTimer.current);
+      unassignTimer.current = null;
+    }
+    setConfirmUnassign(false);
+  };
+  useEffect(() => disarmUnassign, []);
+  useEffect(() => {
+    if (confirmedCount === 0) disarmUnassign();
+  }, [confirmedCount]);
 
   const unassignSelection = async () => {
     if (!projectId || selection.length === 0) return;
@@ -343,7 +388,7 @@ export default function RFMaterialPanel() {
                 <td>{m.category}</td>
                 <td>{m.model === "itu_frequency_dependent" ? "ITU" : "const"}</td>
                 <td className="mono">
-                  {m.relative_permittivity ?? "–"} / {m.conductivity_s_per_m ?? "–"}
+                  {m.relative_permittivity ?? "—"} / {m.conductivity_s_per_m ?? "—"}
                 </td>
               </tr>
             ))}
@@ -386,15 +431,31 @@ export default function RFMaterialPanel() {
             : `Assign to selection (${selection.length})`}
         </button>
         <button
+          className={confirmUnassign ? "danger" : undefined}
           disabled={selection.length === 0 || busy !== null || unassigning}
           title={
             selection.length === 0
               ? "Select assigned prims to clear their RF material"
-              : `Clear the RF material on ${selection.length} prim(s)`
+              : confirmUnassign
+                ? "Click again to clear, including manually confirmed assignments"
+                : `Clear the RF material on ${selection.length} prim(s)`
           }
-          onClick={() => void unassignSelection()}
+          onBlur={disarmUnassign}
+          onClick={() => {
+            if (confirmedCount > 0 && !confirmUnassign) {
+              setConfirmUnassign(true);
+              unassignTimer.current = setTimeout(() => setConfirmUnassign(false), 4000);
+              return;
+            }
+            disarmUnassign();
+            void unassignSelection();
+          }}
         >
-          {unassigning ? "Unassigning…" : `Unassign selection (${selection.length})`}
+          {unassigning
+            ? "Unassigning…"
+            : confirmUnassign
+              ? `${confirmedCount} confirmed — clear anyway?`
+              : `Unassign selection (${selection.length})`}
         </button>
         <button
           onClick={() => (creating ? cancelCreate() : openCreate())}

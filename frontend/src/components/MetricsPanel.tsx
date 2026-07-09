@@ -30,16 +30,16 @@ function tapColor(pathType: string): string {
     : PATH_COLORS.mixed;
 }
 
-/** Formats a nullable number as "value" (or "–" when absent). */
+/** Formats a nullable number as "value" (or "—" when absent). */
 function num(v: number | null | undefined, digits = 1): string {
   return v === null || v === undefined || !Number.isFinite(v)
-    ? "–"
+    ? "—"
     : (Math.round(v * 10 ** digits) / 10 ** digits).toString();
 }
 
 interface Kpi {
   label: string;
-  /** Rendered value including unit (or "–"). */
+  /** Rendered value including unit (or "—"). */
   display: string;
   /** Full definition, shown on hover. */
   title: string;
@@ -55,8 +55,8 @@ function kpiRows(r: ChannelAnalysisResult): Kpi[] {
   const numInterferers = r.num_interferers ?? 0;
   const rbDisplay =
     nrb === null && scs === null
-      ? "–"
-      : `${nrb === null ? "–" : nrb} @ ${scs === null ? "–" : scs} kHz`;
+      ? "—"
+      : `${nrb === null ? "—" : nrb} @ ${scs === null ? "—" : scs} kHz`;
   return [
     { label: "RSS", unit: "dBm", csv: r.rss_dbm ?? null,
       title: "Received signal strength — total received power summed over all ray paths." },
@@ -99,7 +99,7 @@ function kpiRows(r: ChannelAnalysisResult): Kpi[] {
       k.label === "N_RB @ SCS"
         ? rbDisplay
         : k.csv === null || k.csv === undefined
-          ? "–"
+          ? "—"
           : `${num(k.csv, k.unit === "ns" || k.unit === "MHz" || k.unit === "ms" ? 2 : 1)}${k.unit ? " " + k.unit : ""}`,
   }));
 }
@@ -251,13 +251,13 @@ export default function MetricsPanel() {
       </div>
 
       <h4 className="metrics-section-head">
-        Static link (fixed RX) - {r.tx_id} → {r.rx_id} <StaleChip kind="channel" />
+        Static link (fixed RX) — {r.tx_id} → {r.rx_id} <StaleChip kind="channel" />
       </h4>
       {Array.isArray(r.metadata?.rx_position_m) && (
         <p className="hint">
           Computed with RX at [
           {(r.metadata.rx_position_m as number[]).map((v) => v.toFixed(1)).join(", ")}
-          ] - the trajectory section below is a separate moving-UE sweep.
+          ] — the trajectory section below is a separate moving-UE sweep.
         </p>
       )}
       <div className="metric-grid">

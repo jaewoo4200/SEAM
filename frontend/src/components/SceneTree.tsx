@@ -343,7 +343,7 @@ export default function SceneTree() {
           title={`${a.kind} · ${a.id}`}
         >
           <span className="device-icon" style={{ color: a.color ?? "#a78bfa" }}>
-            {a.kind === "car" ? "▬" : a.kind === "human" ? "☖" : "◆"}
+            {a.kind === "car" ? "▬" : a.kind === "human" ? "▮" : "◆"}
           </span>
           <span className="tree-name">{a.id}</span>
           {a.name && <span className="tree-mat">{a.name}</span>}

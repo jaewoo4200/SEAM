@@ -127,14 +127,14 @@ export default function Toolbar() {
       <span className="health-chip" title="Ray-tracing backend availability">
         <span
           className="dot"
-          style={{ background: sionnaAvailable ? "#66bb6a" : "#78909c" }}
+          style={{ background: sionnaAvailable ? "var(--ok)" : "var(--off)" }}
         />
         {sionnaAvailable ? "Sionna" : "Mock only"}
       </span>
       <span className="health-chip" title="AI suggestion provider">
         <span
           className="dot"
-          style={{ background: activeProvider ? "#66bb6a" : "#78909c" }}
+          style={{ background: activeProvider ? "var(--ok)" : "var(--off)" }}
         />
         {activeProvider ? activeProvider.name : "AI off"}
       </span>
@@ -154,7 +154,7 @@ export default function Toolbar() {
             {
               label: "Beamforming",
               title:
-                "4x4 MIMO beamforming gain (TX-MRT and both-ends SVD) over the first TX->RX link",
+                "4x4 MIMO beamforming gain (TX-MRT and both-ends SVD) over the first TX→RX link",
               onClick: () => void runBeamforming(),
             },
             {
@@ -176,7 +176,7 @@ export default function Toolbar() {
           disabled={disabled}
           onClick={() => void simulatePaths()}
         >
-          Simulate Paths
+          Simulate paths
         </button>
       </span>
 
@@ -495,7 +495,7 @@ function ImportSceneButton({
               <button
                 className={osmSelecting ? "picking" : ""}
                 onClick={() => setOsmSelecting((v) => !v)}
-                title="Arm rectangle selection, then DRAG on the map; the coordinate and size fields fill in automatically"
+                title="Arm rectangle selection, then drag on the map; the coordinate and size fields fill in automatically"
               >
                 {osmSelecting ? "Drag a rectangle on the map…" : "▭ Select area on map"}
               </button>
@@ -628,7 +628,7 @@ interface ActionItem {
 }
 
 /** Collapses the secondary toolbar actions into a single dropdown so the bar
- *  stays tidy. Simulate Paths remains a standalone primary button. */
+ *  stays tidy. Simulate paths remains a standalone primary button. */
 function ActionsMenu({ disabled, items }: { disabled: boolean; items: ActionItem[] }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLSpanElement>(null);

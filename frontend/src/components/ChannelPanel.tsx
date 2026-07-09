@@ -331,7 +331,7 @@ export default function ChannelPanel() {
   const r = channelResult;
 
   const fmt = (v: number | null, unit: string, digits = 1) =>
-    v === null ? "n/a" : `${v.toFixed(digits)} ${unit}`;
+    v === null ? "—" : `${v.toFixed(digits)} ${unit}`;
 
   const budget = (label: string, value: string) => (
     <div className="traj-kpi">
@@ -524,7 +524,7 @@ export default function ChannelPanel() {
               <span className="mono">{r.tx_id}</span> → <span className="mono">{r.rx_id}{" "}
             <span
               className="traj-kind"
-              title="Snapshot of the FIXED tx/rx positions at compute time - a moving-UE sweep lives in the Trajectory panel"
+              title="Snapshot of the fixed TX/RX positions at compute time — a moving-UE sweep lives in the Trajectory panel"
             >
               fixed link
             </span>{" "}

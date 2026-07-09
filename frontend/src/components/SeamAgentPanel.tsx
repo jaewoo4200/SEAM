@@ -206,7 +206,7 @@ export default function SeamAgentPanel({ prim }: { prim: Prim }) {
               type="text"
               value={userHint}
               disabled={disabled || running}
-              placeholder="e.g. 한양대학교 퓨전테크센터 (FTC) building"
+              placeholder="e.g. Hanyang University Fusion Tech Center (FTC) building"
               onChange={(e) => setUserHint(e.target.value)}
             />
           </label>
@@ -519,7 +519,7 @@ export default function SeamAgentPanel({ prim }: { prim: Prim }) {
 
               {status === "cancelled" && (
                 <p className="hint">
-                  Stopped by request — nothing was applied. Run again anytime.
+                  Stopped by request — nothing was applied.
                 </p>
               )}
             </div>

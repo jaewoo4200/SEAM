@@ -210,7 +210,7 @@ export default function SegmentationPanel({ prim }: { prim: Prim }) {
           {/* Run */}
           <div className="panel-actions">
             <button className="primary" disabled={runDisabled} onClick={doRun}>
-              {disabled && !previewHere ? "Running…" : "Run Preview"}
+              {disabled && !previewHere ? "Running…" : "Run preview"}
             </button>
           </div>
 

@@ -196,7 +196,7 @@ function DeviceCard({ device }: { device: Device }) {
   const POS_HINT = "Z-up ENU meters (X east · Y north · Z up)";
   const VEL_HINT = "Z-up ENU m/s — drives per-path Doppler in the solver";
   const SPACING_HINT =
-    "in wavelengths (λ) at the carrier frequency (set in Simulation > GLOBAL)";
+    "in wavelengths (λ) at the carrier frequency (set in Simulation → Global)";
 
   return (
     <div className="panel">
@@ -304,8 +304,8 @@ function DeviceCard({ device }: { device: Device }) {
         </div>
         <p className="hint">
           Positions &amp; velocity are Z-up ENU (X east · Y north · Z up). Velocity drives
-          per-path Doppler; V/H spacing is in wavelengths at the carrier frequency (Simulation &gt;
-          GLOBAL).
+          per-path Doppler; V/H spacing is in wavelengths at the carrier frequency (Simulation →
+          Global).
         </p>
         <div className="editor-actions">
           <button className="primary" onClick={apply} disabled={disabled}>
@@ -657,7 +657,7 @@ function ActorTrajectoryEditor({ actor }: { actor: Actor }) {
               onClick={pickWaypoint}
               title="Click a point in the viewport to append it as a waypoint"
             >
-              🎯 Pick waypoint
+              ⌖ Pick waypoint
             </button>
             <button disabled={disabled} onClick={recordCurrent} title="Append the actor's current position">
               Record current pos
@@ -809,8 +809,8 @@ function PrimCard({ prim }: { prim: Prim }) {
         />
         <p className="hint">
           {selection.length > 1
-            ? `Applies to all ${selection.length} selected prims as user_confirmed.`
-            : "Saved to the scene as user_confirmed."}
+            ? `Applies to all ${selection.length} selected prims as user-confirmed.`
+            : "Saved to the scene as user-confirmed."}
         </p>
         <div className="panel-actions" style={{ marginTop: 4 }}>
           <button
@@ -822,7 +822,7 @@ function PrimCard({ prim }: { prim: Prim }) {
               void useAppStore.getState().suggestMaterials();
             }}
           >
-            ✨ Suggest with AI
+            Suggest with AI
           </button>
         </div>
 

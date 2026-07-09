@@ -15,6 +15,7 @@
   --ok: #66bb6a;
   --err: #ef5350;
   --amber: #ffb74d;
+  --off: #78909c;
   font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
   font-size: 13px;
   color-scheme: dark;
@@ -682,6 +683,27 @@ h4 {
 
 /* -------------------------------------------------------- trajectory */
 
+.traj-routes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.traj-route-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.traj-route-row .row-del {
+  padding: 0 6px;
+  line-height: 1.4;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  flex: none;
+}
+.traj-route-row .row-del:hover:not(:disabled) {
+  color: var(--err);
+}
 .traj-section {
   margin-top: 12px;
   padding-top: 10px;
@@ -1867,7 +1889,8 @@ h4 {
 }
 
 /* Discoverability cluster (left→right): +TX@ · +RX@ · ? , then the settings
-   gear cluster (⚙ · 🖼 · 📷) shifted right so nothing overlaps. */
+   cluster (sliders · overlay · snapshot · render icons) shifted right so
+   nothing overlaps. */
 .viewport-place {
   width: auto;
   padding: 0 7px;
@@ -1886,27 +1909,19 @@ h4 {
   left: 106px;
 }
 
-/* Settings gear (⚙) sits after the discoverability cluster. */
-.viewport-settings-gear {
+/* Settings cluster (sliders / overlay / snapshot / render) sits after the
+   discoverability cluster as one flex row, so the buttons pack with no hole
+   when the conditional overlay toggle is absent. */
+.viewport-cluster {
+  position: absolute;
+  top: 10px;
   left: 144px;
+  display: flex;
+  gap: 6px;
+  z-index: 6;
 }
-
-/* Textured-overlay quick toggle sits right of the gear. */
-.viewport-tex {
-  left: 180px;
-  font-size: 14px;
-}
-
-/* Save-view (WYSIWYG PNG) sits right of the texture toggle. */
-.viewport-snap {
-  left: 216px;
-  font-size: 14px;
-}
-
-/* Mitsuba offline render button sits last. */
-.viewport-render {
-  left: 252px;
-  font-size: 14px;
+.viewport-cluster .viewport-gear {
+  position: static;
 }
 
 /* Floating hotkey legend, matches the viewport panel styling. */
@@ -3133,7 +3148,7 @@ button.picking {
   align-items: center;
   gap: 8px;
   padding: 4px 0;
-  font-size: 12.5px;
+  font-size: 12px;
   border-bottom: 1px solid var(--border);
 }
 .agent-batch-item:last-child {
@@ -3146,7 +3161,7 @@ button.picking {
 }
 .agent-batch-status.st-queued { color: var(--muted); }
 .agent-batch-status.st-running { color: var(--accent); }
-.agent-batch-status.st-needs_review { color: #7bd88f; }
-.agent-batch-status.st-error { color: var(--danger, #e5534b); }
+.agent-batch-status.st-needs_review { color: var(--amber); }
+.agent-batch-status.st-error { color: var(--err); }
 .agent-batch-status.st-cancelled,
 .agent-batch-status.st-skipped { color: var(--muted); }

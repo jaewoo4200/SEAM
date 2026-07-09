@@ -363,7 +363,7 @@ function GlobalSection() {
             {engines.map((eng) => (
               <option key={eng.id} value={eng.id} disabled={!eng.available}>
                 {eng.label}
-                {eng.available ? "" : " (미설치)"}
+                {eng.available ? "" : " (not installed)"}
               </option>
             ))}
           </select>
@@ -641,8 +641,8 @@ function RadioMapSection() {
             patchGrid({ metric: e.target.value as SimulationConfig["radio_map"]["metric"] })
           }
         >
-          <option value="path_gain_db">path_gain_db</option>
-          <option value="rss_dbm">rss_dbm</option>
+          <option value="path_gain_db">Path gain (dB)</option>
+          <option value="rss_dbm">RSS (dBm)</option>
           <option value="sinr_db">SINR (multi-TX)</option>
         </select>
       </label>

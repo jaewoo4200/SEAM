@@ -153,7 +153,7 @@ function LastCompileResult() {
         </button>
       </div>
       <div className="chips">
-        <span className="chip" style={{ color: ok ? "#66bb6a" : "#ef5350" }}>
+        <span className="chip" style={{ color: ok ? "var(--ok)" : "var(--err)" }}>
           {ok ? "compiled" : `${errors.length} error${errors.length === 1 ? "" : "s"}`}
         </span>
         <span className="chip">
@@ -218,7 +218,7 @@ export default function ValidationPanel() {
       </button>
 
       {validation === null ? (
-        <div className="empty-state">Run validation to check RF assignments and mesh refs.</div>
+        <div className="empty-state">Run validation to check RF assignments and mesh references.</div>
       ) : (
         <>
           <div className="chips">
@@ -231,7 +231,7 @@ export default function ValidationPanel() {
             <span className="chip" style={{ borderColor: SEVERITY_COLORS.info, color: SEVERITY_COLORS.info }}>
               {validation.info_count} info
             </span>
-            <span className="chip" style={{ color: validation.ok ? "#66bb6a" : "#ef5350" }}>
+            <span className="chip" style={{ color: validation.ok ? "var(--ok)" : "var(--err)" }}>
               {validation.ok ? "ok" : "blocked"}
             </span>
           </div>
