@@ -332,6 +332,9 @@ def _run_trajectory_routes(
         ]
 
     samples: list[TrajectorySample] = []
+    # Per-sample Doppler spread (Hz), parallel to samples, for the result
+    # metadata — same as the single-UE path (Codex: this was dropped here).
+    doppler_spreads: list[Optional[float]] = []
     for step in range(n):
         # Move ALL routed UEs to their step positions in one scene, with each
         # UE's finite-difference velocity so solved paths carry moving-UE
@@ -355,7 +358,7 @@ def _run_trajectory_routes(
             warnings.extend(result.warnings)
         for u in range(len(routes)):
             uid = ue_ids[u]
-            sample, _ = _sample_from_result(
+            sample, spread = _sample_from_result(
                 result,
                 time_s=step * request.dt_s,
                 ue_id=uid,
@@ -367,12 +370,13 @@ def _run_trajectory_routes(
                 include_paths=request.include_paths,
             )
             samples.append(sample)
+            doppler_spreads.append(spread)
         # Static RXs: same sample schema, keyed by their own rx id, at their
         # constant scene position every step. RXs don't interfere with each
         # other — _sample_from_result filters the shared solve to this rx's
         # paths, so the routed UEs' metrics are untouched (no double-count).
         for suid in static_rx_ids:
-            sample, _ = _sample_from_result(
+            sample, spread = _sample_from_result(
                 result,
                 time_s=step * request.dt_s,
                 ue_id=suid,
@@ -384,6 +388,7 @@ def _run_trajectory_routes(
                 include_paths=request.include_paths,
             )
             samples.append(sample)
+            doppler_spreads.append(spread)
 
     zero_count = sum(1 for s in samples if s.path_count == 0)
     if zero_count == len(samples) and samples:
@@ -417,6 +422,13 @@ def _run_trajectory_routes(
             # Marks which of ue_ids are fixed (un-routed) RXs; omitted (so output
             # is unchanged) when include_static_rx is off.
             **({"static_rx_ids": static_rx_ids} if static_rx_ids else {}),
+            # Per-sample Doppler spread (parallel to samples), matching the
+            # single-UE path; omitted when no sample had a defined spread.
+            **(
+                {"doppler_spread_hz": doppler_spreads}
+                if any(s is not None for s in doppler_spreads)
+                else {}
+            ),
         },
     )
 
