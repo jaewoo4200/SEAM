@@ -107,6 +107,12 @@ export default function SeamAgentPanel({ prim }: { prim: Prim }) {
   const disabled = busy !== null;
   // A job/trace belongs to a specific prim; only surface it on that prim's card.
   const jobHere = agentJob !== null && agentJob.primId === prim.id;
+  // A live/settled job for THIS prim auto-opens the card: batch "Review"
+  // (which selects the prim from another tab) and mid-run tab switches land
+  // on a visible trace instead of a collapsed expander.
+  useEffect(() => {
+    if (jobHere) setOpen(true);
+  }, [jobHere]);
   const traceHere = jobHere ? agentTrace : null;
   const meshName = prim.mesh_ref?.mesh_name ?? null;
   const status = traceHere?.status ?? (jobHere ? "running" : null);
@@ -114,15 +120,25 @@ export default function SeamAgentPanel({ prim }: { prim: Prim }) {
   const settled = status === "done" || status === "needs_review";
   const applyHere = lastSegApply !== null && lastSegApply.primId === prim.id;
 
-  // Elapsed-time ticker: start when a job begins, stop once it settles/errors.
+  // Elapsed-time ticker. The backend's progress.elapsed_sec is authoritative:
+  // reseeding startedAt from it keeps the counter correct across tab switches
+  // (this component unmounts with the mode panel, so a purely local start
+  // time would reset to zero on every return — reported bug).
+  const backendElapsed = traceHere?.progress?.elapsed_sec ?? null;
   useEffect(() => {
     if (jobHere && running) {
-      if (startedAt === null) setStartedAt(Date.now());
+      if (backendElapsed !== null) {
+        setStartedAt(Date.now() - backendElapsed * 1000);
+      } else if (startedAt === null) {
+        setStartedAt(Date.now());
+      }
     } else if (!jobHere) {
       setStartedAt(null);
       setElapsed(0);
     }
-  }, [jobHere, running, startedAt]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- startedAt is
+    // intentionally omitted: the backend reseed must win over the local seed.
+  }, [jobHere, running, backendElapsed]);
 
   useEffect(() => {
     if (startedAt === null || !running) return;

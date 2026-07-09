@@ -343,6 +343,11 @@ interface AppState {
   /** Previous RF bindings of the prims changed by the last applyDecisions,
    *  so approved AI suggestions can be reverted in one click. */
   lastDecisionApply: LastDecisionApply | null;
+  /** Periodic radio-map refresh for dynamic scenes (null = manual). Works
+   *  alongside autoRadioMap ("live": recompute on scene change); the interval
+   *  re-solves even when nothing was edited (e.g. /live/state feeds moving
+   *  devices from external sensing). */
+  radioMapIntervalSec: number | null;
 
   /** Destination of the last successful RFData export (null = none this
    *  session / project). Surfaced durably as a dismissible row so the path
@@ -461,6 +466,8 @@ interface AppState {
   reviewAgentBatchItem: (primId: string) => Promise<void>;
   /** Restore the RF bindings recorded by the last applyDecisions. */
   revertDecisions: () => Promise<void>;
+  /** Start/stop the periodic radio-map refresh (null/0 = off). */
+  setRadioMapInterval: (sec: number | null) => void;
 
   // viewport pick mode
   requestPick: (req: Omit<PickRequest, "id">) => number;
@@ -536,6 +543,9 @@ interface AppState {
     follow_height_m?: number;
     /** Multi-UE routes; when set the start/end/ue_id fields are ignored. */
     routes?: UERoute[];
+    /** Also solve every un-routed RX at its fixed position each step, so
+     *  fixed and moving UEs share one per-frame link table. */
+    include_static_rx?: boolean;
   }) => Promise<void>;
   /** Drop the loaded trajectory result (overlay clears immediately). */
   removeTrajectory: () => void;
@@ -921,6 +931,8 @@ export const useAppStore = create<AppState>()((set, get) => {
     null;
   // Cancelable handle for the active agent-trace poll loop (2.5s interval).
   let agentPollTimer: ReturnType<typeof setTimeout> | null = null;
+  // Periodic radio-map refresh timer (dynamic scenes / live sensing feeds).
+  let rmIntervalTimer: ReturnType<typeof setInterval> | null = null;
 
   function stopAgentPoll(): void {
     if (agentPollTimer) {
@@ -1098,6 +1110,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     agentTrace: null,
     agentBatch: null,
     lastDecisionApply: null,
+    radioMapIntervalSec: null,
 
     lastRfdataExport: null,
 
@@ -1228,6 +1241,8 @@ export const useAppStore = create<AppState>()((set, get) => {
           agentTrace: null,
           agentBatch: null,
           lastDecisionApply: null,
+          // Periodic map refresh is per-project; its timer is cleared below.
+          radioMapIntervalSec: null,
           // Fresh epoch per project; persisted results are epoch-0 (fresh).
           sceneEpoch: 0,
           resultEpochs: {},
@@ -1264,6 +1279,11 @@ export const useAppStore = create<AppState>()((set, get) => {
         stopLivePoll();
         // A SEAM-Agent poll from the old project must not land in the new one.
         stopAgentPoll();
+        // Same for the periodic radio-map refresh timer.
+        if (rmIntervalTimer) {
+          clearInterval(rmIntervalTimer);
+          rmIntervalTimer = null;
+        }
         setLastChannelArgs(null);
         // Provider statuses: prefer the dedicated endpoint, fall back to health.
         try {
@@ -1841,6 +1861,24 @@ export const useAppStore = create<AppState>()((set, get) => {
       afterSceneEdit();
     },
 
+    setRadioMapInterval: (sec) => {
+      if (rmIntervalTimer) {
+        clearInterval(rmIntervalTimer);
+        rmIntervalTimer = null;
+      }
+      const normalized = sec && sec > 0 ? sec : null;
+      set({ radioMapIntervalSec: normalized });
+      if (normalized) {
+        rmIntervalTimer = setInterval(() => {
+          const st = get();
+          // Skip a tick instead of queueing when something else is running —
+          // periodic refreshes must never pile up behind a slow solve.
+          if (!st.projectId || st.busy !== null) return;
+          void st.simulateRadioMap();
+        }, normalized * 1000);
+      }
+    },
+
     revertDecisions: async () => {
       const pid = get().projectId;
       const last = get().lastDecisionApply;
@@ -2249,6 +2287,10 @@ export const useAppStore = create<AppState>()((set, get) => {
       const item = get().agentBatch?.items.find((x) => x.primId === primId);
       if (!pid || !item?.jobId) return;
       stopAgentPoll();
+      // The proposal review lives on the prim's inspector card, which is not
+      // visible from the AI Assist mode panel — jump to RF Materials so the
+      // click has a visible effect (the agent card auto-opens on jobHere).
+      get().setMode("rf");
       get().selectPrim(primId);
       set({ agentJob: { jobId: item.jobId, primId }, agentTrace: null });
       try {
@@ -2536,7 +2578,7 @@ export const useAppStore = create<AppState>()((set, get) => {
 
     // ---------------------------------------------------- trajectory
 
-    simulateTrajectory: async ({ start_m, end_m, num_points, dt_s, ue_id, follow_terrain, follow_height_m, routes }) => {
+    simulateTrajectory: async ({ start_m, end_m, num_points, dt_s, ue_id, follow_terrain, follow_height_m, routes, include_static_rx }) => {
       const pid = get().projectId;
       if (!pid) return;
       await run("Simulating trajectory…", async () => {
@@ -2550,6 +2592,10 @@ export const useAppStore = create<AppState>()((set, get) => {
           dt_s,
           follow_terrain: follow_terrain ?? false,
           ...(follow_height_m !== undefined ? { follow_height_m } : {}),
+          // Fixed + moving UEs in one solve (only meaningful with routes).
+          ...(include_static_rx !== undefined && routes
+            ? { include_static_rx }
+            : {}),
           // Request per-waypoint ray paths so the viewer can render live rays
           // during playback/scrub (feature: trajectory live rays).
           include_paths: true,

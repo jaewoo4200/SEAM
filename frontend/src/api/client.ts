@@ -23,6 +23,7 @@ import type {
   GenerateRulesRequest,
   GenerateRulesResponse,
   BackendCapabilities,
+  DeviceImportResponse,
   EngineListResponse,
   BatchAssignRequest,
   BeamformingRequest,
@@ -71,6 +72,7 @@ import type {
   SplitPartsRequest,
   SplitPartsResponse,
   SuggestMaterialsRequest,
+  TrajectoryImportResponse,
   TrajectoryResultSet,
   TrajectorySimulateRequest,
   ValidationReport,
@@ -222,6 +224,13 @@ export const api = {
     request<SplitPartsResponse>("POST", `/projects/${pid}/segmentation/split-parts`, req),
   undoSegmentation: (pid: string, req: SegmentationUndoRequest) =>
     request<SegmentationUndoResponse>("POST", `/projects/${pid}/segmentation/undo`, req),
+
+  // Device / trajectory JSON import (cartesian or geographic, auto-detected).
+  importDevices: (pid: string, body: unknown) =>
+    request<DeviceImportResponse>("POST", `/projects/${pid}/import/devices`, body),
+  importTrajectory: (pid: string, body: unknown) =>
+    request<TrajectoryImportResponse>("POST", `/projects/${pid}/import/trajectory`, body),
+  importTemplates: () => request<unknown>("GET", `/import/templates`),
 
   // SEAM-Agent (AI material authoring): start an agentic job over multi-view
   // captures of one prim, poll its live activity trace, then apply the accepted

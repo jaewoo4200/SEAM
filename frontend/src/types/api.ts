@@ -516,6 +516,9 @@ export interface TrajectorySimulateRequest {
   include_paths?: boolean;
   follow_terrain?: boolean;
   follow_height_m?: number;
+  /** Multi-UE only: also solve every un-routed RX at its fixed position each
+   *  step (fixed + moving UEs share one per-frame link table). */
+  include_static_rx?: boolean;
 }
 
 export interface RFDataExportSummary {
@@ -1188,6 +1191,25 @@ export interface AgentTrace {
 
 export interface AgentCancelResponse {
   status: "accepted" | "not_running";
+}
+
+// ------------------------------------------- device / trajectory JSON import
+//
+// Request bodies are user-authored JSON (cartesian [x,y,z] / {x,y,z} or
+// geographic {lat,lon, alt_m|agl_m}, auto-detected per point) — the FE passes
+// the parsed file through untouched; the backend validates and normalizes.
+
+export interface DeviceImportResponse {
+  added_ids: string[];
+  updated_ids: string[];
+  warnings: string[];
+}
+
+export interface TrajectoryImportResponse {
+  ue_id: string | null;
+  /** Fully-cartesian Z-up waypoints, ready for the trajectory routes UI. */
+  waypoints: Vec3[];
+  warnings: string[];
 }
 
 export interface AgentApplyRequest {

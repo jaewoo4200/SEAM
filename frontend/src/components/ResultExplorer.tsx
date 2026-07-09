@@ -351,6 +351,41 @@ export function TrajectorySection() {
   );
   const [routes, setRoutes] = useState<UERoute[]>([]);
   const [routeUe, setRouteUe] = useState<string>("");
+  // Fixed + moving UEs in one solve (multi-UE routes only).
+  const [includeStaticRx, setIncludeStaticRx] = useState(false);
+  // Waypoint JSON import: the backend normalizes cartesian/geographic points
+  // to Z-up meters and flags waypoints that sit under the scene surface.
+  const trajFileRef = useRef<HTMLInputElement>(null);
+  const importTrajectoryFile = async (e: { target: HTMLInputElement }) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // same file can be re-picked later
+    if (!file || !projectId || !drawUe) return;
+    try {
+      const parsed: unknown = JSON.parse(await file.text());
+      const body =
+        parsed !== null && typeof parsed === "object" && "points" in (parsed as object)
+          ? { ue_id: drawUe, agl_m: ueHeight, ...(parsed as object) }
+          : { ue_id: drawUe, points: parsed, agl_m: ueHeight };
+      const resp = await api.importTrajectory(projectId, body);
+      if (resp.waypoints.length < 2) {
+        useAppStore.setState({ error: "imported trajectory has fewer than 2 usable waypoints" });
+        return;
+      }
+      setRoutes((rs) => [
+        ...rs.filter((r) => r.ue_id !== drawUe),
+        { ue_id: drawUe, waypoints: resp.waypoints },
+      ]);
+      useAppStore.setState({
+        notice:
+          `Imported ${resp.waypoints.length} waypoint(s) for ${drawUe}` +
+          (resp.warnings.length > 0 ? ` · ⚠ ${resp.warnings.join(" · ")}` : ""),
+      });
+    } catch (err) {
+      useAppStore.setState({
+        error: `trajectory import failed: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
+  };
   // Height above the clicked surface for picked/drawn waypoints (and the
   // follow-terrain snap height). Default = the first RX's authored height.
   const [ueHeight, setUeHeight] = useState<number>(() => {
@@ -562,6 +597,20 @@ export function TrajectorySection() {
         >
           {drawing ? "Click points… Esc finishes" : "✏️ Draw route (Esc finishes)"}
         </button>
+        <button
+          disabled={disabled || !drawUe || !projectId}
+          title="Load waypoints from a JSON file (cartesian x/y/z or geographic lat/lon — auto-detected; underground points are flagged). See docs/point_import.md"
+          onClick={() => trajFileRef.current?.click()}
+        >
+          ⤓ Import JSON
+        </button>
+        <input
+          ref={trajFileRef}
+          type="file"
+          accept="application/json,.json"
+          style={{ display: "none" }}
+          onChange={(e) => void importTrajectoryFile(e)}
+        />
       </div>
       {routes.length > 0 && (
         <div className="traj-routes">
@@ -605,6 +654,23 @@ export function TrajectorySection() {
           drape each waypoint onto the surface below + UE height (outdoor slopes)
         </span>
       </label>
+      {routes.length > 0 && (
+        <label
+          className="solver-check"
+          title="Also solve every un-routed RX at its fixed position each step, so fixed and moving UEs share one per-frame link table"
+        >
+          <input
+            type="checkbox"
+            checked={includeStaticRx}
+            disabled={disabled}
+            onChange={(e) => setIncludeStaticRx(e.target.checked)}
+          />
+          Include fixed UEs
+          <span className="hint" style={{ marginLeft: 6 }}>
+            un-routed RX devices join every step at their scene position
+          </span>
+        </label>
+      )}
       <label className="solver-field">
         <span className="solver-field-label">Num points</span>
         <span className="solver-field-input">
@@ -657,7 +723,14 @@ export function TrajectorySection() {
           onClick={() =>
             void simulateTrajectory(
               routes.length > 0
-                ? { routes, num_points: numPoints, dt_s: dt, follow_terrain: followTerrain, follow_height_m: ueHeight }
+                ? {
+                    routes,
+                    num_points: numPoints,
+                    dt_s: dt,
+                    follow_terrain: followTerrain,
+                    follow_height_m: ueHeight,
+                    include_static_rx: includeStaticRx,
+                  }
                 : { start_m: start, end_m: end, num_points: numPoints, dt_s: dt, follow_terrain: followTerrain, follow_height_m: ueHeight },
             )
           }

@@ -124,6 +124,17 @@ function DeviceCard({ device }: { device: Device }) {
       : null;
   const agl = surfaceZ !== null && Number.isFinite(dz) ? dz - surfaceZ : null;
 
+  // The probe raycasts the 3D viewer's meshes, which mount AFTER the card on
+  // slow GLB loads — and nothing re-renders the card when they land, so the
+  // AGL used to stay blank forever (reported as "m 값이 안 찍힘"). Poll until
+  // the probe answers, then stop.
+  const [, probeTick] = useState(0);
+  useEffect(() => {
+    if (surfaceZ !== null) return;
+    const t = setInterval(() => probeTick((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, [surfaceZ]);
+
   // Reset the form when a different device is selected or the device changes.
   useEffect(() => {
     setDraft(draftFromDevice(device));
@@ -198,13 +209,17 @@ function DeviceCard({ device }: { device: Device }) {
         </span>
       </Row>
       {device.name && <Row label="Name">{device.name}</Row>}
-      {agl !== null && (
-        <Row label="Above surface">
+      <Row label="Above surface">
+        {agl !== null ? (
           <span className="mono" title="height over the mesh directly below (terrain or rooftop)">
             {agl.toFixed(2)} m
           </span>
-        </Row>
-      )}
+        ) : (
+          <span className="hint" title="the 3D mesh has not finished loading (or there is no surface under this X/Y)">
+            — waiting for the 3D mesh…
+          </span>
+        )}
+      </Row>
 
       <div className="mat-editor" style={{ marginTop: 10 }}>
         <h4>Edit device</h4>

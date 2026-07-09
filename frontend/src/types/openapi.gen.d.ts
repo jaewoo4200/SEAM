@@ -59,6 +59,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/import/templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Import Templates
+         * @description Example payloads for both import endpoints plus a field reference, so the
+         *     frontend can offer a downloadable, self-describing starter file.
+         */
+        get: operations["import_templates_api_import_templates_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects": {
         parameters: {
             query?: never;
@@ -581,6 +602,40 @@ export interface paths {
         put?: never;
         /** Export Rfdata Endpoint */
         post: operations["export_rfdata_endpoint_api_projects__project_id__export_rfdata_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/import/devices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import Devices Route */
+        post: operations["import_devices_route_api_projects__project_id__import_devices_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/import/trajectory": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import Trajectory Route */
+        post: operations["import_trajectory_route_api_projects__project_id__import_trajectory_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2103,6 +2158,26 @@ export interface components {
             /** Velocity M S */
             velocity_m_s?: number[] | null;
         };
+        /** DeviceImportRequest */
+        DeviceImportRequest: {
+            /** Devices */
+            devices: components["schemas"]["ImportDevice"][];
+            /**
+             * Mode
+             * @default upsert
+             * @enum {string}
+             */
+            mode: "upsert" | "add";
+        };
+        /** DeviceImportResponse */
+        DeviceImportResponse: {
+            /** Added Ids */
+            added_ids?: string[];
+            /** Updated Ids */
+            updated_ids?: string[];
+            /** Warnings */
+            warnings?: string[];
+        };
         /** DeviceState */
         DeviceState: {
             /** Id */
@@ -2278,6 +2353,48 @@ export interface components {
             imported?: components["schemas"]["ImportedResult"][];
             /** Warnings */
             warnings?: string[];
+        };
+        /**
+         * ImportDevice
+         * @description One device to import.
+         *
+         *     Location may be given as ``position`` (any point form) OR as top-level
+         *     coordinate fields (``x``/``y``/``z`` or ``lat``/``lon``/``alt_m``/
+         *     ``agl_m``). ``kind`` defaults to ``rx`` and ``id`` is auto-generated
+         *     (``tx_00N`` / ``rx_00N``) when omitted.
+         */
+        ImportDevice: {
+            /** Agl M */
+            agl_m?: number | null;
+            /** Alt M */
+            alt_m?: number | null;
+            antenna?: components["schemas"]["Antenna"] | null;
+            /** Color */
+            color?: string | null;
+            /** Id */
+            id?: string | null;
+            /** Kind */
+            kind?: string | null;
+            /** Lat */
+            lat?: number | null;
+            /** Lon */
+            lon?: number | null;
+            /** Name */
+            name?: string | null;
+            /** Orientation Deg */
+            orientation_deg?: number[] | null;
+            /** Position */
+            position?: number[] | components["schemas"]["PointObject"] | null;
+            /** Power Dbm */
+            power_dbm?: number | null;
+            /** Velocity M S */
+            velocity_m_s?: number[] | null;
+            /** X */
+            x?: number | null;
+            /** Y */
+            y?: number | null;
+            /** Z */
+            z?: number | null;
         };
         /** ImportOSMRequest */
         ImportOSMRequest: {
@@ -2740,6 +2857,32 @@ export interface components {
             simulation_config_id: string;
             /** Warnings */
             warnings?: string[];
+        };
+        /**
+         * PointObject
+         * @description A point given as an object, in either coordinate system.
+         *
+         *     Cartesian: ``x``/``y`` (+ optional ``z`` or ``agl_m``). Geographic:
+         *     ``lat``/``lon`` (+ optional ``alt_m`` or ``agl_m``). The presence of
+         *     ``lat`` AND ``lon`` selects the geographic reading. ``agl_m`` (height above
+         *     the scene surface) and ``z``/``alt_m`` (absolute height) are mutually
+         *     exclusive; if both are given AGL wins and a warning is emitted.
+         */
+        PointObject: {
+            /** Agl M */
+            agl_m?: number | null;
+            /** Alt M */
+            alt_m?: number | null;
+            /** Lat */
+            lat?: number | null;
+            /** Lon */
+            lon?: number | null;
+            /** X */
+            x?: number | null;
+            /** Y */
+            y?: number | null;
+            /** Z */
+            z?: number | null;
         };
         /** PositionImpact */
         PositionImpact: {
@@ -3565,6 +3708,27 @@ export interface components {
             /** Rf Material Id */
             rf_material_id?: string | null;
         };
+        /** TrajectoryImportRequest */
+        TrajectoryImportRequest: {
+            /**
+             * Agl M
+             * @default 1.5
+             */
+            agl_m: number | null;
+            /** Points */
+            points: (number[] | components["schemas"]["PointObject"])[];
+            /** Ue Id */
+            ue_id?: string | null;
+        };
+        /** TrajectoryImportResponse */
+        TrajectoryImportResponse: {
+            /** Ue Id */
+            ue_id?: string | null;
+            /** Warnings */
+            warnings?: string[];
+            /** Waypoints */
+            waypoints?: number[][];
+        };
         /** TrajectoryResultSet */
         TrajectoryResultSet: {
             /** Backend */
@@ -3664,6 +3828,11 @@ export interface components {
              * @default false
              */
             include_paths: boolean;
+            /**
+             * Include Static Rx
+             * @default false
+             */
+            include_static_rx: boolean;
             /**
              * Num Points
              * @default 8
@@ -3855,6 +4024,28 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HealthResponse"];
+                };
+            };
+        };
+    };
+    import_templates_api_import_templates_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
         };
@@ -4832,6 +5023,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RFDataExportSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_devices_route_api_projects__project_id__import_devices_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeviceImportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceImportResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_trajectory_route_api_projects__project_id__import_trajectory_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TrajectoryImportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrajectoryImportResponse"];
                 };
             };
             /** @description Validation Error */

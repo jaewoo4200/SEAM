@@ -560,6 +560,8 @@ function RadioMapSection() {
   const removeRadioMap = useAppStore((s) => s.removeRadioMap);
   const autoRadioMap = useAppStore((s) => s.autoRadioMap);
   const setAuto = useAppStore((s) => s.setAuto);
+  const radioMapIntervalSec = useAppStore((s) => s.radioMapIntervalSec);
+  const setRadioMapInterval = useAppStore((s) => s.setRadioMapInterval);
   const busy = useAppStore((s) => s.busy);
   const projectId = useAppStore((s) => s.projectId);
   const disabled = busy !== null;
@@ -573,7 +575,7 @@ function RadioMapSection() {
       actions={
         <>
           <EpochStaleChip kind="radio_map" />
-          <label className="solver-auto">
+          <label className="solver-auto" title="Recompute whenever the scene/assignment changes (live)">
             <input
               type="checkbox"
               checked={autoRadioMap}
@@ -581,6 +583,22 @@ function RadioMapSection() {
               onChange={(e) => setAuto("radioMap", e.target.checked)}
             />
             Auto update
+          </label>
+          <label
+            className="solver-auto"
+            title="Also re-solve on a fixed period — for dynamic environments fed by live sensing (/live/state), where positions change without a scene edit"
+          >
+            every
+            <select
+              value={radioMapIntervalSec ?? 0}
+              onChange={(e) => setRadioMapInterval(Number(e.target.value) || null)}
+            >
+              <option value={0}>—</option>
+              <option value={10}>10 s</option>
+              <option value={30}>30 s</option>
+              <option value={60}>1 min</option>
+              <option value={300}>5 min</option>
+            </select>
           </label>
         </>
       }

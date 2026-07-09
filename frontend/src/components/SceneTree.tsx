@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { MouseEvent } from "react";
 import { useAppStore } from "../store/appStore";
+import { api } from "../api/client";
 import { StatusDot } from "./common";
 import type { Prim } from "../types/api";
 
@@ -189,8 +190,34 @@ export default function SceneTree() {
   const addActor = useAppStore((s) => s.addActor);
   const deleteActor = useAppStore((s) => s.deleteActor);
   const busy = useAppStore((s) => s.busy);
+  const projectId = useAppStore((s) => s.projectId);
+  const refetchScene = useAppStore((s) => s.refetchScene);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const clearConfirm = useArmedConfirm();
+  // Device JSON import: cartesian x/y/z or geographic lat/lon (+alt_m/agl_m),
+  // auto-detected per entry; orientation/power carry through. Template +
+  // format guide: docs/point_import.md (or GET /api/import/templates).
+  const devFileRef = useRef<HTMLInputElement>(null);
+  const importDevicesFile = async (e: { target: HTMLInputElement }) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !projectId) return;
+    try {
+      const parsed: unknown = JSON.parse(await file.text());
+      const body = Array.isArray(parsed) ? { devices: parsed } : parsed;
+      const resp = await api.importDevices(projectId, body);
+      await refetchScene();
+      useAppStore.setState({
+        notice:
+          `Imported devices — ${resp.added_ids.length} added, ${resp.updated_ids.length} updated` +
+          (resp.warnings.length > 0 ? ` · ⚠ ${resp.warnings.join(" · ")}` : ""),
+      });
+    } catch (err) {
+      useAppStore.setState({
+        error: `device import failed: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    }
+  };
 
   const tree = useMemo(() => buildTree(scene?.prims ?? []), [scene]);
 
@@ -230,6 +257,20 @@ export default function SceneTree() {
           <button disabled={busy !== null} onClick={() => void addDevice("rx")} title="Add receiver">
             +RX
           </button>
+          <button
+            disabled={busy !== null || !projectId}
+            onClick={() => devFileRef.current?.click()}
+            title="Import TX/RX devices from JSON (cartesian x/y/z or geographic lat/lon, orientation supported — see docs/point_import.md)"
+          >
+            ⤓ JSON
+          </button>
+          <input
+            ref={devFileRef}
+            type="file"
+            accept="application/json,.json"
+            style={{ display: "none" }}
+            onChange={(e) => void importDevicesFile(e)}
+          />
           <button
             className={clearConfirm.armed ? "danger" : ""}
             disabled={busy !== null || scene.devices.length === 0}

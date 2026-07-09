@@ -575,6 +575,11 @@ function Devices() {
         );
         const inner = (
           <group
+            // Markers are UI, not scene geometry: the surface probe (device
+            // AGL) and camera fit must never treat the sphere as a rooftop —
+            // a selected TX's own marker used to win the "surface below"
+            // raycast and pin its AGL to 0.00 m.
+            userData={{ __noFit: true }}
             onPointerDown={(e: ThreeEvent<PointerEvent>) => {
               if (useAppStore.getState().pick) return; // pick owns clicks
               e.stopPropagation();
@@ -1382,6 +1387,10 @@ function SurfaceProbe() {
       const isOverlay = (obj: THREE.Object3D): boolean => {
         for (let cur: THREE.Object3D | null = obj; cur; cur = cur.parent) {
           if (cur.userData.__noFit) return true;
+          // The selection gizmo mounts its handle/plane meshes at the device
+          // position (often directly under the scene root); its upward faces
+          // must never read as "the surface below the device".
+          if (cur.type && cur.type.startsWith("TransformControls")) return true;
         }
         return false;
       };
