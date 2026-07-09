@@ -48,6 +48,94 @@ _ITU_OUT_OF_BAND_HINT = (
 )
 
 
+# ------------------------------------------------- Dr.Jit/Mitsuba compute variant
+#
+# Sionna RT runs on Mitsuba 3's Dr.Jit backend and needs a ``*_ad_mono_polarized``
+# variant. On import, sionna.rt itself picks ``cuda_ad_mono_polarized`` and falls
+# back to ``llvm_ad_mono_polarized`` when CUDA is unavailable (verified in
+# sionna-rt 2.0.1 __init__). We pin the variant *ourselves* just before that
+# import so we can (a) surface ONE clear warning on the CPU/LLVM fallback path
+# and (b) stay in control if Sionna's selection logic ever changes - without
+# changing which variant a CUDA machine actually gets.
+#
+# Dr.Jit has NO Metal/MPS backend, so Apple Silicon macOS is ALWAYS LLVM (CPU):
+# the mitsuba wheel there ships only scalar_*/llvm_* variants, never cuda_*.
+_SIONNA_CUDA_VARIANT = "cuda_ad_mono_polarized"
+_SIONNA_LLVM_VARIANT = "llvm_ad_mono_polarized"
+_LLVM_FALLBACK_WARNING = (
+    "CUDA unavailable — using LLVM (CPU) ray tracing; expect slower solves "
+    "(macOS: Metal/MPS is not supported by Dr.Jit)"
+)
+
+
+def _pick_variant(available: list[str]) -> tuple[str, list[str]]:
+    """Choose the Sionna-compatible Dr.Jit/Mitsuba variant to pin.
+
+    Pure over ``available`` (the list ``mitsuba.variants()`` reports for this
+    build), so it is unit-testable WITHOUT sionna-rt, mitsuba, or a GPU
+    installed. Prefers CUDA, then LLVM (CPU):
+
+      - CUDA present -> (cuda_ad_mono_polarized, [])          # GPU, silent
+      - LLVM only    -> (llvm_ad_mono_polarized, [warning])   # CPU fallback
+      - neither      -> RuntimeError with an actionable message
+
+    The one warning names the macOS/Metal gap explicitly, since Dr.Jit offers
+    no Metal/MPS backend and Apple Silicon therefore only ever sees the LLVM
+    variant here.
+    """
+    if _SIONNA_CUDA_VARIANT in available:
+        return _SIONNA_CUDA_VARIANT, []
+    if _SIONNA_LLVM_VARIANT in available:
+        return _SIONNA_LLVM_VARIANT, [_LLVM_FALLBACK_WARNING]
+    raise RuntimeError(
+        "no usable Sionna Dr.Jit/Mitsuba variant is available "
+        f"(this build offers {sorted(available)}); Sionna RT needs "
+        f"{_SIONNA_CUDA_VARIANT!r} (NVIDIA CUDA GPU) or {_SIONNA_LLVM_VARIANT!r} "
+        "(LLVM CPU). On macOS only the CPU/LLVM path exists — Dr.Jit has no "
+        "Metal/MPS backend — so reinstall mitsuba if its LLVM variant is missing."
+    )
+
+
+def _ensure_sionna_variant(warnings: list[str]) -> Optional[str]:
+    """Pin a Sionna-compatible Mitsuba variant before importing sionna.rt.
+
+    Mitsuba's variant is process-global and whoever sets it first wins, so we
+    select it deterministically (CUDA->LLVM via ``_pick_variant``) and surface a
+    single CPU-fallback warning. If a variant is already active - a prior solve,
+    a render, or sionna.rt already imported - we respect it and never override,
+    so CUDA machines stay byte-identical to before (no warning on the GPU path).
+    Best-effort: any Mitsuba import/set failure is swallowed and we defer to
+    sionna.rt's own selection, keeping the graceful-degradation contract.
+    """
+    try:
+        import mitsuba as mi  # type: ignore[import-not-found]
+    except Exception:  # noqa: BLE001 - let sionna.rt's own import handle it
+        return None
+    active = mi.variant()
+    if active is not None:
+        # Respect an already-pinned variant; still note when it is the CPU path
+        # (e.g. a render pinned LLVM before the first solve).
+        if not active.startswith("cuda"):
+            warnings.append(_LLVM_FALLBACK_WARNING)
+        return active
+    try:
+        available = list(mi.variants())
+        variant, sel_warnings = _pick_variant(available)
+        try:
+            mi.set_variant(variant)
+        except Exception:  # noqa: BLE001 - cuda listed but not loadable (no driver)
+            # Degrade to LLVM exactly like Sionna's multi-arg set_variant would.
+            variant, sel_warnings = _pick_variant(
+                [v for v in available if not v.startswith("cuda")]
+            )
+            mi.set_variant(variant)
+        warnings.extend(sel_warnings)
+        return variant
+    except Exception as exc:  # noqa: BLE001 - defer to sionna.rt's own fallback
+        warnings.append(f"could not pre-select a Mitsuba variant: {exc}")
+        return None
+
+
 def _enrich_solve_failure(message: str) -> str:
     """Append an actionable ITU-out-of-band fix to a stringified solve failure.
 
@@ -554,6 +642,12 @@ class SionnaBackend(RayTracingBackend):
     ) -> PathResultSet:
         import numpy as np
 
+        warnings: list[str] = self._frequency_warnings(scene, library, config)
+
+        # Pin the Dr.Jit/Mitsuba compute variant (CUDA->LLVM) before importing
+        # sionna.rt so we control the choice and can warn on the CPU path.
+        _ensure_sionna_variant(warnings)
+
         # Sionna 1.x exposes RT as the standalone sionna-rt package under
         # sionna.rt with these names; 0.x had solver methods on the scene
         # object instead of PathSolver. We target 1.x and let the outer
@@ -563,8 +657,6 @@ class SionnaBackend(RayTracingBackend):
             Receiver,
             Transmitter,
         )
-
-        warnings: list[str] = self._frequency_warnings(scene, library, config)
 
         # Compiled RF projection: compile when missing or stale (material edit).
         xml_path = self._ensure_projection(project_dir, scene, library, warnings)
@@ -741,13 +833,15 @@ class SionnaBackend(RayTracingBackend):
         import math
 
         import numpy as np
+
+        base.warnings.extend(self._frequency_warnings(scene, library, config))
+        # Pin the Dr.Jit/Mitsuba compute variant (CUDA->LLVM) before the import.
+        _ensure_sionna_variant(base.warnings)
         from sionna.rt import (  # type: ignore[import-not-found]
             PathSolver,
             Receiver,
             Transmitter,
         )
-
-        base.warnings.extend(self._frequency_warnings(scene, library, config))
         xml_path = self._ensure_projection(project_dir, scene, library, base.warnings)
         rt_scene = _load_scene_cached(xml_path, base.warnings)
         _reset_scene_devices(rt_scene)
@@ -1161,12 +1255,16 @@ class SionnaBackend(RayTracingBackend):
     ) -> RadioMapResultSet:
         import numpy as np
 
+        warnings: list[str] = self._frequency_warnings(scene, library, config)
+
+        # Pin the Dr.Jit/Mitsuba compute variant (CUDA->LLVM) before the import.
+        _ensure_sionna_variant(warnings)
+
         from sionna.rt import (  # type: ignore[import-not-found]
             RadioMapSolver,
             Transmitter,
         )
 
-        warnings: list[str] = self._frequency_warnings(scene, library, config)
         xml_path = self._ensure_projection(project_dir, scene, library, warnings)
 
         # Honor the config's TX filter like the mock backend and simulate_paths

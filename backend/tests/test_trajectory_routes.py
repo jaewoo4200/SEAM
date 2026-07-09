@@ -183,6 +183,112 @@ def test_routes_include_paths_filters_per_ue():
         assert all(p.rx_id == s.ue_id for p in s.paths)
 
 
+# ------------------------------------------ include_static_rx (fixed UEs)
+
+
+def test_routes_include_static_rx_adds_fixed_rx_each_step():
+    """Routing only rx_001 with include_static_rx=True also solves the scene's
+    other (un-routed) RX rx_002 at its fixed position every step: both UE ids
+    appear per step (static appended after the routed UE), the routed UE moves,
+    and the static UE stays parked at its scene position with unchanged metrics
+    across steps."""
+    scene = _multi_ue_scene()
+    lib = load_default_library()
+    route = [UERoute(ue_id="rx_001", waypoints=[[5.0, 0.0, 1.5], [40.0, 0.0, 1.5]])]
+    req = TrajectorySimulateRequest(
+        routes=route, num_points=3, dt_s=0.1, include_static_rx=True
+    )
+    result = run_trajectory(MockBackend(), Path("."), scene, lib, _cfg(), req)
+
+    # 2 UEs (1 routed + 1 static) x 3 steps = 6 samples, step-major, the static
+    # RX appended after the routed UE within each step.
+    assert len(result.samples) == 6
+    assert [s.ue_id for s in result.samples] == [
+        "rx_001", "rx_002",  # step 0
+        "rx_001", "rx_002",  # step 1
+        "rx_001", "rx_002",  # step 2
+    ]
+
+    # rx_002 sits at its fixed scene position [0, 20, 1.5] at every step...
+    scene_pos = scene.device_by_id("rx_002").position
+    static = [s for s in result.samples if s.ue_id == "rx_002"]
+    assert len(static) == 3
+    for s in static:
+        assert s.position == pytest.approx(scene_pos)
+    # ...and, never moving relative to the TX, its metrics are constant.
+    assert static[0].rss_dbm is not None
+    for s in static[1:]:
+        assert s.rss_dbm == pytest.approx(static[0].rss_dbm)
+        assert s.path_count == static[0].path_count
+
+    # rx_001 actually advances along its route (endpoints match).
+    routed_pos = [s.position for s in result.samples if s.ue_id == "rx_001"]
+    assert routed_pos[0] == pytest.approx([5.0, 0.0, 1.5])
+    assert routed_pos[-1] == pytest.approx([40.0, 0.0, 1.5])
+    assert routed_pos[0] != pytest.approx(routed_pos[-1])
+
+    # Metadata lists both UEs (within-step order) and marks rx_002 as static.
+    assert result.metadata["ue_ids"] == ["rx_001", "rx_002"]
+    assert result.metadata["static_rx_ids"] == ["rx_002"]
+    assert result.metadata["num_steps"] == 3
+
+
+def test_routes_include_static_rx_default_false_excludes_fixed_rx():
+    """Default (include_static_rx False): a single-route request over rx_001
+    yields ONLY rx_001 samples — the un-routed rx_002 is absent, no
+    static_rx_ids metadata — and the routed UE's per-step metrics are identical
+    to the include_static_rx=True run (RXs don't interfere with each other, so
+    riding a static RX along doesn't double-count into the routed UE)."""
+    scene = _multi_ue_scene()
+    lib = load_default_library()
+    route = [UERoute(ue_id="rx_001", waypoints=[[5.0, 0.0, 1.5], [40.0, 0.0, 1.5]])]
+
+    off = run_trajectory(
+        MockBackend(), Path("."), scene, lib, _cfg(),
+        TrajectorySimulateRequest(routes=route, num_points=3, dt_s=0.1),
+    )
+    on = run_trajectory(
+        MockBackend(), Path("."), scene, lib, _cfg(),
+        TrajectorySimulateRequest(
+            routes=route, num_points=3, dt_s=0.1, include_static_rx=True
+        ),
+    )
+
+    # Default: only the routed UE appears; no static_rx_ids key emitted.
+    assert all(s.ue_id == "rx_001" for s in off.samples)
+    assert len(off.samples) == 3
+    assert off.metadata["ue_ids"] == ["rx_001"]
+    assert "static_rx_ids" not in off.metadata
+
+    # The routed UE's samples are identical whether or not static RXs ride along.
+    on_routed = [s for s in on.samples if s.ue_id == "rx_001"]
+    assert len(on_routed) == len(off.samples)
+    for a, b in zip(off.samples, on_routed):
+        assert a.position == pytest.approx(b.position)
+        assert a.rss_dbm == pytest.approx(b.rss_dbm)
+        assert a.sinr_db == pytest.approx(b.sinr_db)
+        assert a.interference_dbm == b.interference_dbm  # both None (single TX)
+        assert a.path_count == b.path_count
+
+
+def test_routes_include_static_rx_honors_config_rx_filter():
+    """include_static_rx only picks up un-routed RXs that pass the config's rx
+    filter: with config.rx_ids=['rx_001'] the un-routed rx_002 is filtered out,
+    so no static sample is added even though include_static_rx is True."""
+    scene = _multi_ue_scene()
+    lib = load_default_library()
+    cfg = SimulationConfig(id="default", backend="mock", rx_ids=["rx_001"])
+    req = TrajectorySimulateRequest(
+        routes=[UERoute(ue_id="rx_001", waypoints=[[5.0, 0.0, 1.5], [40.0, 0.0, 1.5]])],
+        num_points=2, dt_s=0.1, include_static_rx=True,
+    )
+    result = run_trajectory(MockBackend(), Path("."), scene, lib, cfg, req)
+
+    assert all(s.ue_id == "rx_001" for s in result.samples)
+    assert result.metadata["ue_ids"] == ["rx_001"]
+    assert "static_rx_ids" not in result.metadata
+
+
 def test_routes_unknown_ue_id_raises_value_error():
     scene = _multi_ue_scene()
     lib = load_default_library()

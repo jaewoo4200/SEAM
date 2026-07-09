@@ -2598,6 +2598,61 @@
         "title": "Device",
         "type": "object"
       },
+      "DeviceImportRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "devices": {
+            "items": {
+              "$ref": "#/components/schemas/ImportDevice"
+            },
+            "minItems": 1,
+            "title": "Devices",
+            "type": "array"
+          },
+          "mode": {
+            "default": "upsert",
+            "enum": [
+              "upsert",
+              "add"
+            ],
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "devices"
+        ],
+        "title": "DeviceImportRequest",
+        "type": "object"
+      },
+      "DeviceImportResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "added_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Added Ids",
+            "type": "array"
+          },
+          "updated_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Updated Ids",
+            "type": "array"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "title": "DeviceImportResponse",
+        "type": "object"
+      },
       "DeviceState": {
         "additionalProperties": false,
         "properties": {
@@ -3052,6 +3107,207 @@
           }
         },
         "title": "ImportAodtResponse",
+        "type": "object"
+      },
+      "ImportDevice": {
+        "additionalProperties": false,
+        "description": "One device to import.\n\nLocation may be given as ``position`` (any point form) OR as top-level\ncoordinate fields (``x``/``y``/``z`` or ``lat``/``lon``/``alt_m``/\n``agl_m``). ``kind`` defaults to ``rx`` and ``id`` is auto-generated\n(``tx_00N`` / ``rx_00N``) when omitted.",
+        "properties": {
+          "agl_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agl M"
+          },
+          "alt_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alt M"
+          },
+          "antenna": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Antenna"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "color": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Color"
+          },
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "lat": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lat"
+          },
+          "lon": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lon"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "orientation_deg": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Orientation Deg"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 2,
+                "type": "array"
+              },
+              {
+                "$ref": "#/components/schemas/PointObject"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Position"
+          },
+          "power_dbm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Power Dbm"
+          },
+          "velocity_m_s": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Velocity M S"
+          },
+          "x": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "X"
+          },
+          "y": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Y"
+          },
+          "z": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Z"
+          }
+        },
+        "title": "ImportDevice",
         "type": "object"
       },
       "ImportOSMRequest": {
@@ -4297,6 +4553,91 @@
           "simulation_config_id"
         ],
         "title": "PathResultSet",
+        "type": "object"
+      },
+      "PointObject": {
+        "additionalProperties": false,
+        "description": "A point given as an object, in either coordinate system.\n\nCartesian: ``x``/``y`` (+ optional ``z`` or ``agl_m``). Geographic:\n``lat``/``lon`` (+ optional ``alt_m`` or ``agl_m``). The presence of\n``lat`` AND ``lon`` selects the geographic reading. ``agl_m`` (height above\nthe scene surface) and ``z``/``alt_m`` (absolute height) are mutually\nexclusive; if both are given AGL wins and a warning is emitted.",
+        "properties": {
+          "agl_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agl M"
+          },
+          "alt_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alt M"
+          },
+          "lat": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lat"
+          },
+          "lon": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lon"
+          },
+          "x": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "X"
+          },
+          "y": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Y"
+          },
+          "z": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Z"
+          }
+        },
+        "title": "PointObject",
         "type": "object"
       },
       "PositionImpact": {
@@ -6388,6 +6729,96 @@
         "title": "SuggestionDecision",
         "type": "object"
       },
+      "TrajectoryImportRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "agl_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 1.5,
+            "title": "Agl M"
+          },
+          "points": {
+            "items": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "number"
+                  },
+                  "maxItems": 3,
+                  "minItems": 2,
+                  "type": "array"
+                },
+                {
+                  "$ref": "#/components/schemas/PointObject"
+                }
+              ]
+            },
+            "minItems": 1,
+            "title": "Points",
+            "type": "array"
+          },
+          "ue_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ue Id"
+          }
+        },
+        "required": [
+          "points"
+        ],
+        "title": "TrajectoryImportRequest",
+        "type": "object"
+      },
+      "TrajectoryImportResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "ue_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ue Id"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          },
+          "waypoints": {
+            "items": {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "title": "Waypoints",
+            "type": "array"
+          }
+        },
+        "title": "TrajectoryImportResponse",
+        "type": "object"
+      },
       "TrajectoryResultSet": {
         "additionalProperties": false,
         "properties": {
@@ -6632,6 +7063,11 @@
           "include_paths": {
             "default": false,
             "title": "Include Paths",
+            "type": "boolean"
+          },
+          "include_static_rx": {
+            "default": false,
+            "title": "Include Static Rx",
             "type": "boolean"
           },
           "num_points": {
@@ -7079,6 +7515,30 @@
         "summary": "Health",
         "tags": [
           "health"
+        ]
+      }
+    },
+    "/api/import/templates": {
+      "get": {
+        "description": "Example payloads for both import endpoints plus a field reference, so the\nfrontend can offer a downloadable, self-describing starter file.",
+        "operationId": "import_templates_api_import_templates_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Import Templates Api Import Templates Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Import Templates",
+        "tags": [
+          "import"
         ]
       }
     },
@@ -8532,6 +8992,110 @@
         "summary": "Export Rfdata Endpoint",
         "tags": [
           "export"
+        ]
+      }
+    },
+    "/api/projects/{project_id}/import/devices": {
+      "post": {
+        "operationId": "import_devices_route_api_projects__project_id__import_devices_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceImportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceImportResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Import Devices Route",
+        "tags": [
+          "import"
+        ]
+      }
+    },
+    "/api/projects/{project_id}/import/trajectory": {
+      "post": {
+        "operationId": "import_trajectory_route_api_projects__project_id__import_trajectory_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TrajectoryImportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrajectoryImportResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Import Trajectory Route",
+        "tags": [
+          "import"
         ]
       }
     },

@@ -232,6 +232,23 @@ def _run_trajectory_routes(
     # scene order so the message matches what sionna actually does.
     routed = set(ue_ids)
     ue_devices = {d.id: d for d in rxs}  # rxs preserves scene device order
+    # Optionally also solve every STATIC (un-routed) RX at its fixed scene
+    # position each step, so fixed and moving UEs share one solve — one link
+    # table / interference context. A static RX is any scene rx that isn't
+    # routed and still passes the config's rx filter (config.rx_ids selects the
+    # active RXs; None = all). Scene device order, appended after the routed
+    # UEs. Their positions never change; they carry no route velocity.
+    static_rx_ids: list[str] = (
+        [
+            d.id
+            for d in rxs
+            if d.id not in routed
+            and (config.rx_ids is None or d.id in config.rx_ids)
+        ]
+        if request.include_static_rx
+        else []
+    )
+    solve_rx_ids = list(ue_ids) + static_rx_ids
     applied_uid = next(d.id for d in rxs if d.id in routed)
     applied_antenna = ue_devices[applied_uid].antenna
     differing = [
@@ -272,7 +289,7 @@ def _run_trajectory_routes(
                 if dev.id == uid:
                     dev.position = [float(c) for c in positions[u][step]]
                     dev.velocity_m_s = vel
-        step_cfg = config.model_copy(update={"rx_ids": ue_ids})
+        step_cfg = config.model_copy(update={"rx_ids": solve_rx_ids})
         result = backend.simulate_paths(project_dir, step_scene, library, step_cfg)
         if step == 0:
             warnings.extend(result.warnings)
@@ -284,6 +301,23 @@ def _run_trajectory_routes(
                 ue_id=uid,
                 position=step_positions[uid],
                 rx_id=uid,
+                serving_tx=serving_tx,
+                tx_power=tx_power,
+                noise_floor=noise_floor,
+                include_paths=request.include_paths,
+            )
+            samples.append(sample)
+        # Static RXs: same sample schema, keyed by their own rx id, at their
+        # constant scene position every step. RXs don't interfere with each
+        # other — _sample_from_result filters the shared solve to this rx's
+        # paths, so the routed UEs' metrics are untouched (no double-count).
+        for suid in static_rx_ids:
+            sample, _ = _sample_from_result(
+                result,
+                time_s=step * request.dt_s,
+                ue_id=suid,
+                position=ue_devices[suid].position,
+                rx_id=suid,
                 serving_tx=serving_tx,
                 tx_power=tx_power,
                 noise_floor=noise_floor,
@@ -315,8 +349,14 @@ def _run_trajectory_routes(
             "frequency_hz": config.frequency_hz,
             "num_waypoints": n,
             "engine": backend.name,
-            "ue_ids": list(ue_ids),
+            # All UE ids appearing in samples, in within-step order (routed then
+            # static), so len(samples) == num_steps * len(ue_ids). Byte-identical
+            # to the routed-only list when include_static_rx is off.
+            "ue_ids": list(ue_ids) + static_rx_ids,
             "num_steps": n,
+            # Marks which of ue_ids are fixed (un-routed) RXs; omitted (so output
+            # is unchanged) when include_static_rx is off.
+            **({"static_rx_ids": static_rx_ids} if static_rx_ids else {}),
         },
     )
 

@@ -44,6 +44,43 @@ _INTERACTION_TYPES = {1: "reflection", 2: "scattering", 3: "transmission", 4: "d
 _VALID_PATTERNS = ("iso", "dipole", "hw_dipole", "tr38901")
 _VALID_POLARIZATIONS = ("V", "H", "VH", "cross")
 
+# Dr.Jit/Mitsuba compute variant, mirrored from the builtin backend so the
+# subprocess engine picks CUDA->LLVM the same way and surfaces one CPU-fallback
+# warning. Kept self-contained (no app import) per this worker's contract. Dr.Jit
+# has no Metal/MPS backend, so macOS is always LLVM (CPU).
+_SIONNA_CUDA_VARIANT = "cuda_ad_mono_polarized"
+_SIONNA_LLVM_VARIANT = "llvm_ad_mono_polarized"
+_LLVM_FALLBACK_WARNING = (
+    "CUDA unavailable — using LLVM (CPU) ray tracing; expect slower solves "
+    "(macOS: Metal/MPS is not supported by Dr.Jit)"
+)
+
+
+def _ensure_variant(warnings: list) -> None:
+    """Pin a Sionna-compatible Mitsuba variant (CUDA->LLVM) before importing
+    sionna.rt, warning once on the CPU path. Fully best-effort: any failure or
+    an already-active variant is respected and we defer to sionna.rt's own
+    import-time selection, so CUDA venvs are unaffected."""
+    try:
+        import mitsuba as mi  # type: ignore[import-not-found]
+    except Exception:  # noqa: BLE001 - sionna.rt import will handle it
+        return
+    try:
+        active = mi.variant()
+        if active is not None:
+            if not str(active).startswith("cuda"):
+                warnings.append(_LLVM_FALLBACK_WARNING)
+            return
+        available = list(mi.variants())
+        if _SIONNA_CUDA_VARIANT in available:
+            mi.set_variant(_SIONNA_CUDA_VARIANT)
+            return
+        if _SIONNA_LLVM_VARIANT in available:
+            mi.set_variant(_SIONNA_LLVM_VARIANT)
+            warnings.append(_LLVM_FALLBACK_WARNING)
+    except Exception:  # noqa: BLE001 - defer to sionna.rt's own fallback
+        return
+
 
 def _planar_array(rt, antenna: dict, warnings: list) -> object:
     pattern = antenna.get("pattern") or "iso"
@@ -138,9 +175,12 @@ def _solver_kwargs(solver, job, warnings: list) -> dict:
 
 def run(job: dict) -> dict:
     import numpy as np
-    import sionna.rt as rt
 
     warnings: list = []
+    # Pin the compute variant before the sionna.rt import triggers its own pick.
+    _ensure_variant(warnings)
+    import sionna.rt as rt
+
     version = getattr(rt, "__version__", "unknown")
 
     scene = rt.load_scene(job["xml_path"])

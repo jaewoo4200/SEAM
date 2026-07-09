@@ -22,6 +22,7 @@ from app.api import (
     import_results,
     import_scene,
     materials,
+    point_import,
     projects,
     render,
     scenario,
@@ -54,7 +55,7 @@ def create_app() -> FastAPI:
     for module in (
         health, projects, import_scene, import_osm, scene, materials, ai,
         compile_api, simulate, export, calibrate, channel, scenario, engines,
-        datasets, render, import_results, segmentation, agent,
+        datasets, render, import_results, segmentation, agent, point_import,
     ):
         app.include_router(module.router, prefix="/api")
     # WebSocket event stream is mounted WITHOUT the /api prefix so the path is

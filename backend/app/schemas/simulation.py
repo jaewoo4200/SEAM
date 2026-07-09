@@ -154,6 +154,9 @@ class TrajectorySimulateRequest(StrictModel):
     # num_points steps along its polyline by arc length, all routed UEs move
     # together per step, and dt_s/follow_terrain apply to all.
     routes: Optional[list[UERoute]] = None
+    # Multi-UE only: also solve every un-routed RX at its fixed position each
+    # step — fixed and moving UEs share one link table/interference context.
+    include_static_rx: bool = False
     num_points: int = Field(default=8, ge=2, le=200)
     dt_s: float = Field(default=0.1, gt=0.0)
     # Include the full ray paths per waypoint so playback redraws rays live.
