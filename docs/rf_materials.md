@@ -1,5 +1,7 @@
 # RF materials
 
+> 🌐 **English** · [한국어](rf_materials.ko.md)
+
 RF materials are electromagnetic surface descriptions consumed by the RF
 projection and the ray-tracing backends. They are deliberately disjoint from
 visual/PBR materials: the only cosmetic field they carry is `preview_color`,
@@ -27,7 +29,7 @@ materials:
     relative_permittivity: null       # used only by model: constant
     conductivity_s_per_m: null        # used only by model: constant
     thickness_m: 0.30                 # default slab thickness; null allowed
-    scattering_coefficient: 0.10      # 0..1
+    scattering_coefficient: 0.20      # 0..1
     xpd_coefficient: 0.10             # 0..1
     transmissive: true                # can radio waves pass through?
     preview_color: "#9e9e9e"          # frontend overlay only
@@ -52,8 +54,8 @@ materials:
 
 | id | display name | category | model | itu_name | thickness_m | scat. | xpd | transmissive | preview |
 |---|---|---|---|---|---|---|---|---|---|
-| `itu_concrete` | ITU Concrete | concrete | itu | `itu_concrete` | 0.30 | 0.10 | 0.10 | yes | `#9e9e9e` |
-| `itu_brick` | ITU Brick | brick | itu | `itu_brick` | 0.24 | 0.15 | 0.10 | yes | `#b5551d` |
+| `itu_concrete` | ITU Concrete | concrete | itu | `itu_concrete` | 0.30 | 0.20 | 0.10 | yes | `#9e9e9e` |
+| `itu_brick` | ITU Brick | brick | itu | `itu_brick` | 0.24 | 0.20 | 0.10 | yes | `#b5551d` |
 | `itu_glass` | ITU Glass | glass | itu | `itu_glass` | 0.012 | 0.02 | 0.05 | yes | `#4fc3f7` |
 | `itu_wood` | ITU Wood | wood | itu | `itu_wood` | 0.03 | 0.20 | 0.10 | yes | `#8d6e63` |
 | `metal` | Metal | metal | itu | `itu_metal` | — | 0.05 | 0.05 | no | `#b0bec5` |

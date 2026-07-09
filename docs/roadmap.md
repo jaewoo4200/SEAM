@@ -55,24 +55,31 @@ Next steps:
 
 ## Milestone 9 — Mesh radio maps
 
-Today radio maps are planar grids: `RadioMapResultSet` stores a
-`RadioMapGrid` (origin/cell size/nx/ny at a fixed height). Mesh radio maps
-attach values to actual surfaces (roads, facades, floors, terrain) instead.
+Planar radio maps (`RadioMapResultSet` storing a `RadioMapGrid` —
+origin/cell size/nx/ny at a fixed height) are now complemented by mesh radio
+maps, which attach values to actual surfaces (roads, facades, floors,
+terrain) instead. This ships end-to-end:
+- `MeshRadioMapResultSet` (`backend/app/schemas/results.py`) carries a list
+  of `MeshRadioMapSurface` blocks — each `prim_id`-keyed with aligned
+  `centers` / `normals` / `values` lists, using the same
+  `values: list[Optional[float]]` convention so uncomputed triangles stay
+  `null`;
+- `ResultSetRef.kind` already includes `"mesh_radio_map"` (it is now a
+  `Literal["paths", "radio_map", "mesh_radio_map", "trajectory",
+  "scenario"]`);
+- `services/mesh_radio_map.py` samples triangle centers from the requested
+  prims' meshes (via `mesh_tools`, reusing the compiler's mesh-extraction
+  path) and solves probe receivers in chunks through the active backend's
+  `simulate_paths`, so it is backend-agnostic — the mock backend and Sionna
+  both work with no dedicated mesh solver;
+- `POST /simulate/mesh-radio-map` and `GET /results/mesh-radio-map`
+  (`backend/app/api/simulate.py`) run and fetch it;
+- frontend `MeshRadioMapOverlay.tsx` paints the values as vertex colors on
+  the existing GLB meshes.
 
-Next steps:
-- add a `MeshRadioMapResultSet` schema: `prim_id`-keyed blocks of per-face
-  (or per-vertex) values, mirroring the `values: list[Optional[float]]`
-  convention so uncomputed entries stay `null`;
-- extend `ResultSetRef.kind` with `"mesh_radio_map"` (currently a
-  `Literal["paths", "radio_map"]` — a deliberate MVP restriction);
-- generate measurement surfaces from prims tagged `road` / `terrain` /
-  `building` (the demo scene already tags all prims accordingly), reusing
-  the compiler's mesh-extraction path in `rf_compiler`;
-- integrate Sionna RT's mesh-based radio map solver when available; the mock
-  backend gets a deterministic surface-distance falloff so the frontend
-  overlay can be built first;
-- frontend: heatmap overlay as vertex colors on the existing GLB meshes,
-  compared side-by-side with the planar map.
+Remaining:
+- integrate Sionna RT's native mesh-based radio map solver as a faster path
+  than probe-receiver sampling, when available.
 
 ## Milestone 10 — Progressive simulation
 
@@ -196,11 +203,12 @@ Ordered by paper-value-per-effort (see the shortlist table in
    search remains the non-GPU fallback. May need a per-material `fitted_values`
    dict on the report schema — flag as a schema contract change. *Effort:
    med–high.*
-7. **Mesh radio maps on facades/floors** (Idea 7, Milestone 9). New
-   `MeshRadioMapResultSet` (prim-keyed per-face values, `None` holes), extend
-   `ResultSetRef.kind`, generate measurement surfaces from tagged prims via the
-   compiler's mesh path, mock-backend surface falloff first, Sionna mesh solver
-   when available; vertex-color overlay. *Effort: med.*
+7. **Mesh radio maps on facades/floors** (Idea 7, Milestone 9). Shipped:
+   `MeshRadioMapResultSet` (prim-keyed per-face values, `None` holes),
+   `ResultSetRef.kind` extended, measurement surfaces generated from the
+   requested prims' meshes via the compiler's mesh path, backend-agnostic
+   probe-receiver solve (mock and Sionna both work), vertex-color overlay.
+   Remaining: Sionna's native mesh solver as a faster path. *Effort: med.*
 8. **LLM scenario authoring / human-target ISAC** (Idea 8). 8A: an
    `ai/author-scenario` provider returning a validator-guarded typed action list
    (reuse the strict-JSON + confirm-diff pattern). 8B: a `TrackingResultSet`

@@ -1,15 +1,6 @@
 # Point / Device / Trajectory Import
 
-> **요약 (Korean)**
-> 표준 JSON 하나로 디바이스(TX/RX/UE)와 UE 궤적 웨이포인트를 가져온다.
-> 좌표는 **직교(로컬 ENU, Z-up, 미터)** 와 **지리(WGS84 lat/lon)** 를 점 단위로
-> 자동 감지한다. 지리 좌표는 씬의 측지 기준점
-> (`coordinate_system.origin_lat_lon_alt`, OSM import가 설정)이 반드시 있어야
-> 하며, WGS84 geodetic→ECEF→ENU로 변환된다. `agl_m`은 "지표면 위 높이"로,
-> 시각 메시로 수직 레이캐스트해 `z = 표면 + agl_m`가 된다. 명시적 `z`가 그
-> 아래 표면보다 낮으면 경고만 남기고 값은 그대로 둔다(자동 보정 안 함).
-> 엔드포인트: `POST .../import/devices`, `POST .../import/trajectory`,
-> `GET /api/import/templates`.
+> 🌐 **English** · [한국어](point_import.ko.md)
 
 Import radio devices and UE trajectory waypoints from a single JSON schema a
 user can hand-author or export from a GPS tool. Points may be **cartesian**

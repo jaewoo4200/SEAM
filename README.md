@@ -37,7 +37,7 @@ Unified RF-Visual Scene Graph          (scene.seam.json - source of truth; legac
 > on CPU alone**. Real ray tracing needs the `sionna-rt` package installed
 > **separately** (`pip install -e "backend[sionna]"`); a GPU and a local LLM are
 > optional upgrades layered on top of that. Full list:
-> [INSTALL.md → Prerequisites](INSTALL.md#사전-요구사항-prerequisites).
+> [INSTALL.md → Prerequisites](INSTALL.md#prerequisites).
 
 **Windows (PowerShell):**
 
@@ -95,7 +95,8 @@ Studio builds on the same Sionna RT engine and adds:
   warnings and result overlays all resolve to the same object.
 - **Click-to-place & viewport picking** — place TX/RX devices, trajectory
   waypoints and dataset sampling regions by clicking in the viewport instead of
-  typing coordinates; scene bounds pre-fill sensible defaults.
+  typing coordinates; scene bounds (`GET /scene/bounds`) pre-fill sensible
+  defaults, confirmed with a dotted-line preview.
 - **Dockable panels** — move panels between sidebars or float them over the
   viewport (◧/◨/⧉); a "Panels" launcher opens any panel from any mode.
 - **Metrics dashboard + paper-ready export** — link KPIs (RSS/RSRP/RSSI/RSRQ/
@@ -108,8 +109,9 @@ Studio builds on the same Sionna RT engine and adds:
   RSRP/RSSI/RSRQ** over the requested OFDM resource grid.
 - **Multi-TX co-channel interference (SINR)** — with several TXs, all non-serving
   ray-traced powers sum into co-channel interference: SINR = S/(I+N) feeds RSSI,
-  RSRQ and capacity (full-buffer worst case). Works for channel analysis and
-  trajectories; the serving cell is selectable.
+  RSRQ and capacity (full-buffer worst case, no scheduler). Works for channel
+  analysis and trajectories; the serving cell is selectable, and it falls back to
+  `SINR = SNR` when there is no interfering TX.
 - **Deterministic Mock backend** — Friis + image-method reflections compute
   example paths/radio maps with no GPU/Sionna, so the frontend and tests run
   anywhere.
@@ -127,27 +129,32 @@ Studio builds on the same Sionna RT engine and adds:
   "windows are glass, concrete walls are itu_concrete" into reviewable
   assignment rules (`/ai/generate-rules` → `/ai/apply-rules`, scene untouched
   until approval), and get plain-language explanations of validation warnings
-  (`/ai/explain-validation`).
+  (`/ai/explain-validation`, read-only with one-click `suggested_actions`).
 - **RF disambiguation + material impact** — tell visually identical materials
-  apart from measured link path gains (`/calibrate/disambiguate`), and quantify
+  apart from measured link path gains (`/calibrate/disambiguate`, picks the
+  lowest-RMSE candidate and warns when indistinguishable), and quantify
   how much an assignment matters by comparing against a single-material baseline
-  (NMSE / cosine similarity / ΔRSS / capacity, `/analyze/material-impact`).
+  (NMSE / cosine similarity / ΔRSS / capacity, `/analyze/material-impact`, KICS 2026).
 - **AoA/AoD angle analytics** — every path carries departure/arrival
   `[azimuth, elevation]` plus per-path gain, rendered as paper-style polar
-  scatter plots.
+  scatter plots (azimuth = angle, power = radius, AoD filled / AoA hollow
+  markers, elevation in CSV and tooltip).
 - **Mesh radio maps + region refinement** — paint coverage per triangle on real
-  surfaces (walls/floors/roads) instead of a horizontal plane, re-solve only a
-  region of interest at a finer cell size, with multi-TX `sinr_db` maps and a
+  surfaces (walls/floors/roads) instead of a horizontal plane (`/simulate/mesh-radio-map`),
+  re-solve only a region of interest (`center_xy`/`size_xy`) at a finer cell
+  size, with multi-TX `sinr_db` maps and a
   per-cell **serving-TX** map.
 - **Accuracy presets** — pick a representative deployment (28 GHz indoor/outdoor,
-  3.5 GHz urban macro, 60 GHz indoor) and every solver knob snaps to a vetted
-  configuration.
+  3.5 GHz urban macro, 60 GHz indoor) and every solver knob (depth / mechanism /
+  grid) snaps to a vetted configuration; editing any knob by hand switches to Custom.
 - **Result reproducibility + live events** — every result is stamped with
   `scene_hash`/`rf_assignment_hash`/`sim_config_hash` + a config snapshot, so
   stale results get badges after any scene/assignment change; a WebSocket
-  streams compile/simulation progress.
+  (`WS /ws/projects/{id}/events`) streams compile/simulation progress without
+  polling, and `GET /api/backends` exposes a per-backend capability map.
 - **External results & measurements** — import NVIDIA AODT parquet results into
-  the same schema (`/results/import-aodt`) and measured link CSVs
+  the same schema (`/results/import-aodt`, stamped with the `aodt_import`
+  backend) and measured link CSVs
   (`/calibrate/measurements/import-csv`) for calibration and disambiguation.
 - **Scene bundle import (zip / OSM)** — import a whole scene folder (XML +
   meshes + textures) as one zip with relative paths preserved; textures persist
@@ -300,6 +307,6 @@ dialog's map uses [Leaflet](https://leafletjs.com/) (BSD-2) with standard OSM
 tiles.
 
 Developed by **Jaewoo Lee (이재우)** at the
-**Wireless Systems Laboratory (WSL), Hanyang University** ·
-**BEYOND-G Global Innovation Center**.
+**[Wireless Systems Laboratory (WSL)](https://wsl.hanyang.ac.kr/), Hanyang University** ·
+**[BEYOND-G Global Innovation Center](https://beyond-g.hanyang.ac.kr/)**.
 GitHub: <https://github.com/jaewoo4200/SEAM>

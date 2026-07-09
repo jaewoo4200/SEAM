@@ -1,5 +1,7 @@
 # Scene and project format
 
+> 🌐 **English** · [한국어](scene_format.ko.md)
+
 A SEAM project is a plain folder (conventionally named
 `<project_id>.seam`; legacy `<project_id>.sionnatwin` folders keep loading)
 that can be zipped, shared, and reproduced. The canonical scene file inside
@@ -143,16 +145,18 @@ input.
 | `confidence` | float \| null | 0–1 |
 
 Invariant enforced by the model: `material_id == null` if and only if
-`assignment_status == "unassigned"`.
+`assignment_status in {"unassigned", "rejected"}`.
 
 ### Assignment status lifecycle
 
 ```text
 unassigned
-   │  rule engine / AI proposes (never auto-applied by default)
+   │  rule engine / AI proposes (never auto-applied by default),
+   │  or a deterministic rule assigns a material outright → rule_assigned
    ▼
 rule_suggested | ai_suggested
-   │  user approves or edits in the UI (or assigns manually from unassigned)
+   │  user approves or edits in the UI (or assigns manually from unassigned);
+   │  declining a suggestion → rejected (no material)
    ▼
 user_confirmed
    │  future measurement-calibration run refines parameters
@@ -186,7 +190,7 @@ state: `/terrain/ground` is `user_confirmed`, `/roads/r01/surface` is
 | `id`, `name` | str | |
 | `backend` | `"auto"` \| `"mock"` \| `"sionna"` | auto = sionna if installed, else mock |
 | `frequency_hz` | float | e.g. `3.5e9` |
-| `max_depth` | int 0–10 | max interaction depth |
+| `max_depth` | int 0–12 | max interaction depth |
 | `tx_ids`, `rx_ids` | str[] \| null | null = all devices of that kind |
 | `los`, `reflection`, `diffraction`, `scattering` | bool | enabled interaction types |
 | `num_samples` | int | ray-launching budget |
@@ -197,7 +201,7 @@ state: `/terrain/ground` is `user_confirmed`, `/roads/r01/surface` is
 | field | type | notes |
 |---|---|---|
 | `result_id` | str | `{backend}_{kind}_{n:03d}`, e.g. `mock_paths_001` |
-| `kind` | `"paths"` \| `"radio_map"` | |
+| `kind` | `"paths"` \| `"radio_map"` \| `"mesh_radio_map"` \| `"trajectory"` \| `"scenario"` | |
 | `backend` | str | backend that produced it |
 | `simulation_config_id` | str | |
 | `uri` | str | project-relative, `results/<result_id>.json` |

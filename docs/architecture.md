@@ -1,5 +1,7 @@
 # Architecture
 
+> 🌐 **English** · [한국어](architecture.ko.md)
+
 SEAM Studio is a local-first workbench for authoring RF-aware digital
 twins on top of Sionna RT. Everything runs on a consumer machine: a FastAPI
 backend over plain project folders, a React/Three.js frontend, and optional
@@ -220,8 +222,9 @@ polling.
 
 `POST /projects/{id}/results/import-aodt` reads NVIDIA AODT parquet exports from
 a server-local `source_dir` (`kinds: ["paths", "radio_map"]`), normalizes them
-into the same result schemas, remaps AODT object ids to canonical prim ids via
-`mapping/object_map.json`, and persists them through the shared
+into the same result schemas (tx/rx ids are read straight from the parquet
+columns, defaulting to `"tx"`/`"rx"`; there is no object-id→prim-id remap
+today), and persists them through the shared
 `_persist_result` helper — so imported sets get canonical ids, provenance
 hashes, and a `ResultSetRef` with `backend: "aodt_import"` exactly like a local
 solve. Returns 409 when `pyarrow` is not installed.
@@ -324,14 +327,17 @@ timeout returns 504.
 
 ## Simulation backend interface
 
-All backends implement one protocol
+All backends implement one abstract base class
 (`app.services.simulation_backends`):
 
 ```python
-class RayTracingBackend(Protocol):
+class RayTracingBackend(abc.ABC):
     name: str
+    @abc.abstractmethod
     def is_available(self) -> bool: ...
+    @abc.abstractmethod
     def simulate_paths(...) -> PathResultSet: ...
+    @abc.abstractmethod
     def simulate_radio_map(...) -> RadioMapResultSet: ...
 
 get_backend(name: str) -> RayTracingBackend

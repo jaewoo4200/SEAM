@@ -175,8 +175,8 @@ for wireless) if the segmentation contribution is strengthened.
 over a grid and re-simulates; the FTC plan already runs conductivity sweeps.
 This idea generalizes that into an **interactive material-sensitivity module**:
 for a chosen KPI (path gain, RMS delay spread, CFR NMSE, coverage) sweep each
-material's `relative_permittivity / conductivity / scattering_coefficient /
-thickness / xpd_coefficient` and render the result as (i) **sensitivity
+material's `relative_permittivity / conductivity_s_per_m / scattering_coefficient /
+thickness_m / xpd_coefficient` and render the result as (i) **sensitivity
 heatmaps** (material × parameter × ΔKPI) and (ii) **tornado charts** ranking
 which material parameters most move the KPI at this geometry/frequency. This
 directly operationalizes the calibration code's own "no-sensitivity" guard
@@ -288,7 +288,7 @@ fallback for everything except the gradient step.
   synthetic-GT material-map as the reference, per the KICS plan).
 - *Design*: initialize from (a) ITU defaults, (b) grid-search optimum (Idea 3),
   (c) AI-suggested prior; Adam over
-  {`relative_permittivity`, `conductivity`, `scattering_coefficient`,
+  {`relative_permittivity`, `conductivity_s_per_m`, `scattering_coefficient`,
   `xpd_coefficient`} with a held-out link split.
 - *Metrics*: held-out path-gain RMSE, RMS-delay-spread error, CFR NMSE, and
   convergence iterations to target; ablate initialization source.
@@ -360,12 +360,17 @@ heatmap is attributable to specific labeled faces.
 error vs. a dense planar sampling of the same surface; case study on facade
 material (glass vs concrete) driving vertical coverage.
 
-**(d) Implementation gap.** New `MeshRadioMapResultSet` schema (prim-keyed
-per-face values, `None` holes), extend `ResultSetRef.kind`, generate
-measurement surfaces from tagged prims via the compiler's mesh path, mock-
-backend surface-distance falloff first, Sionna mesh radio-map solver when
-available; frontend vertex-color overlay. Report the `ResultSetRef.kind`
-`Literal` extension as a contract touch-point (schema is read-only here).
+**(d) Implementation gap.** The substrate already ships: the
+`MeshRadioMapResultSet` schema (per-prim surfaces with centers/normals and
+`None`-holed per-face values), the `mesh_radio_map` value on
+`ResultSetRef.kind`, the `POST /simulate/mesh-radio-map` endpoint, the
+surface-sampling service that parks probe receivers on tagged-prim triangles
+and solves them through the active backend (so it runs on both the mock and
+Sionna backends with no separate solver), and a frontend `MeshRadioMapOverlay`
+view. What remains is the *research layer*: the planar-vs-mesh comparison
+metric (coverage error vs. a dense planar sampling of the same surface) and the
+facade-material case study of (c), plus triangle-budget/sampling-density tuning
+for large facades.
 
 **(e) Venues.** IEEE AWPL / TAP letter (the physical facade-coverage result);
 GLOBECOM/ICC workshop.
@@ -393,7 +398,7 @@ from silently corrupting a twin.
 validator as the guard; a confirm-diff UI.
 
 **8B — Human-target ISAC integration.** The `human_body` material (literature-
-backed 28 GHz skin presets, `docs/human_material_literature.md`) and the
+backed 28 GHz skin presets, `reference-bundle/handoff/human_material_literature.md`) and the
 `human_target` mesh are in the library and bundle; the roadmap scopes the
 PADP → MPC → DBSCAN → Kalman tracking pipeline. Research angle: an **RT-driven
 ISAC sensing benchmark** where the human material and scattering coefficient are

@@ -1,110 +1,112 @@
-# 동적 산란 (Dynamic Scattering)
+# Dynamic Scattering
 
-본 문서는 (1) 실제 채널 물리에서 "동적 산란" 이 무엇인지(출처 기반), (2) 상용/연구 도구가 이를 어떻게 모델링하는지, (3) 본 리포지토리(SEAM Studio)에 sionna-rt 2.0.1 정확 API로 구현하는 단계별 계획(효과/비용 순위 포함), 그리고 (4) 실측 검증된 Doppler how-to 스니펫을 담는다.
+> 🌐 **English** · [한국어](dynamic_scattering.ko.md)
 
-모든 sionna-rt 2.0.1 API 주장은 (a) 설치 소스 `backend/.venv/Lib/site-packages/sionna/rt/` 를 읽어, (b) `backend/.venv/Scripts/python.exe` 로 라이브 프로브를 돌려 검증했다. 패키지 버전 `2.0.1` 확인(`sionna/rt/__init__.py:9`). 공식/피어리뷰 출처로 확인되지 않은 항목은 **(미검증)** 으로 표기한다.
+This document covers (1) what "dynamic scattering" actually is in real channel physics (source-based), (2) how commercial/research tools model it, (3) a step-by-step plan for implementing it in this repository (SEAM Studio) with the exact sionna-rt 2.0.1 API (including an effect/cost ranking), and (4) empirically verified Doppler how-to snippets.
 
----
-
-## 1. 동적 산란이란 무엇인가 (물리)
-
-"Dynamic scattering" 은 단일 정의어가 아니라, RF 채널 문헌에서 **Tx/Rx 대비 상대운동하는 물체(산란체)로 인한 전파 채널의 시변 성분** 을 가리킨다. 물리적으로 구분되는 3가지 하위효과가 있다.
-
-1. **이동 산란체 → 시변 다중경로 기하.** 차량/보행자/수목이 움직이면 프레임마다 레이 상호작용점 집합이 바뀌어, 경로 지연·각도·진폭이 시간에 따라 변한다. "기하 재계산(geometry re-solve)" 효과.
-2. **산란체 운동에 의한 Doppler 확산.** 이동하는 단일 상호작용점은 바운스당 Doppler `f_Δ = (1/λ)·vᵀ(k_out − k_in)` 를 부여한다. 다수 이동 산란체 클러스터는 0 Hz 주변으로 Doppler **확산(spread)** 을 만들어 Doppler 파워스펙트럼을 넓히고 채널 간섭성 시간을 단축한다(Tx/Rx가 정지해도). 고전 Clarke/Jakes 스펙트럼(이동 Rx)의 산란체-운동 아날로그.
-3. **시변 확산 다중경로(diffuse).** 거친 표면은 비정반사(diffuse) 성분을 재방사한다. 거친 표면 또는 조사 패치가 움직이면 확산 구름이 요동친다 — 밀집 산란환경(수목·군중·차량)의 지배적 페이딩 기구이며, "dynamic diffuse scattering" 이 특정하는 대상.
-
-**측정 캠페인의 특성화 방식(피어리뷰):**
-- **Effective Roughness (ER) 모델** — Degli-Esposti 외, IEEE TAP 2007 [1]. 산란계수 S ∈ [0,1] 과 Lambertian/directive/backscatter 로브 패턴 정의 → Sionna가 구현하고 인용(`cite:p:Degli-Esposti07`).
-- **mmWave directive 모델 파라미터화** — 건축재료 측정 α_R, Int. J. Antennas Propag. 2020 [2].
-- **ITU-R P.2040**(건축재료·구조 영향), **ITU-R P.1411**(단거리 실외)은 S·유전율 시드에 쓰는 재료 전기 파라미터·확산 산란 가이드 제공 — *절(clause) 단위 원문은 본 작업에서 미인출* **(미검증)**.
-- Doppler 확산/간섭성 시간은 고전 **Clarke/Jakes** 프레임(이동 단말)을 이동 산란체로 확장; T_c ≈ 0.42/f_d,max.
+Every sionna-rt 2.0.1 API claim was verified by (a) reading the installed source `backend/.venv/Lib/site-packages/sionna/rt/`, and (b) running live probes with `backend/.venv/Scripts/python.exe`. Package version `2.0.1` confirmed (`sionna/rt/__init__.py:9`). Items not confirmed against an official/peer-reviewed source are marked **(unverified)**.
 
 ---
 
-## 2. 도구들은 어떻게 모델링하는가
+## 1. What is dynamic scattering (physics)
 
-### 2.1 Sionna RT 2.0.1 (설치 패키지 대조 검증)
+"Dynamic scattering" is not a single defined term; in the RF channel literature it refers to **the time-varying component of the propagation channel caused by objects (scatterers) that move relative to Tx/Rx**. There are three physically distinct sub-effects.
 
-아래 주장은 모두 `backend/.venv/Lib/site-packages/sionna/rt/` 에 대해 검증됨.
+1. **Moving scatterers → time-varying multipath geometry.** When vehicles/pedestrians/foliage move, the set of ray interaction points changes frame by frame, so path delays, angles, and amplitudes vary over time. The "geometry re-solve" effect.
+2. **Doppler spread from scatterer motion.** A single moving interaction point imparts a per-bounce Doppler `f_Δ = (1/λ)·vᵀ(k_out − k_in)`. A cluster of many moving scatterers creates a Doppler **spread** around 0 Hz, broadening the Doppler power spectrum and shortening the channel coherence time (even when Tx/Rx are stationary). The scatterer-motion analog of the classic Clarke/Jakes spectrum (moving Rx).
+3. **Time-varying diffuse multipath.** Rough surfaces re-radiate a non-specular (diffuse) component. When the rough surface or illuminated patch moves, the diffuse cloud fluctuates — the dominant fading mechanism in dense scattering environments (foliage/crowds/vehicles), and precisely what "dynamic diffuse scattering" targets.
 
-**(A) 확산 산란 모델** — `radio_materials/scattering_pattern.py`:
+**How measurement campaigns characterize it (peer-reviewed):**
+- **Effective Roughness (ER) model** — Degli-Esposti et al., IEEE TAP 2007 [1]. Defines the scattering coefficient S ∈ [0,1] and the Lambertian/directive/backscatter lobe patterns → implemented and cited by Sionna (`cite:p:Degli-Esposti07`).
+- **mmWave directive model parameterization** — building-material measurements of α_R, Int. J. Antennas Propag. 2020 [2].
+- **ITU-R P.2040** (building material/structure effects) and **ITU-R P.1411** (short-range outdoor) provide the material electrical parameters and diffuse-scattering guidance used to seed S and permittivity — *the clause-level original text was not consulted in this work* **(unverified)**.
+- Doppler spread/coherence time extend the classic **Clarke/Jakes** framework (moving terminal) to moving scatterers; T_c ≈ 0.42/f_d,max.
+
+---
+
+## 2. How the tools model it
+
+### 2.1 Sionna RT 2.0.1 (verified against the installed package)
+
+All claims below were verified against `backend/.venv/Lib/site-packages/sionna/rt/`.
+
+**(A) Diffuse scattering models** — `radio_materials/scattering_pattern.py`:
 - `LambertianPattern` (`fs = cos θ_o / π`, `:201-232`).
-- `DirectivePattern(alpha_r)` — 정반사 방향 주변 로브(`:394-416`).
-- `BackscatteringPattern(alpha_r, alpha_i, lambda_)` — 정규화 이중 로브(`:234-392`).
-- 이름 등록: `"lambertian"`, `"directive"`, `"backscattering"`; 직접 import 가능: `from sionna.rt import LambertianPattern, DirectivePattern, BackscatteringPattern`.
-- `RadioMaterial`(`radio_material.py`): `scattering_coefficient`(S, `:220-233`), `xpd_coefficient`(K_x ∈ [0,1], `:235-249`, 범위검증 후 XPD Jones 행렬 재구성), `scattering_pattern`(`ScatteringPattern` 인스턴스여야, `:251-263`). 확산 에너지는 `scattering_coefficient > 0` **그리고** 솔버의 `diffuse_reflection=True` 일 때만 생성.
+- `DirectivePattern(alpha_r)` — a lobe around the specular direction (`:394-416`).
+- `BackscatteringPattern(alpha_r, alpha_i, lambda_)` — normalized dual lobe (`:234-392`).
+- Name registration: `"lambertian"`, `"directive"`, `"backscattering"`; direct import available: `from sionna.rt import LambertianPattern, DirectivePattern, BackscatteringPattern`.
+- `RadioMaterial` (`radio_material.py`): `scattering_coefficient` (S, `:220-233`), `xpd_coefficient` (K_x ∈ [0,1], `:235-249`, reconstructs the XPD Jones matrix after range validation), `scattering_pattern` (must be a `ScatteringPattern` instance, `:251-263`). Diffuse energy is generated only when `scattering_coefficient > 0` **and** the solver's `diffuse_reflection=True`.
 
-**(B) 물체 속도 → 경로별 Doppler (핵심 동적산란 API)**:
-- `SceneObject.velocity` — settable `mi.Vector3f` [m/s] (`scene_object.py:252-283`); 메쉬의 `"velocity"` `rawconstant` 텍스처 속성으로 저장. 기본 `(0,0,0)`.
-- `Transmitter`/`Receiver` 도 `velocity=` 인자(`radio_devices/radio_device.py:50,109-119`).
-- 필드 계산기가 상호작용 물체 속도를 `shape.eval_attribute_3("velocity", …)` 로 읽어 바운스당 Doppler `v_effective = (k_out − k_in)·v_world; doppler += v_effective/wavelength` 누적(`field_calculator.py:526-562`). **정반사·확산·굴절 모두** 적용.
-- Tx/Rx 종단항은 `paths.py:_finalize_doppler_shift_compute`(`:1215-1246`)에서: `doppler = paths_buffer.doppler + tx_doppler − rx_doppler`.
-- 결과는 `Paths.doppler` [Hz/path] (`paths.py:336-385`), 다중바운스 `f_Δ = (1/λ)[v₀ᵀk₀ − v_{n+1}ᵀk_n + Σ vᵢᵀ(kᵢ−k_{i-1})]`.
+**(B) Object velocity → per-path Doppler (the core dynamic-scattering API)**:
+- `SceneObject.velocity` — settable `mi.Vector3f` [m/s] (`scene_object.py:252-283`); stored as the mesh's `"velocity"` `rawconstant` texture attribute. Default `(0,0,0)`.
+- `Transmitter`/`Receiver` also take a `velocity=` argument (`radio_devices/radio_device.py:50,109-119`).
+- The field calculator reads the interacting object's velocity via `shape.eval_attribute_3("velocity", …)` and accumulates a per-bounce Doppler `v_effective = (k_out − k_in)·v_world; doppler += v_effective/wavelength` (`field_calculator.py:526-562`). Applies to **specular, diffuse, and refraction alike**.
+- The Tx/Rx terminal terms come from `paths.py:_finalize_doppler_shift_compute` (`:1215-1246`): `doppler = paths_buffer.doppler + tx_doppler − rx_doppler`.
+- The result is `Paths.doppler` [Hz/path] (`paths.py:336-385`), multi-bounce `f_Δ = (1/λ)[v₀ᵀk₀ − v_{n+1}ᵀk_n + Σ vᵢᵀ(kᵢ−k_{i-1})]`.
 
-**(C) Doppler로부터 채널 시간전개**:
-- `Paths.cir(sampling_frequency=1.0, num_time_steps=1, normalize_delays=True, reverse_direction=False, out_type="drjit")` (`paths.py:387-393`). `num_time_steps>1` 이면 경로별 `aᵇ_i(t) = aᵇ_i · e^{j2π f_Δ,i t}` 적용(`paths.py:506-516`) — **한 번의 solve 안에서** Doppler만으로 시계열 합성. `Paths.cfr(...)` 는 주파수영역 동일. 2.x 에는 **별도 `apply_doppler` 없음** — `cir`/`cfr` 에 접힘.
+**(C) Channel time evolution from Doppler**:
+- `Paths.cir(sampling_frequency=1.0, num_time_steps=1, normalize_delays=True, reverse_direction=False, out_type="drjit")` (`paths.py:387-393`). When `num_time_steps>1`, the per-path `aᵇ_i(t) = aᵇ_i · e^{j2π f_Δ,i t}` is applied (`paths.py:506-516`) — synthesizing a time series from Doppler alone **within a single solve**. `Paths.cfr(...)` is the frequency-domain equivalent. In 2.x there is **no separate `apply_doppler`** — it is folded into `cir`/`cfr`.
 
-**(D) 솔버 플래그** — `PathSolver.__call__`(`path_solvers/path_solver.py:144-157`): `diffuse_reflection: bool = False`, `specular_reflection`, `refraction`, `diffraction`, `edge_diffraction`, `max_depth=3`, `samples_per_src=1_000_000`, `synthetic_array=True`, `seed=42`. 확산 경로는 몬테카를로 샘플 → seed 의존, 충분한 `samples_per_src` 필요.
+**(D) Solver flags** — `PathSolver.__call__` (`path_solvers/path_solver.py:144-157`): `diffuse_reflection: bool = False`, `specular_reflection`, `refraction`, `diffraction`, `edge_diffraction`, `max_depth=3`, `samples_per_src=1_000_000`, `synthetic_array=True`, `seed=42`. Diffuse paths are Monte Carlo samples → seed-dependent, requiring sufficient `samples_per_src`.
 
-문서: 산란 튜토리얼 [4], radio materials [5], Paths API [6], 기술보고서 [7].
+Docs: scattering tutorial [4], radio materials [5], Paths API [6], technical report [7].
 
 ### 2.2 Remcom Wireless InSite
-동일 **ER 계열**(Lambertian, directive, directive-with-backscatter) 을 산란계수 S·교차편파 분율로 구현 — Degli-Esposti 모델이 검증된 참조 구현. 동적 씬은 이동 물체에 대해 시간스텝마다 전파를 재실행; 운동 Doppler는 프레임 간 경로기하 변화에서 유도 [8].
+Implements the same **ER family** (Lambertian, directive, directive-with-backscatter) via a scattering coefficient S and cross-polarization fraction — a verified reference implementation of the Degli-Esposti model. For dynamic scenes it re-runs propagation per time step for moving objects; motion Doppler is derived from the path-geometry change between frames [8].
 
 ### 2.3 NVIDIA AODT (Aerial Omniverse Digital Twin)
-명시적 **"Enable Dynamic Scatterers"** 플래그로 이동 차량의 EM 산란을 켬. 일관된 UE+차량 모빌리티, Omniverse 기하+운동 데이터로부터 시변 채널/Doppler 계산. 본 설계목표에 정신적으로 가장 근접 — 프레임별 재계산 + 물체속도, GPU 가속 [9][10].
+Turns on EM scattering from moving vehicles via an explicit **"Enable Dynamic Scatterers"** flag. Computes time-varying channel/Doppler from consistent UE+vehicle mobility and Omniverse geometry+motion data. Spiritually the closest to this design's goals — per-frame re-solve + object velocity, GPU accelerated [9][10].
 
 ### 2.4 MATLAB (Communications/Antenna Toolbox)
-`raytrace`(SBR/image)는 반사/회절/확산 산란 지원; `comm.RayTracingChannel` 은 **Tx/Rx 속도를 Doppler로** 적용, 모빌리티 트랙에서 레이셋 재사용. 다만 경로별 *산란체* 속도 Doppler는 Sionna의 `SceneObject.velocity` 처럼 일급 입력이 아님 [11][12].
+`raytrace` (SBR/image) supports reflection/diffraction/diffuse scattering; `comm.RayTracingChannel` applies **Tx/Rx velocity as Doppler** and reuses the ray set along a mobility track. However, per-path *scatterer* velocity Doppler is not a first-class input the way Sionna's `SceneObject.velocity` is [11][12].
 
 ---
 
-## 3. 본 도구의 현재 상태 (저장소 검증)
+## 3. Current state of this tool (verified against the repository)
 
-- **이동 액터 프레임별 재계산은 이미 연결됨.** `apply_actor_states()`(`sionna_backend.py:226-292`)가 시나리오 프레임마다 `SceneObject.position`·`.orientation` 설정; 솔버는 프레임당 1회 실행(`:555-572`). → 효과 #1(시변 기하) 이미 생성.
-- **확산 플래그 전달됨:** `diffuse_reflection=config.scattering`(`:564`).
-- **재료:** `_apply_custom_materials` 는 `scattering_coefficient` 만 설정(`:797-802`). `xpd_coefficient` / `scattering_pattern` 은 미설정.
-- **누락 물리(Gap):**
-  - `apply_actor_states` 가 `obj.velocity` 를 절대 설정하지 않음 → **오늘자로 이동 액터의 Doppler는 항등적으로 0**.
-  - `.cir(num_time_steps=…)` 미호출 → 프레임내 시간전개 없음; 경로는 곧장 `RayPath` 로 변환.
-  - Lambertian/directive `alpha_r`·XPD 미노출.
-- **시간 기반 존재:** `dt_s` 가 액터 궤적 스키마(`schemas/scene.py:149`)·시뮬 설정(`schemas/simulation.py:109`) 양쪽에 있고 `TrajectorySample.time_s = i*dt_s`(`services/trajectory.py:98`) — 프레임별 속도 `(pₙ₊₁ − pₙ)/dt_s` 직접 도출 가능.
+- **Per-frame re-solve for moving actors is already wired.** `apply_actor_states()` (`sionna_backend.py:339`) sets `SceneObject.position`/`.orientation` per scenario frame; the solver runs once per frame (`:776`, `:896`). → Effect #1 (time-varying geometry) is already produced.
+- **The diffuse flag is passed through:** `diffuse_reflection=config.scattering` (`:781`).
+- **Materials:** `_apply_custom_materials` (`:973`) sets only `scattering_coefficient` (`:1024-1027`). `xpd_coefficient` / `scattering_pattern` are not set.
+- **Missing physics (Gap):**
+  - **(Resolved — Design A)** `apply_actor_states` now takes a `velocities` argument and sets per-actor `obj.velocity = mi.Vector3f(...)` (`sionna_backend.py:417-424`) → moving actors carry per-path Doppler (no longer identically 0). See the "Implementation Complete" section below for details.
+  - `.cir(num_time_steps=…)` is not called → no in-frame time evolution; paths are converted straight to `RayPath`.
+  - Lambertian/directive `alpha_r` and XPD are not exposed.
+- **Time basis exists:** `dt_s` is present in both the actor trajectory schema (`schemas/scene.py:155`) and the simulation config (`schemas/simulation.py:182`), and `TrajectorySample.time_s = i*dt_s` (`services/trajectory.py:363/381/505`) — the per-frame velocity `(pₙ₊₁ − pₙ)/dt_s` can be derived directly.
 
 ---
 
-## 4. 구현 계획 (효과/비용 순위)
+## 4. Implementation plan (effect/cost ranking)
 
-권장 순서: **A → B → C** (A가 Doppler를 여는 최소작업, B는 패턴/XPD 최소작업, C가 둘을 합쳐 완전한 dynamic-diffuse 산출물 구성).
+Recommended order: **A → B → C** (A is the minimal work that unlocks Doppler, B is the minimal work for patterns/XPD, and C combines the two into a complete dynamic-diffuse output).
 
-### Design A — 이동 액터의 속도기반 경로별 Doppler (최고가치 / 최저비용)
+### Design A — velocity-based per-path Doppler for moving actors (highest value / lowest cost)
 
-**새 물리:** 효과 #2 — 액터 운동의 진짜 경로별 Doppler 시프트, 간섭성 시간·Doppler 확산·시간전개 CIR 출력 가능. 오늘 최대 갭(Doppler=0) 해소.
+**New physics:** Effect #2 — true per-path Doppler shift from actor motion, enabling coherence time, Doppler spread, and time-evolving CIR output. Resolves today's biggest gap (Doppler=0).
 
-**정확 API 변경(모두 2.0.1 검증):**
-1. `apply_actor_states`(`sionna_backend.py:226`) 에서 액터별 속도 계산·설정. 속도 = `(state.position − prev_state.position)/dt_s`, 또는 궤적 접선 × 속력. 이후:
+**Exact API changes (all verified against 2.0.1):**
+1. In `apply_actor_states` (`sionna_backend.py:226`), compute and set per-actor velocity. Velocity = `(state.position − prev_state.position)/dt_s`, or the trajectory tangent × speed. Then:
    ```python
    import mitsuba as mi
    obj.velocity = mi.Vector3f(vx, vy, vz)   # m/s, world frame (scene_object.py:266)
    ```
-   `dt_s` 는 이미 시나리오에 존재; 직전 프레임 액터 위치(또는 브래킷 웨이포인트 2개)를 `apply_actor_states` 로 전달.
-2. (선택) 궤적 추종 Tx/Rx도 동일: `Transmitter(..., velocity=...)` / `rx.velocity = ...`(`radio_device.py:109`).
-3. Solve 후 `solved.doppler`(`paths.py:336`)를 읽어 `RayPath` 로 전달(`doppler_hz` 필드 추가), 또는 시간전개 CIR 방출:
+   `dt_s` already exists in the scenario; pass the previous frame's actor position (or the two bracketing waypoints) into `apply_actor_states`.
+2. (Optional) Same for trajectory-following Tx/Rx: `Transmitter(..., velocity=...)` / `rx.velocity = ...` (`radio_device.py:109`).
+3. After solve, read `solved.doppler` (`paths.py:336`) and pass it to `RayPath` (add a `doppler_hz` field), or emit a time-evolving CIR:
    ```python
    a_real, a_imag, tau = solved.cir(
        sampling_frequency=config.bandwidth_hz or 1/dt_s,
        num_time_steps=N, out_type="numpy")
    ```
 
-**비용:** ~0.5–1일. 신규 의존성 없음(속도는 뺄셈). 주작업은 직전프레임 위치를 `apply_actor_states` 로 스레딩 + `doppler_hz` 스키마 필드/변환 1줄.
+**Cost:** ~0.5–1 day. No new dependencies (velocity is a subtraction). The main work is threading the previous-frame position into `apply_actor_states` + a one-line `doppler_hz` schema field/conversion.
 
-**주의:** `SceneObject.velocity` 는 액터가 **개별 주소화**(동일재료 지오메트리와 병합되지 않음)여야 함 — 코드가 이미 병합 액터에 경고(`sionna_backend.py:266-270`), 동일 가드 적용.
+**Caution:** `SceneObject.velocity` requires that the actor be **individually addressable** (not merged with same-material geometry) — the code already warns on merged actors (`sionna_backend.py:266-270`), so apply the same guard.
 
-### Design B — 산란패턴 + XPD 노출 (중간가치 / 저비용)
+### Design B — expose scattering pattern + XPD (medium value / low cost)
 
-**새 물리:** 확산 로브의 *형상*·*편파* 제어(효과 #3). Lambertian(완전확산)~directive(α_R 큰 준정반사) 범위 + 교차편파 결합. 실제 mmWave 거친표면 거동과 측정 α_R 보정에 필요.
+**New physics:** control over the *shape* and *polarization* of the diffuse lobe (effect #3). A range from Lambertian (fully diffuse) to directive (large α_R, quasi-specular) plus cross-polarization coupling. Needed to match real mmWave rough-surface behavior and to calibrate measured α_R.
 
-**정확 API 변경(2.0.1 검증):** 커스텀 재료 블록(`sionna_backend.py:797`)·재료 스키마(`schemas/materials.py`) 확장:
+**Exact API changes (verified against 2.0.1):** extend the custom material block (`sionna_backend.py:797`) and the material schema (`schemas/materials.py`):
 ```python
 from sionna.rt import LambertianPattern, DirectivePattern, BackscatteringPattern
 pat = custom.get("scattering_pattern")          # "lambertian" | "directive" | "backscattering"
@@ -120,77 +122,77 @@ xpd = custom.get("xpd_coefficient")
 if xpd is not None:
     rt_mat.xpd_coefficient = float(xpd)          # radio_material.py:243, validates [0,1]
 ```
-Setter 검증: `scattering_pattern`(`radio_material.py:259`, `ScatteringPattern` 타입체크), `xpd_coefficient`(`:243`).
+Setter validation: `scattering_pattern` (`radio_material.py:259`, `ScatteringPattern` type check), `xpd_coefficient` (`:243`).
 
-**비용:** ~0.5일. 순수 재료 배관 + 신규 스키마 3필드(`scattering_pattern`, `alpha_r/alpha_i/lambda_`, `xpd_coefficient`). 기존 `scattering_coefficient`·`diffuse_reflection` 과 결합.
+**Cost:** ~0.5 day. Pure material plumbing + 3 new schema fields (`scattering_pattern`, `alpha_r/alpha_i/lambda_`, `xpd_coefficient`). Combines with the existing `scattering_coefficient` and `diffuse_reflection`.
 
-### Design C — 프레임별 확산 solve + 코히런트 시계열로 시변 확산채널 (고가치 / 고비용)
+### Design C — per-frame diffuse solve + coherent time series for a time-varying diffuse channel (high value / high cost)
 
-**새 물리:** 완전한 "dynamic diffuse scattering" — 효과 #1+#2+#3 동시. 프레임간 *및* 프레임내 시변 채널, 다수 이동 확산산란체의 현실적 Doppler 확산. AODT "dynamic scatterers"·Remcom dynamic diffuse 가 제공하는 것.
+**New physics:** full "dynamic diffuse scattering" — effects #1+#2+#3 simultaneously. Time-varying channel both *across* and *within* frames, with realistic Doppler spread from many moving diffuse scatterers. What AODT "dynamic scatterers" and Remcom dynamic diffuse provide.
 
-**구성(A+B 기반):**
-1. 전 프레임 확산 활성화(`diffuse_reflection=True`, `scattering_coefficient>0` 및 Design B 패턴 지정).
-2. 프레임마다 액터 **속도** 설정(Design A) → 확산 상호작용점이 Doppler 운반(`field_calculator.py:550` 이 `InteractionType.DIFFUSE` 포함 모든 상호작용 유형의 velocity 읽음, `:256-300` 검증).
-3. 프레임마다 짧은 코히런트 시계열 방출: `solved.cir(sampling_frequency=fs, num_time_steps=N)`(`paths.py:387`) → 프레임내 Doppler 전개; 프레임 간 연접해 전체 시변 CIR.
-4. 확산경로 안정화를 위해 `samples_per_src`(`path_solver.py:148`) 상향, 궤적 재현성 위해 프레임별 `seed` 고정.
-5. `solved.doppler` 에서 Doppler 확산/간섭성 시간 지표 도출(RMS Doppler = |a|² 가중 경로별 `doppler` 표준편차), 기존 RMS 지연확산처럼 `TrajectorySample`(`services/trajectory.py:104`)에 노출.
+**Composition (built on A+B):**
+1. Enable diffuse for all frames (`diffuse_reflection=True`, `scattering_coefficient>0`, and the Design B pattern specified).
+2. Set actor **velocity** per frame (Design A) → diffuse interaction points carry Doppler (`field_calculator.py:550` reads velocity for all interaction types including `InteractionType.DIFFUSE`, verified `:256-300`).
+3. Emit a short coherent time series per frame: `solved.cir(sampling_frequency=fs, num_time_steps=N)` (`paths.py:387`) → in-frame Doppler evolution; concatenate across frames for the full time-varying CIR.
+4. Raise `samples_per_src` (`path_solver.py:148`) to stabilize diffuse paths, and fix a per-frame `seed` for trajectory reproducibility.
+5. Derive Doppler spread/coherence time metrics from `solved.doppler` (RMS Doppler = the |a|²-weighted standard deviation of the per-path `doppler`), and expose them on `TrajectorySample` (`services/trajectory.py:104`) like the existing RMS delay spread.
 
-**비용:** ~2–4일. 비용 동인: 확산 몬테카를로가 프레임당 solve 시간·메모리 증가(`samples_per_src`/`max_depth` 튜닝); 연접 시계열 출력 스키마·Doppler 확산 집계 설계; 확산 경로수가 `[:100]` 경로 캡(`trajectory.py:93`)을 넘지 않는지 검증. 가장 많은 물리, 가장 무거운 연산.
+**Cost:** ~2–4 days. Cost drivers: diffuse Monte Carlo increases per-frame solve time and memory (tuning `samples_per_src`/`max_depth`); designing the concatenated time-series output schema and the Doppler-spread aggregation; and verifying that the diffuse path count does not exceed the `[:100]` path cap (`trajectory.py:205`). The most physics, the heaviest computation.
 
-### 순위 요약
+### Ranking summary
 
-| Design | 새 물리 효과 | 가치 | 비용 | 선행 |
+| Design | New physics effect | Value | Cost | Prerequisite |
 |--------|-------------|------|------|------|
-| **A** 속도기반 Doppler | #2 | 최고 | ~0.5–1일 | 없음 |
-| **B** 산란패턴+XPD | #3 | 중간 | ~0.5일 | 없음 |
-| **C** 시변 확산채널 | #1+#2+#3 | 최고(종합) | ~2–4일 | A, B |
+| **A** velocity-based Doppler | #2 | Highest | ~0.5–1 day | None |
+| **B** scattering pattern+XPD | #3 | Medium | ~0.5 day | None |
+| **C** time-varying diffuse channel | #1+#2+#3 | Highest (combined) | ~2–4 days | A, B |
 
 ---
 
-## 5. 검증된 Doppler How-To (sionna-rt 2.0.1)
+## 5. Verified Doppler How-To (sionna-rt 2.0.1)
 
-**실측 검증:** 빈 씬 순수 LOS 프로브, 3.5 GHz, RX가 TX로 30 m/s 접근 → `paths.doppler == 350.2423 Hz`, 정확히 `v/λ = 30/0.085655 = 350.2423`. 접근 → 양(+) Doppler. 이 머신에서 Mitsuba는 `cuda_ad_mono_polarized` variant로 해결(CUDA 존재); CPU 폴백 시 나오는 LLVM-init stderr 경고는 무해. Doppler 수식은 Wiffen 외 2018 인용(`paths.py:363`).
+**Empirically verified:** empty scene, pure LOS probe, 3.5 GHz, RX approaching TX at 30 m/s → `paths.doppler == 350.2423 Hz`, exactly `v/λ = 30/0.085655 = 350.2423`. Approaching → positive (+) Doppler. On this machine Mitsuba resolves the `cuda_ad_mono_polarized` variant (CUDA present); the LLVM-init stderr warning that appears on CPU fallback is harmless. The Doppler formula cites Wiffen et al. 2018 (`paths.py:363`).
 
-### 5.1 속도 설정 지점 (독립 3소스)
+### 5.1 Where to set velocity (3 independent sources)
 
-| 엔티티 | API | 소스 (file:line) |
+| Entity | API | Source (file:line) |
 |--------|-----|------------------|
-| Transmitter/Receiver (기저 `RadioDevice`) | `velocity` 생성자 인자 **및** `.velocity` get/set; `mi.Vector3f` [m/s] | `radio_devices/radio_device.py:35,50,109-119` |
-| Scene object (임의 메쉬, 예: 차량) | `SceneObject.velocity` get/set; `mi.Vector3f` [m/s] | `scene_object.py:253-283` |
+| Transmitter/Receiver (base `RadioDevice`) | `velocity` constructor argument **and** `.velocity` get/set; `mi.Vector3f` [m/s] | `radio_devices/radio_device.py:35,50,109-119` |
+| Scene object (arbitrary mesh, e.g. a vehicle) | `SceneObject.velocity` get/set; `mi.Vector3f` [m/s] | `scene_object.py:253-283` |
 
-라이브 검증 노트:
-- `RadioDevice.velocity` 기본 `Vector3f(0,0,0)`(`radio_device.py:68-69`). setter가 입력을 `mi.Vector3f` 로 래핑 → 파이썬 리스트 허용: `Transmitter(..., velocity=[10,0,0])`, `tx.velocity = mi.Vector3f(5,0,0)` 모두 성공.
-- `SceneObject.velocity` 는 `"velocity"` `rawconstant` 텍스처 속성으로 지연 백킹(`scene_object.py:274-283`). 최초 설정 전엔 `Vector3f(0.)` 반환(`:261-262`). 물체당 **단일** 벡터만 허용(`assert dr.width(v)==1`, `:269`).
-- 생성자 시그니처(프로브): `Transmitter.__init__(self, name, position, orientation=None, look_at=None, velocity=None, power_dbm=..., color=..., display_radius=None)`; `Receiver.__init__(self, name, position, orientation=None, look_at=None, velocity=None, color=..., display_radius=None)`.
+Live verification notes:
+- `RadioDevice.velocity` defaults to `Vector3f(0,0,0)` (`radio_device.py:68-69`). The setter wraps the input in `mi.Vector3f` → Python lists are allowed: `Transmitter(..., velocity=[10,0,0])` and `tx.velocity = mi.Vector3f(5,0,0)` both succeed.
+- `SceneObject.velocity` is lazily backed by the `"velocity"` `rawconstant` texture attribute (`scene_object.py:274-283`). Before it is first set, it returns `Vector3f(0.)` (`:261-262`). Only a **single** vector per object is allowed (`assert dr.width(v)==1`, `:269`).
+- Constructor signatures (probed): `Transmitter.__init__(self, name, position, orientation=None, look_at=None, velocity=None, power_dbm=..., color=..., display_radius=None)`; `Receiver.__init__(self, name, position, orientation=None, look_at=None, velocity=None, color=..., display_radius=None)`.
 
-### 5.2 PathSolver가 속도로부터 계산하는 것
+### 5.2 What the PathSolver computes from velocity
 
-- 경로당 1개 Doppler → **`Paths.doppler`**(`paths.py:335-385`).
-- **속도 설정은 tx/rx 정적위치·기하/레이트레이싱을 바꾸지 않음** — Doppler 채널에만 영향(기하 스냅샷; 시간전개는 Doppler로 해석적 합성).
-- 두 기여: (1) 이동 물체 — 필드계산에서 각 상호작용이 물체 `"velocity"` 속성 읽어 `v·(k_out − k_in)/λ` 누적(`field_calculator.py:526-562`, `_update_doppler_shift`); 정적물체는 0. (2) 이동 tx/rx — `paths.py:1215-1246`: `f_Δ = paths_buffer.doppler + (k_tx·v_tx)/λ − (k_rx·v_rx)/λ`, `k_tx=r̂(θ_t,φ_t)`(출발), `k_rx=−r̂(θ_r,φ_r)`(도착). 디바이스 속도는 `scene.sources()/targets()` 가 `.velocity` 에서 취득.
-- **`paths.doppler` 형상**(`mi.TensorXf`, Hz): synthetic array(기본) `[num_rx, num_tx, num_paths]`, non-synthetic `[num_rx, num_rx_ant, num_tx, num_tx_ant, num_paths]`. 프로브: 단일안테나 tx/rx over `simple_street_canyon_with_cars` → `(1,1,10)`.
+- One Doppler per path → **`Paths.doppler`** (`paths.py:335-385`).
+- **Setting velocity does not change the static tx/rx positions, geometry, or ray tracing** — it affects only the Doppler channel (geometry is a snapshot; time evolution is synthesized analytically from Doppler).
+- Two contributions: (1) moving objects — during field calculation each interaction reads the object's `"velocity"` attribute and accumulates `v·(k_out − k_in)/λ` (`field_calculator.py:526-562`, `_update_doppler_shift`); static objects contribute 0. (2) moving tx/rx — `paths.py:1215-1246`: `f_Δ = paths_buffer.doppler + (k_tx·v_tx)/λ − (k_rx·v_rx)/λ`, `k_tx=r̂(θ_t,φ_t)` (departure), `k_rx=−r̂(θ_r,φ_r)` (arrival). Device velocity is obtained from `.velocity` by `scene.sources()/targets()`.
+- **`paths.doppler` shape** (`mi.TensorXf`, Hz): synthetic array (default) `[num_rx, num_tx, num_paths]`, non-synthetic `[num_rx, num_rx_ant, num_tx, num_tx_ant, num_paths]`. Probe: single-antenna tx/rx over `simple_street_canyon_with_cars` → `(1,1,10)`.
 
-### 5.3 시간전개 CIR — 주 산출 API
+### 5.3 Time-evolving CIR — the primary output API
 
-`Paths.cir(*, sampling_frequency=1.0, num_time_steps=1, normalize_delays=True, reverse_direction=False, out_type="drjit")`(`paths.py:387-524`).
+`Paths.cir(*, sampling_frequency=1.0, num_time_steps=1, normalize_delays=True, reverse_direction=False, out_type="drjit")` (`paths.py:387-524`).
 
-경로·시간스텝별 기저대역 계수(`paths.py:404-405`):
+Baseband coefficient per path and time step (`paths.py:404-405`):
 ```
 a^b_i(t) = a_i · e^{−j2π f τ_i} · e^{ j2π f_Δ,i t},   t = n/sampling_frequency,  n = 0..N−1
 ```
-Doppler 위상항은 **`num_time_steps > 1` 일 때만** 적용(`paths.py:505-520`); 기본 `num_time_steps=1` 이면 정적 스냅샷이라 velocity가 `cir` 출력에 안 보임(단 `paths.doppler` 는 항상 채워짐).
+The Doppler phase term is applied **only when `num_time_steps > 1`** (`paths.py:505-520`); with the default `num_time_steps=1` it is a static snapshot, so velocity does not show up in the `cir` output (although `paths.doppler` is always populated).
 
-- **반환** `(a, tau)`: `a` = real/imag 쌍(drjit) 또는 단일 복소 배열(numpy/tf/torch/jax), 형상 `[num_rx, num_rx_ant, num_tx, num_tx_ant, num_paths, num_time_steps]`. `tau` = 지연[s], `[num_rx, num_tx, num_paths]`(synthetic).
-- 프로브: 정적 `a=(1,1,1,1,10,1)`; `num_time_steps=16` → `a=(1,1,1,1,10,16)`, `complex64`; 크기 일정·위상 회전(마지막 스텝이 첫 스텝과 다름 확인).
-- `out_type`: `"drjit"`(기본)/`"numpy"`/`"jax"`/`"tf"`/`"torch"`.
+- **Returns** `(a, tau)`: `a` = a real/imag pair (drjit) or a single complex array (numpy/tf/torch/jax), shape `[num_rx, num_rx_ant, num_tx, num_tx_ant, num_paths, num_time_steps]`. `tau` = delay [s], `[num_rx, num_tx, num_paths]` (synthetic).
+- Probe: static `a=(1,1,1,1,10,1)`; `num_time_steps=16` → `a=(1,1,1,1,10,16)`, `complex64`; magnitude constant, phase rotating (confirmed the last step differs from the first).
+- `out_type`: `"drjit"` (default) / `"numpy"` / `"jax"` / `"tf"` / `"torch"`.
 
-관련 헬퍼(둘 다 `sampling_frequency`/`num_time_steps` 로 Doppler 전개 동일):
-- **`Paths.taps(bandwidth, l_min, l_max, sampling_frequency=None, num_time_steps=1, ...)`** — 이산시간(TDL) CIR, `[..., num_time_steps, l_max−l_min+1]`(`paths.py:526-`). 프로브 `(1,1,1,1,16,11)`, complex64.
-- **`Paths.cfr(frequencies, sampling_frequency=1.0, num_time_steps=1, ...)`** — 채널 주파수응답 `[..., num_time_steps, num_frequencies]`(`paths.py:660-`).
+Related helpers (both evolve Doppler identically via `sampling_frequency`/`num_time_steps`):
+- **`Paths.taps(bandwidth, l_min, l_max, sampling_frequency=None, num_time_steps=1, ...)`** — discrete-time (TDL) CIR, `[..., num_time_steps, l_max−l_min+1]` (`paths.py:526-`). Probe `(1,1,1,1,16,11)`, complex64.
+- **`Paths.cfr(frequencies, sampling_frequency=1.0, num_time_steps=1, ...)`** — channel frequency response `[..., num_time_steps, num_frequencies]` (`paths.py:660-`).
 
-파라미터 선택: `sampling_frequency` 는 CIR 리샘플링율. 최고 Doppler를 에일리어싱 없이 해상하려면 `sampling_frequency ≥ 2·max|f_Δ|`; 전개 창 길이 = `num_time_steps / sampling_frequency` [s]. OFDM 슬롯이면 `sampling_frequency = subcarrier_spacing`(또는 `1/slot_duration`) 관례.
+Choosing parameters: `sampling_frequency` is the CIR resampling rate. To resolve the maximum Doppler without aliasing, `sampling_frequency ≥ 2·max|f_Δ|`; the evolution window length = `num_time_steps / sampling_frequency` [s]. For an OFDM slot the convention is `sampling_frequency = subcarrier_spacing` (or `1/slot_duration`).
 
-### 5.4 최소 실행 스니펫 (백엔드 venv 대조 검증)
+### 5.4 Minimal runnable snippet (verified against the backend venv)
 
 ```python
 import sionna.rt as rt
@@ -228,17 +230,17 @@ a, tau = paths.cir(sampling_frequency=fs, num_time_steps=num_time_steps, out_typ
 print("a:", a.shape, a.dtype, "| tau:", tau.shape)  # a: (...,16) complex64
 ```
 
-**프로젝트 불변식(Z-up, m/s):** 속도 벡터는 위치와 동일 world frame, `[vx, vy, vz]` 에서 `vz` 수직. solve 전 `scene.frequency` 설정해야 λ(따라서 Doppler) 정확 — `scene.wavelength` 는 파생·읽기전용.
+**Project invariants (Z-up, m/s):** the velocity vector is in the same world frame as position, with `vz` vertical in `[vx, vy, vz]`. `scene.frequency` must be set before solving so that λ (and therefore Doppler) is correct — `scene.wavelength` is derived and read-only.
 
-### 5.5 함정 (검증/소스 기반)
+### 5.5 Pitfalls (verification/source based)
 
-- 기본 `num_time_steps=1` ⇒ `cir`/`taps`/`cfr` 에 Doppler 위상 미적용(`paths.py:505`); 디바이스가 움직여도 시간전개 보려면 `num_time_steps > 1` 필수.
-- `paths.doppler` 는 `num_time_steps` 무관하게 항상 계산 — 전개 없이 원 시프트 읽기 가능.
-- `SceneObject.velocity` 는 최소 1회 설정해야 저장/미분가능(`scene_object.py:256-257`); 이전엔 `Vector3f(0.)`.
-- 비상대론 근사: 1차 테일러(‖v‖ ≪ c); 정확식·유도는 `Paths.doppler` docstring(`paths.py:365-381`).
-- `reverse_direction=True` 는 `cir`/`taps`/`cfr` 에서 tx/rx 역할 교환(uplink/downlink 재사용).
+- The default `num_time_steps=1` ⇒ the Doppler phase is not applied in `cir`/`taps`/`cfr` (`paths.py:505`); even if a device moves, `num_time_steps > 1` is required to see time evolution.
+- `paths.doppler` is always computed regardless of `num_time_steps` — you can read the raw shift without any evolution.
+- `SceneObject.velocity` must be set at least once to be stored/differentiable (`scene_object.py:256-257`); before that it is `Vector3f(0.)`.
+- Non-relativistic approximation: first-order Taylor (‖v‖ ≪ c); the exact formula and derivation are in the `Paths.doppler` docstring (`paths.py:365-381`).
+- `reverse_direction=True` swaps the tx/rx roles in `cir`/`taps`/`cfr` (uplink/downlink reuse).
 
-**관련 파일(절대경로):**
+**Relevant files (absolute paths):**
 - `backend/.venv/Lib/site-packages/sionna/rt/radio_devices/radio_device.py`
 - `backend/.venv/Lib/site-packages/sionna/rt/scene_object.py`
 - `backend/.venv/Lib/site-packages/sionna/rt/path_solvers/paths.py`
@@ -247,12 +249,12 @@ print("a:", a.shape, a.dtype, "| tau:", tau.shape)  # a: (...,16) complex64
 
 ---
 
-## 출처
+## Sources
 
-- [1] Degli-Esposti 외, "Measurement and Modelling of Scattering From Buildings," IEEE TAP 2007 (Sionna ER 인용 `cite:p:Degli-Esposti07`) — DOI 10.1109/TAP.2007.897329
+- [1] Degli-Esposti et al., "Measurement and Modelling of Scattering From Buildings," IEEE TAP 2007 (Sionna ER citation `cite:p:Degli-Esposti07`) — DOI 10.1109/TAP.2007.897329
 - [2] "Diffuse Scattering Directive Model Parameterization Method for Construction Materials at mmWave Frequencies," Int. J. Antennas Propag. 2020 — https://www.hindawi.com/journals/ijap/2020/1583854/
-- [3] ITU-R P.2040(재료 EM 파라미터) · ITU-R P.1411(단거리 실외) — *절 단위 원문 미인출* **(미검증)**
-- [4] Sionna RT 산란 튜토리얼 — https://nvlabs.github.io/sionna/rt/tutorials/Scattering.html
+- [3] ITU-R P.2040 (material EM parameters) · ITU-R P.1411 (short-range outdoor) — *clause-level original text not consulted* **(unverified)**
+- [4] Sionna RT scattering tutorial — https://nvlabs.github.io/sionna/rt/tutorials/Scattering.html
 - [5] Sionna RT Radio Materials API — https://nvlabs.github.io/sionna/rt/api/radio_materials.html
 - [6] Sionna RT Paths API (doppler, cir/taps/cfr) — https://nvlabs.github.io/sionna/rt/api/paths.html ; Radio devices — https://nvlabs.github.io/sionna/rt/api/radio_devices.html
 - [7] Sionna RT Technical Report, arXiv:2504.21719 — https://arxiv.org/pdf/2504.21719
@@ -262,41 +264,41 @@ print("a:", a.shape, a.dtype, "| tau:", tau.shape)  # a: (...,16) complex64
 - [11] MATLAB `comm.RayTracingChannel` — https://www.mathworks.com/help/comm/ref/comm.raytracingchannel-system-object.html
 - [12] Mobility Modeling with Ray Tracing Channel — https://www.mathworks.com/help/comm/ug/mobility-modeling-with-ray-tracing-channel.html
 
-**저장소 근거(설치 Sionna RT 2.0.1, repo 검증):** `backend/.venv/Lib/site-packages/sionna/rt/scene_object.py:252-283`, `radio_devices/radio_device.py:50-119`, `radio_materials/scattering_pattern.py:201-416`, `radio_materials/radio_material.py:220-263`, `path_solvers/path_solver.py:144-157`, `path_solvers/field_calculator.py:256-300,526-562`, `path_solvers/paths.py:336-524,660-,1215-1246`, `scene.py:1055,1073-1078`. **통합 지점:** `backend/app/services/simulation_backends/sionna_backend.py:226-292,555-572,748-805`; `backend/app/services/trajectory.py:75-108`; `backend/app/schemas/scene.py:147-177`; `backend/app/schemas/simulation.py:109`.
+**Repository evidence (installed Sionna RT 2.0.1, repo-verified):** `backend/.venv/Lib/site-packages/sionna/rt/scene_object.py:252-283`, `radio_devices/radio_device.py:50-119`, `radio_materials/scattering_pattern.py:201-416`, `radio_materials/radio_material.py:220-263`, `path_solvers/path_solver.py:144-157`, `path_solvers/field_calculator.py:256-300,526-562`, `path_solvers/paths.py:336-524,660-,1215-1246`, `scene.py:1055,1073-1078`. **Integration points:** `backend/app/services/simulation_backends/sionna_backend.py:339,776,896,973,1024-1027`; `backend/app/services/trajectory.py:205,363,381,505`; `backend/app/schemas/scene.py:147-177`; `backend/app/schemas/simulation.py:182`.
 
-**미검증 항목:** ITU-R P.2040/P.1411 절 단위 원문(재료/확산 가이드 참조로만 인용, 미인출) **(미검증)**.
+**Unverified items:** ITU-R P.2040/P.1411 clause-level original text (cited only as a reference for material/diffuse guidance, not consulted) **(unverified)**.
 
 ---
 
-## 구현 완료 (Design A — 속도기반 경로별 Doppler + 시변 CIR)
+## Implementation Complete (Design A — velocity-based per-path Doppler + time-varying CIR)
 
-본 절의 계획 중 **Design A**(효과 #2: 속도기반 경로별 Doppler)를 구현했다. Design B(산란패턴/XPD)·C(프레임내 확산 시계열)는 후속 작업으로 남긴다. 아래 API 는 모두 설치된 sionna-rt 2.0.1 에 대해 라이브 프로브로 재검증했다.
+Of the plans in this document, **Design A** (effect #2: velocity-based per-path Doppler) has been implemented. Design B (scattering pattern/XPD) and C (in-frame diffuse time series) are left as follow-up work. The APIs below were all re-verified with live probes against the installed sionna-rt 2.0.1.
 
-### 사용한 정확 API (재검증)
+### Exact APIs used (re-verified)
 
-- `Transmitter(..., velocity=[vx,vy,vz])` / `Receiver(..., velocity=...)` 생성자 인자, 및 `.velocity` 세터(`mi.Vector3f` 래핑) — `radio_devices/radio_device.py:45-71,108-119`. 라이브 확인: 빈 씬 순수 LOS, 3.5 GHz, RX 가 TX 로 30 m/s 접근 → `paths.doppler == 350.2423 Hz == v/λ = 30/0.085655`. 접근 → 양(+) Doppler.
-- `SceneObject.velocity = mi.Vector3f(...)` (액터 메쉬) — `scene_object.py:252-283`. 물체당 단일 벡터, 기하 불변.
-- `Paths.doppler` — 경로별 Doppler [Hz], synthetic array 형상 `[num_rx, num_tx, num_paths]`(`paths.py:335-385`). `num_time_steps` 무관하게 항상 채워짐.
-- `Paths.cir(*, sampling_frequency, num_time_steps, out_type="numpy")` — 시변 CIR(`paths.py:387-524`). `num_time_steps>1` 일 때만 `a·e^{j2π f_Δ t}` 적용. 프로브: `a` 형상 `(...,num_time_steps)` complex64, 크기 일정·위상 회전, 스텝당 위상 = `2π f_Δ/fs` 정확 일치.
+- `Transmitter(..., velocity=[vx,vy,vz])` / `Receiver(..., velocity=...)` constructor arguments, and the `.velocity` setter (wraps in `mi.Vector3f`) — `radio_devices/radio_device.py:45-71,108-119`. Live confirmation: empty scene, pure LOS, 3.5 GHz, RX approaching TX at 30 m/s → `paths.doppler == 350.2423 Hz == v/λ = 30/0.085655`. Approaching → positive (+) Doppler.
+- `SceneObject.velocity = mi.Vector3f(...)` (actor mesh) — `scene_object.py:252-283`. A single vector per object, geometry invariant.
+- `Paths.doppler` — per-path Doppler [Hz], synthetic array shape `[num_rx, num_tx, num_paths]` (`paths.py:335-385`). Always populated regardless of `num_time_steps`.
+- `Paths.cir(*, sampling_frequency, num_time_steps, out_type="numpy")` — time-varying CIR (`paths.py:387-524`). `a·e^{j2π f_Δ t}` is applied only when `num_time_steps>1`. Probe: `a` shape `(...,num_time_steps)` complex64, magnitude constant and phase rotating, per-step phase exactly matching `2π f_Δ/fs`.
 
-### 구현 내역 (파일별)
+### Implementation details (by file)
 
-- **`backend/app/schemas/devices.py`** — `Device.velocity_m_s: Optional[Vec3] = None`(world frame m/s, Z-up). None=정지, 기하/레이트레이싱 불변.
-- **`backend/app/schemas/channel.py`** — `ChannelAnalysisRequest` 에 `num_time_steps: int(1..64, 기본 1)`, `sampling_frequency_hz: Optional[float]`(None→Nyquist=2·max|f_Δ|, 무운동시 1 kHz) 추가. `CirTap.doppler_hz: Optional[float]`. `ChannelAnalysisResult` 에 `doppler_spread_hz`, `mean_doppler_hz`, `max_doppler_hz`, `coherence_time_ms`(≈0.42/max|f_Δ|), `cir_time_s`, `cir_time_envelope_db`(시변 페이딩 포락 `|Σ_i a_i e^{j2π f_Δ,i t}|` dB) 추가.
-- **`backend/app/services/simulation_backends/sionna_backend.py`** — Transmitter/Receiver 생성 시 `velocity_m_s` 통과. `apply_actor_states(..., velocities=)` 인자로 액터별 `obj.velocity` 설정. `simulate_paths`/`_simulate_paths_impl` 에 `actor_velocities` 옵션 kwarg. `_convert_paths` 가 `solved.doppler` 를 읽어 유지된 경로와 1:1 정렬된 리스트 반환 → 무언가 움직일 때만 `PathResultSet.metadata["doppler_hz"]` 로 노출(정적 solve 는 바이트 동일 유지). RayPath 스키마는 소유 밖이라 metadata 로 운반.
-- **`backend/app/services/channel_analysis.py`** — `doppler_metrics()`(파워가중 mean/spread/max, coherence time), `doppler_time_envelope()`(백엔드 무관, per-path power/phase/doppler 로 시변 포락 합성 — `paths.cir` 와 동일 모델). `build_cir(paths, doppler_by_path_id)` 로 탭별 `doppler_hz` 충전. `analyze_channel` 이 `metadata["doppler_hz"]` 를 path_id 로 매핑해 링크 필터·지연 정렬을 건너뛰어 정렬 유지.
-- **`backend/app/services/trajectory.py`** — 웨이포인트 유한차분 `(wp[i+1]-wp[i])/dt`(마지막점은 후방차분)로 UE 속도 도출→ 이동 RX 의 `velocity_m_s` 설정. 웨이포인트별 Doppler 확산을 `metadata["doppler_spread_hz"]`(samples 정렬 리스트)로 노출.
-- **`backend/app/services/scenario.py`** — `actor_velocity_at()`(궤적 접선 중앙차분 = 접선×속력) 추가. 프레임별 액터 속도 + 부착 디바이스 속도(액터 속도 상속)를 solve 로 전달. 프레임별 Doppler 확산을 `ScenarioResultSet.metadata["doppler_spread_hz"]` 로 노출. (LinkMetrics/ScenarioFrame/TrajectorySample 스키마는 소유 밖이라 metadata 채널 사용.)
-- **`backend/tests/test_doppler.py`** (신규) — 스키마 속도 필드, Doppler 스펙트럼 수식(손계산), 시변 포락 리플, 서비스 속도 배관(캡처 페이크 백엔드로 sionna 불요), sionna-guarded 실솔브(이동 RX Doppler ≈ v/λ, 정적 링크는 doppler_hz 미노출, 채널분석 Doppler 지표 충전) 18 케이스.
+- **`backend/app/schemas/devices.py`** — `Device.velocity_m_s: Optional[Vec3] = None` (world frame m/s, Z-up). None=stationary, geometry/ray-tracing invariant.
+- **`backend/app/schemas/channel.py`** — added `num_time_steps: int(1..64, default 1)` and `sampling_frequency_hz: Optional[float]` (None→Nyquist=2·max|f_Δ|, 1 kHz when there is no motion) to `ChannelAnalysisRequest`. `CirTap.doppler_hz: Optional[float]`. Added `doppler_spread_hz`, `mean_doppler_hz`, `max_doppler_hz`, `coherence_time_ms` (≈0.42/max|f_Δ|), `cir_time_s`, `cir_time_envelope_db` (the time-varying fading envelope `|Σ_i a_i e^{j2π f_Δ,i t}|` in dB) to `ChannelAnalysisResult`.
+- **`backend/app/services/simulation_backends/sionna_backend.py`** — passes `velocity_m_s` through when creating Transmitter/Receiver. Sets per-actor `obj.velocity` via the `apply_actor_states(..., velocities=)` argument. Adds an optional `actor_velocities` kwarg to `simulate_paths`/`_simulate_paths_impl`. `_convert_paths` reads `solved.doppler` and returns a list aligned 1:1 with the retained paths → exposed as `PathResultSet.metadata["doppler_hz"]` only when something is moving (a static solve stays byte-identical). Since the RayPath schema is out of ownership, it is carried via metadata.
+- **`backend/app/services/channel_analysis.py`** — `doppler_metrics()` (power-weighted mean/spread/max, coherence time), `doppler_time_envelope()` (backend-agnostic, synthesizes the time-varying envelope from per-path power/phase/doppler — the same model as `paths.cir`). `build_cir(paths, doppler_by_path_id)` fills the per-tap `doppler_hz`. `analyze_channel` maps `metadata["doppler_hz"]` by path_id and skips the link filter and delay sort to preserve alignment.
+- **`backend/app/services/trajectory.py`** — derives UE velocity via a finite difference of waypoints `(wp[i+1]-wp[i])/dt` (backward difference for the last point) → sets `velocity_m_s` on the moving RX. Exposes the per-waypoint Doppler spread as `metadata["doppler_spread_hz"]` (a list aligned with samples).
+- **`backend/app/services/scenario.py`** — adds `actor_velocity_at()` (trajectory tangent central difference = tangent × speed). Passes per-frame actor velocity + attached device velocity (inheriting the actor velocity) into the solve. Exposes the per-frame Doppler spread as `ScenarioResultSet.metadata["doppler_spread_hz"]`. (The LinkMetrics/ScenarioFrame/TrajectorySample schemas are out of ownership, so the metadata channel is used.)
+- **`backend/tests/test_doppler.py`** (new) — 18 cases: the schema velocity field, the Doppler spectrum formula (hand-calculated), the time-varying envelope ripple, the service velocity plumbing (a capture-fake backend so sionna is not required), and sionna-guarded real solves (moving-RX Doppler ≈ v/λ, static links expose no doppler_hz, channel-analysis Doppler metrics populated).
 
-### 추가된 스키마 필드 (프론트엔드 타입 미러링용)
+### Added schema fields (for frontend type mirroring)
 
 - `Device.velocity_m_s: [vx,vy,vz] | null` (m/s, Z-up world frame).
 - `ChannelAnalysisRequest.num_time_steps: int`, `.sampling_frequency_hz: float | null`.
 - `CirTap.doppler_hz: float | null`.
-- `ChannelAnalysisResult`: `doppler_spread_hz`, `mean_doppler_hz`, `max_doppler_hz`, `coherence_time_ms`, `cir_time_s: float[]`, `cir_time_envelope_db: float[]` (모두 이동체 없으면 None/[]).
-- `TrajectoryResultSet.metadata.doppler_spread_hz: (float|null)[]` (samples 정렬), `ScenarioResultSet.metadata.doppler_spread_hz: (float|null)[]` (frames 정렬), `PathResultSet.metadata.doppler_hz: float[]` (paths 정렬, 이동시에만).
+- `ChannelAnalysisResult`: `doppler_spread_hz`, `mean_doppler_hz`, `max_doppler_hz`, `coherence_time_ms`, `cir_time_s: float[]`, `cir_time_envelope_db: float[]` (all None/[] if there are no moving objects).
+- `TrajectoryResultSet.metadata.doppler_spread_hz: (float|null)[]` (aligned with samples), `ScenarioResultSet.metadata.doppler_spread_hz: (float|null)[]` (aligned with frames), `PathResultSet.metadata.doppler_hz: float[]` (aligned with paths, only when moving).
 
-### 테스트 결과
+### Test results
 
-`tests/test_doppler.py tests/test_sionna_backend.py tests/test_channel_analysis.py tests/test_scenario.py` → 전부 통과(57 passed). 전체 스위트는 `test_render.py`(본 작업 무관, Mitsuba 전역 플러그인 상태 오염으로 후행 sionna GPU 테스트를 무너뜨리는 기존 테스트격리 문제)를 제외하면 **249 passed, 2 skipped, 0 failed**. `test_render.py` 는 velocity/doppler/simulate_paths/channel/trajectory/scenario 코드를 전혀 참조하지 않으며, 신규 테스트 파일을 제외해도 동일 6건이 실패하므로 본 변경의 회귀가 아니다.
+`tests/test_doppler.py tests/test_sionna_backend.py tests/test_channel_analysis.py tests/test_scenario.py` → all pass (57 passed). Excluding `test_render.py` (unrelated to this work; a pre-existing test-isolation problem where Mitsuba global plugin state pollution breaks subsequent sionna GPU tests), the full suite is **249 passed, 2 skipped, 0 failed**. `test_render.py` does not reference any velocity/doppler/simulate_paths/channel/trajectory/scenario code, and the same 6 cases fail even when the new test file is excluded, so it is not a regression from this change.

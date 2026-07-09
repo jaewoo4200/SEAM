@@ -1,5 +1,7 @@
 # AI assistant
 
+> 🌐 **English** · [한국어](ai_assistant.ko.md)
+
 The AI assistant suggests RF materials for prims from visual evidence:
 object names, GLB material names, semantic tags, texture names. It is
 strictly optional — the app is fully usable manual-only — and it never
@@ -79,7 +81,7 @@ Model output must validate against `MaterialSuggestionResponse`
   ],
   "provider": "ollama_text",
   "model": "qwen3:8b",
-  "prompt_version": "v1",
+  "prompt_version": "v2",
   "warnings": []
 }
 ```
@@ -114,7 +116,7 @@ Every suggestion batch and every user decision is appended to
  "event": "suggest",
  "provider": "ollama_text",
  "model": "qwen3:8b",
- "prompt_version": "v1",
+ "prompt_version": "v2",
  "input_prim_ids": ["/buildings/b01/window_01"],
  "suggestions": [ ...MaterialSuggestion objects... ],
  "warnings": []}
