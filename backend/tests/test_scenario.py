@@ -529,3 +529,27 @@ def test_sionna_scenario_frame_solves(project, library) -> None:
     car0 = next(s.position for s in result.frames[0].actor_states if s.id == "car_001")
     car1 = next(s.position for s in result.frames[1].actor_states if s.id == "car_001")
     assert car0 != car1
+
+
+def test_uav_actor_defaults_and_altitude() -> None:
+    """UAV is a first-class actor kind: metal airframe defaults, and its
+    position.z / waypoint z are the flight altitude (no ground clamping),
+    covering both a hovering (static) and a flying (trajectory) UAV."""
+    hovering = Actor(id="uav_001", kind="uav", position=[0.0, 0.0, 25.0])
+    assert hovering.rf_material_id == "metal"
+    assert hovering.color == "#38bdf8"
+    assert hovering.shape.size_m == [0.6, 0.6, 0.25]
+    assert hovering.position[2] == 25.0  # hovers where authored
+    assert hovering.trajectory is None  # static UAV needs no trajectory
+
+    flying = Actor(
+        id="uav_002",
+        kind="uav",
+        position=[0.0, 0.0, 30.0],
+        trajectory=ActorTrajectory(
+            waypoints=[[0.0, 0.0, 30.0], [20.0, 0.0, 40.0], [40.0, 10.0, 35.0]],
+            dt_s=0.5,
+        ),
+    )
+    # Per-waypoint z is preserved verbatim — climbing/descending flight paths.
+    assert [wp[2] for wp in flying.trajectory.waypoints] == [30.0, 40.0, 35.0]

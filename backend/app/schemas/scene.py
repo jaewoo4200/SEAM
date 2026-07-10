@@ -131,13 +131,18 @@ class Prim(StrictModel):
         return v
 
 
-ActorKind = Literal["car", "human", "custom"]
+ActorKind = Literal["car", "human", "custom", "uav"]
 
 # Default RF material, box size (l, w, h meters) and color per actor kind.
+# UAV: a small quadrotor-class body (predominantly metal for RF purposes).
+# Its position.z is the airframe's flight altitude — actors are never
+# ground-clamped, so hovering (no trajectory) and waypoint flight (trajectory
+# with per-waypoint z) both work like any other actor.
 ACTOR_DEFAULTS: dict[str, dict] = {
     "car": {"rf_material_id": "metal", "size_m": [4.5, 1.8, 1.5], "color": "#ffd166"},
     "human": {"rf_material_id": "human_body", "size_m": [0.5, 0.35, 1.7], "color": "#06d6a0"},
     "custom": {"rf_material_id": "unknown_rf", "size_m": [1.0, 1.0, 1.0], "color": "#a78bfa"},
+    "uav": {"rf_material_id": "metal", "size_m": [0.6, 0.6, 0.25], "color": "#38bdf8"},
 }
 
 
@@ -166,7 +171,7 @@ class ActorTrajectory(StrictModel):
 
 
 class Actor(StrictModel):
-    """Movable RF-relevant object (car, human, custom scatterer).
+    """Movable RF-relevant object (car, human, UAV, custom scatterer).
 
     Compiled as its OWN Sionna shape (never merged into material groups) so
     the backend can move it per frame and re-solve; may carry devices (V2X)."""

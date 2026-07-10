@@ -324,6 +324,9 @@ export default function SceneTree() {
           <button disabled={busy !== null} onClick={() => void addActor("human")} title="Add human">
             +Human
           </button>
+          <button disabled={busy !== null} onClick={() => void addActor("uav")} title="Add UAV (spawns hovering above the scene center)">
+            +UAV
+          </button>
           <button
             disabled={busy !== null}
             onClick={() => void addActor("custom")}
@@ -343,7 +346,7 @@ export default function SceneTree() {
           title={`${a.kind} · ${a.id}`}
         >
           <span className="device-icon" style={{ color: a.color ?? "#a78bfa" }}>
-            {a.kind === "car" ? "▬" : a.kind === "human" ? "▮" : "◆"}
+            {a.kind === "car" ? "▬" : a.kind === "human" ? "▮" : a.kind === "uav" ? "△" : "◆"}
           </span>
           <span className="tree-name">{a.id}</span>
           {a.name && <span className="tree-mat">{a.name}</span>}

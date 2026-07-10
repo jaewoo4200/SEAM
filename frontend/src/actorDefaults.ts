@@ -21,4 +21,5 @@ export const ACTOR_DEFAULTS: Record<ActorKind, ActorKindDefaults> = {
   car: { rf_material_id: "metal", size_m: [4.5, 1.8, 1.5], color: "#ffd166" },
   human: { rf_material_id: "human_body", size_m: [0.5, 0.35, 1.7], color: "#06d6a0" },
   custom: { rf_material_id: "unknown_rf", size_m: [1.0, 1.0, 1.0], color: "#a78bfa" },
+  uav: { rf_material_id: "metal", size_m: [0.6, 0.6, 0.25], color: "#38bdf8" },
 };

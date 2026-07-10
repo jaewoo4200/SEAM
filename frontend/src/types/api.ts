@@ -163,7 +163,7 @@ export interface EngineListResponse {
   engines: EngineInfo[];
 }
 
-export type ActorKind = "car" | "human" | "custom";
+export type ActorKind = "car" | "human" | "custom" | "uav";
 
 export interface ActorShape {
   type: "box" | "mesh";

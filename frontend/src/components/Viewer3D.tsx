@@ -580,6 +580,8 @@ function Devices() {
             // a selected TX's own marker used to win the "surface below"
             // raycast and pin its AGL to 0.00 m.
             userData={{ __noFit: true }}
+            // Named so the entity-POV inset can track the live rendered pose.
+            name={`pov-ent-${d.id}`}
             onPointerDown={(e: ThreeEvent<PointerEvent>) => {
               if (useAppStore.getState().pick) return; // pick owns clicks
               e.stopPropagation();
@@ -629,21 +631,51 @@ function Actors({ frameStates }: { frameStates?: Map<string, { position: Vec3; o
         const [l, w, h] = a.shape.size_m;
         const color = a.color ?? "#a78bfa";
         const selected = a.id === selectedActorId;
+        const matProps = {
+          color,
+          transparent: true,
+          opacity: 0.85,
+          emissive: selected ? PICKER_COLOR : "#000000",
+          emissiveIntensity: selected ? 0.7 : 0,
+        } as const;
         // position is the base center: lift the box by half its height so it
         // sits on the ground contact plane. Yaw about Z (up).
         const body = (
           <>
             {/* Selection/drag is handled by the wrapping DraggableGroup. */}
-            <mesh position={[0, 0, h / 2]}>
-              <boxGeometry args={[l, w, h]} />
-              <meshStandardMaterial
-                color={color}
-                transparent
-                opacity={0.85}
-                emissive={selected ? PICKER_COLOR : "#000000"}
-                emissiveIntensity={selected ? 0.7 : 0}
-              />
-            </mesh>
+            {a.kind === "uav" ? (
+              // Quadrotor silhouette: center pod + X arms + four rotor disks,
+              // all scaled from shape.size_m so custom sizes still work.
+              <group position={[0, 0, h / 2]}>
+                <mesh>
+                  <boxGeometry args={[l * 0.45, w * 0.45, h * 0.7]} />
+                  <meshStandardMaterial {...matProps} />
+                </mesh>
+                <mesh rotation={[0, 0, Math.PI / 4]}>
+                  <boxGeometry args={[l * 1.35, w * 0.09, h * 0.18]} />
+                  <meshStandardMaterial {...matProps} />
+                </mesh>
+                <mesh rotation={[0, 0, -Math.PI / 4]}>
+                  <boxGeometry args={[l * 1.35, w * 0.09, h * 0.18]} />
+                  <meshStandardMaterial {...matProps} />
+                </mesh>
+                {([[1, 1], [1, -1], [-1, 1], [-1, -1]] as const).map(([sx, sy]) => (
+                  <mesh
+                    key={`${sx}${sy}`}
+                    position={[sx * l * 0.48, sy * w * 0.48, h * 0.28]}
+                    rotation={[Math.PI / 2, 0, 0]}
+                  >
+                    <cylinderGeometry args={[l * 0.22, l * 0.22, h * 0.06, 20]} />
+                    <meshStandardMaterial {...matProps} opacity={0.6} />
+                  </mesh>
+                ))}
+              </group>
+            ) : (
+              <mesh position={[0, 0, h / 2]}>
+                <boxGeometry args={[l, w, h]} />
+                <meshStandardMaterial {...matProps} />
+              </mesh>
+            )}
             <Html position={[0, 0, h + 0.4]} center zIndexRange={[10, 0]}>
               <div className={"device-label" + (selected ? " selected" : "")} title={a.id}>
                 {a.name || a.id}
@@ -658,6 +690,9 @@ function Actors({ frameStates }: { frameStates?: Map<string, { position: Vec3; o
         );
         const inner = (
           <group
+            // Named so the entity-POV inset can track the LIVE rendered pose
+            // (scenario playback moves these groups, not the stored scene).
+            name={`pov-ent-${a.id}`}
             onPointerDown={(e: ThreeEvent<PointerEvent>) => {
               if (useAppStore.getState().pick) return; // pick owns clicks
               e.stopPropagation();
@@ -2104,6 +2139,100 @@ function TrajPreviewLine() {
   );
 }
 
+// ---------------------------------------------------------------- entity POV
+// Picture-in-picture "camera view" from a selected TX/RX/actor toward a
+// chosen link partner — the BS-perspective look at the UE while paths /
+// beamforming results are on screen. Rendered as a second scissored pass over
+// the same scene graph, so ray overlays are visible in it and trajectory /
+// scenario playback (which animates the named entity groups) is tracked live.
+const POV_W = 280;
+const POV_H = 172;
+const POV_MARGIN = 12;
+const POV_TOP = 48; // below the viewport button row
+const POV_HEAD_H = 26;
+
+function EntityPovInset({ sourceId, targetId }: { sourceId: string; targetId: string | null }) {
+  const cam = useMemo(() => {
+    const c = new THREE.PerspectiveCamera(55, POV_W / POV_H, 0.2, 20000);
+    c.up.set(0, 0, 1);
+    return c;
+  }, []);
+  const eye = useMemo(() => new THREE.Vector3(), []);
+  const aim = useMemo(() => new THREE.Vector3(), []);
+
+  // Subscribing with a render priority puts r3f in manual-render mode while
+  // this inset is mounted, so the main pass is drawn here too.
+  useFrame((state) => {
+    const { gl, camera, size } = state;
+    const root = state.scene;
+    gl.setScissorTest(false);
+    gl.setViewport(0, 0, size.width, size.height);
+    gl.autoClear = true;
+    gl.render(root, camera);
+
+    const store = useAppStore.getState();
+    const sc = store.scene;
+    if (!sc) return;
+
+    // Anchor position of an entity: the LIVE rendered group when present
+    // (playback moves those), otherwise the stored scene pose.
+    const anchor = (id: string, out: THREE.Vector3): "device" | "actor" | null => {
+      const kind = sc.devices.some((d) => d.id === id)
+        ? ("device" as const)
+        : sc.actors.some((a) => a.id === id)
+          ? ("actor" as const)
+          : null;
+      if (!kind) return null;
+      const obj = root.getObjectByName(`pov-ent-${id}`);
+      if (obj) {
+        obj.getWorldPosition(out);
+        return kind;
+      }
+      const ent =
+        kind === "device" ? sc.devices.find((d) => d.id === id) : sc.actors.find((a) => a.id === id);
+      if (!ent) return null;
+      out.set(ent.position[0], ent.position[1], ent.position[2]);
+      return kind;
+    };
+
+    const srcKind = anchor(sourceId, eye);
+    if (!srcKind) return;
+    // Lift the eye above the source's own marker/airframe so it doesn't
+    // occlude its view.
+    if (srcKind === "actor") {
+      const a = sc.actors.find((x) => x.id === sourceId);
+      eye.z += (a?.shape.size_m[2] ?? 1) + 0.4;
+    } else {
+      eye.z +=
+        deviceMarkerRadius(sc, store.resolvedEnvironment, store.viewport.markerScale) * 2.2;
+    }
+    const tgtKind = targetId ? anchor(targetId, aim) : null;
+    if (tgtKind === "actor") {
+      const a = sc.actors.find((x) => x.id === targetId);
+      aim.z += (a?.shape.size_m[2] ?? 1) * 0.6;
+    } else if (!tgtKind) {
+      aim.set(eye.x, eye.y + 1, eye.z); // no partner: keep a level view
+    }
+    cam.position.copy(eye);
+    cam.lookAt(aim);
+    cam.updateMatrixWorld();
+
+    const x = size.width - POV_MARGIN - POV_W;
+    const y = size.height - POV_TOP - POV_HEAD_H - POV_H;
+    gl.autoClear = false;
+    gl.setScissorTest(true);
+    gl.setScissor(x, y, POV_W, POV_H);
+    gl.setViewport(x, y, POV_W, POV_H);
+    gl.clear(true, true, false);
+    gl.render(root, cam);
+    gl.setScissorTest(false);
+    gl.setViewport(0, 0, size.width, size.height);
+    gl.autoClear = true;
+  }, 1);
+
+  return null;
+}
+
 // Monochrome stroke icons for the viewport corner buttons; they inherit the
 // button's currentColor so the .active accent tint applies to the glyph too.
 const iconProps = {
@@ -2183,6 +2312,55 @@ export default function Viewer3D() {
   const [rendering, setRendering] = useState(false);
   const [legendOpen, setLegendOpen] = useState(false);
   const armPlacement = useAppStore((s) => s.armPlacement);
+
+  // Remote-desktop Chrome can skip the initial ResizeObserver callback, which
+  // leaves the r3f canvas at its 300x150 default until the window is resized.
+  // One synthetic resize after mount guarantees the first measurement
+  // everywhere and is a no-op on normal desktops.
+  useEffect(() => {
+    const t = setTimeout(() => window.dispatchEvent(new Event("resize")), 80);
+    return () => clearTimeout(t);
+  }, []);
+
+  // Entity POV inset: clicking a TX/RX/actor opens a live view from that
+  // entity toward a selectable link partner (close with x; reopens on the
+  // next selection).
+  const selectedDeviceId = useAppStore((s) => s.selectedDeviceId);
+  const selectedActorId = useAppStore((s) => s.selectedActorId);
+  const [povClosed, setPovClosed] = useState(false);
+  const [povTargetId, setPovTargetId] = useState<string | null>(null);
+  const povSourceId = selectedDeviceId ?? selectedActorId;
+  useEffect(() => {
+    setPovClosed(false);
+    const sc = useAppStore.getState().scene;
+    if (!sc || !povSourceId) {
+      setPovTargetId(null);
+      return;
+    }
+    // Default partner: TX looks at the first RX, everything else at the
+    // first TX; fall back to any other device.
+    const dev = sc.devices.find((d) => d.id === povSourceId);
+    const wantKind = dev?.kind === "tx" ? "rx" : "tx";
+    const first =
+      sc.devices.find((d) => d.kind === wantKind && d.id !== povSourceId) ??
+      sc.devices.find((d) => d.id !== povSourceId);
+    setPovTargetId(first?.id ?? null);
+  }, [povSourceId]);
+  const povVisible = !!scene && !!povSourceId && !povClosed;
+  const povSourceDev = scene?.devices.find((d) => d.id === povSourceId);
+  const povSourceLabel = povSourceDev
+    ? `${povSourceDev.kind.toUpperCase()} ${povSourceDev.id}`
+    : povSourceId ?? "";
+  const povCandidates = scene
+    ? [
+        ...scene.devices
+          .filter((d) => d.id !== povSourceId)
+          .map((d) => ({ id: d.id, label: `${d.kind.toUpperCase()} ${d.id}` })),
+        ...scene.actors
+          .filter((a) => a.id !== povSourceId)
+          .map((a) => ({ id: a.id, label: `${a.kind} ${a.id}` })),
+      ]
+    : [];
 
   // Paper-ready: download exactly the pixels on screen (camera pose, overlays,
   // rays — WYSIWYG), full canvas resolution, PNG.
@@ -2411,6 +2589,9 @@ export default function Viewer3D() {
         {showRadioMap && <RadioMapPlane radioMap={radioMap} />}
         {showMeshRadioMap && <MeshRadioMapOverlay result={meshRadioMap} />}
         {trajActive && <TrajectoryOverlay trajectory={trajectory} />}
+        {povVisible && povSourceId && (
+          <EntityPovInset sourceId={povSourceId} targetId={povTargetId} />
+        )}
       </Canvas>
       {showRadioMap && <RadioMapLegend radioMap={radioMap} />}
       {pickActive && (
@@ -2465,6 +2646,31 @@ export default function Viewer3D() {
             <li>gizmo: click TX/RX then drag X/Y/Z arrows</li>
             <li>panel Pick buttons: yellow crosshair mode</li>
           </ul>
+        </div>
+      )}
+      {povVisible && (
+        <div className="pov-panel" style={{ top: POV_TOP, right: POV_MARGIN, width: POV_W }}>
+          <div className="pov-head" style={{ height: POV_HEAD_H }}>
+            <span className="pov-title" title={`Live view from ${povSourceId}`}>
+              {povSourceLabel} →
+            </span>
+            <select
+              value={povTargetId ?? ""}
+              title="Link partner the view aims at"
+              onChange={(e) => setPovTargetId(e.target.value || null)}
+            >
+              {povCandidates.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+            <button className="pov-close" title="Close view" onClick={() => setPovClosed(true)}>
+              ×
+            </button>
+          </div>
+          {/* Transparent frame: the GL inset is scissor-rendered underneath. */}
+          <div className="pov-frame" style={{ height: POV_H }} />
         </div>
       )}
       {/* Settings cluster: a flex row so the buttons pack with no gap when the

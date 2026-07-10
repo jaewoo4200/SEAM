@@ -826,7 +826,8 @@ export const useAppStore = create<AppState>()((set, get) => {
 
   /** Next free actor id for a kind: car_001 / human_001 / obj_001 (custom). */
   function nextActorId(kind: ActorKind): string {
-    const prefix = kind === "car" ? "car" : kind === "human" ? "human" : "obj";
+    const prefix =
+      kind === "car" ? "car" : kind === "human" ? "human" : kind === "uav" ? "uav" : "obj";
     const ids = new Set((get().scene?.actors ?? []).map((a) => a.id));
     for (let n = 1; n < 1000; n++) {
       const id = `${prefix}_${String(n).padStart(3, "0")}`;
@@ -2501,11 +2502,16 @@ export const useAppStore = create<AppState>()((set, get) => {
       // Seed the kind's defaults client-side; backend re-applies them anyway.
       const actor: Actor = {
         id,
-        name: kind === "car" ? "Car" : kind === "human" ? "Human" : "Object",
+        name: kind === "car" ? "Car" : kind === "human" ? "Human" : kind === "uav" ? "UAV" : "Object",
         kind,
         shape: { type: "box", size_m: [...d.size_m], mesh_ref: null },
         rf_material_id: d.rf_material_id,
-        position: sceneCenter(),
+        // UAVs spawn hovering 15 m above the scene center; ground actors
+        // spawn at it (actor position.z is the shape's base).
+        position: (() => {
+          const c = sceneCenter();
+          return kind === "uav" ? [c[0], c[1], c[2] + 15] : c;
+        })(),
         orientation_deg: [0, 0, 0],
         trajectory: null,
         attached_device_ids: [],

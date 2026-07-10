@@ -1924,6 +1924,55 @@ h4 {
   position: static;
 }
 
+/* Entity POV inset: header strip above a scissor-rendered camera view. */
+.pov-panel {
+  position: absolute;
+  z-index: 7;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.pov-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px 0 8px;
+  background: rgba(11, 15, 20, 0.85);
+  border-bottom: 1px solid var(--border-light);
+  font-size: 11px;
+}
+.pov-title {
+  color: var(--muted);
+  white-space: nowrap;
+}
+.pov-head select {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  background: transparent;
+  color: var(--text);
+  border: none;
+  padding: 2px 0;
+}
+.pov-head select option {
+  background: var(--panel);
+}
+.pov-close {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  padding: 0 4px;
+  line-height: 1;
+}
+.pov-close:hover {
+  color: var(--err);
+}
+.pov-frame {
+  pointer-events: none;
+}
+
 /* Floating hotkey legend, matches the viewport panel styling. */
 .hotkey-legend {
   position: absolute;

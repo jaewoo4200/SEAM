@@ -183,6 +183,11 @@ Studio builds on the same Sionna RT engine and adds:
   tunneling through hills), and the device inspector's **height-above-surface
   (AGL)** field places a device "N meters above whatever is below it" in one
   step.
+- **UAV actors + entity view** — car / pedestrian / UAV / custom scatterers move
+  along waypoint trajectories (a UAV's z is its flight altitude, so it can hover
+  in place or fly a 3D path); clicking any TX/RX/actor opens a live
+  picture-in-picture view from that entity toward a selectable link partner,
+  with ray overlays visible in it — a BS-perspective look at the UE.
 - **AI model picker** — models loaded in LM Studio / Ollama are auto-discovered
   and switchable in the UI; the responding model is recorded in provenance.
 
