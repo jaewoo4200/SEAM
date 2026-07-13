@@ -695,6 +695,32 @@ function ActorTrajectoryEditor({ actor }: { actor: Actor }) {
   const addWaypoint = () => commit({ ...traj, waypoints: [...traj.waypoints, [...actor.position]] });
   const removeWaypoint = (i: number) =>
     commit({ ...traj, waypoints: traj.waypoints.filter((_, j) => j !== i) });
+
+  // Per-row authoring without drag/drop (idea #17): swap with a neighbour,
+  // insert after this row (midpoint to the next; +2 m in X on the last row).
+  // Each commits immediately on a deep-copied waypoints array.
+  const swapWaypoints = (i: number, j: number) => {
+    if (j < 0 || j >= traj.waypoints.length) return;
+    const waypoints = traj.waypoints.map((wp): Vec3 => [...wp]);
+    const tmp = waypoints[i];
+    waypoints[i] = waypoints[j];
+    waypoints[j] = tmp;
+    commit({ ...traj, waypoints });
+  };
+  const insertWaypointAfter = (i: number) => {
+    const waypoints = traj.waypoints.map((wp): Vec3 => [...wp]);
+    const cur = waypoints[i];
+    const nxt = waypoints[i + 1];
+    const added: Vec3 = nxt
+      ? [(cur[0] + nxt[0]) / 2, (cur[1] + nxt[1]) / 2, (cur[2] + nxt[2]) / 2]
+      : [cur[0] + 2, cur[1], cur[2]];
+    waypoints.splice(i + 1, 0, added);
+    commit({ ...traj, waypoints });
+  };
+  // Deleting below 2 waypoints would break a valid trajectory (the solver
+  // needs at least a segment); block it and say so on hover. A lone waypoint
+  // stays deletable (that state predates the guard: "No waypoints yet.").
+  const deleteBlocked = traj.waypoints.length === 2;
   const recordCurrent = () =>
     commit({ ...traj, waypoints: [...traj.waypoints, [...actor.position]] });
 
@@ -752,8 +778,36 @@ function ActorTrajectoryEditor({ actor }: { actor: Actor }) {
                 ))}
                 <button
                   className="tree-del"
+                  disabled={disabled || i === 0}
+                  title="Move this waypoint up (swap with the previous one)"
+                  onClick={() => swapWaypoints(i, i - 1)}
+                >
+                  ↑
+                </button>
+                <button
+                  className="tree-del"
+                  disabled={disabled || i === traj.waypoints.length - 1}
+                  title="Move this waypoint down (swap with the next one)"
+                  onClick={() => swapWaypoints(i, i + 1)}
+                >
+                  ↓
+                </button>
+                <button
+                  className="tree-del"
                   disabled={disabled}
-                  title="Remove waypoint"
+                  title="Insert a waypoint after this one (midpoint to the next; +2 m in X after the last)"
+                  onClick={() => insertWaypointAfter(i)}
+                >
+                  +
+                </button>
+                <button
+                  className="tree-del"
+                  disabled={disabled || deleteBlocked}
+                  title={
+                    deleteBlocked
+                      ? "A trajectory needs at least 2 waypoints — uncheck “Define waypoints” to remove it instead"
+                      : "Remove waypoint"
+                  }
                   onClick={() => removeWaypoint(i)}
                 >
                   ×
@@ -807,6 +861,83 @@ function ActorTrajectoryEditor({ actor }: { actor: Actor }) {
           </label>
         </>
       )}
+    </div>
+  );
+}
+
+/** Inline prim name + semantic-tag editing (idea #21). Rendered with
+ *  key={prim.id} at the call site so the drafts remount fresh whenever the
+ *  selection changes — switching prims can never commit one prim's draft onto
+ *  another. Commits on blur/Enter via updatePrim (PUT scene → revalidate →
+ *  results marked stale). */
+function PrimIdentityEditor({ prim }: { prim: Prim }) {
+  const updatePrim = useAppStore((s) => s.updatePrim);
+  const busy = useAppStore((s) => s.busy);
+  const disabled = busy !== null;
+  const [nameDraft, setNameDraft] = useState(prim.name);
+  const [tagsDraft, setTagsDraft] = useState(prim.semantic_tags.join(", "));
+
+  const commitName = () => {
+    const name = nameDraft.trim();
+    if (!name || name === prim.name) {
+      setNameDraft(prim.name); // revert empty / unchanged drafts to the saved name
+      return;
+    }
+    void updatePrim(prim.id, { name });
+  };
+
+  // Parse "a, b, , a" → ["a", "b"]: split on commas, trim, drop empties,
+  // dedupe (first occurrence wins). An empty input commits [].
+  const commitTags = () => {
+    const tags: string[] = [];
+    for (const part of tagsDraft.split(",")) {
+      const tag = part.trim();
+      if (tag && !tags.includes(tag)) tags.push(tag);
+    }
+    if (
+      tags.length === prim.semantic_tags.length &&
+      tags.every((t, i) => t === prim.semantic_tags[i])
+    ) {
+      setTagsDraft(prim.semantic_tags.join(", ")); // unchanged: just normalize the display
+      return;
+    }
+    void updatePrim(prim.id, { semantic_tags: tags });
+  };
+
+  return (
+    <div className="mat-editor" style={{ marginTop: 6, marginBottom: 8 }}>
+      <h4>Name &amp; tags</h4>
+      <div className="field-grid">
+        <label title="Display name for this prim — commits on Enter or blur (cannot be empty)">
+          Name
+          <input
+            type="text"
+            value={nameDraft}
+            disabled={disabled}
+            placeholder={prim.name}
+            onChange={(e) => setNameDraft(e.target.value)}
+            onBlur={commitName}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.currentTarget.blur();
+            }}
+          />
+        </label>
+        <label title="Comma-separated semantic tags — commits on Enter or blur (empty clears all tags)">
+          Semantic tags
+          <input
+            type="text"
+            value={tagsDraft}
+            disabled={disabled}
+            placeholder="e.g. wall, concrete, exterior"
+            onChange={(e) => setTagsDraft(e.target.value)}
+            onBlur={commitTags}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") e.currentTarget.blur();
+            }}
+          />
+        </label>
+      </div>
+      <p className="hint">Tags drive rule-based and AI material suggestions for this prim.</p>
     </div>
   );
 }
@@ -888,9 +1019,19 @@ function PrimCard({ prim }: { prim: Prim }) {
           All prims ({allIds.length})
         </button>
       </div>
-      <Row label="Name">{prim.name}</Row>
+      {selection.length > 1 ? (
+        // Multi-selection: name/tags stay read-only (edits here would only hit
+        // the last-clicked prim, which reads as a bulk edit — misleading).
+        <>
+          <Row label="Name">{prim.name}</Row>
+          {prim.semantic_tags.length > 0 && (
+            <Row label="Tags">{prim.semantic_tags.join(", ")}</Row>
+          )}
+        </>
+      ) : (
+        <PrimIdentityEditor key={prim.id} prim={prim} />
+      )}
       <Row label="Type">{prim.type}</Row>
-      {prim.semantic_tags.length > 0 && <Row label="Tags">{prim.semantic_tags.join(", ")}</Row>}
       {prim.mesh_ref && (
         <Row label="Mesh">
           <span className="mono">

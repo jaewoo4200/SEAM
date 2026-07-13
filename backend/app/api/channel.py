@@ -42,11 +42,38 @@ def analyze_channel(
     library = store.load_materials(project_id)
     project_dir = store.resolve(project_id)
     try:
-        return channel_analysis.analyze_channel(project_dir, scene, library, request)
+        result = channel_analysis.analyze_channel(project_dir, scene, library, request)
     except BackendUnavailableError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     except ValueError as exc:  # unknown config id / missing device
         raise HTTPException(status_code=400, detail=str(exc))
+    if request.persist:
+        # Store the analysis like any other run (kind "channel") so the
+        # Metrics dashboard survives a reload and the run joins the history
+        # browser / prune lifecycle. Reuses the simulate module's persist
+        # helper for id allocation, size stamping and refs-lock semantics.
+        from app.api.simulate import _persist_result
+
+        config_id = (
+            request.config.id
+            if request.config is not None
+            else request.config_id
+            or (
+                scene.simulation_configs[0].id
+                if scene.simulation_configs
+                else "default"
+            )
+        )
+        result = _persist_result(
+            project_id,
+            scene,
+            project_dir,
+            "channel",
+            result.backend,
+            config_id,
+            result,
+        )
+    return result
 
 
 @router.post(

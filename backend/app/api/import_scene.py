@@ -13,6 +13,14 @@ POST /projects/import (multipart/form-data):
     name          human-readable project name
     environment   auto | indoor | outdoor
 
+POST /projects/import/start accepts the same multipart form but returns 202
+{"job_id"} immediately and runs the import on a background thread; GET
+/projects/import/jobs/{job_id} polls its phase/progress and final result (see
+``app.services.import_jobs``). The sync endpoint stays for scripts and tests;
+the UI uses the job flow so a campus-scale bundle shows live progress instead
+of an opaque frozen button. Both paths stream the upload to a temp file first,
+so a multi-hundred-MB bundle never sits in RAM.
+
 The heavy lifting (XML parse -> canonical scene + combined visual trimesh
 scene) is done by ``app.services.mitsuba_import.import_mitsuba_scene``; the
 persistence layout mirrors ``examples/scripts/import_bundle_scene.py`` (canonical
@@ -29,7 +37,6 @@ would on disk. When a zip contains several scene XMLs (e.g. ``scene.xml`` and
 variants preferred on a tie.
 """
 
-import io
 import json
 import re
 import shutil
@@ -38,14 +45,16 @@ import xml.etree.ElementTree as ET
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
-from typing import Optional
+from typing import Callable, Literal, Optional
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from app.api import deps
 from app.core.config import APP_VERSION
+from app.schemas.common import StrictModel
 from app.schemas.projects import ProjectInfo
 from app.schemas.simulation import SimulationConfig
+from app.services import import_jobs
 from app.services.mitsuba_import import import_mitsuba_scene
 from app.services.project_store import (
     ProjectNotFoundError,
@@ -68,6 +77,30 @@ class SceneImportResult(ProjectInfo):
     warnings: list[str] = []
 
 
+class ImportJobStarted(StrictModel):
+    """202 response of POST /projects/import/start."""
+
+    job_id: str
+
+
+class ImportJobStatus(StrictModel):
+    """Polling snapshot of a background import job.
+
+    ``project``/``warnings`` are populated once ``status == "done"``;
+    ``error`` once ``status == "error"`` (same message the sync endpoint's
+    HTTPException would have carried).
+    """
+
+    job_id: str
+    status: Literal["running", "done", "error"]
+    phase: str
+    done: int
+    total: int
+    project: Optional[ProjectInfo] = None
+    warnings: list[str] = []
+    error: Optional[str] = None
+
+
 _PROJECT_ID_RE = re.compile(r"^[a-z0-9_\-]+$")
 
 # Frequency of the default SimulationConfig created for imported projects
@@ -84,15 +117,17 @@ _ZIP_MAX_TOTAL_BYTES = 4 * 1024**3
 _ZIP_MAGIC = b"PK\x03\x04"
 
 
-def _safe_extract_zip(data: bytes, dest: Path) -> list[str]:
+def _safe_extract_zip(archive: Path, dest: Path) -> list[str]:
     """Extract a scene bundle preserving relative paths; return extracted names.
 
+    ``archive`` is the upload already streamed to disk — zipfile reads members
+    directly from the file, so the whole bundle is never held in RAM.
     Rejects entries that would escape ``dest`` (absolute paths, ``..``, drive
     letters) and skips macOS archive cruft (``__MACOSX/``, ``.DS_Store``,
     AppleDouble ``._*`` siblings) so a zip made with Finder imports cleanly.
     """
     try:
-        zf = zipfile.ZipFile(io.BytesIO(data))
+        zf = zipfile.ZipFile(archive)
     except zipfile.BadZipFile as exc:
         raise HTTPException(status_code=400, detail=f"invalid zip file: {exc}")
     extracted: list[str] = []
@@ -172,18 +207,26 @@ def _safe_upload_name(name: Optional[str]) -> Optional[str]:
     return leaf
 
 
-@router.post("/projects/import", response_model=SceneImportResult, status_code=201)
-def import_project(
-    file: UploadFile = File(..., description="Mitsuba/Sionna scene .xml"),
-    project_id: str = Form(...),
-    name: str = Form(...),
-    environment: str = Form("auto"),
-    meshes: list[UploadFile] = File(default=[]),
-) -> SceneImportResult:
-    # Deliberately SYNC (FastAPI runs it in the threadpool): a campus zip
-    # means minutes of extract + Mitsuba parse + GLB export, and an async def
-    # would pin all of it on the event loop - /health, the project list and
-    # the events WebSocket froze exactly while the user watched an import.
+def _payload_is_empty(path: Path) -> bool:
+    """True when the streamed upload contains no non-whitespace bytes.
+
+    Reads in chunks so a multi-GB bundle is never pulled into RAM just for
+    the empty-file check (real uploads bail out on the first chunk).
+    """
+    with path.open("rb") as fh:
+        while chunk := fh.read(65536):
+            if chunk.strip():
+                return False
+    return True
+
+
+def _check_import_request(project_id: str, environment: str) -> None:
+    """Shared fail-fast validation for both import endpoints.
+
+    400 on a bad project_id/environment, 409 when the project already exists —
+    checked up front so we never touch disk (or start a doomed job) for an
+    invalid request.
+    """
     if not _PROJECT_ID_RE.match(project_id):
         raise HTTPException(
             status_code=400,
@@ -197,9 +240,7 @@ def import_project(
             status_code=400,
             detail=f"invalid environment {environment!r}: use auto|indoor|outdoor",
         )
-
     store = deps.get_store()
-    # Duplicate check up front so we never touch disk for an existing id.
     try:
         store.resolve(project_id)
         raise HTTPException(
@@ -208,20 +249,46 @@ def import_project(
     except ProjectNotFoundError:
         pass
 
-    upload_name = _safe_upload_name(file.filename) or "scene.xml"
 
+def _run_import(
+    payload_path: Path,
+    upload_name: str,
+    project_id: str,
+    name: str,
+    environment: str,
+    extra_meshes: list[tuple[str, bytes]],
+    progress: Callable[..., None],
+) -> tuple[ProjectInfo, list[str]]:
+    """Import the streamed upload into a new project; return (info, warnings).
+
+    Shared by the sync endpoint (``progress`` = no-op) and the background job
+    worker. ``payload_path`` is the upload already streamed to a temp file on
+    disk; only the 4-byte magic is read up front and the zip/XML handling
+    works off the path, so a campus-scale bundle never sits in RAM.
+
+    ``progress(phase, done, total)`` is called at phase boundaries:
+    ("extracting", 1, 4) while unzipping a bundle (zip path only),
+    ("parsing", 2, 4) before import_mitsuba_scene, ("writing", 3, 4) before
+    project materialization/GLB export, and ("done", 4, 4) at the end.
+
+    Failures raise HTTPException exactly like the original inline body; the
+    job runner records ``.detail`` as the job's error message.
+    """
+    store = deps.get_store()
     with tempfile.TemporaryDirectory(prefix="sionnatwin_import_") as td:
         tmp_dir = Path(td)
-        payload = file.file.read()
-        if not payload.strip():
+        if _payload_is_empty(payload_path):
             raise HTTPException(status_code=400, detail="uploaded file is empty")
+        with payload_path.open("rb") as fh:
+            magic = fh.read(4)
 
         source_xml = upload_name
-        if payload[:4] == _ZIP_MAGIC or upload_name.lower().endswith(".zip"):
+        if magic == _ZIP_MAGIC or upload_name.lower().endswith(".zip"):
             # Bundle path: the zip carries the scene folder's relative tree
             # (meshes_tex/, textures/, ...), so the importer's XML-dir-relative
             # resolution works exactly as it would on disk.
-            _safe_extract_zip(payload, tmp_dir)
+            progress("extracting", 1, 4)
+            _safe_extract_zip(payload_path, tmp_dir)
             picked = _pick_scene_xml(tmp_dir)
             if picked is None:
                 raise HTTPException(
@@ -235,7 +302,7 @@ def import_project(
             if not xml_name.lower().endswith(".xml"):
                 xml_name = f"{Path(xml_name).stem or 'scene'}.xml"
             xml_path = tmp_dir / xml_name
-            xml_path.write_bytes(payload)
+            shutil.copyfile(payload_path, xml_path)
             source_xml = xml_name
 
             # Companion mesh files: written flat under tmp_dir AND under a
@@ -243,15 +310,12 @@ def import_project(
             # reference ``meshes/<name>.ply``. Writing both makes either
             # reference resolve.
             (tmp_dir / "meshes").mkdir(exist_ok=True)
-            for extra in meshes:
-                leaf = _safe_upload_name(extra.filename)
-                if not leaf:
-                    continue
-                data = extra.file.read()
+            for leaf, data in extra_meshes:
                 (tmp_dir / leaf).write_bytes(data)
                 (tmp_dir / "meshes" / leaf).write_bytes(data)
 
         library = load_default_library()
+        progress("parsing", 2, 4)
         try:
             scene, tm_scene, warnings, texture_files = import_mitsuba_scene(
                 xml_path,
@@ -298,6 +362,7 @@ def import_project(
         # Materialize the project folder via the store (creates the scaffold +
         # default library + provenance) then overwrite scene, GLB and
         # provenance with the imported content, mirroring import_bundle_scene.py.
+        progress("writing", 3, 4)
         info = store.create_project(name=name or project_id, project_id=project_id)
         project_dir = Path(info.path)
 
@@ -328,5 +393,145 @@ def import_project(
             ),
             encoding="utf-8",
         )
+        result = store.info(project_dir)
 
-    return SceneImportResult(**store.info(project_dir).model_dump(), warnings=warnings)
+    progress("done", 4, 4)
+    return result, warnings
+
+
+@router.post("/projects/import", response_model=SceneImportResult, status_code=201)
+def import_project(
+    file: UploadFile = File(..., description="Mitsuba/Sionna scene .xml"),
+    project_id: str = Form(...),
+    name: str = Form(...),
+    environment: str = Form("auto"),
+    meshes: list[UploadFile] = File(default=[]),
+) -> SceneImportResult:
+    # Deliberately SYNC (FastAPI runs it in the threadpool): a campus zip
+    # means minutes of extract + Mitsuba parse + GLB export, and an async def
+    # would pin all of it on the event loop - /health, the project list and
+    # the events WebSocket froze exactly while the user watched an import.
+    _check_import_request(project_id, environment)
+
+    upload_name = _safe_upload_name(file.filename) or "scene.xml"
+
+    with tempfile.TemporaryDirectory(prefix="sionnatwin_upload_") as td:
+        # Stream the upload to disk (chunked) instead of file.file.read():
+        # the old whole-payload read held a full campus bundle in RAM.
+        payload_path = Path(td) / "payload.bin"
+        with payload_path.open("wb") as out:
+            shutil.copyfileobj(file.file, out)
+        extra_meshes: list[tuple[str, bytes]] = []
+        for extra in meshes:
+            leaf = _safe_upload_name(extra.filename)
+            if leaf:
+                extra_meshes.append((leaf, extra.file.read()))
+        info, warnings = _run_import(
+            payload_path,
+            upload_name,
+            project_id,
+            name,
+            environment,
+            extra_meshes,
+            progress=lambda *args, **kwargs: None,
+        )
+
+    return SceneImportResult(**info.model_dump(), warnings=warnings)
+
+
+@router.post(
+    "/projects/import/start", response_model=ImportJobStarted, status_code=202
+)
+def start_project_import(
+    file: UploadFile = File(..., description="Mitsuba/Sionna scene .xml or bundle .zip"),
+    project_id: str = Form(...),
+    name: str = Form(...),
+    environment: str = Form("auto"),
+    meshes: list[UploadFile] = File(default=[]),
+) -> ImportJobStarted:
+    """Kick off a background import; poll GET /projects/import/jobs/{job_id}.
+
+    Same multipart contract as POST /projects/import, but returns 202 with a
+    job id immediately so the UI can show phase/progress instead of a frozen
+    button during a minutes-long campus bundle import. Validation and the
+    duplicate-id check run BEFORE the job is registered, so obvious mistakes
+    still fail fast with the familiar 400/409 instead of a doomed job.
+    """
+    _check_import_request(project_id, environment)
+    if import_jobs.is_import_running(project_id):
+        raise HTTPException(
+            status_code=409,
+            detail=f"import already in progress for this project id: {project_id}",
+        )
+
+    upload_name = _safe_upload_name(file.filename) or "scene.xml"
+
+    # mkdtemp, NOT TemporaryDirectory: the request scope ends before the
+    # worker thread runs, so the WORKER owns cleanup (its finally below).
+    staging = Path(tempfile.mkdtemp(prefix="sionnatwin_import_job_"))
+    try:
+        payload_path = staging / "payload.bin"
+        with payload_path.open("wb") as out:
+            shutil.copyfileobj(file.file, out)
+        # Stream each companion mesh too; an index prefix keeps duplicate leaf
+        # names as distinct files while _run_import still sees the original
+        # leaf (last-one-wins, same as the sync path).
+        mesh_dir = staging / "extra_meshes"
+        mesh_dir.mkdir()
+        mesh_files: list[tuple[str, Path]] = []
+        for i, extra in enumerate(meshes):
+            leaf = _safe_upload_name(extra.filename)
+            if not leaf:
+                continue
+            stored = mesh_dir / f"{i:04d}_{leaf}"
+            with stored.open("wb") as out:
+                shutil.copyfileobj(extra.file, out)
+            mesh_files.append((leaf, stored))
+    except Exception:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+
+    def worker(progress: import_jobs.ProgressCb) -> tuple[ProjectInfo, list[str]]:
+        try:
+            extra_meshes = [(leaf, path.read_bytes()) for leaf, path in mesh_files]
+            return _run_import(
+                payload_path,
+                upload_name,
+                project_id,
+                name,
+                environment,
+                extra_meshes,
+                progress,
+            )
+        finally:
+            shutil.rmtree(staging, ignore_errors=True)
+
+    try:
+        job_id = import_jobs.start_import_job(worker, project_id=project_id)
+    except import_jobs.ImportInProgressError:
+        # Race window: another request registered a job for this id between
+        # our is_import_running check and here.
+        shutil.rmtree(staging, ignore_errors=True)
+        raise HTTPException(
+            status_code=409,
+            detail=f"import already in progress for this project id: {project_id}",
+        )
+    return ImportJobStarted(job_id=job_id)
+
+
+@router.get("/projects/import/jobs/{job_id}", response_model=ImportJobStatus)
+def get_import_job_status(job_id: str) -> ImportJobStatus:
+    """Poll a background import job started by POST /projects/import/start."""
+    job = import_jobs.get_import_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail=f"unknown import job: {job_id}")
+    return ImportJobStatus(
+        job_id=job["job_id"],
+        status=job["status"],
+        phase=job["phase"],
+        done=job["done"],
+        total=job["total"],
+        project=job["project"],
+        warnings=job["warnings"],
+        error=job["error"],
+    )

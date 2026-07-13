@@ -368,8 +368,9 @@ interface AppState {
   undoDepth: number;
   /** Live progress of the in-flight solve, pushed over the event WebSocket
    *  (simulation_progress). null when no solve is reporting progress. The
-   *  `kind` mirrors the solve type (trajectory/dataset/mesh_radio_map/…). */
-  solveProgress: { kind: string; done: number; total: number } | null;
+   *  `kind` mirrors the solve type (trajectory/dataset/mesh_radio_map/…);
+   *  `startedAt` (epoch ms, client clock) drives the elapsed-time readout. */
+  solveProgress: { kind: string; done: number; total: number; startedAt: number } | null;
   /** Opens the Toolbar's import-scene popover from elsewhere (e.g. the
    *  empty-state "Import a scene" CTA). The Toolbar mirrors it into its local
    *  popover open-state and resets it back to false when the popover closes. */
@@ -541,6 +542,13 @@ interface AppState {
   setViewport: (patch: Partial<ViewportSettings>) => void;
   resetViewport: () => void;
 
+  // prim editing (name/tags drive rule-based + AI material suggestions, so
+  // they must be correctable in the UI, not read-only imports)
+  updatePrim: (
+    primId: string,
+    patch: { name?: string; semantic_tags?: string[] },
+  ) => Promise<void>;
+
   // device editing
   updateDevice: (deviceId: string, patch: Partial<Device>) => Promise<void>;
   addDevice: (kind: "tx" | "rx", position?: Vec3) => Promise<void>;
@@ -619,6 +627,9 @@ interface AppState {
     rxId: string,
     numCfrPoints?: number,
     scsKhz?: number,
+    /** persist: store the run (kind "channel") so it survives reload; manual
+     *  analyses pass true, auto-reruns leave it off. */
+    opts?: { persist?: boolean },
   ) => Promise<void>;
   clearChannel: () => void;
 
@@ -933,12 +944,12 @@ export const useAppStore = create<AppState>()((set, get) => {
         stopLivePoll();
         return;
       }
-      // Silent refresh (no busy spinner): pull the latest scene and merge only
+      // Silent refresh (no busy spinner): pull ONLY the pose table (a few
+      // hundred bytes vs the multi-MB full scene on campus projects) and merge
       // device/actor positions so an in-flight edit form is not clobbered.
       void api
-        .getScene(projectId)
-        .then((raw) => {
-          const fresh = normalizeScene(raw);
+        .scenePositions(projectId)
+        .then((fresh) => {
           const cur = get().scene;
           if (!cur || !get().liveMode) return;
           // Never merge positions while the user is dragging a gizmo: the
@@ -1097,10 +1108,13 @@ export const useAppStore = create<AppState>()((set, get) => {
         const kind = typeof msg.kind === "string" ? msg.kind : "solve";
         const done = typeof msg.done === "number" ? msg.done : 0;
         const total = typeof msg.total === "number" ? msg.total : 0;
-        set({ solveProgress: { kind, done, total } });
+        // Keep the original start stamp across progress ticks (a progress
+        // frame may also arrive without a preceding started event).
+        const startedAt = get().solveProgress?.startedAt ?? Date.now();
+        set({ solveProgress: { kind, done, total, startedAt } });
       } else if (type === "simulation_started") {
         const kind = typeof msg.kind === "string" ? msg.kind : "solve";
-        set({ solveProgress: { kind, done: 0, total: 0 } });
+        set({ solveProgress: { kind, done: 0, total: 0, startedAt: Date.now() } });
       } else if (type === "simulation_failed") {
         // A cancelled or errored solve must clear the progress bar, otherwise
         // it sticks at the last reported fraction forever.
@@ -1429,6 +1443,13 @@ export const useAppStore = create<AppState>()((set, get) => {
           set({ scenario: await api.getScenario(projectId), scenarioFrame: 0 });
         } catch {
           // no scenario yet; ignore silently
+        }
+        // Latest persisted channel analysis, so the Metrics dashboard opens
+        // with what the user last analyzed instead of empty (404 = none yet).
+        try {
+          set({ channelResult: await api.getChannelResult(projectId) });
+        } catch {
+          // no persisted channel analysis; ignore silently
         }
       });
       // Latest stored mesh radio map + live-event socket: both out-of-band and
@@ -1848,6 +1869,10 @@ export const useAppStore = create<AppState>()((set, get) => {
           const result = await api.getMeshRadioMapResult(pid, ref.result_id);
           set({ meshRadioMap: result, showMeshRadioMap: true, ...resultsMode() });
           stampResult("mesh_radio_map");
+        } else if (ref.kind === "channel") {
+          const result = await api.getChannelResult(pid, ref.result_id);
+          set({ channelResult: result, ...resultsMode() });
+          stampResult("channel");
         } else {
           set({ error: `Cannot activate result of kind ${ref.kind}` });
           return;
@@ -2649,6 +2674,36 @@ export const useAppStore = create<AppState>()((set, get) => {
       if (pid) saveViewportSettings(pid, next);
     },
 
+    // ---------------------------------------------------- prim editing
+
+    updatePrim: async (primId, patch) => {
+      const scene = get().scene;
+      if (!scene) return;
+      const trimmed = patch.name?.trim();
+      if (patch.name !== undefined && !trimmed) {
+        set({ error: "Prim name cannot be empty" });
+        return;
+      }
+      const prims = scene.prims.map((p) =>
+        p.id === primId
+          ? {
+              ...p,
+              ...(trimmed !== undefined ? { name: trimmed } : {}),
+              ...(patch.semantic_tags !== undefined
+                ? { semantic_tags: patch.semantic_tags }
+                : {}),
+            }
+          : p,
+      );
+      await run("Updating prim…", async () => {
+        await putSceneAndRefresh({ ...scene, prims });
+        set({ notice: `Updated ${primId}` });
+      });
+      // Name/tags feed the rule-based + AI material suggesters, so an edit is
+      // a real scene change (stale badges + auto targets), like device edits.
+      afterSceneEdit();
+    },
+
     // ---------------------------------------------------- device editing
 
     updateDevice: async (deviceId, patch) => {
@@ -2967,7 +3022,7 @@ export const useAppStore = create<AppState>()((set, get) => {
 
     // ---------------------------------------------------- channel analysis
 
-    analyzeChannel: async (txId, rxId, numCfrPoints, scsKhz) => {
+    analyzeChannel: async (txId, rxId, numCfrPoints, scsKhz, opts) => {
       const pid = get().projectId;
       if (!pid) return;
       // Remember the pair (and SCS) so auto-update can re-run the same analysis
@@ -2982,6 +3037,9 @@ export const useAppStore = create<AppState>()((set, get) => {
           ...(numCfrPoints !== undefined ? { num_cfr_points: numCfrPoints } : {}),
           // Likewise the SCS: omit to let the backend default (30 kHz) hold.
           ...(scsKhz !== undefined ? { subcarrier_spacing_khz: scsKhz } : {}),
+          // Manual analyses persist (kind "channel") so the dashboard survives
+          // reload; auto-reruns stay interactive-only to not spam results/.
+          ...(opts?.persist ? { persist: true } : {}),
         });
         // A debounced/auto analysis can land AFTER a project switch; writing
         // it would show the old scene's channel in the new project (audit B4).
@@ -2993,6 +3051,9 @@ export const useAppStore = create<AppState>()((set, get) => {
             `${result.backend} backend`,
         });
         stampResult("channel");
+        // A persisted analysis appended a ResultSetRef -> refresh the scene so
+        // the history browser shows the new run.
+        if (opts?.persist) await refetchSceneInner();
       });
     },
 

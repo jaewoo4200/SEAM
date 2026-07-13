@@ -296,6 +296,9 @@ export default function MetricsPanel() {
   const scenario = useAppStore((s) => s.scenario);
   // Which UE's handover to show (multi-UE runs); null = the primary UE.
   const [hoUe, setHoUe] = useState<string | null>(null);
+  // Which UE the trajectory metric charts follow (multi-UE runs); null = the
+  // first routed UE. Clamped in `metricUeSel` when the result changes.
+  const [metricUe, setMetricUe] = useState<string | null>(null);
 
   const kpis = useMemo(() => (r ? kpiRows(r) : []), [r]);
 
@@ -346,12 +349,40 @@ export default function MetricsPanel() {
   );
 
   // --- trajectory time series ---
+  // Multi-UE results interleave samples step-major (len == num_steps × #UEs).
+  // The routed UE ids, in route order — metadata.ue_ids when present (guarded:
+  // old results predate it), else first-appearance order in the samples.
+  const trajUeIds = useMemo<string[]>(() => {
+    if (!trajectory) return [];
+    const meta = trajectory.metadata.ue_ids;
+    if (
+      Array.isArray(meta) &&
+      meta.length > 0 &&
+      meta.every((u): u is string => typeof u === "string")
+    ) {
+      return meta;
+    }
+    const seen: string[] = [];
+    for (const s of trajectory.samples) {
+      if (typeof s.ue_id === "string" && !seen.includes(s.ue_id)) seen.push(s.ue_id);
+    }
+    return seen;
+  }, [trajectory]);
+
+  // Resolve the charted UE: the explicit pick while it exists on the current
+  // result, else the first routed UE (also covers a result swap invalidating
+  // the previous pick).
+  const metricUeSel = useMemo(
+    () => (metricUe && trajUeIds.includes(metricUe) ? metricUe : trajUeIds[0] ?? null),
+    [metricUe, trajUeIds],
+  );
+
   const traj = useMemo(() => {
-    // Multi-UE results interleave samples step-major; the charts follow the
-    // FIRST routed UE (the playback panel's KPI card has a per-UE selector).
+    // Every per-sample chart follows the UE picked in the trajectory-section
+    // "UE" selector (first routed UE by default; selector hidden when single-UE).
     const all: TrajectorySample[] = trajectory?.samples ?? [];
-    const firstUe = all[0]?.ue_id;
-    const samples = all.filter((s) => s.ue_id === firstUe);
+    const ue = metricUeSel ?? all[0]?.ue_id;
+    const samples = all.filter((s) => s.ue_id === ue);
     if (samples.length === 0) return null;
     const t = samples.map((s) => s.time_s);
     const rss = samples.map((s) => s.rss_dbm);
@@ -368,7 +399,7 @@ export default function MetricsPanel() {
         ? rss.map((v) => (v === null ? null : v - 10 * Math.log10(12 * nrb)))
         : null;
     return { t, rss, sinr, rms, pc, rsrp, hasInterference };
-  }, [trajectory, r]);
+  }, [trajectory, metricUeSel, r]);
 
   const trajPower = useMemo<Series[]>(() => {
     if (!traj) return [];
@@ -392,27 +423,29 @@ export default function MetricsPanel() {
   );
 
   // --- Doppler spread over time (idea #15: Doppler is computed, keep it) ---
-  // metadata.doppler_spread_hz is parallel to samples; follow the FIRST routed
-  // UE (like the other trajectory charts). Scenario runs may expose an
-  // analogous per-frame array — plotted as a second series when present.
+  // metadata.doppler_spread_hz is parallel to the GLOBAL samples array, so the
+  // per-UE filter must carry the global index i (pair first, then filter) to
+  // keep each Doppler value on its own sample. Follows the same selected UE as
+  // the other trajectory charts. Scenario runs may expose an analogous
+  // per-frame array — plotted as a second series when present.
   const dopplerSeries = useMemo<Series[]>(() => {
     const out: Series[] = [];
     if (trajectory) {
       const dop = trajectory.metadata.doppler_spread_hz as (number | null)[] | undefined;
       const all = trajectory.samples;
       if (Array.isArray(dop) && all.length > 0) {
-        const firstUe = all[0]?.ue_id;
+        const ue = metricUeSel ?? all[0]?.ue_id;
         const n = Math.min(all.length, dop.length);
         const x: number[] = [];
         const y: (number | null)[] = [];
         for (let i = 0; i < n; i++) {
-          if (all[i].ue_id !== firstUe) continue;
+          if (all[i].ue_id !== ue) continue;
           x.push(all[i].time_s);
           const v = dop[i];
           y.push(typeof v === "number" && Number.isFinite(v) ? v : null);
         }
         if (y.some((v) => v != null)) {
-          out.push({ label: `Doppler (${firstUe ?? "UE"})`, x, y, color: CHART_COLORS[4] });
+          out.push({ label: `Doppler (${ue ?? "UE"})`, x, y, color: CHART_COLORS[4] });
         }
       }
     }
@@ -434,7 +467,7 @@ export default function MetricsPanel() {
       }
     }
     return out;
-  }, [trajectory, scenario]);
+  }, [trajectory, metricUeSel, scenario]);
 
   // --- handover (idea #13: per-step serving TX + A3 events) ---
   // metadata.handover is present only on A3 runs; guard every read.
@@ -446,14 +479,16 @@ export default function MetricsPanel() {
     return { ho, ueKeys };
   }, [trajectory]);
 
-  // Resolve the shown UE: explicit pick if still valid, else the primary UE
-  // (trajectory.ue_id) if it has handover data, else the first key.
+  // Resolve the shown UE: explicit pick if still valid, else follow the
+  // trajectory-charts UE selector when that UE has handover data, else the
+  // primary UE (trajectory.ue_id) if it has handover data, else the first key.
   const hoUeSel = useMemo(() => {
     if (!handover) return null;
     const { ho, ueKeys } = handover;
-    const primary = trajectory?.ue_id && ho[trajectory.ue_id] ? trajectory.ue_id : ueKeys[0];
-    return hoUe && ho[hoUe] ? hoUe : primary;
-  }, [handover, hoUe, trajectory]);
+    if (hoUe && ho[hoUe]) return hoUe;
+    if (metricUeSel && ho[metricUeSel]) return metricUeSel;
+    return trajectory?.ue_id && ho[trajectory.ue_id] ? trajectory.ue_id : ueKeys[0];
+  }, [handover, hoUe, metricUeSel, trajectory]);
 
   const hoSummary = handover && hoUeSel ? handover.ho[hoUeSel] : null;
 
@@ -649,6 +684,22 @@ export default function MetricsPanel() {
       <h4 className="metrics-section-head">
         Moving UE (trajectory sweep) <StaleChip kind="trajectory" />
       </h4>
+          {trajUeIds.length > 1 && (
+            <div className="results-meta">
+              UE{" "}
+              <select
+                value={metricUeSel ?? ""}
+                onChange={(e) => setMetricUe(e.target.value)}
+                title="Which routed UE the trajectory charts below show"
+              >
+                {trajUeIds.map((u) => (
+                  <option key={u} value={u}>
+                    {u}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <LineChart
             title="Trajectory: power vs time"
             name="trajectory_power"

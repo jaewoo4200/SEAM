@@ -4,9 +4,14 @@ import type { Mode } from "../store/appStore";
 import { api, ApiError } from "../api/client";
 import OsmAreaPicker from "./OsmAreaPicker";
 import { PANEL_REGISTRY } from "./PanelHost";
-import type { Environment } from "../types/api";
+import type { Environment, ImportJobStatus } from "../types/api";
 
 const PROJECT_ID_PATTERN = /^[a-z0-9_-]+$/;
+
+/** Poll cadence for the background scene-import job (ms). */
+const IMPORT_POLL_MS = 700;
+/** Consecutive poll-fetch failures tolerated (backend hiccup) before erroring. */
+const IMPORT_POLL_MAX_FAILURES = 3;
 
 const MODES: { id: Mode; label: string }[] = [
   { id: "visual", label: "Visual" },
@@ -375,6 +380,10 @@ function isZip(file: File): boolean {
   return /\.zip$/i.test(file.name);
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /** "Import" button + inline popover: upload a Mitsuba/Sionna .xml (with any
  *  companion .ply/.obj meshes) as a new project. On success reloads the project
  *  list and opens the new project. Errors surface inline in the popover. */
@@ -401,6 +410,17 @@ function ImportSceneButton({
   const [environment, setEnvironment] = useState<Environment>("auto");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // Live progress of the background import job (phase text + step counts),
+  // rendered as a small row above the actions while the job runs.
+  const [progress, setProgress] = useState<{
+    phase: string;
+    done: number;
+    total: number;
+  } | null>(null);
+  // Cancellation token for the import poll loop. A per-submit object (rather
+  // than a bare boolean) means a stale loop can never be "un-cancelled" by a
+  // later submit reusing the same flag.
+  const importPollRef = useRef<{ cancelled: boolean } | null>(null);
   // OSM import fields: center coordinate + rectangle size. Default: Hanyang
   // University, Seoul (arbitrary sensible urban starting view).
   const [osmLat, setOsmLat] = useState("37.5576");
@@ -437,6 +457,25 @@ function ImportSceneButton({
     if (importOpen) setImportOpen(false);
   }, [importOpen, open, setImportOpen]);
 
+  // Stop the import poll when the popover closes (outside click, Escape,
+  // Cancel, or the done path) and unfreeze the form so a reopen is usable.
+  // The backend job itself keeps running server-side.
+  useEffect(() => {
+    if (open || !importPollRef.current) return;
+    importPollRef.current.cancelled = true;
+    importPollRef.current = null;
+    setSubmitting(false);
+    setProgress(null);
+  }, [open]);
+
+  // Stop polling on unmount too, so no setState fires on a dead component.
+  useEffect(
+    () => () => {
+      if (importPollRef.current) importPollRef.current.cancelled = true;
+    },
+    [],
+  );
+
   const reset = () => {
     setXml(null);
     setMeshes([]);
@@ -446,6 +485,7 @@ function ImportSceneButton({
     setEnvironment("auto");
     setError(null);
     setSubmitting(false);
+    setProgress(null);
   };
 
   // Auto-derive the id from the name until the user edits the id field.
@@ -487,20 +527,55 @@ function ImportSceneButton({
     if (!xml || !idValid) return;
     setSubmitting(true);
     setError(null);
+    setProgress(null);
     const form = new FormData();
     form.append("file", xml, xml.name);
     form.append("project_id", effectiveId);
     form.append("name", name.trim() || effectiveId);
     form.append("environment", environment);
     for (const m of meshes) form.append("meshes", m, m.name);
+    const poll = { cancelled: false };
+    importPollRef.current = poll;
     try {
-      const info = await api.importScene(form);
-      setOpen(false);
-      reset();
-      await onImported(info.project_id, info.warnings ?? []);
+      // Background job flow: start returns a job id immediately (a duplicate
+      // id 409s here and surfaces via the catch below), then we poll for live
+      // phase/progress instead of freezing on one long await.
+      const { job_id } = await api.importSceneStart(form);
+      let failures = 0;
+      for (;;) {
+        await sleep(IMPORT_POLL_MS);
+        if (poll.cancelled) return;
+        let status: ImportJobStatus;
+        try {
+          status = await api.importSceneJob(job_id);
+          failures = 0;
+        } catch (pollErr) {
+          // Tolerate transient poll hiccups; give up after a few in a row.
+          failures += 1;
+          if (failures >= IMPORT_POLL_MAX_FAILURES) throw pollErr;
+          continue;
+        }
+        if (poll.cancelled) return;
+        if (status.status === "done") {
+          const newId = status.project?.project_id ?? effectiveId;
+          setOpen(false);
+          reset();
+          await onImported(newId, status.warnings ?? []);
+          return;
+        }
+        if (status.status === "error") {
+          setError(status.error ?? "import failed");
+          setSubmitting(false);
+          setProgress(null);
+          return;
+        }
+        setProgress({ phase: status.phase, done: status.done, total: status.total });
+      }
     } catch (err) {
+      if (poll.cancelled) return;
       setError(err instanceof ApiError ? err.message : String(err));
       setSubmitting(false);
+      setProgress(null);
     }
   };
 
@@ -682,6 +757,38 @@ function ImportSceneButton({
           )}
           {dupId && <span className="field-error">a project “{effectiveId}” already exists</span>}
           {error && <span className="field-error">{error}</span>}
+          {submitting && source === "xml" && progress && (
+            <div
+              className="import-progress"
+              role="status"
+              style={{ fontSize: 11, color: "var(--muted)" }}
+            >
+              <span>
+                Importing… {progress.phase} ({progress.done}/{progress.total})
+              </span>
+              <div
+                style={{
+                  height: 3,
+                  marginTop: 4,
+                  borderRadius: 2,
+                  background: "var(--border)",
+                  overflow: "hidden",
+                }}
+              >
+                <div
+                  style={{
+                    height: "100%",
+                    width:
+                      progress.total > 0
+                        ? `${Math.min(100, Math.round((progress.done / progress.total) * 100))}%`
+                        : "0%",
+                    background: "var(--accent)",
+                    transition: "width 0.3s ease",
+                  }}
+                />
+              </div>
+            </div>
+          )}
           <div className="import-actions">
             <button
               className="primary"

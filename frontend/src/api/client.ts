@@ -58,6 +58,7 @@ import type {
   RFMaterialLibrary,
   ChannelSweepRequest,
   ChannelSweepResult,
+  ImportJobStatus,
   MaterialImportRequest,
   MaterialImportResponse,
   ProjectDuplicateRequest,
@@ -71,6 +72,7 @@ import type {
   ScenarioSimulateRequest,
   Scene,
   SceneBounds,
+  ScenePositions,
   SpectrogramRequest,
   SpectrogramResult,
   TrajectoryValidationReport,
@@ -181,6 +183,13 @@ export const api = {
   // new project. `form` carries: file (the .xml), project_id, name,
   // environment, and zero or more `meshes` file parts.
   importScene: (form: FormData) => postForm<SceneImportResult>("/projects/import", form),
+  // Background import: start returns a job id immediately (no frozen button
+  // during a minutes-long campus bundle); poll importSceneJob until it leaves
+  // "running" (phases: extracting -> parsing -> converting -> writing).
+  importSceneStart: (form: FormData) =>
+    postForm<{ job_id: string }>("/projects/import/start", form),
+  importSceneJob: (jobId: string) =>
+    request<ImportJobStatus>("GET", `/projects/import/jobs/${encodeURIComponent(jobId)}`),
   // One-shot OpenStreetMap import: building footprints in a rectangle around
   // a lat/lon, extruded + RF-preassigned (needs internet for Overpass).
   importOsm: (req: OsmImportRequest) =>
@@ -188,6 +197,10 @@ export const api = {
 
   // scene
   getScene: (pid: string) => request<Scene>("GET", `/projects/${pid}/scene`),
+  // Positions-only live feed for the 2s Live-sync poll (device/actor poses
+  // with live-state overlay applied; ~100 bytes vs the multi-MB full scene).
+  scenePositions: (pid: string) =>
+    request<ScenePositions>("GET", `/projects/${pid}/scene/positions`),
   sceneBounds: (pid: string) => request<SceneBounds>("GET", `/projects/${pid}/scene/bounds`),
   putScene: (pid: string, scene: Scene) => request<Scene>("PUT", `/projects/${pid}/scene`, scene),
   // Undo: make the steps-th newest history snapshot the current scene.
@@ -307,6 +320,13 @@ export const api = {
     request<PathResultSet>(
       "GET",
       `/projects/${pid}/results/paths${resultId ? `?result_id=${encodeURIComponent(resultId)}` : ""}`,
+    ),
+  // Latest (or specific) persisted channel analysis — reloads the Metrics
+  // dashboard after a refresh instead of starting empty.
+  getChannelResult: (pid: string, resultId?: string) =>
+    request<ChannelAnalysisResult>(
+      "GET",
+      `/projects/${pid}/results/channel${resultId ? `?result_id=${encodeURIComponent(resultId)}` : ""}`,
     ),
   getRadioMap: (pid: string, resultId?: string) =>
     request<RadioMapResultSet>(

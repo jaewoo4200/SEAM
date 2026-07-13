@@ -1106,7 +1106,11 @@ export default function ChannelPanel() {
           <button
             className="primary"
             disabled={!projectId || disabled || !txId || !rxId}
-            onClick={() => void analyzeChannel(txId, rxId, numCfrPoints, live.scsKhz)}
+            onClick={() =>
+              // Manual analyses persist (kind "channel") so the dashboard
+              // survives reload; live/auto re-runs stay interactive-only.
+              void analyzeChannel(txId, rxId, numCfrPoints, live.scsKhz, { persist: true })
+            }
           >
             Analyze
           </button>

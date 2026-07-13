@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useAppStore } from "./store/appStore";
 import { usePanelSize } from "./usePanelSize";
 import type { PanelSide } from "./usePanelSize";
@@ -31,6 +31,15 @@ export default function App() {
   const undoDepth = useAppStore((s) => s.undoDepth);
   const solveProgress = useAppStore((s) => s.solveProgress);
   const cancelSolve = useAppStore((s) => s.cancelSolve);
+
+  // 1 Hz re-render while a solve is in flight so the elapsed readout ticks;
+  // the interval only exists while the progress card is visible.
+  const [, setElapsedTick] = useState(0);
+  useEffect(() => {
+    if (!solveProgress) return;
+    const t = setInterval(() => setElapsedTick((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, [solveProgress !== null]);
 
   const panel = usePanelSize();
 
@@ -204,6 +213,7 @@ export default function App() {
               {solveProgress.total > 0
                 ? ` — ${solveProgress.done}/${solveProgress.total}`
                 : "…"}
+              {` · ${formatElapsed(Date.now() - solveProgress.startedAt)}`}
             </span>
             <button onClick={() => void cancelSolve()} title="Cancel solve">
               Cancel
@@ -227,6 +237,13 @@ export default function App() {
       )}
     </div>
   );
+}
+
+/** Elapsed milliseconds as "37s" / "2m 05s" for the solve-progress card. */
+function formatElapsed(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  if (s < 60) return `${s}s`;
+  return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
 }
 
 /** Human label for the solve-progress bar's `kind` (matches the backend's

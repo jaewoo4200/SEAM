@@ -674,9 +674,15 @@ export interface ChannelAnalysisRequest {
   num_cfr_points?: number;
   // OFDM subcarrier spacing for RSRP/RSSI/RSRQ (kHz; 30 = 5G FR1, 15 = LTE).
   subcarrier_spacing_khz?: number;
+  /** Persist as a stored run (kind "channel") so the Metrics dashboard
+   *  survives reload. Off for auto-reruns to avoid spamming results/. */
+  persist?: boolean;
 }
 
 export interface ChannelAnalysisResult {
+  /** "unsaved" for interactive analyses; a real id when persisted. */
+  result_id?: string;
+  created_at?: string | null;
   doppler_spread_hz?: number | null;
   mean_doppler_hz?: number | null;
   max_doppler_hz?: number | null;
@@ -1291,6 +1297,28 @@ export interface ProjectInfo {
  *  instead of buried in provenance.json. */
 export interface SceneImportResult extends ProjectInfo {
   warnings: string[];
+}
+
+/** GET /projects/import/jobs/{job_id} — background scene-import job status.
+ *  POST /projects/import/start returns { job_id }; the UI polls this until
+ *  status leaves "running" (phases: extracting → parsing → converting →
+ *  writing). `project` and `warnings` are set on "done"; `error` on "error". */
+export interface ImportJobStatus {
+  job_id: string;
+  status: "running" | "done" | "error";
+  phase: string;
+  done: number;
+  total: number;
+  project: ProjectInfo | null;
+  warnings: string[];
+  error: string | null;
+}
+
+/** GET /projects/{id}/scene/positions — positions-only live feed (the 2s
+ *  Live-sync poll uses this instead of downloading the whole scene). */
+export interface ScenePositions {
+  devices: { id: string; position: Vec3; orientation_deg: Vec3 }[];
+  actors: { id: string; position: Vec3; orientation_deg: Vec3 }[];
 }
 
 export interface ProjectCreateRequest {

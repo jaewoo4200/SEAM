@@ -26,6 +26,7 @@ from pydantic import Field
 
 from app.api.deps import get_store, load_scene_live, load_scene_or_404
 from app.schemas.actors import ScenarioResultSet
+from app.schemas.channel import ChannelAnalysisResult
 from app.schemas.common import StrictModel
 from app.schemas.results import (
     BeamformingResult,
@@ -90,13 +91,16 @@ def _solve_guard(project_id: str, kind: str) -> Iterator[None]:
                 )
                 raise
 
-ResultKind = Literal["paths", "radio_map", "mesh_radio_map", "trajectory", "scenario"]
+ResultKind = Literal[
+    "paths", "radio_map", "mesh_radio_map", "trajectory", "scenario", "channel"
+]
 RESULT_KINDS: tuple[str, ...] = (
     "paths",
     "radio_map",
     "mesh_radio_map",
     "trajectory",
     "scenario",
+    "channel",
 )
 AnyResult = Union[
     PathResultSet,
@@ -104,6 +108,7 @@ AnyResult = Union[
     MeshRadioMapResultSet,
     TrajectoryResultSet,
     ScenarioResultSet,
+    ChannelAnalysisResult,
 ]
 
 
@@ -370,6 +375,19 @@ def get_paths_result(
     project_id: str, result_id: Optional[str] = Query(default=None)
 ) -> PathResultSet:
     return PathResultSet.model_validate(_load_result(project_id, "paths", result_id))
+
+
+@router.get(
+    "/projects/{project_id}/results/channel", response_model=ChannelAnalysisResult
+)
+def get_channel_result(
+    project_id: str, result_id: Optional[str] = Query(default=None)
+) -> ChannelAnalysisResult:
+    """Latest (or a specific) persisted channel analysis — lets the Metrics
+    dashboard reload what the user last analyzed instead of starting empty."""
+    return ChannelAnalysisResult.model_validate(
+        _load_result(project_id, "channel", result_id)
+    )
 
 
 @router.get(

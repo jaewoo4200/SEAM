@@ -37,6 +37,28 @@ def get_scene(project_id: str) -> Scene:
     return deps.load_scene_live(deps.get_store(), project_id)
 
 
+@router.get("/projects/{project_id}/scene/positions")
+def get_scene_positions(project_id: str) -> dict:
+    """Positions-only live feed: device/actor poses without the full scene.
+
+    The Live-sync poll only merges positions client-side, but used to download
+    the ENTIRE scene (prims, result refs — MBs on a campus) every 2 s to get
+    them. This returns just the pose table, with the same live-state overlay
+    semantics as GET /scene so external (persist=false) pushes are followed.
+    """
+    scene = deps.load_scene_live(deps.get_store(), project_id)
+    return {
+        "devices": [
+            {"id": d.id, "position": d.position, "orientation_deg": d.orientation_deg}
+            for d in scene.devices
+        ],
+        "actors": [
+            {"id": a.id, "position": a.position, "orientation_deg": a.orientation_deg}
+            for a in scene.actors
+        ],
+    }
+
+
 @router.get("/projects/{project_id}/scene/bounds", response_model=SceneBounds)
 def get_scene_bounds(project_id: str) -> SceneBounds:
     """World-space AABB of the visual scene (devices/actors merged in).

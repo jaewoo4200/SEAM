@@ -67,9 +67,18 @@ class ChannelAnalysisRequest(StrictModel):
     # OFDM subcarrier spacing [kHz] for the 3GPP measurement quantities
     # (RSRP/RSSI/RSRQ resource grid). 30 kHz = 5G NR FR1 default; 15 = LTE.
     subcarrier_spacing_khz: float = Field(default=30.0, gt=0.0)
+    # Persist this analysis as a stored result (kind "channel") so the Metrics
+    # dashboard survives a reload and the run appears in the history browser.
+    # Default off: auto-rerun analyses are interactive readouts and would
+    # otherwise spam results/ on every scene nudge.
+    persist: bool = False
 
 
 class ChannelAnalysisResult(StrictModel):
+    # Stamped by the persist path; "unsaved" for interactive (non-persisted)
+    # analyses, mirroring the other result-set models.
+    result_id: str = "unsaved"
+    created_at: Optional[str] = None
     tx_id: str
     rx_id: str
     backend: str

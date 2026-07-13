@@ -23,6 +23,7 @@ export type ConfigPresetId =
   | "outdoor_campus_28"
   | "urban_macro_35"
   | "indoor_60"
+  | "uav_a2g_28"
   | "custom";
 
 export interface ConfigPreset {
@@ -106,6 +107,25 @@ export const PRESETS: ConfigPreset[] = [
     },
     radioMap: { cell_size_m: 0.25 },
   },
+  {
+    // UAV air-to-ground (TR 36.777 regime): mostly-LOS links with ground
+    // reflections + building-edge diffraction dominating; shallow depth keeps
+    // campus-scale solves fast, and the radio-map plane sits at a typical UAV
+    // operating altitude so coverage maps answer "what does the drone see".
+    id: "uav_a2g_28",
+    label: "28 GHz UAV A2G",
+    config: {
+      frequency_hz: 28e9,
+      max_depth: 3,
+      los: true,
+      reflection: true,
+      diffraction: true,
+      scattering: false,
+      refraction: false,
+      bandwidth_hz: 100e6,
+    },
+    radioMap: { cell_size_m: 2.0, height_m: 60 },
+  },
 ];
 
 export const CONFIG_PRESETS: Record<
@@ -116,6 +136,7 @@ export const CONFIG_PRESETS: Record<
   outdoor_campus_28: PRESETS[1],
   urban_macro_35: PRESETS[2],
   indoor_60: PRESETS[3],
+  uav_a2g_28: PRESETS[4],
 };
 
 /** Label for any preset id, including the "Custom" sentinel. */
