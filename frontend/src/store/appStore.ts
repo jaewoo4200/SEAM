@@ -561,6 +561,15 @@ interface AppState {
   // actor editing
   addActor: (kind: ActorKind) => Promise<void>;
   updateActor: (actorId: string, patch: Partial<Actor>) => Promise<void>;
+  /** Create a TX/RX at the actor's position (mounted on top of its shape),
+   *  attach it to the actor, and keep it following actor moves — this is how
+   *  an actor (e.g. a UAV) becomes an RF endpoint for path simulation: rays
+   *  terminate at antennas (devices), not at scatterer geometry. */
+  attachDeviceToActor: (actorId: string, kind: "tx" | "rx") => Promise<void>;
+  /** Waypoint highlighted from the Inspector's trajectory list (a click on a
+   *  row); the viewer renders that point emphasized. */
+  highlightedWaypoint: { actorId: string; index: number } | null;
+  setHighlightedWaypoint: (hw: { actorId: string; index: number } | null) => void;
   /** Clone an actor (shape/material/trajectory/orientation) with a fresh id
    *  and a small position offset; the copy becomes the selection. */
   duplicateActor: (actorId: string) => Promise<void>;
@@ -1234,6 +1243,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     notice: null,
     undoDepth: 0,
     solveProgress: null,
+    highlightedWaypoint: null,
     importOpen: false,
 
     init: async () => {
@@ -1303,6 +1313,7 @@ export const useAppStore = create<AppState>()((set, get) => {
           // session, but the button reflects edits made since this open).
           undoDepth: 0,
           solveProgress: null,
+          highlightedWaypoint: null,
           selection: [],
           selectedDeviceId: null,
           selectedActorId: null,
@@ -1680,10 +1691,23 @@ export const useAppStore = create<AppState>()((set, get) => {
       set({ selectedDeviceId: deviceId, selection: [], selectedActorId: null }),
 
     selectActor: (actorId) =>
-      set({ selectedActorId: actorId, selection: [], selectedDeviceId: null }),
+      set({
+        selectedActorId: actorId,
+        selection: [],
+        selectedDeviceId: null,
+        // A highlight from another actor's waypoint list must not linger.
+        ...(get().highlightedWaypoint?.actorId !== actorId
+          ? { highlightedWaypoint: null }
+          : {}),
+      }),
 
     clearSelection: () =>
-      set({ selection: [], selectedDeviceId: null, selectedActorId: null }),
+      set({
+        selection: [],
+        selectedDeviceId: null,
+        selectedActorId: null,
+        highlightedWaypoint: null,
+      }),
 
     undo: async () => {
       const pid = get().projectId;
@@ -2841,13 +2865,87 @@ export const useAppStore = create<AppState>()((set, get) => {
     updateActor: async (actorId, patch) => {
       const scene = get().scene;
       if (!scene) return;
+      const prev = scene.actors.find((a) => a.id === actorId);
       const actors = scene.actors.map((a) => (a.id === actorId ? { ...a, ...patch } : a));
+      // Attached devices ride along: moving the actor translates its antennas
+      // by the same delta, so "UAV with an RX on top" stays a valid RF
+      // endpoint after every drag (rays terminate at devices, not actors).
+      let devices = scene.devices;
+      if (patch.position && prev && prev.attached_device_ids.length > 0) {
+        const d: Vec3 = [
+          patch.position[0] - prev.position[0],
+          patch.position[1] - prev.position[1],
+          patch.position[2] - prev.position[2],
+        ];
+        devices = scene.devices.map((dev) =>
+          prev.attached_device_ids.includes(dev.id)
+            ? {
+                ...dev,
+                position: [
+                  dev.position[0] + d[0],
+                  dev.position[1] + d[1],
+                  dev.position[2] + d[2],
+                ] as Vec3,
+              }
+            : dev,
+        );
+      }
       await run("Updating actor…", async () => {
-        await putSceneAndRefresh({ ...scene, actors });
+        await putSceneAndRefresh({ ...scene, actors, devices });
         set({ notice: `Updated ${actorId}` });
       });
       afterSceneEdit();
     },
+
+    attachDeviceToActor: async (actorId, kind) => {
+      const scene = get().scene;
+      if (!scene) return;
+      const actor = scene.actors.find((a) => a.id === actorId);
+      if (!actor) return;
+      const id = nextDeviceId(kind);
+      const isTx = kind === "tx";
+      // Mount the antenna on top of the actor's shape so it clears the body
+      // (a UAV's own airframe would otherwise occlude the boresight).
+      const device: Device = {
+        id,
+        name: `${actor.name || actor.id} ${kind.toUpperCase()}`,
+        kind,
+        position: [
+          actor.position[0],
+          actor.position[1],
+          actor.position[2] + actor.shape.size_m[2] + 0.1,
+        ],
+        orientation_deg: [0, 0, 0],
+        power_dbm: 30,
+        antenna: {
+          pattern: isTx ? "tr38901" : "iso",
+          polarization: isTx ? "V" : "cross",
+          num_rows: 1,
+          num_cols: 1,
+        },
+        color: isTx ? "#ff0000" : "#2e9bff",
+      };
+      const actors = scene.actors.map((a) =>
+        a.id === actorId
+          ? { ...a, attached_device_ids: [...a.attached_device_ids, id] }
+          : a,
+      );
+      await run(`Attaching ${id} to ${actorId}…`, async () => {
+        await putSceneAndRefresh({
+          ...scene,
+          devices: [...scene.devices, device],
+          actors,
+        });
+        set({
+          notice:
+            `Attached ${id} to ${actorId} — it follows the actor and takes ` +
+            `part in path simulation like any ${kind.toUpperCase()}`,
+        });
+      });
+      afterSceneEdit();
+    },
+
+    setHighlightedWaypoint: (hw) => set({ highlightedWaypoint: hw }),
 
     duplicateActor: async (actorId) => {
       const scene = get().scene;

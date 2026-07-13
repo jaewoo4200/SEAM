@@ -466,6 +466,7 @@ function ActorCard({ actor }: { actor: Actor }) {
   const updateActor = useAppStore((s) => s.updateActor);
   const deleteActor = useAppStore((s) => s.deleteActor);
   const duplicateActor = useAppStore((s) => s.duplicateActor);
+  const attachDeviceToActor = useAppStore((s) => s.attachDeviceToActor);
   const busy = useAppStore((s) => s.busy);
   const [draft, setDraft] = useState<ActorDraft>(() => draftFromActor(actor));
   const [err, setErr] = useState<string | null>(null);
@@ -624,6 +625,22 @@ function ActorCard({ actor }: { actor: Actor }) {
 
       <div style={{ marginTop: 12 }}>
         <h4>Attached devices</h4>
+        <div className="editor-actions" style={{ marginBottom: 6 }}>
+          <button
+            disabled={disabled}
+            title="Create an RX antenna on top of this actor. It follows the actor and takes part in path simulation — rays terminate at antennas, so this is how an actor becomes an RF endpoint."
+            onClick={() => void attachDeviceToActor(actor.id, "rx")}
+          >
+            + Attach RX here
+          </button>
+          <button
+            disabled={disabled}
+            title="Create a TX antenna on top of this actor (e.g. a UAV relay/base station)"
+            onClick={() => void attachDeviceToActor(actor.id, "tx")}
+          >
+            + Attach TX here
+          </button>
+        </div>
         {devices.length === 0 ? (
           <p className="hint">No devices in the scene.</p>
         ) : (
@@ -644,6 +661,10 @@ function ActorCard({ actor }: { actor: Actor }) {
             ))}
           </div>
         )}
+        <p className="hint">
+          Attached devices ride along when the actor moves, so paths always
+          solve from the actor&apos;s current position.
+        </p>
       </div>
 
       <ActorTrajectoryEditor actor={actor} />
@@ -662,7 +683,16 @@ function ActorTrajectoryEditor({ actor }: { actor: Actor }) {
   const updateActor = useAppStore((s) => s.updateActor);
   const requestPick = useAppStore((s) => s.requestPick);
   const busy = useAppStore((s) => s.busy);
+  const highlightedWaypoint = useAppStore((s) => s.highlightedWaypoint);
+  const setHighlightedWaypoint = useAppStore((s) => s.setHighlightedWaypoint);
+  const simulateTrajectory = useAppStore((s) => s.simulateTrajectory);
+  const scene = useAppStore((s) => s.scene);
   const disabled = busy !== null;
+  // First attached RX = the UE this actor carries; enables "simulate paths
+  // along this flight path" straight from the actor.
+  const attachedRx = (scene?.devices ?? []).find(
+    (d) => d.kind === "rx" && actor.attached_device_ids.includes(d.id),
+  );
 
   const traj: ActorTrajectory = actor.trajectory ?? {
     waypoints: [],
@@ -763,9 +793,33 @@ function ActorTrajectoryEditor({ actor }: { actor: Actor }) {
         <>
           <div className="actor-waypoints">
             {traj.waypoints.length === 0 && <p className="hint">No waypoints yet.</p>}
-            {traj.waypoints.map((wp, i) => (
-              <div key={i} className="actor-waypoint-row">
-                <span className="mono actor-wp-idx">{i + 1}</span>
+            {traj.waypoints.map((wp, i) => {
+              const hot =
+                highlightedWaypoint?.actorId === actor.id &&
+                highlightedWaypoint.index === i;
+              return (
+              <div
+                key={i}
+                className="actor-waypoint-row"
+                style={hot ? { background: "rgba(34,211,238,0.14)", borderRadius: 4 } : undefined}
+              >
+                <button
+                  className="mono actor-wp-idx"
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    padding: 0,
+                    cursor: "pointer",
+                    color: hot ? "#22d3ee" : "inherit",
+                    fontWeight: hot ? 700 : undefined,
+                  }}
+                  title="Highlight this waypoint in the 3D view (click again to clear)"
+                  onClick={() =>
+                    setHighlightedWaypoint(hot ? null : { actorId: actor.id, index: i })
+                  }
+                >
+                  {i + 1}
+                </button>
                 {[0, 1, 2].map((axis) => (
                   <input
                     key={axis}
@@ -813,7 +867,8 @@ function ActorTrajectoryEditor({ actor }: { actor: Actor }) {
                   ×
                 </button>
               </div>
-            ))}
+              );
+            })}
           </div>
           <div className="panel-actions">
             <button disabled={disabled} onClick={addWaypoint}>
@@ -828,6 +883,35 @@ function ActorTrajectoryEditor({ actor }: { actor: Actor }) {
             </button>
             <button disabled={disabled} onClick={recordCurrent} title="Append the actor's current position">
               Record current pos
+            </button>
+          </div>
+          <div className="panel-actions" style={{ marginTop: 6 }}>
+            <button
+              className="primary"
+              disabled={disabled || traj.waypoints.length < 2 || !attachedRx}
+              title={
+                !attachedRx
+                  ? "Attach an RX to this actor first (Attached devices → “+ Attach RX here”) — rays terminate at antennas, so the attached RX is what flies the path"
+                  : `Solve TX→RX paths at each step along this flight path (UE: ${attachedRx.id})`
+              }
+              onClick={() => {
+                if (!attachedRx) return;
+                // The attached RX flies the actor's authored waypoints: one
+                // solve per step with per-step rays (same engine as the UE
+                // trajectory panel), so an actor path-simulates like a device.
+                void simulateTrajectory({
+                  routes: [
+                    {
+                      ue_id: attachedRx.id,
+                      waypoints: traj.waypoints.map((w) => [...w]),
+                    },
+                  ],
+                  num_points: Math.min(48, Math.max(12, traj.waypoints.length * 3)),
+                  dt_s: traj.dt_s,
+                });
+              }}
+            >
+              ⚡ Simulate paths along trajectory
             </button>
           </div>
           <p className="hint" style={{ marginTop: 6 }}>

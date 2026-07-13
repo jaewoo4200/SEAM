@@ -1,4 +1,4 @@
-import { Component, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Component, Fragment, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactElement, ReactNode } from "react";
 import * as THREE from "three";
 import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from "three-mesh-bvh";
@@ -619,7 +619,11 @@ function Actors({ frameStates }: { frameStates?: Map<string, { position: Vec3; o
   const selectedActorId = useAppStore((s) => s.selectedActorId);
   const selectActor = useAppStore((s) => s.selectActor);
   const updateActor = useAppStore((s) => s.updateActor);
+  const highlightedWaypoint = useAppStore((s) => s.highlightedWaypoint);
+  const env = useAppStore((s) => s.resolvedEnvironment);
+  const markerScale = useAppStore((s) => s.viewport.markerScale);
   if (!scene) return null;
+  const wpRadius = deviceMarkerRadius(scene, env, markerScale) * 0.4;
 
   return (
     <group>
@@ -681,11 +685,6 @@ function Actors({ frameStates }: { frameStates?: Map<string, { position: Vec3; o
                 {a.name || a.id}
               </div>
             </Html>
-            {a.trajectory && a.trajectory.waypoints.length > 1 && (
-              // Waypoints are absolute world coords; render outside the actor's
-              // local rotation by placing an inverse-less sibling group.
-              <ActorTrajectoryLine waypoints={a.trajectory.waypoints} origin={position} yawDeg={yawDeg} />
-            )}
           </>
         );
         const inner = (
@@ -702,50 +701,80 @@ function Actors({ frameStates }: { frameStates?: Map<string, { position: Vec3; o
             {body}
           </group>
         );
-        return selected && !frameStates ? (
-          <GizmoWrapped
-            key={a.id}
-            position={position}
-            rotation={[0, 0, (yawDeg * Math.PI) / 180]}
-            onCommit={(pos) => void updateActor(a.id, { position: pos })}
-          >
-            {inner}
-          </GizmoWrapped>
-        ) : (
-          <group key={a.id} position={position} rotation={[0, 0, (yawDeg * Math.PI) / 180]}>
-            {inner}
-          </group>
+        const actorNode =
+          selected && !frameStates ? (
+            <GizmoWrapped
+              key={a.id}
+              position={position}
+              rotation={[0, 0, (yawDeg * Math.PI) / 180]}
+              onCommit={(pos) => void updateActor(a.id, { position: pos })}
+            >
+              {inner}
+            </GizmoWrapped>
+          ) : (
+            <group key={a.id} position={position} rotation={[0, 0, (yawDeg * Math.PI) / 180]}>
+              {inner}
+            </group>
+          );
+        return (
+          <Fragment key={a.id}>
+            {actorNode}
+            {a.trajectory && a.trajectory.waypoints.length > 0 && (
+              // WORLD-SPACE sibling, deliberately outside the actor's group:
+              // as a child it inherited live gizmo translations (the counter-
+              // transform used the React prop, which only updates on commit),
+              // so recording waypoints while dragging the actor visually
+              // dragged the whole authored path along with it.
+              <ActorTrajectoryLine
+                waypoints={a.trajectory.waypoints}
+                markerRadius={wpRadius}
+                highlightIndex={
+                  highlightedWaypoint?.actorId === a.id
+                    ? highlightedWaypoint.index
+                    : null
+                }
+              />
+            )}
+          </Fragment>
         );
       })}
     </group>
   );
 }
 
-/** Yellow polyline through an actor's absolute waypoints. Rendered as a child
- *  of the actor group, so undo the group's translation+yaw to draw in world. */
+/** Yellow polyline + per-waypoint dots through an actor's authored waypoints,
+ *  drawn in absolute world coordinates (never parented to the actor, so a
+ *  gizmo drag cannot move the already-recorded path). The waypoint picked in
+ *  the Inspector list renders emphasized (cyan, larger). */
 function ActorTrajectoryLine({
   waypoints,
-  origin,
-  yawDeg,
+  markerRadius,
+  highlightIndex,
 }: {
   waypoints: Vec3[];
-  origin: Vec3;
-  yawDeg: number;
+  markerRadius: number;
+  highlightIndex: number | null;
 }) {
-  const local = useMemo(() => {
-    const yaw = (yawDeg * Math.PI) / 180;
-    const cos = Math.cos(-yaw);
-    const sin = Math.sin(-yaw);
-    // Convert each absolute waypoint into the actor group's local frame
-    // (translate by -origin, then rotate by -yaw about Z).
-    return waypoints.map((wp): Vec3 => {
-      const dx = wp[0] - origin[0];
-      const dy = wp[1] - origin[1];
-      const dz = wp[2] - origin[2];
-      return [dx * cos - dy * sin, dx * sin + dy * cos, dz];
-    });
-  }, [waypoints, origin, yawDeg]);
-  return <Line points={local} color="#ffee58" lineWidth={2} />;
+  return (
+    <group>
+      {waypoints.length > 1 && <Line points={waypoints} color="#ffee58" lineWidth={2} />}
+      {waypoints.map((wp, i) => {
+        const hot = i === highlightIndex;
+        return (
+          <mesh key={i} position={wp}>
+            <sphereGeometry args={[hot ? markerRadius * 2.2 : markerRadius, 16, 12]} />
+            <meshStandardMaterial
+              color={hot ? "#22d3ee" : "#ffee58"}
+              emissive={hot ? "#22d3ee" : "#000000"}
+              emissiveIntensity={hot ? 0.9 : 0}
+              transparent
+              opacity={hot ? 0.95 : 0.75}
+            />
+          </mesh>
+        );
+      })}
+    </group>
+  );
 }
 
 // -------------------------------------------------------------- ray paths
