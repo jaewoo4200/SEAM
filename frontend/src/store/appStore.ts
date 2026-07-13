@@ -1246,7 +1246,7 @@ export const useAppStore = create<AppState>()((set, get) => {
           // storage blocked (private mode): fall back to the default below
         }
         const preferred =
-          (lastId && projects.find((p) => p.project_id === lastId)) ??
+          (lastId ? projects.find((p) => p.project_id === lastId) : undefined) ??
           projects.find((p) => p.project_id === "sample_demo") ??
           projects[0];
         await get().openProject(preferred.project_id);

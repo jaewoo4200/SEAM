@@ -2592,7 +2592,10 @@ function RadioMapCompareSection() {
                 min={shared.min}
                 max={shared.max}
                 colorFn={jet}
-                title={gridA.label ?? gridA.result_id}
+                title={
+                  radioRefs.find((r) => r.result_id === gridA.result_id)?.label ??
+                  gridA.result_id
+                }
               />
             </div>
             <div>
@@ -2604,7 +2607,10 @@ function RadioMapCompareSection() {
                 min={shared.min}
                 max={shared.max}
                 colorFn={jet}
-                title={gridB.label ?? gridB.result_id}
+                title={
+                  radioRefs.find((r) => r.result_id === gridB.result_id)?.label ??
+                  gridB.result_id
+                }
               />
             </div>
             <div>

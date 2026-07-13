@@ -926,8 +926,11 @@ export interface ExplainValidationResponse {
 
 // -------------------------------------------------- calibration (RF disambig)
 
-/** One measured link: RX position + measured path gain (dB). */
+/** One measured link: RX position + measured path gain (dB). Also the row
+ *  shape for flight-log validation (optional capture time orders the replay). */
 export interface MeasurementSample {
+  measurement_id?: string | null;
+  time_s?: number | null;
   rx_position: Vec3;
   tx_id?: string | null;
   measured_path_gain_db: number;
@@ -1455,15 +1458,8 @@ export interface SpectrogramResult {
   metadata: Record<string, unknown>;
 }
 
-/** One measured RX sample for flight-log validation. */
-export interface MeasurementSample {
-  measurement_id?: string | null;
-  time_s?: number | null;
-  rx_position: number[];
-  tx_id?: string | null;
-  measured_path_gain_db: number;
-  measured_rms_delay_spread_ns?: number | null;
-}
+// MeasurementSample (shared with calibration, declared above) is the row
+// shape for the flight-log validation request below.
 
 /** POST /calibrate/validate-trajectory — replay measured RX positions and
  *  compare measured vs predicted path gain along the flight. */
