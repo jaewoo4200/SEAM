@@ -2844,11 +2844,23 @@ export const useAppStore = create<AppState>()((set, get) => {
         kind,
         shape: { type: "box", size_m: [...d.size_m], mesh_ref: null },
         rf_material_id: d.rf_material_id,
-        // UAVs spawn hovering 15 m above the scene center; ground actors
-        // spawn at it (actor position.z is the shape's base).
+        // UAVs spawn hovering above the scene center; ground actors spawn at
+        // it (actor position.z is the shape's base). The hover height is
+        // bounds-aware: a fixed +15 m used to place the drone ABOVE the whole
+        // geometry in indoor scenes (bounds top 14 m -> z 15 = an off-scene
+        // speck; "Add UAV" looked like it did nothing).
         position: (() => {
           const c = sceneCenter();
-          return kind === "uav" ? [c[0], c[1], c[2] + 15] : c;
+          if (kind !== "uav") return c;
+          const b = get().sceneBounds;
+          const indoor = get().resolvedEnvironment === "indoor";
+          if (!b) return [c[0], c[1], indoor ? 2 : 15];
+          const z = indoor
+            ? // just below the ceiling, but always above the floor
+              Math.max(b.min[2] + 1, b.max[2] - 1)
+            : // 15 m AGL, clamped to stay near the geometry it flies over
+              Math.min(b.min[2] + 15, b.max[2] + 5);
+          return [c[0], c[1], z];
         })(),
         orientation_deg: [0, 0, 0],
         trajectory: null,

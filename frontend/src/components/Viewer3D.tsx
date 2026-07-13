@@ -549,12 +549,17 @@ function Devices() {
   const updateDevice = useAppStore((s) => s.updateDevice);
   const markerScale = useAppStore((s) => s.viewport.markerScale);
   if (!scene) return null;
-  const radius = deviceMarkerRadius(scene, env, markerScale);
+  const baseRadius = deviceMarkerRadius(scene, env, markerScale);
+  // A device attached to an actor is carried BY that actor — the actor is the
+  // visual anchor, so its antenna renders as a small dot instead of the full
+  // sphere (the full-size marker completely swallowed the UAV drone model).
+  const attachedIds = new Set(scene.actors.flatMap((a) => a.attached_device_ids));
 
   return (
     <group>
       {scene.devices.map((d) => {
         const selected = d.id === selectedDeviceId;
+        const radius = attachedIds.has(d.id) ? baseRadius * 0.35 : baseRadius;
         const marker = (
           <>
             {/* Radio devices are spheres, colored by kind (AODT: TX red, UE blue). */}
@@ -642,37 +647,21 @@ function Actors({ frameStates }: { frameStates?: Map<string, { position: Vec3; o
           emissive: selected ? PICKER_COLOR : "#000000",
           emissiveIntensity: selected ? 0.7 : 0,
         } as const;
+        // A real 0.6 m drone projects to ~3 px in a campus-scale scene — the
+        // "Add UAV did nothing" report. Scale the VISUAL up to device-marker
+        // visibility (RF still uses the true size_m box); 1x in small rooms.
+        const droneScale =
+          a.kind === "uav"
+            ? Math.max(1, (wpRadius / 0.4) * 2.2 / Math.max(l, w))
+            : 1;
         // position is the base center: lift the box by half its height so it
         // sits on the ground contact plane. Yaw about Z (up).
         const body = (
           <>
             {/* Selection/drag is handled by the wrapping DraggableGroup. */}
             {a.kind === "uav" ? (
-              // Quadrotor silhouette: center pod + X arms + four rotor disks,
-              // all scaled from shape.size_m so custom sizes still work.
-              <group position={[0, 0, h / 2]}>
-                <mesh>
-                  <boxGeometry args={[l * 0.45, w * 0.45, h * 0.7]} />
-                  <meshStandardMaterial {...matProps} />
-                </mesh>
-                <mesh rotation={[0, 0, Math.PI / 4]}>
-                  <boxGeometry args={[l * 1.35, w * 0.09, h * 0.18]} />
-                  <meshStandardMaterial {...matProps} />
-                </mesh>
-                <mesh rotation={[0, 0, -Math.PI / 4]}>
-                  <boxGeometry args={[l * 1.35, w * 0.09, h * 0.18]} />
-                  <meshStandardMaterial {...matProps} />
-                </mesh>
-                {([[1, 1], [1, -1], [-1, 1], [-1, -1]] as const).map(([sx, sy]) => (
-                  <mesh
-                    key={`${sx}${sy}`}
-                    position={[sx * l * 0.48, sy * w * 0.48, h * 0.28]}
-                    rotation={[Math.PI / 2, 0, 0]}
-                  >
-                    <cylinderGeometry args={[l * 0.22, l * 0.22, h * 0.06, 20]} />
-                    <meshStandardMaterial {...matProps} opacity={0.6} />
-                  </mesh>
-                ))}
+              <group scale={[droneScale, droneScale, droneScale]}>
+                <UavModel l={l} w={w} h={h} matProps={matProps} />
               </group>
             ) : (
               <mesh position={[0, 0, h / 2]}>
@@ -680,7 +669,11 @@ function Actors({ frameStates }: { frameStates?: Map<string, { position: Vec3; o
                 <meshStandardMaterial {...matProps} />
               </mesh>
             )}
-            <Html position={[0, 0, h + 0.4]} center zIndexRange={[10, 0]}>
+            <Html
+              position={[0, 0, h * droneScale + 0.4]}
+              center
+              zIndexRange={[10, 0]}
+            >
               <div className={"device-label" + (selected ? " selected" : "")} title={a.id}>
                 {a.name || a.id}
               </div>
@@ -738,6 +731,124 @@ function Actors({ frameStates }: { frameStates?: Map<string, { position: Vec3; o
           </Fragment>
         );
       })}
+    </group>
+  );
+}
+
+/** Procedural quadrotor in the spirit of a real camera drone: rounded
+ *  fuselage + canopy, four diagonal arms with motor pods, crossed rotor
+ *  blades under semi-transparent spin disks, landing skids and a front
+ *  gimbal camera. All proportions derive from shape.size_m [l, w, h] so
+ *  custom sizes still work; body parts share matProps so selection emissive
+ *  applies to the whole airframe. */
+function UavModel({
+  l,
+  w,
+  h,
+  matProps,
+}: {
+  l: number;
+  w: number;
+  h: number;
+  matProps: {
+    color: string;
+    transparent: boolean;
+    opacity: number;
+    emissive: string;
+    emissiveIntensity: number;
+  };
+}) {
+  const dark = { ...matProps, color: "#1e293b" };
+  const armLen = Math.hypot(l, w) * 0.62;
+  const rotorZ = h * 0.86;
+  const tips = [
+    [l * 0.48, w * 0.48],
+    [l * 0.48, -w * 0.48],
+    [-l * 0.48, w * 0.48],
+    [-l * 0.48, -w * 0.48],
+  ] as const;
+  return (
+    <group position={[0, 0, h * 0.45]}>
+      {/* fuselage: main hull + tapered canopy on top */}
+      <mesh>
+        <boxGeometry args={[l * 0.46, w * 0.34, h * 0.5]} />
+        <meshStandardMaterial {...matProps} />
+      </mesh>
+      <mesh position={[l * 0.04, 0, h * 0.32]}>
+        <boxGeometry args={[l * 0.3, w * 0.24, h * 0.22]} />
+        <meshStandardMaterial {...matProps} />
+      </mesh>
+      {/* four diagonal arms out to the motor pods */}
+      {tips.map(([tx, ty], i) => (
+        <mesh
+          key={`arm${i}`}
+          position={[tx / 2, ty / 2, h * 0.08]}
+          rotation={[0, 0, Math.atan2(ty, tx)]}
+        >
+          <boxGeometry args={[armLen, w * 0.07, h * 0.14]} />
+          <meshStandardMaterial {...dark} />
+        </mesh>
+      ))}
+      {/* motor pods + crossed blades + spin disks */}
+      {tips.map(([tx, ty], i) => (
+        <group key={`rotor${i}`} position={[tx, ty, 0]}>
+          <mesh position={[0, 0, h * 0.28]}>
+            <cylinderGeometry args={[l * 0.055, l * 0.07, h * 0.36, 12]} />
+            <meshStandardMaterial {...dark} />
+          </mesh>
+          {/* two thin blades, phase-offset per rotor so they don't look cloned */}
+          <mesh position={[0, 0, rotorZ - h * 0.35]} rotation={[0, 0, (i * Math.PI) / 3]}>
+            <boxGeometry args={[l * 0.42, w * 0.035, h * 0.03]} />
+            <meshStandardMaterial {...dark} />
+          </mesh>
+          <mesh
+            position={[0, 0, rotorZ - h * 0.35]}
+            rotation={[0, 0, (i * Math.PI) / 3 + Math.PI / 2]}
+          >
+            <boxGeometry args={[l * 0.42, w * 0.035, h * 0.03]} />
+            <meshStandardMaterial {...dark} />
+          </mesh>
+          {/* translucent disk suggesting the spinning prop */}
+          <mesh position={[0, 0, rotorZ - h * 0.33]} rotation={[Math.PI / 2, 0, 0]}>
+            <cylinderGeometry args={[l * 0.24, l * 0.24, h * 0.015, 24]} />
+            <meshStandardMaterial {...matProps} opacity={0.22} depthWrite={false} />
+          </mesh>
+        </group>
+      ))}
+      {/* landing skids: two rails + four legs */}
+      {([-1, 1] as const).map((sy) => (
+        <group key={`skid${sy}`}>
+          <mesh position={[0, sy * w * 0.26, -h * 0.42]}>
+            <boxGeometry args={[l * 0.62, w * 0.05, h * 0.06]} />
+            <meshStandardMaterial {...dark} />
+          </mesh>
+          {([-1, 1] as const).map((sx) => (
+            <mesh
+              key={`leg${sx}`}
+              position={[sx * l * 0.18, sy * w * 0.22, -h * 0.22]}
+              rotation={[sy * 0.35, 0, 0]}
+            >
+              <boxGeometry args={[l * 0.045, w * 0.045, h * 0.42]} />
+              <meshStandardMaterial {...dark} />
+            </mesh>
+          ))}
+        </group>
+      ))}
+      {/* front gimbal camera under the nose */}
+      <group position={[l * 0.2, 0, -h * 0.32]}>
+        <mesh>
+          <sphereGeometry args={[h * 0.16, 14, 10]} />
+          <meshStandardMaterial {...dark} />
+        </mesh>
+        <mesh position={[h * 0.12, 0, 0]}>
+          <boxGeometry args={[h * 0.1, h * 0.12, h * 0.12]} />
+          <meshStandardMaterial
+            {...matProps}
+            color="#0ea5e9"
+            opacity={0.95}
+          />
+        </mesh>
+      </group>
     </group>
   );
 }
