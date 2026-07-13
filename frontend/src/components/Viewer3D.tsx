@@ -2365,6 +2365,29 @@ function EntityPovInset({ sourceId, targetId }: { sourceId: string; targetId: st
       eye.z +=
         deviceMarkerRadius(sc, store.resolvedEnvironment, store.viewport.markerScale) * 2.2;
     }
+    // The POV pass renders the SAME scene graph, so the source's own body
+    // (rotors/arms of the scaled drone model) and the marker of any device it
+    // carries sit right at the camera and block the shot. Hide them for the
+    // POV renders only; the main pass gets them back.
+    const povHidden: THREE.Object3D[] = [];
+    const hideForPov = () => {
+      const ids = [sourceId];
+      if (srcKind === "actor") {
+        const a = sc.actors.find((x) => x.id === sourceId);
+        if (a) ids.push(...a.attached_device_ids);
+      }
+      for (const id of ids) {
+        const g = root.getObjectByName(`pov-ent-${id}`);
+        if (g && g.visible) {
+          g.visible = false;
+          povHidden.push(g);
+        }
+      }
+    };
+    const restoreAfterPov = () => {
+      for (const g of povHidden) g.visible = true;
+      povHidden.length = 0;
+    };
     const tgtKind = targetId ? anchor(targetId, aim) : null;
     if (tgtKind === "actor") {
       const a = sc.actors.find((x) => x.id === targetId);
@@ -2385,6 +2408,7 @@ function EntityPovInset({ sourceId, targetId }: { sourceId: string; targetId: st
       cam.aspect = size.width / size.height;
       cam.updateProjectionMatrix();
       gl.autoClear = true;
+      hideForPov();
       gl.render(root, cam);
       let url: string | null = null;
       try {
@@ -2392,6 +2416,7 @@ function EntityPovInset({ sourceId, targetId }: { sourceId: string; targetId: st
       } catch {
         url = null;
       }
+      restoreAfterPov();
       cam.aspect = POV_W / POV_H;
       cam.updateProjectionMatrix();
       gl.render(root, camera); // restore the main view underneath the inset
@@ -2405,7 +2430,9 @@ function EntityPovInset({ sourceId, targetId }: { sourceId: string; targetId: st
     gl.setScissor(x, y, POV_W, POV_H);
     gl.setViewport(x, y, POV_W, POV_H);
     gl.clear(true, true, false);
+    hideForPov();
     gl.render(root, cam);
+    restoreAfterPov();
     gl.setScissorTest(false);
     gl.setViewport(0, 0, size.width, size.height);
     gl.autoClear = true;
