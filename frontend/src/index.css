@@ -1959,6 +1959,17 @@ h4 {
 .pov-head select option {
   background: var(--panel);
 }
+.pov-snap {
+  display: flex;
+  align-items: center;
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  padding: 0 2px;
+}
+.pov-snap:hover {
+  color: var(--accent);
+}
 .pov-close {
   background: transparent;
   border: none;

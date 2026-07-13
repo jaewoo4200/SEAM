@@ -1358,6 +1358,10 @@ let cameraPoseGetter: (() => { position: Vec3; target: Vec3 }) | null = null;
 // Full-resolution PNG of the live canvas (exactly what the user sees) for the
 // paper-ready "save view" button; requires preserveDrawingBuffer.
 let viewportPngGetter: (() => string | null) | null = null;
+/** Set while the entity-POV inset is mounted: resolves with a full-resolution
+ *  PNG of the POV camera, captured inside the next render frame (rendering
+ *  outside the rAF loop proved unreliable under remote desktops). */
+let povPngGetter: (() => Promise<string | null>) | null = null;
 
 // --------------------------------------------------------------- hotkeys
 
@@ -2159,6 +2163,21 @@ function EntityPovInset({ sourceId, targetId }: { sourceId: string; targetId: st
   }, []);
   const eye = useMemo(() => new THREE.Vector3(), []);
   const aim = useMemo(() => new THREE.Vector3(), []);
+  // Snapshot handshake: the button resolves this promise from INSIDE the next
+  // useFrame pass (same GL state as the working inset render).
+  const povCapture = useRef<((url: string | null) => void) | null>(null);
+  useEffect(() => {
+    povPngGetter = () =>
+      new Promise<string | null>((resolve) => {
+        povCapture.current?.(null); // a newer request supersedes a pending one
+        povCapture.current = resolve;
+      });
+    return () => {
+      povPngGetter = null;
+      povCapture.current?.(null);
+      povCapture.current = null;
+    };
+  }, []);
 
   // Subscribing with a render priority puts r3f in manual-render mode while
   // this inset is mounted, so the main pass is drawn here too.
@@ -2216,6 +2235,28 @@ function EntityPovInset({ sourceId, targetId }: { sourceId: string; targetId: st
     cam.position.copy(eye);
     cam.lookAt(aim);
     cam.updateMatrixWorld();
+
+    // Pending Snapshot request: render the POV camera over the full canvas,
+    // grab it while the buffer still holds it, then repaint the normal main
+    // pass so the presented frame looks untouched.
+    if (povCapture.current) {
+      const resolve = povCapture.current;
+      povCapture.current = null;
+      cam.aspect = size.width / size.height;
+      cam.updateProjectionMatrix();
+      gl.autoClear = true;
+      gl.render(root, cam);
+      let url: string | null = null;
+      try {
+        url = gl.domElement.width > 0 ? gl.domElement.toDataURL("image/png") : null;
+      } catch {
+        url = null;
+      }
+      cam.aspect = POV_W / POV_H;
+      cam.updateProjectionMatrix();
+      gl.render(root, camera); // restore the main view underneath the inset
+      resolve(url);
+    }
 
     const x = size.width - POV_MARGIN - POV_W;
     const y = size.height - POV_TOP - POV_HEAD_H - POV_H;
@@ -2374,6 +2415,28 @@ export default function Viewer3D() {
     const a = document.createElement("a");
     a.href = url;
     a.download = `${projectId ?? "scene"}_view_${stamp}.png`;
+    a.click();
+    useAppStore.setState({ notice: `Saved view as ${a.download}` });
+  };
+
+  // POV Snapshot: same WYSIWYG PNG contract as the viewport Snapshot, but
+  // rendered from the selected entity's camera at full canvas resolution.
+  const savePovView = async () => {
+    // Bound the wait: if no frame is produced within 2 s (suspended rAF in a
+    // hidden window), fail honestly instead of resolving after the click's
+    // user activation has expired (the browser would block the download).
+    const url = await Promise.race([
+      povPngGetter?.() ?? Promise.resolve(null),
+      new Promise<string | null>((r) => setTimeout(() => r(null), 2000)),
+    ]);
+    if (!url) {
+      useAppStore.setState({ error: "POV capture unavailable (view not ready)" });
+      return;
+    }
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${projectId ?? "scene"}_pov_${povSourceId ?? "view"}_${stamp}.png`;
     a.click();
     useAppStore.setState({ notice: `Saved view as ${a.download}` });
   };
@@ -2665,6 +2728,13 @@ export default function Viewer3D() {
                 </option>
               ))}
             </select>
+            <button
+              className="pov-snap"
+              title="Save this view as a PNG (full resolution)"
+              onClick={() => void savePovView()}
+            >
+              <CameraIcon />
+            </button>
             <button className="pov-close" title="Close view" onClick={() => setPovClosed(true)}>
               ×
             </button>
