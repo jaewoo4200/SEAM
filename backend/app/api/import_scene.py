@@ -55,6 +55,19 @@ from app.services.project_store import (
 
 router = APIRouter(tags=["projects"])
 
+
+class SceneImportResult(ProjectInfo):
+    """Imported project plus any non-fatal import warnings.
+
+    Warnings (skipped meshes, out-of-band material remaps, degenerate faces)
+    used to be written only to provenance.json where they were easy to miss —
+    a scene could import "successfully" with buildings silently dropped. The UI
+    surfaces this list as a toast right after import.
+    """
+
+    warnings: list[str] = []
+
+
 _PROJECT_ID_RE = re.compile(r"^[a-z0-9_\-]+$")
 
 # Frequency of the default SimulationConfig created for imported projects
@@ -159,14 +172,14 @@ def _safe_upload_name(name: Optional[str]) -> Optional[str]:
     return leaf
 
 
-@router.post("/projects/import", response_model=ProjectInfo, status_code=201)
+@router.post("/projects/import", response_model=SceneImportResult, status_code=201)
 def import_project(
     file: UploadFile = File(..., description="Mitsuba/Sionna scene .xml"),
     project_id: str = Form(...),
     name: str = Form(...),
     environment: str = Form("auto"),
     meshes: list[UploadFile] = File(default=[]),
-) -> ProjectInfo:
+) -> SceneImportResult:
     # Deliberately SYNC (FastAPI runs it in the threadpool): a campus zip
     # means minutes of extract + Mitsuba parse + GLB export, and an async def
     # would pin all of it on the event loop - /health, the project list and
@@ -316,4 +329,4 @@ def import_project(
             encoding="utf-8",
         )
 
-    return store.info(project_dir)
+    return SceneImportResult(**store.info(project_dir).model_dump(), warnings=warnings)

@@ -18,6 +18,14 @@ Array layout (documented for consumers in docs/ml_datasets.md):
     mean_delay_ns        float32 [N]      power-weighted mean delay (NaN if none)
     rms_delay_spread_ns  float32 [N]      (NaN if undefined)
     k_factor_db          float32 [N]      Rician K (NaN if undefined)
+    ue_velocity          float32 [N, 3]   UE velocity (m/s): finite difference
+                                          of consecutive trajectory samples
+                                          over sample_dt_s; zeros for
+                                          random/grid
+    doppler_spread_hz    float32 [N]      power-weighted std of per-path
+                                          Doppler (NaN where the solver
+                                          reports none); only written when at
+                                          least one sample carried Doppler
 
 The CFR uses the same tap model as the channel-analysis panel:
 H(f_k) = sum_l a_l exp(-j 2 pi f_k tau_l), a_l from path power+phase - so a
@@ -39,7 +47,9 @@ from ..schemas.materials import RFMaterialLibrary
 from ..schemas.results import PathResultSet
 from ..schemas.scene import Scene
 from ..schemas.simulation import SimulationConfig
-from .channel_analysis import delay_metrics, k_factor_db
+from . import solve_ctx
+from .channel_analysis import delay_metrics, doppler_metrics, k_factor_db
+from .trajectory import resample_polyline
 
 DATASETS_SUBDIR = Path("export") / "datasets"
 SCHEMA_VERSION = "1.0"
@@ -48,6 +58,12 @@ SCHEMA_VERSION = "1.0"
 def _sample_positions(
     sampling: DatasetSampling, scene: Scene, warnings: list[str], project_dir: Path
 ):
+    """Sampled UE positions for the request.
+
+    Returns ``(positions, sample_dt_s)``: positions as float64 [N, 3] and the
+    time between consecutive samples [s] for trajectory mode (drives the
+    ue_velocity finite differences); ``None`` for random/grid.
+    """
     import numpy as np
 
     def _snap(pts):
@@ -62,12 +78,62 @@ def _sample_positions(
         return np.asarray(snapped, dtype=np.float64)
 
     if sampling.mode == "trajectory":
-        if not sampling.start_m or not sampling.end_m:
-            raise ValueError("trajectory sampling needs start_m and end_m")
-        t = np.linspace(0.0, 1.0, sampling.num_samples)[:, None]
-        a = np.asarray(sampling.start_m, dtype=np.float64)
-        b = np.asarray(sampling.end_m, dtype=np.float64)
-        return _snap(a[None, :] * (1 - t) + b[None, :] * t)
+        # Waypoint sources by precedence: explicit polyline > scene actor's
+        # authored trajectory > legacy start/end straight line. Polylines are
+        # resampled to exactly num_samples positions, equally spaced by arc
+        # length; the legacy line keeps its original linspace blend so
+        # existing start/end datasets stay byte-identical.
+        sample_dt = sampling.dt_s
+        if sampling.waypoints:
+            pts = resample_polyline(sampling.waypoints, sampling.num_samples)
+        elif sampling.actor_id:
+            actor = next(
+                (a for a in scene.actors if a.id == sampling.actor_id), None
+            )
+            if actor is None:
+                raise ValueError(f"unknown actor: {sampling.actor_id}")
+            traj = actor.trajectory
+            if traj is None or len(traj.waypoints) < 2:
+                raise ValueError(
+                    f"actor '{sampling.actor_id}' has no trajectory to sample"
+                )
+            pts = resample_polyline(traj.waypoints, sampling.num_samples)
+            # Preserve the actor's authored speed: the authored duration
+            # dt_s * (num_waypoints - 1) is re-spread over the resampled steps.
+            if sampling.num_samples > 1:
+                sample_dt = (
+                    traj.dt_s * (len(traj.waypoints) - 1)
+                    / (sampling.num_samples - 1)
+                )
+        else:
+            if not sampling.start_m or not sampling.end_m:
+                raise ValueError(
+                    "trajectory sampling needs waypoints, actor_id, or "
+                    "start_m and end_m"
+                )
+            t = np.linspace(0.0, 1.0, sampling.num_samples)[:, None]
+            a = np.asarray(sampling.start_m, dtype=np.float64)
+            b = np.asarray(sampling.end_m, dtype=np.float64)
+            return _snap(a[None, :] * (1 - t) + b[None, :] * t), sample_dt
+        return _snap(np.asarray(pts, dtype=np.float64)), sample_dt
+
+    # Volumetric sampling triggers ONLY on an explicit request region whose z
+    # bounds differ — and only when the request did not ALSO pin height_m
+    # explicitly (callers that send both a 3D region and a height mean the
+    # legacy plane at that height; leaving height_m unset opts into the
+    # volume). The fallback regions below always keep the legacy height_m
+    # plane so region-omitted requests stay byte-identical.
+    volumetric = bool(
+        sampling.region_min
+        and sampling.region_max
+        and sampling.region_min[2] != sampling.region_max[2]
+        and "height_m" not in sampling.model_fields_set
+    )
+    if volumetric and sampling.follow_terrain:
+        warnings.append(
+            "follow_terrain overrides volumetric z sampling (z is re-snapped "
+            "to terrain + height_m)"
+        )
 
     if sampling.region_min and sampling.region_max:
         lo = np.asarray(sampling.region_min, dtype=np.float64)
@@ -97,19 +163,35 @@ def _sample_positions(
     if sampling.mode == "grid":
         xs = np.arange(lo[0], hi[0] + 1e-9, sampling.grid_spacing_m)
         ys = np.arange(lo[1], hi[1] + 1e-9, sampling.grid_spacing_m)
-        gx, gy = np.meshgrid(xs, ys, indexing="xy")
-        pts = np.stack([gx.ravel(), gy.ravel(), np.full(gx.size, sampling.height_m)], axis=1)
+        if volumetric:
+            # Stacked z levels at grid_spacing_m, capped so the x*y*z lattice
+            # stays within num_samples (always >= 1 level; a budget of one
+            # level lands on the region's lower z bound).
+            span_levels = int(abs(hi[2] - lo[2]) / sampling.grid_spacing_m) + 1
+            budget = sampling.num_samples // max(len(xs) * len(ys), 1)
+            zs = np.linspace(lo[2], hi[2], max(1, min(span_levels, budget)))
+        else:
+            zs = np.asarray([sampling.height_m])
+        # With a single z level this ravel order (and every value) matches the
+        # legacy 2D grid exactly; extra levels append z as the innermost axis.
+        gx, gy, gz = np.meshgrid(xs, ys, zs, indexing="xy")
+        pts = np.stack([gx.ravel(), gy.ravel(), gz.ravel()], axis=1)
         if len(pts) > sampling.num_samples:
             warnings.append(
                 f"grid has {len(pts)} points; truncated to num_samples={sampling.num_samples}"
             )
             pts = pts[: sampling.num_samples]
-        return _snap(pts)
+        return _snap(pts), None
 
     rng = np.random.default_rng(sampling.seed)
     xy = rng.uniform(lo[:2], hi[:2], size=(sampling.num_samples, 2))
-    z = np.full((sampling.num_samples, 1), sampling.height_m)
-    return _snap(np.concatenate([xy, z], axis=1))
+    if volumetric:
+        # Uniform z inside the region's z bounds, drawn AFTER xy so the xy
+        # stream for a given seed matches the planar case.
+        z = rng.uniform(lo[2], hi[2], size=(sampling.num_samples, 1))
+    else:
+        z = np.full((sampling.num_samples, 1), sampling.height_m)
+    return _snap(np.concatenate([xy, z], axis=1)), None
 
 
 def _complex_gains(result: PathResultSet):
@@ -158,8 +240,17 @@ def generate_dataset(
         antenna=rx_proto.antenna if rx_proto else Antenna(),
     )
 
-    positions = _sample_positions(request.sampling, scene, warnings, project_dir)
+    positions, sample_dt = _sample_positions(
+        request.sampling, scene, warnings, project_dir
+    )
     n = len(positions)
+    # Per-sample UE velocity [m/s]: finite difference of consecutive
+    # trajectory samples over the sample step (forward; backward at the last
+    # sample, mirroring trajectory._waypoint_velocity). Zeros for random/grid.
+    ue_velocity = np.zeros((n, 3), dtype=np.float64)
+    if sample_dt is not None and sample_dt > 0.0 and n >= 2:
+        ue_velocity[:-1] = (positions[1:] - positions[:-1]) / sample_dt
+        ue_velocity[-1] = ue_velocity[-2]
     k = request.num_cfr_points
     freqs = (
         np.linspace(-config.bandwidth_hz / 2.0, config.bandwidth_hz / 2.0, k)
@@ -174,13 +265,21 @@ def generate_dataset(
     mean_delay = np.full(n, np.nan, dtype=np.float32)
     rms_ds = np.full(n, np.nan, dtype=np.float32)
     kfac = np.full(n, np.nan, dtype=np.float32)
+    doppler_spread = np.full(n, np.nan, dtype=np.float32)
     gains_per_sample: list = []
     delays_per_sample: list = []
     paths_dump = [] if request.include_paths else None
 
     started = time.monotonic()
     for i, pos in enumerate(positions):
-        ue_i = ue.model_copy(update={"position": [float(x) for x in pos]})
+        solve_ctx.tick(i, len(positions))
+        update: dict = {"position": [float(x) for x in pos]}
+        if sample_dt is not None:
+            # Stamp the finite-difference velocity so the solved paths carry
+            # moving-UE Doppler (sionna surfaces per-path doppler_hz); the
+            # mock backend and static solves are unaffected.
+            update["velocity_m_s"] = [float(v) for v in ue_velocity[i]]
+        ue_i = ue.model_copy(update=update)
         # Only the fixed TX and the swept UE take part in the solve; the rest
         # of the scene (prims, actors) is untouched and the compiled XML is
         # reused via the backend's scene cache.
@@ -204,6 +303,14 @@ def generate_dataset(
             rms_ds[i] = rms if rms is not None else np.nan
             kf = k_factor_db(result.paths)
             kfac[i] = kf if kf is not None else np.nan
+            # Per-sample Doppler spread from the solver's per-path Doppler
+            # (sionna: result.metadata["doppler_hz"], aligned 1:1 with paths);
+            # stays NaN when the backend does not model Doppler.
+            raw_doppler = result.metadata.get("doppler_hz")
+            if isinstance(raw_doppler, list):
+                _, spread, _, _ = doppler_metrics(result.paths, raw_doppler)
+                if spread is not None:
+                    doppler_spread[i] = spread
             # Vectorized H(f) = sum_l a_l exp(-j 2 pi f tau_l).
             cfr[i] = (gains[None, :] * np.exp(
                 -2j * np.pi * freqs[:, None] * (delays_ns[None, :] * 1e-9)
@@ -239,6 +346,7 @@ def generate_dataset(
     out_dir = project_dir / DATASETS_SUBDIR / dataset_id
     out_dir.mkdir(parents=True, exist_ok=True)
     npz_path = out_dir / "dataset.npz"
+    has_doppler = bool(np.isfinite(doppler_spread).any())
     np.savez_compressed(
         npz_path,
         positions_m=positions.astype(np.float32),
@@ -253,6 +361,10 @@ def generate_dataset(
         mean_delay_ns=mean_delay,
         rms_delay_spread_ns=rms_ds,
         k_factor_db=kfac,
+        ue_velocity=ue_velocity.astype(np.float32),
+        # Only written when some sample carried solver Doppler, so datasets
+        # from Doppler-less backends keep their file layout lean.
+        **({"doppler_spread_hz": doppler_spread} if has_doppler else {}),
     )
     metadata = {
         "schema_version": SCHEMA_VERSION,
@@ -275,10 +387,19 @@ def generate_dataset(
         "created_at": datetime.now(timezone.utc).isoformat(),
         "duration_s": round(time.monotonic() - started, 2),
         "num_zero_path_samples": zero_count,
+        # Trajectory sample step [s] behind the ue_velocity finite differences
+        # (actor_id sampling derives it from the actor's authored dt_s); None
+        # for random/grid, whose ue_velocity is all zeros.
+        "sample_dt_s": sample_dt,
+        # Whether the .npz carries the optional doppler_spread_hz array (only
+        # when the solver reported per-path Doppler for some sample).
+        "has_doppler_spread": has_doppler,
         "conventions": {
             "coordinates": "Z-up ENU meters",
             "power": "dBm; cir_gain is linear voltage gain (|g|^2 = mW at 0 dBm tx ref)",
             "cfr": "H(f_k) = sum_l g_l exp(-j 2 pi f_k tau_l), offsets across [-B/2,+B/2]",
+            "ue_velocity": "m/s finite difference of consecutive trajectory samples over sample_dt_s; zeros for random/grid",
+            "doppler_spread_hz": "power-weighted std of per-path Doppler [Hz]; NaN where the solver reports none",
         },
         # Field mapping to NVIDIA AODT's ClickHouse/Parquet ground-truth schema
         # (cfrs/cirs/raypaths tables) for cross-tool pipelines. Our arrays are

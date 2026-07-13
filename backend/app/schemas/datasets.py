@@ -23,8 +23,12 @@ class DatasetSampling(StrictModel):
     # by 25 m - the UI prefills these from the visual scene bounds instead.
     region_min: Optional[Vec3] = None
     region_max: Optional[Vec3] = None
-    # UE height above z=0 for random/grid sampling (positions are placed at
-    # this z; region z bounds are ignored for those modes).
+    # UE height above z=0 for random/grid sampling. Positions are placed at
+    # this z when the region z bounds coincide, the region is omitted, or the
+    # request supplies height_m explicitly (an explicit height pins the legacy
+    # plane). Otherwise a request whose region_min[2] != region_max[2] samples
+    # z volumetrically within [region_min[2], region_max[2]] (random: uniform;
+    # grid: stacked z levels, see services/dataset.py).
     height_m: float = 1.5
     # random: number of uniform samples. grid: cap on grid points (the grid is
     # truncated row-major if spacing yields more). trajectory: waypoint count.
@@ -33,6 +37,20 @@ class DatasetSampling(StrictModel):
     # trajectory mode: straight line from start to end (inclusive).
     start_m: Optional[Vec3] = None
     end_m: Optional[Vec3] = None
+    # trajectory mode: explicit flight-path polyline (>= 2 waypoints),
+    # resampled to num_samples positions by arc length (same resampler as the
+    # trajectory-metrics workflow). Precedence: waypoints > actor_id >
+    # start_m/end_m.
+    waypoints: Optional[list[Vec3]] = Field(default=None, min_length=2)
+    # trajectory mode: sample along this scene actor's authored trajectory
+    # waypoints (e.g. a UAV flight path), resampled the same way. Errors when
+    # the actor is unknown or carries no trajectory.
+    actor_id: Optional[str] = None
+    # Time between consecutive trajectory samples [s] - the finite-difference
+    # step behind the ue_velocity labels. actor_id sampling instead derives
+    # the step from the actor's authored trajectory dt_s so the authored
+    # speed is preserved across resampling.
+    dt_s: float = Field(default=0.1, gt=0.0)
     seed: int = Field(default=0, ge=0)
     # Snap each sampled position's z to the scene surface underneath it
     # (raycast down onto the visual mesh) + height_m. Meant for outdoor

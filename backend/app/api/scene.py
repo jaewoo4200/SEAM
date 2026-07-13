@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
 from app.api import deps
+from app.services.events import publish_event
 from app.schemas.scene import Scene, SceneBounds
 from app.schemas.validation import ValidationReport
 from app.services.project_store import InvalidAssetPathError, ProjectNotFoundError
@@ -67,8 +68,41 @@ def put_scene(project_id: str, body: Scene) -> Scene:
                 f"body has {body.scene_id!r}"
             ),
         )
-    store.save_scene(project_id, body)
-    return body
+    # Optimistic concurrency: a client that round-trips the scene carries the
+    # revision it fetched; a stale write (another tab / external script saved
+    # meanwhile) gets 409 instead of silently clobbering the newer state.
+    # Clients that send no revision (older tools, tests) skip the check.
+    if (
+        body.revision is not None
+        and existing.revision is not None
+        and body.revision != existing.revision
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"scene changed on disk (revision {existing.revision}, "
+                f"you had {body.revision}) — refresh and retry"
+            ),
+        )
+    saved = store.save_scene(project_id, body)
+    publish_event(project_id, {"type": "scene_saved", "revision": saved.revision})
+    return saved
+
+
+@router.post("/projects/{project_id}/scene/restore", response_model=Scene)
+def restore_scene(project_id: str, steps: int = 1) -> Scene:
+    """Undo: make the steps-th newest history snapshot the current scene."""
+    store = deps.get_store()
+    deps.load_scene_or_404(store, project_id)  # 404 for unknown projects
+    try:
+        scene = store.restore_scene(project_id, steps=steps)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    store.append_provenance(
+        project_id, {"type": "scene_restore", "steps": steps}
+    )
+    publish_event(project_id, {"type": "scene_saved", "revision": scene.revision})
+    return scene
 
 
 @router.post("/projects/{project_id}/scene/validate", response_model=ValidationReport)

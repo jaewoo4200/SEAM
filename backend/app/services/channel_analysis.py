@@ -7,6 +7,10 @@ The empirical models are pure, unit-testable functions with explicit validity
 checks (out-of-range frequency/distance -> ``valid=False`` plus a note). The
 ray-traced side reuses ``resolve_backend(config).simulate_paths`` with tx/rx
 narrowed to the single link so the CIR taps come straight from RayPath entries.
+
+On top of the single-link analysis: ``sweep_channel`` re-runs it with one
+scalar knob patched per point, and ``analyze_spectrogram`` STFTs the coherent
+complex h(t) into a Doppler-time grid (ISAC sensing readout).
 """
 
 import math
@@ -16,9 +20,14 @@ from typing import Optional
 from app.schemas.channel import (
     ChannelAnalysisRequest,
     ChannelAnalysisResult,
+    ChannelSweepPoint,
+    ChannelSweepRequest,
+    ChannelSweepResult,
     CirTap,
     PathLossModelName,
     PathLossModelResult,
+    SpectrogramRequest,
+    SpectrogramResult,
 )
 from app.schemas.devices import Device
 from app.schemas.materials import RFMaterialLibrary
@@ -224,15 +233,75 @@ def _tr38901(
     return _ModelOutput(pl, valid, "; ".join(notes))
 
 
+# ---- 3GPP TR 36.777 (study on enhanced LTE support for aerial vehicles),
+# Annex B.1.2 UMa-AV air-to-ground path loss (median, shadowing dropped).
+#
+# The UT is the aerial vehicle: h_UT is the UAV altitude. The closed forms
+# apply above the urban clutter, 22.5-300 m (below 22.5 m the spec hands back
+# to the terrestrial TR 38.901 UMa models, which are already in the table), so
+# altitude out of range is flagged via valid=False like the 38.901 distance
+# gating, never an error.
+
+_UMA_AV_ALT_RANGE_M = (22.5, 300.0)
+
+
+def _uma_av_altitude_note(h_ut: float) -> Optional[str]:
+    lo, hi = _UMA_AV_ALT_RANGE_M
+    if h_ut < lo or h_ut > hi:
+        return f"h_UT={h_ut:.1f} m outside {lo:g}-{hi:g} m UMa-AV validity"
+    return None
+
+
+def _uma_av_los(freq_hz: float, d_3d: float) -> float:
+    # TR 36.777 Table B-1 (UMa-AV LOS, 22.5 m < h_UT <= 300 m):
+    # PL = 28.0 + 22 log10(d_3D) + 20 log10(f_c[GHz]) - free-space-like slope,
+    # the UAV sits above the clutter so the link is effectively unobstructed.
+    fc = freq_hz / 1e9
+    return 28.0 + 22.0 * math.log10(d_3d) + 20.0 * math.log10(fc)
+
+
+def _uma_av_nlos(freq_hz: float, d_3d: float, h_ut: float) -> float:
+    # TR 36.777 Table B-2 (UMa-AV NLOS):
+    # PL = -17.5 + (46 - 7 log10(h_UT)) log10(d_3D) + 20 log10(40 pi f_c / 3);
+    # the distance exponent relaxes with altitude (higher UAV -> fewer
+    # obstructions). h_UT floored at 1 m so extrapolating a ground-level UT
+    # stays finite; the altitude note flags it invalid anyway.
+    fc = freq_hz / 1e9
+    h = max(h_ut, 1.0)
+    return (
+        -17.5
+        + (46.0 - 7.0 * math.log10(h)) * math.log10(d_3d)
+        + 20.0 * math.log10(40.0 * math.pi * fc / 3.0)
+    )
+
+
+def _tr36777(kind: str, freq_hz: float, d_3d: float, h_ut: float) -> _ModelOutput:
+    if kind == "uma_av_los":
+        pl = _uma_av_los(freq_hz, d_3d)
+    elif kind == "uma_av_nlos":
+        pl = _uma_av_nlos(freq_hz, d_3d, h_ut)
+    else:  # pragma: no cover - dispatch table is closed
+        raise ValueError(f"unknown TR 36.777 scenario: {kind!r}")
+    note = _uma_av_altitude_note(h_ut)
+    return _ModelOutput(pl, note is None, note or "")
+
+
 def evaluate_path_loss_models(
     freq_hz: float,
     dist_3d_m: float,
     h_bs: float,
     h_ut: float,
     rt_path_loss_db: Optional[float] = None,
+    *,
+    include_aerial: bool = False,
 ) -> list[PathLossModelResult]:
     """Evaluate every empirical model at one geometry and (when a ray-traced
-    path loss is available) fill ``delta_vs_rt_db = model - RT``."""
+    path loss is available) fill ``delta_vs_rt_db = model - RT``.
+
+    ``include_aerial`` adds the TR 36.777 UMa-AV (UAV) rows. Opt-in because
+    the default nine-model list is a pinned contract for pre-aerial callers;
+    the /analyze/channel endpoint always opts in.
+    """
     d_2d, d_3d = _geometry(h_bs, h_ut, dist_3d_m)
     outputs: list[tuple[PathLossModelName, _ModelOutput]] = [
         ("fspl", _fspl(freq_hz, d_3d)),
@@ -242,6 +311,13 @@ def evaluate_path_loss_models(
         ("tr38901_umi_nlos", _tr38901("umi_nlos", freq_hz, d_2d, d_3d, h_bs, h_ut)),
         ("tr38901_inh_los", _tr38901("inh_los", freq_hz, d_2d, d_3d, h_bs, h_ut)),
         ("tr38901_inh_nlos", _tr38901("inh_nlos", freq_hz, d_2d, d_3d, h_bs, h_ut)),
+    ]
+    if include_aerial:
+        outputs += [
+            ("tr36777_uma_av_los", _tr36777("uma_av_los", freq_hz, d_3d, h_ut)),
+            ("tr36777_uma_av_nlos", _tr36777("uma_av_nlos", freq_hz, d_3d, h_ut)),
+        ]
+    outputs += [
         ("ci_n2", _ci_model(freq_hz, d_3d, 2.0)),
         ("ci_n3", _ci_model(freq_hz, d_3d, 3.0)),
     ]
@@ -269,6 +345,17 @@ def evaluate_path_loss_models(
 
 def _lin_from_dbm(power_dbm: float) -> float:
     return 10.0 ** (power_dbm / 10.0)
+
+
+def _path_amplitudes(paths: list[RayPath]) -> list[complex]:
+    """Complex voltage amplitude per path: |a| = sqrt(linear power) (power is
+    |a|^2) at the path's phase. The building block every coherent-sum quantity
+    (CFR, Doppler envelope, spectrogram h(t)) shares."""
+    return [
+        math.sqrt(_lin_from_dbm(p.power_dbm))
+        * complex(math.cos(p.phase_rad), math.sin(p.phase_rad))
+        for p in paths
+    ]
 
 
 def build_cir(
@@ -430,10 +517,7 @@ def doppler_time_envelope(
     if fs is None:
         max_abs = max((abs(d) for d in doppler_hz), default=0.0)
         fs = 2.0 * max_abs if max_abs > 0.0 else 1000.0
-    amps: list[complex] = []
-    for p in paths:
-        amp_mag = math.sqrt(_lin_from_dbm(p.power_dbm))
-        amps.append(amp_mag * complex(math.cos(p.phase_rad), math.sin(p.phase_rad)))
+    amps = _path_amplitudes(paths)
     times = [n / fs for n in range(num_time_steps)]
     env_db: list[float] = []
     for t in times:
@@ -444,6 +528,45 @@ def doppler_time_envelope(
         mag = abs(acc)
         env_db.append(20.0 * math.log10(mag) if mag > 0.0 else -300.0)
     return times, env_db
+
+
+def _unit_vector(a: list[float], b: list[float]) -> Optional[list[float]]:
+    d = [bi - ai for ai, bi in zip(a, b)]
+    n = math.sqrt(sum(x * x for x in d))
+    return [x / n for x in d] if n > 1e-12 else None
+
+
+def geometric_doppler_hz(
+    paths: list[RayPath], tx: Device, rx: Device, freq_hz: float
+) -> list[float]:
+    """Per-path Doppler from the endpoint devices' velocities and the path
+    polyline's departure/arrival directions:
+
+        f_d = (f/c) * (v_tx . k_dep - v_rx . k_arr)
+
+    with k_dep the unit vector tx -> first vertex after tx and k_arr the unit
+    vector last vertex before rx -> rx, i.e. f_d = -(f/c) d(path length)/dt.
+    A closing link yields a positive shift. Scatterer (actor) motion is
+    invisible here - backends that model it surface the true per-path Doppler
+    in PathResultSet.metadata["doppler_hz"] instead; this is the fallback for
+    backends (e.g. mock) that do not.
+    """
+    v_tx = tx.velocity_m_s
+    v_rx = rx.velocity_m_s
+    out: list[float] = []
+    for p in paths:
+        rate = 0.0  # -(d path length / dt), m/s
+        if len(p.vertices) >= 2:
+            if v_tx is not None:
+                k = _unit_vector(p.vertices[0], p.vertices[1])
+                if k is not None:
+                    rate += sum(v * kk for v, kk in zip(v_tx, k))
+            if v_rx is not None:
+                k = _unit_vector(p.vertices[-2], p.vertices[-1])
+                if k is not None:
+                    rate -= sum(v * kk for v, kk in zip(v_rx, k))
+        out.append(rate * freq_hz / SPEED_OF_LIGHT)
+    return out
 
 
 # ============================================================ orchestration
@@ -468,6 +591,26 @@ def _pick_device(devices: list[Device], wanted_id: Optional[str], kind: str) -> 
     return devices[0] if devices else None
 
 
+def _pick_link(
+    scene: Scene, tx_id: Optional[str], rx_id: Optional[str]
+) -> tuple[Device, Device]:
+    """Resolve the (tx, rx) pair for a single-link analysis; None = first of
+    kind. Raises ValueError (-> 4xx at the API) when either end is missing."""
+    txs = [d for d in scene.devices if d.kind == "tx"]
+    rxs = [d for d in scene.devices if d.kind == "rx"]
+    tx = _pick_device(txs, tx_id, "tx")
+    rx = _pick_device(rxs, rx_id, "rx")
+    if tx is None:
+        raise ValueError(
+            f"tx device not found: {tx_id!r}" if tx_id else "scene has no transmitter"
+        )
+    if rx is None:
+        raise ValueError(
+            f"rx device not found: {rx_id!r}" if rx_id else "scene has no receiver"
+        )
+    return tx, rx
+
+
 def analyze_channel(
     project_dir: Path,
     scene: Scene,
@@ -480,20 +623,8 @@ def analyze_channel(
     it to a 4xx). Backend-solve warnings are surfaced in ``warnings``.
     """
     config = _resolve_config(scene, request)
+    tx, rx = _pick_link(scene, request.tx_id, request.rx_id)
     txs = [d for d in scene.devices if d.kind == "tx"]
-    rxs = [d for d in scene.devices if d.kind == "rx"]
-    tx = _pick_device(txs, request.tx_id, "tx")
-    rx = _pick_device(rxs, request.rx_id, "rx")
-    if tx is None:
-        raise ValueError(
-            f"tx device not found: {request.tx_id!r}" if request.tx_id else
-            "scene has no transmitter"
-        )
-    if rx is None:
-        raise ValueError(
-            f"rx device not found: {request.rx_id!r}" if request.rx_id else
-            "scene has no receiver"
-        )
 
     warnings: list[str] = []
     backend = resolve_backend(config)
@@ -595,9 +726,11 @@ def analyze_channel(
     # ---- Channel responses.
     cfr_offsets, cfr_mag = compute_cfr(paths, config.bandwidth_hz, request.num_cfr_points)
 
-    # ---- Empirical model comparison.
+    # ---- Empirical model comparison (aerial rows included: the UMa-AV
+    # validity flag greys them out on terrestrial links rather than hiding).
     pl_models = evaluate_path_loss_models(
-        config.frequency_hz, dist_3d, h_bs, h_ut, rt_path_loss_db
+        config.frequency_hz, dist_3d, h_bs, h_ut, rt_path_loss_db,
+        include_aerial=True,
     )
 
     # Plugin-registered models (docs/extending.md) run with the real device
@@ -664,6 +797,198 @@ def analyze_channel(
             # link result stays attributable after devices move (provenance).
             "tx_position_m": list(tx.position),
             "rx_position_m": list(rx.position),
+            "engine": result.metadata.get("engine"),
+        },
+    )
+
+
+# ============================================================ parameter sweep
+
+
+def sweep_channel(
+    project_dir: Path,
+    scene: Scene,
+    library: RFMaterialLibrary,
+    request: ChannelSweepRequest,
+) -> ChannelSweepResult:
+    """Run analyze_channel once per sweep value with the swept field patched.
+
+    tx_power_dbm lives on the Device, the other sweep fields on the
+    SimulationConfig; either way each point is an independent in-memory copy -
+    the stored scene/config never change and nothing is persisted. Config
+    patches round-trip through validation so an out-of-range value (e.g. a
+    negative frequency) surfaces as ValueError/400, not a math domain error.
+    """
+    config = _resolve_config(scene, request)
+    tx, _ = _pick_link(scene, request.tx_id, request.rx_id)
+    # The per-point request is the sweep request minus the sweep fields; the
+    # (patched) config is always passed inline so config_id resolution happens
+    # exactly once, against the original scene.
+    base = ChannelAnalysisRequest(
+        **request.model_dump(exclude={"sweep_field", "sweep_values", "config", "config_id"})
+    )
+
+    rows: list[ChannelSweepPoint] = []
+    warnings: list[str] = []
+    tx_id = rx_id = backend_name = ""
+    for value in request.sweep_values:
+        point_scene = scene
+        point_config = config
+        if request.sweep_field == "tx_power_dbm":
+            point_scene = scene.model_copy(update={"devices": [
+                d.model_copy(update={"power_dbm": float(value)}) if d.id == tx.id else d
+                for d in scene.devices
+            ]})
+        else:
+            point_config = SimulationConfig.model_validate(
+                {**config.model_dump(), request.sweep_field: float(value)}
+            )
+        point_req = base.model_copy(update={"config": point_config})
+        res = analyze_channel(project_dir, point_scene, library, point_req)
+        tx_id, rx_id, backend_name = res.tx_id, res.rx_id, res.backend
+        for w in res.warnings:  # dedupe: points mostly repeat the same warning
+            if w not in warnings:
+                warnings.append(w)
+        rows.append(ChannelSweepPoint(
+            value=float(value),
+            path_loss_db=res.rt_path_loss_db,
+            rss_dbm=res.rss_dbm,
+            snr_db=res.snr_db,
+            sinr_db=res.sinr_db,
+            rms_delay_spread_ns=res.rms_delay_spread_ns,
+            k_factor_db=res.k_factor_db,
+        ))
+    return ChannelSweepResult(
+        tx_id=tx_id,
+        rx_id=rx_id,
+        backend=backend_name,
+        sweep_field=request.sweep_field,
+        rows=rows,
+        warnings=warnings,
+    )
+
+
+# ============================================================== spectrogram
+#
+# Doppler-time spectrogram (ISAC sensing readout): STFT of the coherent
+# complex channel h(t) = sum_i a_i e^{j 2 pi f_d,i t} - the same per-path
+# superposition doppler_time_envelope draws, kept complex so the FFT resolves
+# WHICH Doppler frequencies are present (signed), not just the fading ripple.
+
+# JSON-payload guardrails: the sample series and the emitted grid stay small
+# enough for an interactive response.
+MAX_SPECTROGRAM_SAMPLES = 8192
+MAX_SPECTROGRAM_CELLS = 131_072
+
+
+def analyze_spectrogram(
+    project_dir: Path,
+    scene: Scene,
+    library: RFMaterialLibrary,
+    request: SpectrogramRequest,
+) -> SpectrogramResult:
+    """Solve the single link (same backend-resolution path as analyze_channel)
+    and STFT the synthesized complex h(t) into a Doppler-time grid.
+
+    Raises ValueError (-> 400) for an unknown config id / missing device and
+    for window/hop/duration combinations that cannot produce a frame or would
+    blow the grid cap.
+    """
+    import numpy as np
+
+    config = _resolve_config(scene, request)
+    tx, rx = _pick_link(scene, request.tx_id, request.rx_id)
+
+    backend = resolve_backend(config)
+    link_cfg = config.model_copy(update={"tx_ids": [tx.id], "rx_ids": [rx.id]})
+    result = backend.simulate_paths(project_dir, scene, library, link_cfg)
+    warnings = list(result.warnings)
+    paths = [p for p in result.paths if p.tx_id == tx.id and p.rx_id == rx.id]
+
+    # Per-path Doppler: backend metadata when present (real solver; includes
+    # moving actors), else the geometric estimate from the endpoint device
+    # velocities so Doppler-free backends (mock) still produce a physically
+    # sensible spectrogram.
+    raw_doppler = result.metadata.get("doppler_hz")
+    if isinstance(raw_doppler, list) and len(raw_doppler) == len(result.paths):
+        by_id = {p.path_id: float(d) for p, d in zip(result.paths, raw_doppler)}
+        doppler = [by_id.get(p.path_id, 0.0) for p in paths]
+        doppler_source = "backend"
+    else:
+        doppler = geometric_doppler_hz(paths, tx, rx, config.frequency_hz)
+        doppler_source = "geometric"
+
+    fs = request.sampling_frequency_hz
+    window = request.window
+    hop = request.hop if request.hop is not None else window // 2
+    n = int(round(request.duration_s * fs))
+    if n > MAX_SPECTROGRAM_SAMPLES:
+        warnings.append(
+            f"duration clipped to {MAX_SPECTROGRAM_SAMPLES / fs:.3f} s: "
+            f"{n} samples exceed the {MAX_SPECTROGRAM_SAMPLES}-sample cap at "
+            f"fs={fs:g} Hz"
+        )
+        n = MAX_SPECTROGRAM_SAMPLES
+    if n < window:
+        raise ValueError(
+            f"duration_s * sampling_frequency_hz = {n} samples is shorter than "
+            f"one STFT window ({window}); lengthen duration_s or shrink window"
+        )
+    num_frames = 1 + (n - window) // hop
+    if num_frames * window > MAX_SPECTROGRAM_CELLS:
+        raise ValueError(
+            f"spectrogram grid {num_frames}x{window} exceeds "
+            f"{MAX_SPECTROGRAM_CELLS} cells; increase hop or reduce duration_s"
+        )
+
+    max_abs_dop = max((abs(d) for d in doppler), default=0.0)
+    if max_abs_dop > fs / 2.0:
+        warnings.append(
+            f"max |Doppler| {max_abs_dop:.1f} Hz exceeds Nyquist "
+            f"{fs / 2.0:.1f} Hz; shifts will alias - raise sampling_frequency_hz"
+        )
+
+    t = np.arange(n) / fs
+    if paths:
+        amps = np.asarray(_path_amplitudes(paths), dtype=complex)
+        fds = np.asarray(doppler, dtype=float)
+        h = (amps[:, None] * np.exp(2j * np.pi * fds[:, None] * t[None, :])).sum(axis=0)
+    else:
+        warnings.append("no ray paths for this link; spectrogram is the -300 dB floor")
+        h = np.zeros(n, dtype=complex)
+
+    # Hann-windowed STFT, fftshifted so the Doppler axis ascends through 0 Hz
+    # at index window//2. Magnitude floored at -300 dB (compute_cfr convention)
+    # via the 1e-15 amplitude floor.
+    win = np.hanning(window)
+    freqs = np.fft.fftshift(np.fft.fftfreq(window, d=1.0 / fs))
+    times: list[float] = []
+    mags: list[list[float]] = []
+    for k in range(num_frames):
+        start = k * hop
+        spec = np.fft.fftshift(np.fft.fft(h[start:start + window] * win))
+        db = 20.0 * np.log10(np.maximum(np.abs(spec), 1e-15))
+        times.append(round((start + window / 2.0) / fs, 6))
+        mags.append([round(float(v), 3) for v in db])
+
+    return SpectrogramResult(
+        tx_id=tx.id,
+        rx_id=rx.id,
+        backend=backend.name,
+        frequency_hz=config.frequency_hz,
+        sampling_frequency_hz=fs,
+        window=window,
+        hop=hop,
+        num_paths=len(paths),
+        times_s=times,
+        doppler_hz=[round(float(f), 6) for f in freqs],
+        magnitude_db=mags,
+        warnings=warnings,
+        metadata={
+            "doppler_source": doppler_source,
+            "num_samples": n,
+            "duration_s": round(n / fs, 6),
+            "max_abs_doppler_hz": max_abs_dop,
             "engine": result.metadata.get("engine"),
         },
     )

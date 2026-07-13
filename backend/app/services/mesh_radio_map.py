@@ -17,6 +17,7 @@ import math
 from pathlib import Path
 
 from app.schemas.materials import RFMaterialLibrary
+from app.services import solve_ctx
 from app.schemas.devices import Device
 from app.schemas.results import MeshRadioMapResultSet, MeshRadioMapSurface
 from app.schemas.scene import Scene
@@ -108,6 +109,7 @@ def mesh_radio_map(
         ]
         values: list = []
         for start in range(0, len(probe_points), CHUNK_SIZE):
+            solve_ctx.tick(start, len(probe_points))
             chunk = probe_points[start : start + CHUNK_SIZE]
             step = scene.model_copy(deep=True)
             # Only the serving TX plus this chunk's probes: probe receivers

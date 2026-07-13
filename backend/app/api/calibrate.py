@@ -5,6 +5,11 @@ Import measured per-link path gain, fit one RF material parameter by grid
 search, and return a before/after report. With apply=true, the fitted value is
 written into the project material library and prims using that material are
 promoted to assignment_status "measurement_calibrated".
+
+POST /projects/{project_id}/calibrate/validate-trajectory
+Measured-vs-predicted path gain along the (time-ordered) measurement log:
+the log's RX positions are replayed through the trajectory solver and scored
+per point with the calibration module's level-offset alignment.
 """
 
 import csv
@@ -21,10 +26,13 @@ from app.schemas.calibration import (
     DisambiguationReport,
     DisambiguationRequest,
     MeasurementSample,
+    TrajectoryValidationReport,
+    TrajectoryValidationRequest,
 )
 from app.schemas.common import StrictModel
 from app.schemas.scene import RFBinding, Scene
 from app.schemas.simulation import SimulateRequest, SimulationConfig
+from app.services.measurement_validation import order_measurements
 from app.services.project_store import ProjectNotFoundError
 from app.services.simulation_backends import BackendUnavailableError, resolve_backend
 
@@ -35,11 +43,13 @@ MEASUREMENTS_CSV_URI = "measurements/measurements.csv"
 
 # Accepted CSV column aliases (case-insensitive). Position may use either the
 # bare x/y/z or the rx_-prefixed form; the metric column accepts rsrp_dbm as an
-# alias for measured_path_gain_db.
+# alias for measured_path_gain_db; the optional capture time (seconds) accepts
+# the common drive/flight-log spellings.
 _X_KEYS = ("x", "rx_x")
 _Y_KEYS = ("y", "rx_y")
 _Z_KEYS = ("z", "rx_z")
 _GAIN_KEYS = ("measured_path_gain_db", "rsrp_dbm")
+_TIME_KEYS = ("time_s", "time", "t", "timestamp_s")
 
 
 class MeasurementImportRequest(StrictModel):
@@ -62,9 +72,12 @@ def _first(row: dict[str, str], keys: tuple[str, ...]) -> Optional[str]:
 def _parse_measurement_csv(csv_text: str) -> MeasurementImportResponse:
     """Parse measurement rows from CSV text (headers required).
 
-    Accepts headers measurement_id, x/y/z (or rx_x/rx_y/rx_z), tx_id, and
+    Accepts headers measurement_id, x/y/z (or rx_x/rx_y/rx_z), tx_id, an
+    optional capture time in seconds (time_s/time/t/timestamp_s), and
     measured_path_gain_db (alias rsrp_dbm). Rows missing a coordinate or the
     gain, or with unparseable numbers, are skipped and counted - never fatal.
+    When any row carries a time, the returned samples are sorted by time
+    ascending (time-less logs keep file order untouched).
     """
     warnings: list[str] = []
     reader = csv.DictReader(io.StringIO(csv_text))
@@ -87,6 +100,7 @@ def _parse_measurement_csv(csv_text: str) -> MeasurementImportResponse:
 
     measurements: list[MeasurementSample] = []
     skipped = 0
+    bad_times = 0
     for row in reader:
         # Re-key each row via the normalized header map so lookups are tolerant
         # of original-case / whitespace in the source headers.
@@ -109,9 +123,19 @@ def _parse_measurement_csv(csv_text: str) -> MeasurementImportResponse:
             continue
         mid = _first(norm, ("measurement_id",))
         tx = _first(norm, ("tx_id",))
+        # Optional capture time: a present-but-unparseable value degrades to
+        # "no time" (the row's required data is intact), counted in a warning.
+        time_s: Optional[float] = None
+        raw_time = _first(norm, _TIME_KEYS)
+        if raw_time is not None:
+            try:
+                time_s = float(raw_time)
+            except (TypeError, ValueError):
+                bad_times += 1
         measurements.append(
             MeasurementSample(
                 measurement_id=mid,
+                time_s=time_s,
                 rx_position=rx,
                 tx_id=tx,
                 measured_path_gain_db=gain_db,
@@ -120,8 +144,15 @@ def _parse_measurement_csv(csv_text: str) -> MeasurementImportResponse:
 
     if skipped:
         warnings.append(f"skipped {skipped} malformed row(s)")
+    if bad_times:
+        warnings.append(
+            f"{bad_times} row(s) had an unparseable time value; treated as "
+            "missing (kept, ordered after the timed rows)"
+        )
     return MeasurementImportResponse(
-        measurements=measurements, skipped=skipped, warnings=warnings
+        measurements=order_measurements(measurements),
+        skipped=skipped,
+        warnings=warnings,
     )
 
 
@@ -255,3 +286,60 @@ def get_measurements(project_id: str) -> MeasurementImportResponse:
             status_code=404, detail="no measurements imported for this project"
         )
     return _parse_measurement_csv(path.read_text(encoding="utf-8"))
+
+
+@router.post(
+    "/projects/{project_id}/calibrate/validate-trajectory",
+    response_model=TrajectoryValidationReport,
+)
+def validate_trajectory(
+    project_id: str, request: Optional[TrajectoryValidationRequest] = None
+) -> TrajectoryValidationReport:
+    """Measured-vs-predicted path gain along the flight/drive log.
+
+    The measurement points (inline, or the project's stored import when the
+    body carries none) are time-ordered and their RX positions replayed as the
+    waypoints of the trajectory solver; per-point predictions are then aligned
+    to the measurements with the calibration module's level-offset math and
+    scored (RMSE/MAE). Computed on demand - no result set is persisted.
+    """
+    from app.services.measurement_validation import validate_trajectory as _validate
+
+    request = request or TrajectoryValidationRequest()
+    store = get_store()
+    scene = load_scene_or_404(store, project_id)
+    library = store.load_materials(project_id)
+    config = _resolve_config(scene, request)
+    try:
+        backend = resolve_backend(config)
+    except BackendUnavailableError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+    measurements = request.measurements
+    if measurements is None:
+        # Fall back to the project's stored measurement import.
+        try:
+            path = store.asset_path(project_id, MEASUREMENTS_CSV_URI)
+        except ProjectNotFoundError:
+            raise HTTPException(
+                status_code=404, detail=f"project not found: {project_id}"
+            )
+        if not path.is_file():
+            raise HTTPException(
+                status_code=400,
+                detail="no measurements in the request and none imported for "
+                "this project (POST calibrate/measurements/import-csv first)",
+            )
+        measurements = _parse_measurement_csv(
+            path.read_text(encoding="utf-8")
+        ).measurements
+    if not measurements:
+        raise HTTPException(status_code=400, detail="measurements must not be empty")
+
+    try:
+        return _validate(
+            backend, store.resolve(project_id), scene, library, config,
+            request, measurements,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))

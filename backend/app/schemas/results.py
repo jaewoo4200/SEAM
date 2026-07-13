@@ -115,6 +115,9 @@ class TrajectorySample(StrictModel):
     rms_delay_spread_ns: Optional[float] = None
     path_count: int = 0
     strongest_delay_ns: Optional[float] = None
+    # Cell this sample's link budget used. Fixed-serving runs repeat the one
+    # requested TX; handover runs show the per-step A3 re-selection.
+    serving_tx_id: Optional[str] = None
     # Full ray paths at this waypoint (heavy; filled when the request sets
     # include_paths so playback can redraw rays live as the UE moves).
     paths: Optional[list["RayPath"]] = None

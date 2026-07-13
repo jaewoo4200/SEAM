@@ -16,8 +16,10 @@ files, and provenance.
 import hashlib
 import json
 import logging
+import threading
+from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import Literal, Optional, Union
+from typing import Iterator, Literal, Optional, Union
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import Field
@@ -40,11 +42,53 @@ from app.schemas.simulation import (
     SimulationConfig,
     TrajectorySimulateRequest,
 )
+from app.services import solve_ctx
 from app.services.simulation_backends import BackendUnavailableError, resolve_backend
 
 router = APIRouter(tags=["simulate"])
 
 logger = logging.getLogger(__name__)
+
+# Solves mutate the (cached, shared) compiled scene in place — concurrent
+# solves on one project would interleave device setup and corrupt results, so
+# each project gets one solve at a time. Separate small lock for the
+# read-modify-write of scene.result_sets in _persist_result (two solves on
+# DIFFERENT projects finishing together must not drop each other's ref).
+_project_locks: dict[str, threading.Lock] = {}
+_locks_guard = threading.Lock()
+_refs_lock = threading.Lock()
+
+
+def _project_lock(project_id: str) -> threading.Lock:
+    with _locks_guard:
+        return _project_locks.setdefault(project_id, threading.Lock())
+
+
+@contextmanager
+def _solve_guard(project_id: str, kind: str) -> Iterator[None]:
+    """Serialize per project, arm cancel/progress, and always emit a terminal
+    event (finished comes from _persist_result; failure/cancel from here)."""
+    from app.services.events import publish_event
+
+    publish_event(project_id, {"type": "simulation_started", "kind": kind})
+    with _project_lock(project_id):
+        with solve_ctx.solve_context(project_id, kind):
+            try:
+                yield
+            except solve_ctx.SolveCancelled as exc:
+                publish_event(
+                    project_id,
+                    {"type": "simulation_failed", "kind": kind, "cancelled": True},
+                )
+                raise HTTPException(status_code=409, detail="solve cancelled") from exc
+            except HTTPException:
+                raise
+            except Exception as exc:
+                publish_event(
+                    project_id,
+                    {"type": "simulation_failed", "kind": kind, "error": str(exc)},
+                )
+                raise
 
 ResultKind = Literal["paths", "radio_map", "mesh_radio_map", "trajectory", "scenario"]
 RESULT_KINDS: tuple[str, ...] = (
@@ -112,6 +156,7 @@ def _persist_result(
     config_id: str,
     result: AnyResult,
     config: Optional[SimulationConfig] = None,
+    label: Optional[str] = None,
 ) -> AnyResult:
     """Allocate a collision-free result id, save it, append a ResultSetRef,
     and log provenance. Shared by every simulate endpoint."""
@@ -142,7 +187,7 @@ def _persist_result(
         result.metadata.setdefault("config_snapshot", config.model_dump(mode="json"))
 
     uri = f"results/{result.result_id}.json"
-    store.save_json(project_id, uri, result.model_dump(mode="json"))
+    saved_path = store.save_json(project_id, uri, result.model_dump(mode="json"))
     ref = ResultSetRef(
         result_id=result.result_id,
         kind=kind,
@@ -150,6 +195,8 @@ def _persist_result(
         simulation_config_id=config_id,
         uri=uri,
         created_at=result.created_at,
+        label=label,
+        size_bytes=saved_path.stat().st_size,
     )
     # The solved `scene` may carry an ephemeral live-state overlay (this solve
     # loaded it via load_scene_live so the ray tracing followed external
@@ -158,9 +205,10 @@ def _persist_result(
     # and save that — and keep the overlay (clear_live_overlay=False) so a
     # periodic/live re-solve keeps following the live feed.
     scene.result_sets.append(ref)  # keep the in-memory scene consistent
-    clean = load_scene_or_404(store, project_id)
-    clean.result_sets.append(ref)
-    store.save_scene(project_id, clean, clear_live_overlay=False)
+    with _refs_lock:
+        clean = load_scene_or_404(store, project_id)
+        clean.result_sets.append(ref)
+        store.save_scene(project_id, clean, clear_live_overlay=False)
     store.append_provenance(
         project_id,
         {
@@ -209,29 +257,27 @@ def _run_simulation(
     request: Optional[SimulateRequest],
     kind: ResultKind,
 ) -> Union[PathResultSet, RadioMapResultSet]:
-    from app.services.events import publish_event
+    with _solve_guard(project_id, kind):
+        store = get_store()
+        scene = load_scene_live(store, project_id)
+        library = store.load_materials(project_id)
+        config = _resolve_config(scene, request or SimulateRequest())
 
-    publish_event(project_id, {"type": "simulation_started", "kind": kind})
-    store = get_store()
-    scene = load_scene_live(store, project_id)
-    library = store.load_materials(project_id)
-    config = _resolve_config(scene, request or SimulateRequest())
+        try:
+            backend = resolve_backend(config)
+        except BackendUnavailableError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
 
-    try:
-        backend = resolve_backend(config)
-    except BackendUnavailableError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
+        project_dir = store.resolve(project_id)
+        if kind == "paths":
+            result = backend.simulate_paths(project_dir, scene, library, config)
+        else:
+            result = backend.simulate_radio_map(project_dir, scene, library, config)
 
-    project_dir = store.resolve(project_id)
-    if kind == "paths":
-        result = backend.simulate_paths(project_dir, scene, library, config)
-    else:
-        result = backend.simulate_radio_map(project_dir, scene, library, config)
-
-    return _persist_result(
-        project_id, scene, project_dir, kind, backend.name, config.id, result,
-        config=config,
-    )
+        return _persist_result(
+            project_id, scene, project_dir, kind, backend.name, config.id, result,
+            config=config,
+        )
 
 
 def _load_result(project_id: str, kind: ResultKind, result_id: Optional[str]) -> dict:
@@ -285,29 +331,28 @@ def simulate_mesh_radio_map(
     """Per-triangle coverage on the requested prims' surfaces (facades,
     roads, floors) - probe receivers at triangle centers, chunk-solved with
     the active backend."""
-    from app.services.events import publish_event
     from app.services.mesh_radio_map import mesh_radio_map
 
-    publish_event(project_id, {"type": "simulation_started", "kind": "mesh_radio_map"})
-    store = get_store()
-    scene = load_scene_live(store, project_id)
-    library = store.load_materials(project_id)
-    config = _resolve_config(
-        scene, SimulateRequest(config_id=request.config_id, config=request.config)
-    )
-    try:
-        backend = resolve_backend(config)
-    except BackendUnavailableError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
-    project_dir = store.resolve(project_id)
-    try:
-        result = mesh_radio_map(backend, project_dir, scene, library, config, request)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    return _persist_result(
-        project_id, scene, project_dir, "mesh_radio_map", backend.name, config.id,
-        result, config=config,
-    )
+    with _solve_guard(project_id, "mesh_radio_map"):
+        store = get_store()
+        scene = load_scene_live(store, project_id)
+        library = store.load_materials(project_id)
+        config = _resolve_config(
+            scene, SimulateRequest(config_id=request.config_id, config=request.config)
+        )
+        try:
+            backend = resolve_backend(config)
+        except BackendUnavailableError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+        project_dir = store.resolve(project_id)
+        try:
+            result = mesh_radio_map(backend, project_dir, scene, library, config, request)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        return _persist_result(
+            project_id, scene, project_dir, "mesh_radio_map", backend.name, config.id,
+            result, config=config,
+        )
 
 
 @router.get(
@@ -363,8 +408,14 @@ def prune_results(project_id: str, request: Optional[ResultsPruneRequest] = None
     survivors: list[ResultSetRef] = []
     # Refs are appended chronologically; the last N of a kind are the newest.
     kept_per_kind: dict[str, int] = {}
+    freed_bytes = 0
     for ref in reversed(scene.result_sets):
         if ref.kind not in scope:
+            survivors.append(ref)
+            continue
+        # Labeled runs are named baselines — housekeeping never deletes them
+        # (and they do not consume the keep window).
+        if ref.label:
             survivors.append(ref)
             continue
         seen = kept_per_kind.get(ref.kind, 0)
@@ -376,6 +427,7 @@ def prune_results(project_id: str, request: Optional[ResultsPruneRequest] = None
         try:
             file_path = store.asset_path(project_id, ref.uri)
             if file_path.exists():
+                freed_bytes += file_path.stat().st_size
                 file_path.unlink()
             else:
                 logger.warning(
@@ -406,7 +458,7 @@ def prune_results(project_id: str, request: Optional[ResultsPruneRequest] = None
     # removed_ids was built newest-first; present it oldest-first for symmetry
     # with kept_ids (both chronological).
     removed_ids.reverse()
-    return {"removed": removed_ids, "kept": kept_ids}
+    return {"removed": removed_ids, "kept": kept_ids, "freed_bytes": freed_bytes}
 
 
 @router.post(
@@ -415,31 +467,30 @@ def prune_results(project_id: str, request: Optional[ResultsPruneRequest] = None
 def simulate_trajectory(
     project_id: str, request: TrajectorySimulateRequest
 ) -> TrajectoryResultSet:
-    from app.services.events import publish_event
     from app.services.trajectory import run_trajectory
 
-    publish_event(project_id, {"type": "simulation_started", "kind": "trajectory"})
-    store = get_store()
-    scene = load_scene_live(store, project_id)
-    library = store.load_materials(project_id)
-    config = _resolve_config(
-        scene, SimulateRequest(config_id=request.config_id, config=request.config)
-    )
-    try:
-        backend = resolve_backend(config)
-    except BackendUnavailableError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
+    with _solve_guard(project_id, "trajectory"):
+        store = get_store()
+        scene = load_scene_live(store, project_id)
+        library = store.load_materials(project_id)
+        config = _resolve_config(
+            scene, SimulateRequest(config_id=request.config_id, config=request.config)
+        )
+        try:
+            backend = resolve_backend(config)
+        except BackendUnavailableError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
 
-    project_dir = store.resolve(project_id)
-    try:
-        result = run_trajectory(backend, project_dir, scene, library, config, request)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        project_dir = store.resolve(project_id)
+        try:
+            result = run_trajectory(backend, project_dir, scene, library, config, request)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
 
-    return _persist_result(
-        project_id, scene, project_dir, "trajectory", backend.name, config.id, result,
-        config=config,
-    )
+        return _persist_result(
+            project_id, scene, project_dir, "trajectory", backend.name, config.id, result,
+            config=config,
+        )
 
 
 @router.get(
@@ -484,3 +535,107 @@ def simulate_beamforming(
         raise HTTPException(status_code=409, detail=str(exc))
     project_dir = store.resolve(project_id)
     return backend.simulate_beamforming(project_dir, scene, library, config, request)
+
+
+@router.post("/projects/{project_id}/simulate/cancel")
+def cancel_solve(project_id: str) -> dict:
+    """Request cooperative cancellation of the project's running solve.
+
+    Loop-based solves (trajectory, dataset, mesh radio map, scenario, height
+    sweeps) stop at their next checkpoint; a single-shot solver call finishes
+    its current invocation first.
+    """
+    solve_ctx.request_cancel(project_id)
+    return {"requested": True}
+
+
+class ResultLabelRequest(StrictModel):
+    label: Optional[str] = Field(default=None, max_length=80)
+
+
+@router.patch("/projects/{project_id}/results/{result_id}/label")
+def label_result(
+    project_id: str, result_id: str, request: ResultLabelRequest
+) -> ResultSetRef:
+    """Name a stored run ("before-glass-facade"); labeled runs survive prune.
+
+    Passing label=null clears the name.
+    """
+    store = get_store()
+    with _refs_lock:
+        scene = load_scene_or_404(store, project_id)
+        ref = next(
+            (r for r in scene.result_sets if r.result_id == result_id), None
+        )
+        if ref is None:
+            raise HTTPException(
+                status_code=404, detail=f"unknown result: {result_id}"
+            )
+        label = (request.label or "").strip() or None
+        scene.result_sets = [
+            r.model_copy(update={"label": label}) if r.result_id == result_id else r
+            for r in scene.result_sets
+        ]
+        store.save_scene(project_id, scene, clear_live_overlay=False)
+    return next(r for r in scene.result_sets if r.result_id == result_id)
+
+
+class RadioMapSweepRequest(StrictModel):
+    """Coverage-vs-altitude: one planar radio map per requested height."""
+
+    heights_m: list[float] = Field(min_length=1, max_length=12)
+    # Coverage = fraction of solved cells at or above this metric threshold
+    # (same metric the grid config selects); omit to skip the summary.
+    threshold_db: Optional[float] = None
+    config_id: Optional[str] = None
+    config: Optional[SimulationConfig] = None
+
+
+@router.post("/projects/{project_id}/simulate/radio-map-sweep")
+def simulate_radio_map_sweep(
+    project_id: str, request: RadioMapSweepRequest
+) -> dict:
+    """Solve the planar radio map at each height and persist every run
+    (auto-labeled "h=<H> m" so the sweep survives pruning). Returns the run
+    ids plus a per-height coverage summary for the altitude curve."""
+    with _solve_guard(project_id, "radio_map_sweep"):
+        store = get_store()
+        scene = load_scene_live(store, project_id)
+        library = store.load_materials(project_id)
+        base = _resolve_config(
+            scene, SimulateRequest(config_id=request.config_id, config=request.config)
+        )
+        try:
+            backend = resolve_backend(base)
+        except BackendUnavailableError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+        project_dir = store.resolve(project_id)
+
+        runs: list[dict] = []
+        coverage: list[dict] = []
+        total = len(request.heights_m)
+        for i, height in enumerate(request.heights_m):
+            solve_ctx.tick(i, total)
+            grid = base.radio_map.model_copy(update={"height_m": float(height)})
+            config = base.model_copy(update={"radio_map": grid})
+            result = backend.simulate_radio_map(project_dir, scene, library, config)
+            persisted = _persist_result(
+                project_id, scene, project_dir, "radio_map", backend.name,
+                config.id, result, config=config, label=f"h={height:g} m",
+            )
+            runs.append({"height_m": height, "result_id": persisted.result_id})
+            frac = None
+            if request.threshold_db is not None:
+                solved = [
+                    v
+                    for row in persisted.values
+                    for v in row
+                    if v is not None
+                ]
+                if solved:
+                    frac = sum(
+                        1 for v in solved if v >= request.threshold_db
+                    ) / len(solved)
+            coverage.append({"height_m": height, "coverage": frac})
+        solve_ctx.tick(total, total)
+        return {"runs": runs, "coverage": coverage}

@@ -1782,6 +1782,73 @@ h4 {
   padding: 0 2px;
 }
 
+/* Undo affordance: unobtrusive FAB, bottom-left, only shown when there is a
+   scene edit to undo (Ctrl+Z is the primary path; this aids discoverability). */
+.undo-fab {
+  position: fixed;
+  bottom: 14px;
+  left: 14px;
+  z-index: 100;
+  padding: 6px 12px;
+  border-radius: 6px;
+  background: var(--panel-3);
+  border: 1px solid var(--line, #2a3542);
+  color: var(--text, #cdd6e0);
+  font-size: 12px;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.4);
+}
+.undo-fab:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Long-solve progress card (dataset/trajectory/mesh/scenario), bottom-right,
+   with a Cancel button wired to POST /simulate/cancel. */
+.solve-progress {
+  position: fixed;
+  bottom: 14px;
+  right: 14px;
+  z-index: 100;
+  min-width: 230px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--panel-2);
+  border: 1px solid var(--accent-dim);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5);
+}
+.solve-progress-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  color: #cbeafb;
+  margin-bottom: 6px;
+}
+.solve-progress-head button {
+  background: transparent;
+  border: 1px solid var(--accent-dim);
+  color: #cbeafb;
+  border-radius: 4px;
+  padding: 1px 8px;
+  font-size: 11px;
+}
+.solve-progress-head button:hover {
+  border-color: var(--err);
+  color: #ffcdd2;
+}
+.solve-progress-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--panel-3);
+  overflow: hidden;
+}
+.solve-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+
 /* -------------------------------------------------- actors + live sync */
 
 /* LIVE badge next to the SolverControls live-sync toggle. */

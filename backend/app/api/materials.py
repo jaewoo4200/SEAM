@@ -1,8 +1,9 @@
 """RF material library and assignment endpoints."""
 
 from pathlib import Path
+from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import Field
 
 from app.api import deps
@@ -36,6 +37,23 @@ class UnassignRequest(StrictModel):
     prim_ids: list[str] = Field(min_length=1)
 
 
+class MaterialImportRequest(StrictModel):
+    """A material pack, as produced by the export endpoint.
+
+    Defined here (not in schemas/materials.py) so the export/import flow is
+    fully contained in this router.
+    """
+
+    materials: list[RFMaterial] = Field(min_length=1)
+
+
+class MaterialImportResponse(StrictModel):
+    imported: list[str] = Field(default_factory=list)
+    # Incoming id -> id actually stored, for imports renamed on collision.
+    renamed: dict[str, str] = Field(default_factory=dict)
+    skipped: list[str] = Field(default_factory=list)
+
+
 def _resolve_or_404(store: ProjectStore, project_id: str) -> Path:
     try:
         return store.resolve(project_id)
@@ -50,6 +68,96 @@ def get_materials(project_id: str) -> RFMaterialLibrary:
     store = deps.get_store()
     _resolve_or_404(store, project_id)
     return store.load_materials(project_id)
+
+
+# NOTE: the static export/import routes below must stay declared before the
+# /rf/materials/{material_id} routes so "export"/"import" are never captured
+# as a material id.
+
+
+@router.get(
+    "/projects/{project_id}/rf/materials/export",
+    response_model=RFMaterialLibrary,
+)
+def export_materials(
+    project_id: str, ids: Optional[str] = Query(default=None)
+) -> RFMaterialLibrary:
+    """Export custom materials as a pack for import into another project.
+
+    ``ids`` is a comma-separated selection; omitted means every non-builtin
+    material in the library. Builtin materials are never exported - they ship
+    with every install - but explicitly requesting an unknown id is a 404.
+    """
+    store = deps.get_store()
+    _resolve_or_404(store, project_id)
+    library = store.load_materials(project_id)
+    if ids is None:
+        selected = list(library.materials)
+    else:
+        requested = list(
+            dict.fromkeys(token.strip() for token in ids.split(",") if token.strip())
+        )
+        missing = [mid for mid in requested if library.get(mid) is None]
+        if missing:
+            raise HTTPException(
+                status_code=404,
+                detail=f"material not found: {', '.join(missing)}",
+            )
+        selected = [library.get(mid) for mid in requested]
+    return RFMaterialLibrary(materials=[m for m in selected if not m.builtin])
+
+
+def _next_free_id(base_id: str, taken: set[str]) -> str:
+    """First ``{base_id}_{n}`` (n >= 2) not in ``taken``.
+
+    ``base_id`` already matches ``^[a-z0-9_]+$``, so a numeric suffix keeps
+    the id pattern valid.
+    """
+    n = 2
+    while f"{base_id}_{n}" in taken:
+        n += 1
+    return f"{base_id}_{n}"
+
+
+@router.post(
+    "/projects/{project_id}/rf/materials/import",
+    response_model=MaterialImportResponse,
+)
+def import_materials(
+    project_id: str, body: MaterialImportRequest
+) -> MaterialImportResponse:
+    """Merge an exported material pack into this project's library.
+
+    Imports are user-space copies, so builtin is forced off (mirrors
+    put_material). An incoming material whose values match the stored one
+    (builtin flag aside) is skipped; a colliding id with different values is
+    imported under a numeric-suffix rename (glass -> glass_2).
+    """
+    store = deps.get_store()
+    _resolve_or_404(store, project_id)
+    library = store.load_materials(project_id)
+    imported: list[str] = []
+    renamed: dict[str, str] = {}
+    skipped: list[str] = []
+    for incoming in body.materials:
+        material = incoming.model_copy(update={"builtin": False})
+        existing = library.get(material.id)
+        if existing is not None:
+            # Compare with builtin masked off: re-importing an unmodified
+            # builtin (or an already-imported copy) is a no-op, not a dupe.
+            if existing.model_copy(update={"builtin": False}) == material:
+                skipped.append(material.id)
+                continue
+            new_id = _next_free_id(material.id, library.ids())
+            renamed[material.id] = new_id
+            material = material.model_copy(update={"id": new_id})
+        library.materials.append(material)
+        imported.append(material.id)
+    if imported:
+        store.save_materials(project_id, library)
+    return MaterialImportResponse(
+        imported=imported, renamed=renamed, skipped=skipped
+    )
 
 
 @router.put(

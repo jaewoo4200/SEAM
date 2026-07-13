@@ -1,17 +1,27 @@
-"""Channel-analysis endpoint.
+"""Channel-analysis endpoints.
 
-POST /projects/{project_id}/analyze/channel -> ChannelAnalysisResult
+POST /projects/{project_id}/analyze/channel       -> ChannelAnalysisResult
+POST /projects/{project_id}/analyze/channel-sweep -> ChannelSweepResult
+POST /projects/{project_id}/analyze/spectrogram   -> SpectrogramResult
 
-Solves a single TX->RX link and returns the CIR/CFR, dispersion metrics, and
-an empirical path-loss model comparison. Computed on demand and returned
-directly (not persisted as a result set — this is an interactive readout, like
-beamforming).
+Solve a single TX->RX link and return the CIR/CFR, dispersion metrics, and an
+empirical path-loss model comparison; sweep one link knob across values; or
+STFT the coherent h(t) into a Doppler-time spectrogram. All computed on demand
+and returned directly (not persisted as result sets — these are interactive
+readouts, like beamforming).
 """
 
 from fastapi import APIRouter, HTTPException
 
 from app.api.deps import get_store, load_scene_or_404
-from app.schemas.channel import ChannelAnalysisRequest, ChannelAnalysisResult
+from app.schemas.channel import (
+    ChannelAnalysisRequest,
+    ChannelAnalysisResult,
+    ChannelSweepRequest,
+    ChannelSweepResult,
+    SpectrogramRequest,
+    SpectrogramResult,
+)
 from app.schemas.material_impact import MaterialImpactReport, MaterialImpactRequest
 from app.services import channel_analysis
 from app.services.simulation_backends import BackendUnavailableError, resolve_backend
@@ -36,6 +46,49 @@ def analyze_channel(
     except BackendUnavailableError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     except ValueError as exc:  # unknown config id / missing device
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post(
+    "/projects/{project_id}/analyze/channel-sweep",
+    response_model=ChannelSweepResult,
+)
+def analyze_channel_sweep(
+    project_id: str, request: ChannelSweepRequest
+) -> ChannelSweepResult:
+    """Link parameter sweep: the single-link analysis re-run per sweep value
+    with the swept field patched (nothing persisted)."""
+    store = get_store()
+    scene = load_scene_or_404(store, project_id)
+    library = store.load_materials(project_id)
+    project_dir = store.resolve(project_id)
+    try:
+        return channel_analysis.sweep_channel(project_dir, scene, library, request)
+    except BackendUnavailableError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ValueError as exc:  # unknown config id / missing device / bad value
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post(
+    "/projects/{project_id}/analyze/spectrogram",
+    response_model=SpectrogramResult,
+)
+def analyze_spectrogram(
+    project_id: str, request: SpectrogramRequest | None = None
+) -> SpectrogramResult:
+    """Doppler-time spectrogram of the coherent channel h(t) (ISAC sensing
+    readout): STFT over the per-path Doppler superposition of one link."""
+    request = request or SpectrogramRequest()
+    store = get_store()
+    scene = load_scene_or_404(store, project_id)
+    library = store.load_materials(project_id)
+    project_dir = store.resolve(project_id)
+    try:
+        return channel_analysis.analyze_spectrogram(project_dir, scene, library, request)
+    except BackendUnavailableError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ValueError as exc:  # unknown config id / missing device / bad grid
         raise HTTPException(status_code=400, detail=str(exc))
 
 

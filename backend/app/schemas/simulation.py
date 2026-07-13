@@ -148,6 +148,18 @@ class UERoute(StrictModel):
         return self
 
 
+class HandoverConfig(StrictModel):
+    """Per-step serving-TX re-selection along a trajectory (3GPP A3-style).
+
+    A candidate TX must beat the current serving RSS by ``hysteresis_db`` for
+    ``time_to_trigger_steps`` consecutive steps before the UE hands over; the
+    trigger step's metrics already use the new serving cell.
+    """
+
+    hysteresis_db: float = Field(default=3.0, ge=0.0, le=30.0)
+    time_to_trigger_steps: int = Field(default=1, ge=1, le=20)
+
+
 class TrajectorySimulateRequest(StrictModel):
     """Body for POST /simulate/trajectory: move one RX along waypoints.
 
@@ -165,6 +177,11 @@ class TrajectorySimulateRequest(StrictModel):
     # Serving TX for the per-waypoint link budget; None = the first tx. Other
     # TXs count as co-channel interference in the per-sample SINR.
     serving_tx_id: Optional[str] = None
+    # When set, the serving TX is re-selected per step (A3 with hysteresis +
+    # time-to-trigger); samples carry serving_tx_id and the result metadata
+    # gains per-TX RSS series plus a handover-event list. serving_tx_id above
+    # then only picks the INITIAL cell.
+    handover: Optional[HandoverConfig] = None
     # Explicit waypoints (meters, Z-up)...
     waypoints: Optional[list[list[float]]] = None
     # ...or a straight line: start -> end sampled at num_points.

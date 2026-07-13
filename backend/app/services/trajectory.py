@@ -10,6 +10,7 @@ import math
 from pathlib import Path
 from typing import Optional
 
+from app.services import solve_ctx
 from app.schemas.materials import RFMaterialLibrary
 from app.schemas.results import TrajectoryResultSet, TrajectorySample
 from app.schemas.scene import Scene
@@ -221,6 +222,94 @@ def _sample_from_result(
     return sample, spread
 
 
+
+
+def _per_tx_rss_dbm(paths, rx_id, tx_ids: list[str]) -> dict:
+    """Received power per TX at one step (linear per-path sum, dBm).
+
+    None marks a TX that contributed no paths to this RX — distinct from a
+    weak-but-present cell, so the handover tracker never hands over to a hole.
+    """
+    out: dict = {}
+    for tid in tx_ids:
+        lin = sum(
+            10.0 ** (p.power_dbm / 10.0)
+            for p in paths
+            if p.tx_id == tid and (rx_id is None or p.rx_id == rx_id)
+        )
+        out[tid] = 10.0 * math.log10(lin) if lin > 0.0 else None
+    return out
+
+
+class _HandoverTracker:
+    """A3-style serving-cell tracker for one UE.
+
+    The candidate must beat the serving RSS by ``hysteresis_db`` for
+    ``time_to_trigger_steps`` CONSECUTIVE steps; the handover executes at the
+    trigger step (that step's metrics already use the new cell). Ping-pongs
+    are immediate A->B->A returns within a short window — the standard
+    mobility-robustness symptom this exists to expose.
+    """
+
+    def __init__(self, initial_tx_id, hysteresis_db: float, ttt_steps: int):
+        self.serving = initial_tx_id
+        self.hysteresis_db = hysteresis_db
+        self.ttt_steps = ttt_steps
+        self.events: list[dict] = []
+        self._streak_tx = None
+        self._streak = 0
+
+    def update(self, per_tx_rss: dict, step: int, time_s: float):
+        candidates = {t: v for t, v in per_tx_rss.items() if v is not None}
+        if not candidates:
+            return self.serving
+        if self.serving not in per_tx_rss:
+            # Initial cell vanished from the active set: adopt the strongest.
+            self.serving = max(candidates, key=candidates.get)
+            return self.serving
+        best = max(candidates, key=candidates.get)
+        serving_rss = per_tx_rss.get(self.serving)
+        entered = (
+            best != self.serving
+            and (
+                serving_rss is None
+                or candidates[best] >= serving_rss + self.hysteresis_db
+            )
+        )
+        if entered:
+            self._streak = self._streak + 1 if best == self._streak_tx else 1
+            self._streak_tx = best
+            if self._streak >= self.ttt_steps:
+                self.events.append(
+                    {
+                        "step": step,
+                        "time_s": time_s,
+                        "from_tx": self.serving,
+                        "to_tx": best,
+                    }
+                )
+                self.serving = best
+                self._streak = 0
+                self._streak_tx = None
+        else:
+            self._streak = 0
+            self._streak_tx = None
+        return self.serving
+
+    def summary(self) -> dict:
+        window = max(2 * self.ttt_steps, 3)
+        ping_pongs = sum(
+            1
+            for a, b in zip(self.events, self.events[1:])
+            if b["to_tx"] == a["from_tx"] and b["step"] - a["step"] <= window
+        )
+        return {
+            "events": self.events,
+            "count": len(self.events),
+            "ping_pongs": ping_pongs,
+        }
+
+
 def _run_trajectory_routes(
     backend: RayTracingBackend,
     project_dir: Path,
@@ -335,7 +424,24 @@ def _run_trajectory_routes(
     # Per-sample Doppler spread (Hz), parallel to samples, for the result
     # metadata — same as the single-UE path (Codex: this was dropped here).
     doppler_spreads: list[Optional[float]] = []
+    tx_by_id = {t.id: t for t in txs}
+    tx_id_list = [t.id for t in txs]
+    initial_serving = serving_tx.id if serving_tx else None
+    trackers = (
+        {
+            uid: _HandoverTracker(
+                initial_serving,
+                request.handover.hysteresis_db,
+                request.handover.time_to_trigger_steps,
+            )
+            for uid in ue_ids
+        }
+        if request.handover
+        else {}
+    )
+    tx_rss_series: dict = {uid: {tid: [] for tid in tx_id_list} for uid in ue_ids}
     for step in range(n):
+        solve_ctx.tick(step, n)
         # Move ALL routed UEs to their step positions in one scene, with each
         # UE's finite-difference velocity so solved paths carry moving-UE
         # Doppler (velocity does not move the RX geometry).
@@ -358,17 +464,27 @@ def _run_trajectory_routes(
             warnings.extend(result.warnings)
         for u in range(len(routes)):
             uid = ue_ids[u]
+            step_serving = serving_tx
+            if request.handover and txs:
+                per_tx = _per_tx_rss_dbm(result.paths, uid, tx_id_list)
+                for tid in tx_id_list:
+                    tx_rss_series[uid][tid].append(per_tx[tid])
+                serving_id = trackers[uid].update(
+                    per_tx, step, step * request.dt_s
+                )
+                step_serving = tx_by_id.get(serving_id, serving_tx)
             sample, spread = _sample_from_result(
                 result,
                 time_s=step * request.dt_s,
                 ue_id=uid,
                 position=step_positions[uid],
                 rx_id=uid,
-                serving_tx=serving_tx,
-                tx_power=tx_power,
+                serving_tx=step_serving,
+                tx_power=step_serving.power_dbm if step_serving else 0.0,
                 noise_floor=noise_floor,
                 include_paths=request.include_paths,
             )
+            sample.serving_tx_id = step_serving.id if step_serving else None
             samples.append(sample)
             doppler_spreads.append(spread)
         # Static RXs: same sample schema, keyed by their own rx id, at their
@@ -387,6 +503,7 @@ def _run_trajectory_routes(
                 noise_floor=noise_floor,
                 include_paths=request.include_paths,
             )
+            sample.serving_tx_id = serving_tx.id if serving_tx else None
             samples.append(sample)
             doppler_spreads.append(spread)
 
@@ -422,6 +539,18 @@ def _run_trajectory_routes(
             # Marks which of ue_ids are fixed (un-routed) RXs; omitted (so output
             # is unchanged) when include_static_rx is off.
             **({"static_rx_ids": static_rx_ids} if static_rx_ids else {}),
+            # Handover mode: per-UE A3 event log + per-TX RSS series (aligned
+            # to steps). Omitted entirely on fixed-serving runs.
+            **(
+                {
+                    "handover": {
+                        uid: trackers[uid].summary() for uid in ue_ids
+                    },
+                    "tx_rss_dbm": tx_rss_series,
+                }
+                if request.handover
+                else {}
+            ),
             # Per-sample Doppler spread (parallel to samples), matching the
             # single-UE path; omitted when no sample had a defined spread.
             **(
@@ -483,7 +612,20 @@ def run_trajectory(
         )
     samples: list[TrajectorySample] = []
     doppler_spreads: list[Optional[float]] = []
+    tx_by_id = {t.id: t for t in txs}
+    tx_id_list = [t.id for t in txs]
+    tracker = (
+        _HandoverTracker(
+            serving_tx.id if serving_tx else None,
+            request.handover.hysteresis_db,
+            request.handover.time_to_trigger_steps,
+        )
+        if request.handover
+        else None
+    )
+    tx_rss_series: dict = {tid: [] for tid in tx_id_list}
     for i, wp in enumerate(waypoints):
+        solve_ctx.tick(i, len(waypoints))
         # Solve with the UE parked at this waypoint; only this RX is active. Its
         # velocity is the finite difference of adjacent waypoints over dt, so
         # the solved paths carry the moving-UE Doppler (effect #2 in
@@ -498,6 +640,13 @@ def run_trajectory(
         result = backend.simulate_paths(project_dir, step_scene, library, step_cfg)
         if i == 0:
             warnings.extend(result.warnings)
+        step_serving = serving_tx
+        if tracker is not None and txs:
+            per_tx = _per_tx_rss_dbm(result.paths, None, tx_id_list)
+            for tid in tx_id_list:
+                tx_rss_series[tid].append(per_tx[tid])
+            serving_id = tracker.update(per_tx, i, i * request.dt_s)
+            step_serving = tx_by_id.get(serving_id, serving_tx)
         # Single-UE: rx_id=None keeps the legacy behavior (metrics over the whole
         # solve, per-path Doppler spread from result.metadata).
         sample, spread = _sample_from_result(
@@ -506,11 +655,12 @@ def run_trajectory(
             ue_id=ue_id,
             position=wp,
             rx_id=None,
-            serving_tx=serving_tx,
-            tx_power=tx_power,
+            serving_tx=step_serving,
+            tx_power=step_serving.power_dbm if step_serving else 0.0,
             noise_floor=noise_floor,
             include_paths=request.include_paths,
         )
+        sample.serving_tx_id = step_serving.id if step_serving else None
         doppler_spreads.append(spread)
         samples.append(sample)
 
@@ -540,6 +690,13 @@ def run_trajectory(
             "frequency_hz": config.frequency_hz,
             "num_waypoints": len(waypoints),
             "engine": backend.name,
+            # Handover mode: A3 event log + per-TX RSS series (aligned to
+            # waypoints). Omitted entirely on fixed-serving runs.
+            **(
+                {"handover": tracker.summary(), "tx_rss_dbm": tx_rss_series}
+                if tracker is not None
+                else {}
+            ),
             # Per-waypoint Doppler spread [Hz] (power-weighted std of per-path
             # Doppler), aligned to ``samples``. None where the backend does not
             # model Doppler or the UE is momentarily stationary. Omitted when no

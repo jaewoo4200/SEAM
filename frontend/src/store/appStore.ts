@@ -22,6 +22,7 @@ import type {
   Device,
   EngineInfo,
   Environment,
+  HandoverConfig,
   HealthResponse,
   MaterialSuggestionResponse,
   MeshRadioMapResultSet,
@@ -30,6 +31,7 @@ import type {
   ProjectInfo,
   ProviderModels,
   RadioMapResultSet,
+  ResultSetRef,
   RFMaterial,
   RFMaterialLibrary,
   ScenarioResultSet,
@@ -61,6 +63,10 @@ import type { DockTarget, FloatRect, PanelLayout } from "../panelLayout";
 
 // Loaded once at store creation; normalization guards stale localStorage.
 const initialPanelLayout = loadPanelLayout();
+
+// localStorage key: id of the last successfully-opened project, reopened on
+// next launch (falls back to Sample Demo when it no longer exists).
+const LAST_PROJECT_KEY = "stw.lastProject.v1";
 
 // Dev-only store handle for interaction tests (same spirit as __stwScene).
 declare global {
@@ -357,6 +363,13 @@ interface AppState {
   busy: string | null;
   error: string | null;
   notice: string | null;
+  /** Number of scene saves this session = how many undo steps the backend
+   *  history ring can pop. Gates the Undo control; 0 disables it. */
+  undoDepth: number;
+  /** Live progress of the in-flight solve, pushed over the event WebSocket
+   *  (simulation_progress). null when no solve is reporting progress. The
+   *  `kind` mirrors the solve type (trajectory/dataset/mesh_radio_map/…). */
+  solveProgress: { kind: string; done: number; total: number } | null;
   /** Opens the Toolbar's import-scene popover from elsewhere (e.g. the
    *  empty-state "Import a scene" CTA). The Toolbar mirrors it into its local
    *  popover open-state and resets it back to false when the popover closes. */
@@ -367,13 +380,29 @@ interface AppState {
   /** Permanently delete the currently open project, reload the project list,
    *  and open the first remaining one (or fall back to the empty state). */
   deleteCurrentProject: () => Promise<void>;
+  /** Rename the current project's display name (folder id unchanged) and
+   *  refresh the project list so the switcher shows the new name. */
+  renameCurrentProject: (name: string) => Promise<void>;
+  /** Deep-copy the current project into a new one and open the copy (what-if
+   *  experiments without re-importing). */
+  duplicateCurrentProject: (name?: string) => Promise<void>;
   refetchScene: () => Promise<void>;
   setMode: (mode: Mode) => void;
   /** Toggle the toolbar import-scene popover (see `importOpen`). */
   setImportOpen: (open: boolean) => void;
   selectPrim: (primId: string, additive?: boolean) => void;
+  /** Replace the prim selection with an explicit id list (bulk-select: e.g.
+   *  "select all unassigned", "select all with material X"). Clears the
+   *  device/actor selection like the other prim selectors. */
+  selectManyPrims: (primIds: string[]) => void;
   selectDevice: (deviceId: string) => void;
   clearSelection: () => void;
+  /** Undo the last scene save by restoring the newest backend history
+   *  snapshot. No-op (with a notice) when nothing is left to undo. */
+  undo: () => Promise<void>;
+  /** Ask the backend to cancel the project's in-flight solve at its next
+   *  checkpoint (dataset/trajectory/mesh/scenario loops). */
+  cancelSolve: () => Promise<void>;
   selectPath: (pathId: string | null) => void;
   toggleOverlay: (
     kind: "paths" | "radioMap" | "meshRadioMap" | "beamforming" | "trajectoryRays",
@@ -394,6 +423,10 @@ interface AppState {
   simulateMeshRadioMap: (maxTriangles?: number) => Promise<void>;
   /** Best-effort silent fetch of the latest stored mesh radio map (project open). */
   fetchLatestMeshRadioMap: () => Promise<void>;
+  /** Load a specific stored run (by its ResultSetRef) into the matching
+   *  overlay and jump to Results — the result-history browser uses this to
+   *  re-activate an older run. Marked stale if the scene changed since. */
+  activateResult: (ref: ResultSetRef) => Promise<void>;
   removePaths: () => void;
   removeRadioMap: () => void;
   removeMeshRadioMap: () => void;
@@ -511,12 +544,18 @@ interface AppState {
   // device editing
   updateDevice: (deviceId: string, patch: Partial<Device>) => Promise<void>;
   addDevice: (kind: "tx" | "rx", position?: Vec3) => Promise<void>;
+  /** Clone a device with a fresh id and a small position offset; the copy
+   *  becomes the selection. No-op for an unknown id. */
+  duplicateDevice: (deviceId: string) => Promise<void>;
   deleteDevice: (deviceId: string) => Promise<void>;
   clearDevices: () => Promise<void>;
 
   // actor editing
   addActor: (kind: ActorKind) => Promise<void>;
   updateActor: (actorId: string, patch: Partial<Actor>) => Promise<void>;
+  /** Clone an actor (shape/material/trajectory/orientation) with a fresh id
+   *  and a small position offset; the copy becomes the selection. */
+  duplicateActor: (actorId: string) => Promise<void>;
   deleteActor: (actorId: string) => Promise<void>;
   selectActor: (actorId: string) => void;
 
@@ -546,6 +585,11 @@ interface AppState {
     /** Also solve every un-routed RX at its fixed position each step, so
      *  fixed and moving UEs share one per-frame link table. */
     include_static_rx?: boolean;
+    /** Serving cell for the per-sample link budget (null = first TX). */
+    serving_tx_id?: string | null;
+    /** Enable per-step A3 serving-TX re-selection (handover events + per-TX
+     *  RSS series land in the result metadata). */
+    handover?: HandoverConfig | null;
   }) => Promise<void>;
   /** Drop the loaded trajectory result (overlay clears immediately). */
   removeTrajectory: () => void;
@@ -609,6 +653,11 @@ interface AppState {
 
   dismissError: () => void;
   dismissNotice: () => void;
+  /** Surface a transient toast (the top status line). For components that do
+   *  their own api calls and want the shared notice affordance. */
+  notify: (message: string) => void;
+  /** Surface an error in the shared error banner. */
+  notifyError: (message: string) => void;
 }
 
 export const useAppStore = create<AppState>()((set, get) => {
@@ -780,10 +829,21 @@ export const useAppStore = create<AppState>()((set, get) => {
   }
 
   /** PUT a mutated scene, refresh local copy, then run edit side-effects. */
+  /** Persist a scene and record that one more undo step is available this
+   *  session. The backend rotates a history snapshot on every save (ring of
+   *  HISTORY_KEEP=20), so `undo()` just pops the newest one server-side; this
+   *  client counter only gates the Undo button's enabled state. Capped at 20
+   *  to match the ring; floored at 0 by `undo()`. */
+  async function putSceneTracked(pid: string, next: Scene): Promise<Scene> {
+    const saved = await api.putScene(pid, next);
+    set({ undoDepth: Math.min(get().undoDepth + 1, 20) });
+    return saved;
+  }
+
   async function putSceneAndRefresh(scene: Scene): Promise<void> {
     const pid = get().projectId;
     if (!pid) return;
-    set({ scene: normalizeScene(await api.putScene(pid, scene)) });
+    set({ scene: normalizeScene(await putSceneTracked(pid, scene)) });
     await revalidateIfOpen();
   }
 
@@ -947,8 +1007,17 @@ export const useAppStore = create<AppState>()((set, get) => {
   // failure path (unsupported protocol, connect error, malformed frame) is
   // swallowed so its absence is silent and never crashes the app.
   let eventSocket: WebSocket | null = null;
+  let eventReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  // Project the socket is bound to; a reconnect targets this same id and a
+  // stale reconnect for a switched-away project is dropped.
+  let eventSocketProject: string | null = null;
 
   function closeEventSocket(): void {
+    eventSocketProject = null;
+    if (eventReconnectTimer) {
+      clearTimeout(eventReconnectTimer);
+      eventReconnectTimer = null;
+    }
     if (eventSocket) {
       try {
         // Drop handlers first so onclose/onerror don't fire during teardown.
@@ -966,6 +1035,7 @@ export const useAppStore = create<AppState>()((set, get) => {
 
   function connectEventSocket(projectId: string): void {
     closeEventSocket();
+    eventSocketProject = projectId;
     if (typeof WebSocket === "undefined") return;
     let url: string;
     try {
@@ -988,6 +1058,22 @@ export const useAppStore = create<AppState>()((set, get) => {
       // Absence of the endpoint is expected while the backend side lands;
       // stay silent rather than surfacing a connection error to the user.
     };
+    sock.onclose = () => {
+      // Auto-reconnect: a dropped socket (backend restart, dev HMR, idle
+      // timeout) used to silently stop delivering "finished" pushes forever.
+      // Only reconnect if this is still the live socket for the open project;
+      // a single 2s backoff avoids a tight loop when the endpoint is absent.
+      if (eventSocket !== sock) return;
+      eventSocket = null;
+      if (eventSocketProject !== projectId || get().projectId !== projectId) return;
+      if (eventReconnectTimer) clearTimeout(eventReconnectTimer);
+      eventReconnectTimer = setTimeout(() => {
+        eventReconnectTimer = null;
+        if (eventSocketProject === projectId && get().projectId === projectId) {
+          connectEventSocket(projectId);
+        }
+      }, 2000);
+    };
     sock.onmessage = (ev) => {
       // A stale socket from a prior project must not post into the new one.
       if (eventSocket !== sock || get().projectId !== projectId) return;
@@ -1002,9 +1088,23 @@ export const useAppStore = create<AppState>()((set, get) => {
       const type = typeof msg.type === "string" ? msg.type : "";
       if (type === "simulation_finished") {
         const backend = typeof msg.backend === "string" ? ` (${msg.backend})` : "";
-        set({ notice: `Simulation finished${backend}` });
+        set({ notice: `Simulation finished${backend}`, solveProgress: null });
       } else if (type === "compile_finished") {
         set({ notice: "Compile finished" });
+      } else if (type === "simulation_progress") {
+        // Long-loop solves (dataset/trajectory/mesh/scenario) report done/total
+        // so the UI can show a progress bar + a Cancel button (POST cancel).
+        const kind = typeof msg.kind === "string" ? msg.kind : "solve";
+        const done = typeof msg.done === "number" ? msg.done : 0;
+        const total = typeof msg.total === "number" ? msg.total : 0;
+        set({ solveProgress: { kind, done, total } });
+      } else if (type === "simulation_started") {
+        const kind = typeof msg.kind === "string" ? msg.kind : "solve";
+        set({ solveProgress: { kind, done: 0, total: 0 } });
+      } else if (type === "simulation_failed") {
+        // A cancelled or errored solve must clear the progress bar, otherwise
+        // it sticks at the last reported fraction forever.
+        set({ solveProgress: null });
       }
       // start events are intentionally quiet (the busy spinner already shows
       // in-app runs); only completions from the outside world raise a notice.
@@ -1118,6 +1218,8 @@ export const useAppStore = create<AppState>()((set, get) => {
     busy: null,
     error: null,
     notice: null,
+    undoDepth: 0,
+    solveProgress: null,
     importOpen: false,
 
     init: async () => {
@@ -1134,11 +1236,19 @@ export const useAppStore = create<AppState>()((set, get) => {
         .then((r) => set({ engines: r.engines }))
         .catch(() => set({ engines: [] }));
       if (projects && projects.length > 0) {
-        // First open prefers the committed Sample Demo (the tutorial's
-        // starting point) over whatever user project happens to sort first
-        // in the projects/ root.
+        // Reopen the project from last session if it still exists; otherwise
+        // prefer the committed Sample Demo (the tutorial's starting point)
+        // over whatever user project happens to sort first in projects/.
+        let lastId: string | null = null;
+        try {
+          lastId = localStorage.getItem(LAST_PROJECT_KEY);
+        } catch {
+          // storage blocked (private mode): fall back to the default below
+        }
         const preferred =
-          projects.find((p) => p.project_id === "sample_demo") ?? projects[0];
+          (lastId && projects.find((p) => p.project_id === lastId)) ??
+          projects.find((p) => p.project_id === "sample_demo") ??
+          projects[0];
         await get().openProject(preferred.project_id);
       }
     },
@@ -1174,6 +1284,11 @@ export const useAppStore = create<AppState>()((set, get) => {
           scene,
           resolvedEnvironment: resolvedForOpen,
           materials,
+          // Undo is per-project and per-session: opening a project starts with
+          // nothing to undo (the backend ring may hold snapshots from a prior
+          // session, but the button reflects edits made since this open).
+          undoDepth: 0,
+          solveProgress: null,
           selection: [],
           selectedDeviceId: null,
           selectedActorId: null,
@@ -1321,6 +1436,15 @@ export const useAppStore = create<AppState>()((set, get) => {
       // backend) never blocks or breaks project open.
       void get().fetchLatestMeshRadioMap();
       connectEventSocket(projectId);
+      // Remember the open project so the next session reopens it (only when the
+      // open actually succeeded — run() leaves projectId unchanged on failure).
+      if (get().projectId === projectId) {
+        try {
+          localStorage.setItem(LAST_PROJECT_KEY, projectId);
+        } catch {
+          // storage blocked: last-project memory is a nicety, not required
+        }
+      }
     },
 
     deleteCurrentProject: async () => {
@@ -1367,6 +1491,31 @@ export const useAppStore = create<AppState>()((set, get) => {
             notice: `Deleted project ${pid} (no projects remaining)`,
           });
         }
+      });
+    },
+
+    renameCurrentProject: async (name) => {
+      const pid = get().projectId;
+      const trimmed = name.trim();
+      if (!pid || !trimmed) return;
+      await run(`Renaming project…`, async () => {
+        await api.renameProject(pid, { name: trimmed });
+        // Refresh the switcher list so the new name shows immediately.
+        const list = await api.listProjects();
+        set({ projects: list, notice: `Renamed project to "${trimmed}"` });
+      });
+    },
+
+    duplicateCurrentProject: async (name) => {
+      const pid = get().projectId;
+      if (!pid) return;
+      await run(`Duplicating project…`, async () => {
+        const copy = await api.duplicateProject(pid, name ? { name } : {});
+        const list = await api.listProjects();
+        set({ projects: list });
+        // Open the fresh copy so the user lands in the what-if branch.
+        await get().openProject(copy.project_id);
+        set({ notice: `Duplicated project → ${copy.project_id}` });
       });
     },
 
@@ -1499,6 +1648,13 @@ export const useAppStore = create<AppState>()((set, get) => {
       set({ selection: next, selectedDeviceId: null, selectedActorId: null });
     },
 
+    selectManyPrims: (primIds) =>
+      set({
+        selection: Array.from(new Set(primIds)),
+        selectedDeviceId: null,
+        selectedActorId: null,
+      }),
+
     selectDevice: (deviceId) =>
       set({ selectedDeviceId: deviceId, selection: [], selectedActorId: null }),
 
@@ -1507,6 +1663,51 @@ export const useAppStore = create<AppState>()((set, get) => {
 
     clearSelection: () =>
       set({ selection: [], selectedDeviceId: null, selectedActorId: null }),
+
+    undo: async () => {
+      const pid = get().projectId;
+      if (!pid) return;
+      if (get().undoDepth <= 0) {
+        set({ notice: "Nothing to undo" });
+        return;
+      }
+      await run("Undoing…", async () => {
+        let restored: Scene;
+        try {
+          restored = normalizeScene(await api.restoreScene(pid, 1));
+        } catch (err) {
+          // The backend ring is empty (older than this session, or already
+          // walked back): reset the counter so the button disables honestly.
+          if (err instanceof ApiError && err.status === 404) {
+            set({ undoDepth: 0, notice: "Nothing left to undo" });
+            return;
+          }
+          throw err;
+        }
+        // A restore is itself a scene change: bump the epoch so stale result
+        // badges reflect it, and drop one undo step.
+        set({
+          scene: restored,
+          undoDepth: Math.max(0, get().undoDepth - 1),
+          sceneEpoch: get().sceneEpoch + 1,
+          notice: "Undid last scene change",
+        });
+        refreshResolvedEnv();
+        invalidateBeamforming();
+        await revalidateIfOpen();
+      });
+    },
+
+    cancelSolve: async () => {
+      const pid = get().projectId;
+      if (!pid) return;
+      try {
+        await api.cancelSolve(pid);
+        set({ notice: "Cancelling solve…" });
+      } catch (err) {
+        set({ error: err instanceof Error ? err.message : String(err) });
+      }
+    },
 
     selectPath: (pathId) => set({ selectedPathId: pathId }),
 
@@ -1618,6 +1819,40 @@ export const useAppStore = create<AppState>()((set, get) => {
         });
         stampResult("mesh_radio_map");
         await refetchSceneInner(); // a ResultSetRef (kind 'mesh_radio_map') was appended
+      });
+    },
+
+    activateResult: async (ref) => {
+      const pid = get().projectId;
+      if (!pid) return;
+      await run(`Loading ${ref.label ?? ref.result_id}…`, async () => {
+        if (ref.kind === "radio_map") {
+          const result = await api.getRadioMap(pid, ref.result_id);
+          set({ radioMap: result, showRadioMap: true, ...resultsMode() });
+          stampResult("radio_map");
+        } else if (ref.kind === "paths") {
+          const result = await api.getPathResults(pid, ref.result_id);
+          set({
+            pathResults: result,
+            selectedPathId: null,
+            showPaths: true,
+            showTrajectoryRays: false,
+            ...resultsMode(),
+          });
+          stampResult("paths");
+        } else if (ref.kind === "trajectory") {
+          const result = await api.getTrajectory(pid, ref.result_id);
+          set({ trajectory: result, trajFrame: 0, trajUeFrames: {}, ...resultsMode() });
+          stampResult("trajectory");
+        } else if (ref.kind === "mesh_radio_map") {
+          const result = await api.getMeshRadioMapResult(pid, ref.result_id);
+          set({ meshRadioMap: result, showMeshRadioMap: true, ...resultsMode() });
+          stampResult("mesh_radio_map");
+        } else {
+          set({ error: `Cannot activate result of kind ${ref.kind}` });
+          return;
+        }
+        set({ notice: `Loaded run ${ref.label ?? ref.result_id}` });
       });
     },
 
@@ -2315,7 +2550,7 @@ export const useAppStore = create<AppState>()((set, get) => {
       }
       await run("Updating environment…", async () => {
         const next: Scene = { ...scene, environment };
-        set({ scene: normalizeScene(await api.putScene(projectId, next)) });
+        set({ scene: normalizeScene(await putSceneTracked(projectId, next)) });
         // Apply presets (session-only) and expose the resolved value.
         applyEnvPreset(environment);
         refreshResolvedEnv();
@@ -2360,7 +2595,7 @@ export const useAppStore = create<AppState>()((set, get) => {
           : [merged];
         const next: Scene = { ...scene, simulation_configs: configs };
         set({
-          scene: normalizeScene(await api.putScene(projectId, next)),
+          scene: normalizeScene(await putSceneTracked(projectId, next)),
           notice: "Saved as project default config",
         });
       });
@@ -2470,6 +2705,30 @@ export const useAppStore = create<AppState>()((set, get) => {
       afterSceneEdit();
     },
 
+    duplicateDevice: async (deviceId) => {
+      const scene = get().scene;
+      if (!scene) return;
+      const src = scene.devices.find((d) => d.id === deviceId);
+      if (!src) return;
+      const id = nextDeviceId(src.kind);
+      // Offset the copy so it does not sit exactly on the original (5 m in x,
+      // clamped-free: a manual nudge is expected after duplicating anyway).
+      const copy: Device = {
+        ...src,
+        id,
+        name: `${src.name} copy`,
+        position: [src.position[0] + 5, src.position[1], src.position[2]] as Vec3,
+        // Deep-copy the antenna so edits to the copy don't mutate the original.
+        antenna: { ...src.antenna },
+        orientation_deg: [...src.orientation_deg] as Vec3,
+      };
+      await run(`Duplicating ${deviceId}…`, async () => {
+        await putSceneAndRefresh({ ...scene, devices: [...scene.devices, copy] });
+        set({ selectedDeviceId: id, selection: [], notice: `Duplicated ${deviceId} → ${id}` });
+      });
+      afterSceneEdit();
+    },
+
     deleteDevice: async (deviceId) => {
       const scene = get().scene;
       if (!scene) return;
@@ -2535,6 +2794,42 @@ export const useAppStore = create<AppState>()((set, get) => {
       afterSceneEdit();
     },
 
+    duplicateActor: async (actorId) => {
+      const scene = get().scene;
+      if (!scene) return;
+      const src = scene.actors.find((a) => a.id === actorId);
+      if (!src) return;
+      const id = nextActorId(src.kind);
+      const copy: Actor = {
+        ...src,
+        id,
+        name: `${src.name} copy`,
+        position: [src.position[0] + 5, src.position[1], src.position[2]] as Vec3,
+        orientation_deg: [...src.orientation_deg] as Vec3,
+        // Deep-copy nested structures so editing the copy is independent.
+        shape: { ...src.shape, size_m: [...src.shape.size_m] as Vec3 },
+        trajectory: src.trajectory
+          ? {
+              ...src.trajectory,
+              waypoints: src.trajectory.waypoints.map((w) => [...w] as Vec3),
+            }
+          : null,
+        // A duplicated actor must not re-attach the original's devices (a device
+        // belongs to one actor); start the copy unattached.
+        attached_device_ids: [],
+      };
+      await run(`Duplicating ${actorId}…`, async () => {
+        await putSceneAndRefresh({ ...scene, actors: [...scene.actors, copy] });
+        set({
+          selectedActorId: id,
+          selection: [],
+          selectedDeviceId: null,
+          notice: `Duplicated ${actorId} → ${id}`,
+        });
+      });
+      afterSceneEdit();
+    },
+
     deleteActor: async (actorId) => {
       const scene = get().scene;
       if (!scene) return;
@@ -2584,7 +2879,7 @@ export const useAppStore = create<AppState>()((set, get) => {
 
     // ---------------------------------------------------- trajectory
 
-    simulateTrajectory: async ({ start_m, end_m, num_points, dt_s, ue_id, follow_terrain, follow_height_m, routes, include_static_rx }) => {
+    simulateTrajectory: async ({ start_m, end_m, num_points, dt_s, ue_id, follow_terrain, follow_height_m, routes, include_static_rx, serving_tx_id, handover }) => {
       const pid = get().projectId;
       if (!pid) return;
       await run("Simulating trajectory…", async () => {
@@ -2602,6 +2897,9 @@ export const useAppStore = create<AppState>()((set, get) => {
           ...(include_static_rx !== undefined && routes
             ? { include_static_rx }
             : {}),
+          ...(serving_tx_id !== undefined ? { serving_tx_id } : {}),
+          // Per-step A3 handover (serving-TX re-selection + event log).
+          ...(handover ? { handover } : {}),
           // Request per-waypoint ray paths so the viewer can render live rays
           // during playback/scrub (feature: trajectory live rays).
           include_paths: true,
@@ -2752,6 +3050,8 @@ export const useAppStore = create<AppState>()((set, get) => {
 
     dismissError: () => set({ error: null }),
     dismissNotice: () => set({ notice: null }),
+    notify: (message) => set({ notice: message }),
+    notifyError: (message) => set({ error: message }),
   };
 });
 

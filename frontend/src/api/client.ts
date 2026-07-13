@@ -56,10 +56,25 @@ import type {
   RFDataExportSummary,
   RFMaterial,
   RFMaterialLibrary,
+  ChannelSweepRequest,
+  ChannelSweepResult,
+  MaterialImportRequest,
+  MaterialImportResponse,
+  ProjectDuplicateRequest,
+  ProjectRenameRequest,
+  RadioMapSweepRequest,
+  RadioMapSweepResult,
+  ResultLabelRequest,
+  ResultSetRef,
+  SceneImportResult,
   ScenarioResultSet,
   ScenarioSimulateRequest,
   Scene,
   SceneBounds,
+  SpectrogramRequest,
+  SpectrogramResult,
+  TrajectoryValidationReport,
+  TrajectoryValidationRequest,
   SegmentationApplyRequest,
   SegmentationApplyResponse,
   SegmentationJobStart,
@@ -156,10 +171,16 @@ export const api = {
   // Permanently remove a project folder (404 on unknown id).
   deleteProject: (pid: string) =>
     request<ProjectDeleteResponse>("DELETE", `/projects/${pid}`),
+  // Rename a project's display name (folder id is unchanged).
+  renameProject: (pid: string, req: ProjectRenameRequest) =>
+    request<ProjectInfo>("PATCH", `/projects/${pid}`, req),
+  // Deep-copy a project folder into a new project (what-if experiments).
+  duplicateProject: (pid: string, req: ProjectDuplicateRequest = {}) =>
+    request<ProjectInfo>("POST", `/projects/${pid}/duplicate`, req),
   // Import a Mitsuba/Sionna scene XML (+ optional companion mesh files) as a
   // new project. `form` carries: file (the .xml), project_id, name,
   // environment, and zero or more `meshes` file parts.
-  importScene: (form: FormData) => postForm<ProjectInfo>("/projects/import", form),
+  importScene: (form: FormData) => postForm<SceneImportResult>("/projects/import", form),
   // One-shot OpenStreetMap import: building footprints in a rectangle around
   // a lat/lon, extruded + RF-preassigned (needs internet for Overpass).
   importOsm: (req: OsmImportRequest) =>
@@ -169,6 +190,9 @@ export const api = {
   getScene: (pid: string) => request<Scene>("GET", `/projects/${pid}/scene`),
   sceneBounds: (pid: string) => request<SceneBounds>("GET", `/projects/${pid}/scene/bounds`),
   putScene: (pid: string, scene: Scene) => request<Scene>("PUT", `/projects/${pid}/scene`, scene),
+  // Undo: make the steps-th newest history snapshot the current scene.
+  restoreScene: (pid: string, steps = 1) =>
+    request<Scene>("POST", `/projects/${pid}/scene/restore?steps=${steps}`),
   validateScene: (pid: string) =>
     request<ValidationReport>("POST", `/projects/${pid}/scene/validate`),
 
@@ -178,6 +202,12 @@ export const api = {
     request<RFMaterialLibrary>("PUT", `/projects/${pid}/rf/materials/${mat.id}`, mat),
   deleteMaterial: (pid: string, materialId: string) =>
     request<RFMaterialLibrary>("DELETE", `/projects/${pid}/rf/materials/${materialId}`),
+  // Portable material library: export the whole library, or merge one in
+  // (colliding ids are renamed, not overwritten).
+  exportMaterials: (pid: string) =>
+    request<RFMaterialLibrary>("GET", `/projects/${pid}/rf/materials/export`),
+  importMaterials: (pid: string, req: MaterialImportRequest) =>
+    request<MaterialImportResponse>("POST", `/projects/${pid}/rf/materials/import`, req),
   assign: (pid: string, req: AssignRequest) =>
     request<AssignResponse>("POST", `/projects/${pid}/rf/assign`, req),
   unassign: (pid: string, primIds: string[]) =>
@@ -267,13 +297,36 @@ export const api = {
     request<PathResultSet>("POST", `/projects/${pid}/simulate/paths`, req),
   simulateRadioMap: (pid: string, req: SimulateRequest = {}) =>
     request<RadioMapResultSet>("POST", `/projects/${pid}/simulate/radio-map`, req),
-  getPathResults: (pid: string) => request<PathResultSet>("GET", `/projects/${pid}/results/paths`),
-  getRadioMap: (pid: string) =>
-    request<RadioMapResultSet>("GET", `/projects/${pid}/results/radio-map`),
+  // Altitude sweep: one planar radio map per height, auto-labeled + persisted;
+  // returns the run ids and a coverage-vs-altitude summary.
+  simulateRadioMapSweep: (pid: string, req: RadioMapSweepRequest) =>
+    request<RadioMapSweepResult>("POST", `/projects/${pid}/simulate/radio-map-sweep`, req),
+  // GET the latest stored result, or a specific historical run by result_id
+  // (the result-history browser + A/B compare load older runs this way).
+  getPathResults: (pid: string, resultId?: string) =>
+    request<PathResultSet>(
+      "GET",
+      `/projects/${pid}/results/paths${resultId ? `?result_id=${encodeURIComponent(resultId)}` : ""}`,
+    ),
+  getRadioMap: (pid: string, resultId?: string) =>
+    request<RadioMapResultSet>(
+      "GET",
+      `/projects/${pid}/results/radio-map${resultId ? `?result_id=${encodeURIComponent(resultId)}` : ""}`,
+    ),
   // Prune stored result files: keep the newest `keep_latest` per kind (0 = drop
   // all), `kinds` null = every kind. Returns the removed/kept result uris.
   pruneResults: (pid: string, req: ResultsPruneRequest = {}) =>
     request<ResultsPruneResponse>("POST", `/projects/${pid}/results/prune`, req),
+  // Name / clear the label on a stored run (labeled runs survive pruning).
+  labelResult: (pid: string, resultId: string, req: ResultLabelRequest) =>
+    request<ResultSetRef>(
+      "PATCH",
+      `/projects/${pid}/results/${encodeURIComponent(resultId)}/label`,
+      req,
+    ),
+  // Cooperative-cancel the project's in-flight solve at its next checkpoint.
+  cancelSolve: (pid: string) =>
+    request<Record<string, unknown>>("POST", `/projects/${pid}/simulate/cancel`),
 
   // mesh radio map: metric draped onto the triangles of selected surfaces.
   simulateMeshRadioMap: (pid: string, req: MeshRadioMapRequest) =>
@@ -285,8 +338,11 @@ export const api = {
     ),
   simulateTrajectory: (pid: string, req: TrajectorySimulateRequest) =>
     request<TrajectoryResultSet>("POST", `/projects/${pid}/simulate/trajectory`, req),
-  getTrajectory: (pid: string) =>
-    request<TrajectoryResultSet>("GET", `/projects/${pid}/results/trajectory`),
+  getTrajectory: (pid: string, resultId?: string) =>
+    request<TrajectoryResultSet>(
+      "GET",
+      `/projects/${pid}/results/trajectory${resultId ? `?result_id=${encodeURIComponent(resultId)}` : ""}`,
+    ),
 
   // scenario playback (V2X): actors + devices moved per frame, links + optional paths.
   simulateScenario: (pid: string, req: ScenarioSimulateRequest = {}) =>
@@ -297,6 +353,21 @@ export const api = {
   // channel analysis: link budget + CIR/CFR + 38.901 path-loss comparison.
   analyzeChannel: (pid: string, req: ChannelAnalysisRequest = {}) =>
     request<ChannelAnalysisResult>("POST", `/projects/${pid}/analyze/channel`, req),
+  // Sweep one config field (frequency/power/bandwidth/noise) and chart the
+  // link metrics vs that field.
+  analyzeChannelSweep: (pid: string, req: ChannelSweepRequest) =>
+    request<ChannelSweepResult>("POST", `/projects/${pid}/analyze/channel-sweep`, req),
+  // Doppler-time spectrogram (STFT of h(t)) — the first ISAC-facing product.
+  analyzeSpectrogram: (pid: string, req: SpectrogramRequest = {}) =>
+    request<SpectrogramResult>("POST", `/projects/${pid}/analyze/spectrogram`, req),
+  // Flight-log validation: replay measured RX positions, compare measured vs
+  // predicted path gain (level-offset aligned, shared calibration math).
+  validateTrajectory: (pid: string, req: TrajectoryValidationRequest = {}) =>
+    request<TrajectoryValidationReport>(
+      "POST",
+      `/projects/${pid}/calibrate/validate-trajectory`,
+      req,
+    ),
 
   simulateBeamforming: (pid: string, req: BeamformingRequest = {}) =>
     request<BeamformingResult>("POST", `/projects/${pid}/simulate/beamforming`, req),

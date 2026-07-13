@@ -234,12 +234,17 @@ class ResultSetRef(StrictModel):
     """Pointer from the scene to a stored result artifact."""
 
     result_id: str
-    kind: Literal["paths", "radio_map", "mesh_radio_map", "trajectory", "scenario"]
+    kind: Literal["paths", "radio_map", "mesh_radio_map", "trajectory", "scenario", "channel"]
     backend: str
     simulation_config_id: str
     # Relative to the project folder, e.g. "results/paths.json".
     uri: str
     created_at: Optional[str] = None
+    # User-facing run name ("before-glass-facade"). Labeled runs are spared by
+    # results pruning so named baselines survive cleanup.
+    label: Optional[str] = None
+    # Stamped at persist time so the UI can show what each run costs on disk.
+    size_bytes: Optional[int] = None
 
 
 class Scene(StrictModel):
@@ -257,6 +262,11 @@ class Scene(StrictModel):
     actors: list[Actor] = Field(default_factory=list)
     simulation_configs: list[SimulationConfig] = Field(default_factory=list)
     result_sets: list[ResultSetRef] = Field(default_factory=list)
+    # Monotonic save counter for optimistic concurrency: PUT /scene carries the
+    # revision it was based on and gets 409 on mismatch. None means "no check"
+    # (fresh in-memory scenes and pre-revision files), keeping old clients and
+    # tests working.
+    revision: Optional[int] = None
 
     @model_validator(mode="after")
     def _unique_ids(self) -> "Scene":

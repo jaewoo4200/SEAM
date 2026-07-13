@@ -22,6 +22,7 @@ import math
 from pathlib import Path
 from typing import Optional
 
+from app.services import solve_ctx
 from app.schemas.actors import (
     ActorState,
     DeviceState,
@@ -323,6 +324,7 @@ def run_scenario(
     frames: list[ScenarioFrame] = []
     frame_doppler_spread: list[Optional[float]] = []
     for i in range(request.num_frames):
+        solve_ctx.tick(i, request.num_frames)
         t = i * request.dt_s
         actor_states = _actor_states_at(scene, t)
         device_states, device_positions = _device_states_at(scene, actor_states)

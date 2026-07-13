@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { useAppStore } from "../store/appStore";
 import { api, ApiError } from "../api/client";
 import { Swatch } from "./common";
@@ -180,7 +180,11 @@ export default function RFMaterialPanel() {
   const saveMaterial = useAppStore((s) => s.saveMaterial);
   const refetchScene = useAppStore((s) => s.refetchScene);
   const openProject = useAppStore((s) => s.openProject);
+  const notify = useAppStore((s) => s.notify);
+  const notifyError = useAppStore((s) => s.notifyError);
   const busy = useAppStore((s) => s.busy);
+  // Hidden file input for "Import library" (component-local; no store field).
+  const importInputRef = useRef<HTMLInputElement | null>(null);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [unassignError, setUnassignError] = useState<string | null>(null);
   const [unassigning, setUnassigning] = useState(false);
@@ -296,6 +300,69 @@ export default function RFMaterialPanel() {
     }
   };
 
+  // Portable material library (idea #12): calibrated materials shouldn't be
+  // trapped in one project. Export the whole library to a JSON file, or import
+  // one back in — colliding ids are renamed by the server, never overwritten.
+  const exportLibrary = async () => {
+    if (!projectId) return;
+    try {
+      const lib = await api.exportMaterials(projectId);
+      const json = JSON.stringify(lib, null, 2);
+      const url = URL.createObjectURL(new Blob([json], { type: "application/json" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${projectId}_rf_materials.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      notify(`Exported ${lib.materials.length} materials`);
+    } catch (err) {
+      notifyError(err instanceof ApiError ? err.message : String(err));
+    }
+  };
+
+  const onImportFile = async (e: ChangeEvent<HTMLInputElement>) => {
+    // Capture the element synchronously; the async body runs after React has
+    // moved on, so we hold our own reference to reset value in `finally`.
+    const input = e.currentTarget;
+    const file = input.files?.[0];
+    if (!file) return;
+    if (!projectId) {
+      input.value = "";
+      return;
+    }
+    try {
+      const parsed: unknown = JSON.parse(await file.text());
+      // Tolerate either a { materials: [...] } wrapper or a bare [...] array.
+      const materials: unknown = Array.isArray(parsed)
+        ? parsed
+        : (parsed as { materials?: unknown } | null)?.materials;
+      if (
+        !Array.isArray(materials) ||
+        !materials.every(
+          (m) => m != null && typeof m === "object" && typeof (m as { id?: unknown }).id === "string",
+        )
+      ) {
+        notifyError("Not a material library file");
+        return;
+      }
+      const res = await api.importMaterials(projectId, { materials: materials as RFMaterial[] });
+      // Reload the project's materials via the same action edits/deletes use.
+      await openProject(projectId);
+      notify(
+        `Imported ${res.imported.length}, renamed ${Object.keys(res.renamed).length}, skipped ${res.skipped.length}`,
+      );
+    } catch (err) {
+      if (err instanceof ApiError) notifyError(err.message);
+      else if (err instanceof SyntaxError) notifyError("Not a material library file");
+      else notifyError(String(err));
+    } finally {
+      // Reset so re-picking the same file fires onChange again.
+      input.value = "";
+    }
+  };
+
   // Auto-slug the id from the typed name (mirrors the old prompt default) and
   // surface duplicate / invalid errors inline instead of via window.alert.
   const newId = slugifyId(newName);
@@ -360,6 +427,29 @@ export default function RFMaterialPanel() {
   return (
     <div className="panel">
       <h3 className="panel-title">RF material library</h3>
+      <div className="panel-actions">
+        <button
+          onClick={() => void exportLibrary()}
+          disabled={!projectId || busy !== null}
+          title="Download this project's RF material library as a portable JSON file"
+        >
+          Export library
+        </button>
+        <button
+          onClick={() => importInputRef.current?.click()}
+          disabled={!projectId || busy !== null}
+          title="Merge a material library JSON file into this project (colliding ids are renamed)"
+        >
+          Import library
+        </button>
+        <input
+          ref={importInputRef}
+          type="file"
+          accept="application/json,.json"
+          style={{ display: "none" }}
+          onChange={(e) => void onImportFile(e)}
+        />
+      </div>
       {list.length === 0 ? (
         <div className="empty-state">No RF materials loaded</div>
       ) : (

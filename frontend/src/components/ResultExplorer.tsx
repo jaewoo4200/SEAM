@@ -4,7 +4,7 @@ import { api, ApiError } from "../api/client";
 import BeamSweepHeatmap from "./BeamSweepHeatmap";
 import AngularPlot from "./AngularPlot";
 import { EpochStaleChip, PATH_COLORS, SELECTED_PATH_COLOR, formatVec, materialById } from "./common";
-import { exportCsv } from "../charts";
+import { LineChart, exportCsv } from "../charts";
 import { filterPaths, pathColor, pathDepth, powerRange } from "../pathFilter";
 import { meshRadioMapRange } from "./MeshRadioMapOverlay";
 import { UE_COLORS, samplesForUe, trajectorySteps, trajectoryUeIds } from "../trajectoryUtils";
@@ -16,7 +16,10 @@ import type {
   DatasetSampling,
   LinkMetrics,
   PathType,
+  RadioMapResultSet,
+  RadioMapSweepResult,
   RayPath,
+  ResultSetRef,
   RFMaterialLibrary,
   ScenarioResultSet,
   TrajectoryResultSet,
@@ -1323,6 +1326,7 @@ export function MlDatasetSection() {
   // READ-ONLY: passed as the solver config for dataset generation.
   const pathsConfig = useAppStore((s) => s.pathsConfig);
   const sceneBounds = useAppStore((s) => s.sceneBounds);
+  const scene = useAppStore((s) => s.scene);
   const requestPick = useAppStore((s) => s.requestPick);
   const pickLabel = useAppStore((s) => s.pick?.label ?? null);
 
@@ -1345,6 +1349,15 @@ export function MlDatasetSection() {
   const [seed, setSeed] = useState(0);
   const [includePaths, setIncludePaths] = useState(false);
   const [followTerrain, setFollowTerrain] = useState(false);
+  // Sample along a scene actor's authored trajectory (its own dt/speed). When
+  // set it overrides the region / start-end below (precedence: actor > region).
+  const [actorId, setActorId] = useState("");
+  // Finite-difference step behind the velocity/doppler labels the backend adds.
+  const [dtS, setDtS] = useState(0.1);
+  const actorsWithTrajectory = useMemo(
+    () => (scene?.actors ?? []).filter((a) => a.trajectory !== null),
+    [scene],
+  );
 
   const touched = useRef(false);
   const fitToScene = () => {
@@ -1491,8 +1504,13 @@ export function MlDatasetSection() {
       grid_spacing_m: gridSpacing,
       seed,
       follow_terrain: followTerrain,
+      dt_s: dtS,
     };
-    if (mode === "random" || mode === "grid") {
+    if (actorId) {
+      // Actor flight path wins (precedence: waypoints > actor_id > start/end);
+      // leave region/start-end unset so the backend samples the actor's route.
+      sampling.actor_id = actorId;
+    } else if (mode === "random" || mode === "grid") {
       sampling.region_min = [regionMinX, regionMinY, 0];
       sampling.region_max = [regionMaxX, regionMaxY, heightM + 1];
     } else {
@@ -1544,6 +1562,31 @@ export function MlDatasetSection() {
           <option value="trajectory">trajectory</option>
         </select>
       </label>
+      <label className="solver-field">
+        <span className="solver-field-label">Actor flight path</span>
+        <select
+          value={actorId}
+          disabled={generating}
+          title="Sample along a scene actor's authored trajectory (overrides region / start-end)"
+          onChange={(e) => setActorId(e.target.value)}
+        >
+          <option value="">— none —</option>
+          {actorsWithTrajectory.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name || a.id}
+            </option>
+          ))}
+        </select>
+      </label>
+      {actorsWithTrajectory.length === 0 && (
+        <p className="hint">No actors with a trajectory — assign one in Visual mode to enable flight-path sampling.</p>
+      )}
+      {numField("dt", dtS, (v) => setDtS(v), { min: 0.001, step: 0.05, unit: "s" })}
+      <p className="hint">
+        Sampling precedence: waypoints &gt; actor flight path &gt; start/end (or region).
+        dt is the finite-difference step behind the velocity / Doppler labels.
+        {actorId && " Actor flight path is active — the region / start-end below are ignored."}
+      </p>
       {numField("Num samples", numSamples, (v) => setNumSamples(v), { min: 1, max: 20000 })}
       {numField("CFR points", cfrPoints, (v) => setCfrPoints(v), { min: 2, max: 4096 })}
       {numField("Height", heightM, (v) => setHeightM(v), { step: 0.1, unit: "m" })}
@@ -2216,6 +2259,733 @@ function RfdataExportRow() {
   );
 }
 
+// ----------------------------------------------------- radio-map colormaps
+
+/** Jet colormap (blue → cyan → green → yellow → red), t in 0..1. Matches the
+ *  viewer's radio-map convention so exported/compare heatmaps read the same. */
+function jet(t: number): [number, number, number] {
+  const x = Math.max(0, Math.min(1, t));
+  const four = 4 * x;
+  const clamp = (v: number) => Math.round(Math.max(0, Math.min(1, v)) * 255);
+  return [
+    clamp(Math.min(four - 1.5, -four + 4.5)),
+    clamp(Math.min(four - 0.5, -four + 3.5)),
+    clamp(Math.min(four + 0.5, -four + 2.5)),
+  ];
+}
+
+/** Diverging blue → white → red colormap for the B−A delta, t in 0..1 with
+ *  0.5 = zero. Used for the compare delta heatmap. */
+function diverging(t: number): [number, number, number] {
+  const x = Math.max(0, Math.min(1, t));
+  const lerp = (a: number, b: number, k: number) => Math.round(a + (b - a) * k);
+  if (x < 0.5) {
+    const k = x / 0.5; // blue (49,130,189) → white
+    return [lerp(49, 255, k), lerp(130, 255, k), lerp(189, 255, k)];
+  }
+  const k = (x - 0.5) / 0.5; // white → red (222,45,38)
+  return [lerp(255, 222, k), lerp(255, 45, k), lerp(255, 38, k)];
+}
+
+/** Coverage (fraction of non-null cells >= threshold) + mean of a radio map. */
+function radioMapStats(
+  rm: RadioMapResultSet,
+  thresholdDbm: number | null,
+): { coverage: number | null; mean: number | null; count: number } {
+  let total = 0;
+  let above = 0;
+  let sum = 0;
+  for (const row of rm.values) {
+    for (const v of row) {
+      if (v === null || v === undefined || !Number.isFinite(v)) continue;
+      total += 1;
+      sum += v;
+      if (thresholdDbm !== null && v >= thresholdDbm) above += 1;
+    }
+  }
+  return {
+    coverage: thresholdDbm === null || total === 0 ? null : above / total,
+    mean: total ? sum / total : null,
+    count: total,
+  };
+}
+
+/** Non-null value range of a radio-map grid ([0,1] fallback when empty). */
+function gridRange(rm: RadioMapResultSet): [number, number] {
+  let min = Infinity;
+  let max = -Infinity;
+  for (const row of rm.values) {
+    for (const v of row) {
+      if (v === null || v === undefined || !Number.isFinite(v)) continue;
+      if (v < min) min = v;
+      if (v > max) max = v;
+    }
+  }
+  return Number.isFinite(min) ? [min, max] : [0, 1];
+}
+
+/** Small jet/diverging heatmap of a value grid. Canvas rows grow downward and
+ *  world +Y is row iy, so we flip vertically (same as the viewer texture). */
+function HeatmapCanvas({
+  values,
+  nx,
+  ny,
+  min,
+  max,
+  colorFn,
+  cell = 3,
+  title,
+}: {
+  values: (number | null)[][];
+  nx: number;
+  ny: number;
+  min: number;
+  max: number;
+  colorFn: (t: number) => [number, number, number];
+  cell?: number;
+  title?: string;
+}) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    canvas.width = nx * cell;
+    canvas.height = ny * cell;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const span = max > min ? max - min : 1;
+    for (let iy = 0; iy < ny; iy++) {
+      const row = values[iy] ?? [];
+      for (let ix = 0; ix < nx; ix++) {
+        const v = row[ix];
+        if (v === null || v === undefined || !Number.isFinite(v)) continue;
+        const [r, g, b] = colorFn((v - min) / span);
+        ctx.fillStyle = `rgb(${r},${g},${b})`;
+        ctx.fillRect(ix * cell, (ny - 1 - iy) * cell, cell, cell);
+      }
+    }
+  }, [values, nx, ny, min, max, colorFn, cell]);
+  return (
+    <canvas
+      ref={ref}
+      title={title}
+      style={{
+        imageRendering: "pixelated",
+        border: "1px solid var(--border, #333)",
+        maxWidth: "100%",
+        height: "auto",
+      }}
+    />
+  );
+}
+
+/** Export a radio map as a jet heatmap PNG (canvas → toBlob → download). */
+function downloadRadioMapPng(rm: RadioMapResultSet): void {
+  const { nx, ny } = rm.grid;
+  const cell = 4;
+  const canvas = document.createElement("canvas");
+  canvas.width = nx * cell;
+  canvas.height = ny * cell;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  const [min, max] = gridRange(rm);
+  const span = max > min ? max - min : 1;
+  for (let iy = 0; iy < ny; iy++) {
+    const row = rm.values[iy] ?? [];
+    for (let ix = 0; ix < nx; ix++) {
+      const v = row[ix];
+      if (v === null || v === undefined || !Number.isFinite(v)) continue;
+      const [r, g, b] = jet((v - min) / span);
+      ctx.fillStyle = `rgb(${r},${g},${b})`;
+      ctx.fillRect(ix * cell, (ny - 1 - iy) * cell, cell, cell);
+    }
+  }
+  canvas.toBlob((blob) => {
+    if (!blob) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `radio_map_${rm.result_id}.png`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  }, "image/png");
+}
+
+// ------------------------------------------------- A/B radio-map compare
+
+/** Pick two stored radio_map runs and render A, B, and the per-cell B−A delta
+ *  as small heatmaps, with coverage/mean summary + a config-provenance chip.
+ *  Also exports the currently-loaded radio map (store `radioMap`) as a PNG. */
+function RadioMapCompareSection() {
+  const scene = useAppStore((s) => s.scene);
+  const projectId = useAppStore((s) => s.projectId);
+  const radioMap = useAppStore((s) => s.radioMap);
+  const notifyError = useAppStore((s) => s.notifyError);
+
+  const radioRefs = useMemo(() => {
+    const refs = (scene?.result_sets ?? []).filter((r) => r.kind === "radio_map");
+    return [...refs].sort(
+      (a, b) => (Date.parse(b.created_at ?? "") || 0) - (Date.parse(a.created_at ?? "") || 0),
+    );
+  }, [scene]);
+
+  const [aId, setAId] = useState("");
+  const [bId, setBId] = useState("");
+  const [gridA, setGridA] = useState<RadioMapResultSet | null>(null);
+  const [gridB, setGridB] = useState<RadioMapResultSet | null>(null);
+  const [threshold, setThreshold] = useState("-90");
+  const [loading, setLoading] = useState(false);
+
+  const thresholdVal = threshold.trim() === "" ? null : Number(threshold);
+
+  const compare = async () => {
+    if (!projectId || !aId || !bId) return;
+    setLoading(true);
+    try {
+      const [ra, rb] = await Promise.all([
+        api.getRadioMap(projectId, aId),
+        api.getRadioMap(projectId, bId),
+      ]);
+      setGridA(ra);
+      setGridB(rb);
+    } catch (err) {
+      notifyError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const dimsMatch =
+    gridA !== null &&
+    gridB !== null &&
+    gridA.grid.nx === gridB.grid.nx &&
+    gridA.grid.ny === gridB.grid.ny;
+
+  // Shared jet scale so A and B are directly comparable; symmetric diverging
+  // scale for the delta.
+  const shared = useMemo(() => {
+    if (!gridA || !gridB) return null;
+    const [aMin, aMax] = gridRange(gridA);
+    const [bMin, bMax] = gridRange(gridB);
+    return { min: Math.min(aMin, bMin), max: Math.max(aMax, bMax) };
+  }, [gridA, gridB]);
+
+  const delta = useMemo(() => {
+    if (!gridA || !gridB || !dimsMatch) return null;
+    const nx = gridA.grid.nx;
+    const ny = gridA.grid.ny;
+    const cells: (number | null)[][] = [];
+    let m = 0;
+    for (let iy = 0; iy < ny; iy++) {
+      const rowA = gridA.values[iy] ?? [];
+      const rowB = gridB.values[iy] ?? [];
+      const out: (number | null)[] = [];
+      for (let ix = 0; ix < nx; ix++) {
+        const a = rowA[ix];
+        const b = rowB[ix];
+        if (a === null || a === undefined || b === null || b === undefined) {
+          out.push(null);
+        } else {
+          const d = b - a;
+          out.push(d);
+          m = Math.max(m, Math.abs(d));
+        }
+      }
+      cells.push(out);
+    }
+    return { cells, nx, ny, m: m > 0 ? m : 1 };
+  }, [gridA, gridB, dimsMatch]);
+
+  const statA = gridA ? radioMapStats(gridA, thresholdVal) : null;
+  const statB = gridB ? radioMapStats(gridB, thresholdVal) : null;
+  const configSame =
+    gridA && gridB ? gridA.simulation_config_id === gridB.simulation_config_id : null;
+
+  const pct = (v: number | null) => (v === null ? "—" : `${(v * 100).toFixed(1)}%`);
+  const dbm = (v: number | null) => (v === null ? "—" : `${v.toFixed(1)} dBm`);
+
+  return (
+    <Collapsible title="A/B radio-map compare">
+      <p className="hint">
+        Pick two stored radio-map runs and diff them cell-by-cell. Delta is B−A
+        (diverging blue → white → red); A and B share one jet scale.
+      </p>
+      {radioMap && (
+        <div className="panel-actions">
+          <button
+            title="Export the currently-loaded radio map as a jet heatmap PNG"
+            onClick={() => downloadRadioMapPng(radioMap)}
+          >
+            Download current map PNG
+          </button>
+        </div>
+      )}
+      {radioRefs.length < 2 ? (
+        <p className="hint">Need at least two stored radio-map runs to compare.</p>
+      ) : (
+        <>
+          <label className="solver-field">
+            <span className="solver-field-label">Run A</span>
+            <select value={aId} disabled={loading} onChange={(e) => setAId(e.target.value)}>
+              <option value="">— pick a run —</option>
+              {radioRefs.map((r) => (
+                <option key={r.result_id} value={r.result_id}>
+                  {r.label ?? r.result_id} · {formatCreatedAt(r.created_at)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="solver-field">
+            <span className="solver-field-label">Run B</span>
+            <select value={bId} disabled={loading} onChange={(e) => setBId(e.target.value)}>
+              <option value="">— pick a run —</option>
+              {radioRefs.map((r) => (
+                <option key={r.result_id} value={r.result_id}>
+                  {r.label ?? r.result_id} · {formatCreatedAt(r.created_at)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="solver-field">
+            <span className="solver-field-label">Coverage ≥</span>
+            <span className="solver-field-input">
+              <input
+                type="number"
+                step={1}
+                value={threshold}
+                disabled={loading}
+                onChange={(e) => setThreshold(e.target.value)}
+              />
+              <span className="solver-unit">dBm</span>
+            </span>
+          </label>
+          <div className="panel-actions">
+            <button
+              className="primary"
+              disabled={loading || !aId || !bId || aId === bId}
+              onClick={() => void compare()}
+            >
+              {loading ? "Loading…" : "Compare"}
+            </button>
+          </div>
+        </>
+      )}
+
+      {gridA && gridB && !dimsMatch && (
+        <p className="hint">
+          Grids differ in size ({gridA.grid.nx}×{gridA.grid.ny} vs {gridB.grid.nx}×
+          {gridB.grid.ny}); cannot diff cell-by-cell.
+        </p>
+      )}
+
+      {gridA && gridB && dimsMatch && shared && delta && (
+        <>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 8 }}>
+            <div>
+              <div className="hint">A</div>
+              <HeatmapCanvas
+                values={gridA.values}
+                nx={gridA.grid.nx}
+                ny={gridA.grid.ny}
+                min={shared.min}
+                max={shared.max}
+                colorFn={jet}
+                title={gridA.label ?? gridA.result_id}
+              />
+            </div>
+            <div>
+              <div className="hint">B</div>
+              <HeatmapCanvas
+                values={gridB.values}
+                nx={gridB.grid.nx}
+                ny={gridB.grid.ny}
+                min={shared.min}
+                max={shared.max}
+                colorFn={jet}
+                title={gridB.label ?? gridB.result_id}
+              />
+            </div>
+            <div>
+              <div className="hint">Δ B−A (±{delta.m.toFixed(1)} dB)</div>
+              <HeatmapCanvas
+                values={delta.cells}
+                nx={delta.nx}
+                ny={delta.ny}
+                min={-delta.m}
+                max={delta.m}
+                colorFn={diverging}
+                title="B − A (dB)"
+              />
+            </div>
+          </div>
+          <div className="results-meta">
+            A: coverage <span className="mono">{pct(statA?.coverage ?? null)}</span> · mean{" "}
+            <span className="mono">{dbm(statA?.mean ?? null)}</span> · B: coverage{" "}
+            <span className="mono">{pct(statB?.coverage ?? null)}</span> · mean{" "}
+            <span className="mono">{dbm(statB?.mean ?? null)}</span>
+          </div>
+          <div className="results-meta">
+            <span
+              className="chip"
+              title="Both runs used the same simulation config id"
+              style={configSame ? { borderColor: "#66bb6a", color: "#66bb6a" } : {}}
+            >
+              {configSame ? "config identical" : "config differs"}
+            </span>
+          </div>
+        </>
+      )}
+    </Collapsible>
+  );
+}
+
+// ----------------------------------------------- radio-map altitude sweep
+
+/** Solve a planar radio map at several altitudes in one call, then chart
+ *  coverage-vs-altitude. The persisted per-height runs auto-appear in the run
+ *  history (labeled "h=X m" server-side) after the scene refresh. */
+function AltitudeSweepSection() {
+  const projectId = useAppStore((s) => s.projectId);
+  const notify = useAppStore((s) => s.notify);
+  const notifyError = useAppStore((s) => s.notifyError);
+  const refetchScene = useAppStore((s) => s.refetchScene);
+  const busy = useAppStore((s) => s.busy);
+
+  const [heightsStr, setHeightsStr] = useState("30,60,90,120");
+  const [thresholdStr, setThresholdStr] = useState("-90");
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState<RadioMapSweepResult | null>(null);
+
+  const heights = useMemo(
+    () =>
+      heightsStr
+        .split(",")
+        .map((s) => Number(s.trim()))
+        .filter((v) => Number.isFinite(v)),
+    [heightsStr],
+  );
+  const disabled = !projectId || busy !== null || running || heights.length === 0;
+
+  const run = async () => {
+    if (!projectId || heights.length === 0) return;
+    setRunning(true);
+    try {
+      const threshold_db = thresholdStr.trim() === "" ? null : Number(thresholdStr);
+      const res = await api.simulateRadioMapSweep(projectId, {
+        heights_m: heights,
+        threshold_db,
+      });
+      setResult(res);
+      notify(`Altitude sweep: ${res.runs.length} run(s) at ${heights.join(", ")} m`);
+      await refetchScene();
+    } catch (err) {
+      notifyError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  // Coverage-vs-altitude series (null threshold → no coverage, chart omitted).
+  const coverageSeries = useMemo(() => {
+    if (!result) return null;
+    const pts = result.coverage.filter((c) => c.coverage !== null);
+    if (pts.length === 0) return null;
+    return [
+      {
+        label: "coverage %",
+        x: pts.map((c) => c.height_m),
+        y: pts.map((c) => (c.coverage === null ? null : c.coverage * 100)),
+      },
+    ];
+  }, [result]);
+
+  return (
+    <Collapsible title="Radio-map altitude sweep">
+      <p className="hint">
+        One planar radio-map solve per altitude. Persisted runs appear in the run
+        history labeled <span className="mono">h=X m</span>.
+      </p>
+      <label className="solver-field">
+        <span className="solver-field-label">Heights</span>
+        <span className="solver-field-input">
+          <input
+            type="text"
+            value={heightsStr}
+            disabled={running}
+            placeholder="30,60,90,120"
+            onChange={(e) => setHeightsStr(e.target.value)}
+          />
+          <span className="solver-unit">m</span>
+        </span>
+      </label>
+      <label className="solver-field">
+        <span className="solver-field-label">Coverage ≥</span>
+        <span className="solver-field-input">
+          <input
+            type="number"
+            step={1}
+            value={thresholdStr}
+            disabled={running}
+            onChange={(e) => setThresholdStr(e.target.value)}
+          />
+          <span className="solver-unit">dBm</span>
+        </span>
+      </label>
+      <div className="panel-actions">
+        <button className="primary" disabled={disabled} onClick={() => void run()}>
+          {running ? "Sweeping…" : "Run altitude sweep"}
+        </button>
+      </div>
+      {result && (
+        <>
+          {coverageSeries ? (
+            <LineChart
+              title="Coverage vs altitude"
+              name="coverage_vs_altitude"
+              xLabel="Altitude (m)"
+              yLabel="Coverage (%)"
+              series={coverageSeries}
+              width={420}
+              height={220}
+            />
+          ) : (
+            <p className="hint">No threshold set — coverage not computed. Run ids below.</p>
+          )}
+          <table className="results-table">
+            <thead>
+              <tr>
+                <th>height</th>
+                <th>result_id</th>
+              </tr>
+            </thead>
+            <tbody>
+              {result.runs.map((r) => (
+                <tr key={r.result_id}>
+                  <td className="mono">{r.height_m} m</td>
+                  <td className="mono">{r.result_id}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+    </Collapsible>
+  );
+}
+
+// -------------------------------------------------------- run history browser
+
+/** Kinds in display order for the run-history grouping. */
+const RUN_HISTORY_KINDS: ResultSetRef["kind"][] = [
+  "paths",
+  "radio_map",
+  "trajectory",
+  "mesh_radio_map",
+  "scenario",
+  "channel",
+];
+
+/** One run row with an inline-editable label. Committing (blur/Enter) PATCHes
+ *  the label; labeled runs are spared by pruning. */
+function RunHistoryRow({
+  refItem,
+  disabled,
+  onLoad,
+  onLabel,
+}: {
+  refItem: ResultSetRef;
+  disabled: boolean;
+  onLoad: (ref: ResultSetRef) => void;
+  onLabel: (ref: ResultSetRef, label: string | null) => void;
+}) {
+  const [label, setLabel] = useState(refItem.label ?? "");
+  // Re-seed when the underlying ref changes (e.g. after a scene refresh).
+  useEffect(() => setLabel(refItem.label ?? ""), [refItem.label, refItem.result_id]);
+
+  const commit = () => {
+    const next = label.trim();
+    const current = refItem.label ?? "";
+    if (next === current) return;
+    onLabel(refItem, next === "" ? null : next);
+  };
+
+  return (
+    <tr>
+      <td>
+        <input
+          type="text"
+          className="run-label-input"
+          value={label}
+          placeholder="(unlabeled)"
+          disabled={disabled}
+          style={{ width: 120 }}
+          onChange={(e) => setLabel(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+          }}
+        />
+      </td>
+      <td className="mono" title={refItem.result_id}>
+        {refItem.result_id}
+      </td>
+      <td className="mono">{refItem.backend}</td>
+      <td className="mono">{formatCreatedAt(refItem.created_at)}</td>
+      <td className="mono">
+        {refItem.size_bytes != null ? formatBytes(refItem.size_bytes) : "—"}
+      </td>
+      <td>
+        <button
+          disabled={disabled}
+          title="Load this stored run into its overlay and jump to Results"
+          onClick={() => onLoad(refItem)}
+        >
+          Load
+        </button>
+      </td>
+    </tr>
+  );
+}
+
+/** Collapsible run-history browser: every stored ResultSetRef grouped by kind
+ *  (newest first), inline label editing, per-row Load, total on-disk size, and
+ *  a keep-latest-N prune. */
+function RunHistorySection() {
+  const scene = useAppStore((s) => s.scene);
+  const projectId = useAppStore((s) => s.projectId);
+  const activateResult = useAppStore((s) => s.activateResult);
+  const refetchScene = useAppStore((s) => s.refetchScene);
+  const notify = useAppStore((s) => s.notify);
+  const notifyError = useAppStore((s) => s.notifyError);
+  const busy = useAppStore((s) => s.busy);
+  const disabled = !projectId || busy !== null;
+
+  const [keepN, setKeepN] = useState(3);
+  const [pruning, setPruning] = useState(false);
+
+  const refs = scene?.result_sets ?? [];
+  const totalBytes = useMemo(
+    () => refs.reduce((n, r) => n + (r.size_bytes ?? 0), 0),
+    [refs],
+  );
+
+  // Group by kind, newest first within each group.
+  const grouped = useMemo(() => {
+    const byKind = new Map<ResultSetRef["kind"], ResultSetRef[]>();
+    for (const r of refs) {
+      const list = byKind.get(r.kind) ?? [];
+      list.push(r);
+      byKind.set(r.kind, list);
+    }
+    for (const list of byKind.values()) {
+      list.sort(
+        (a, b) => (Date.parse(b.created_at ?? "") || 0) - (Date.parse(a.created_at ?? "") || 0),
+      );
+    }
+    return byKind;
+  }, [refs]);
+
+  const onLabel = (ref: ResultSetRef, label: string | null) => {
+    if (!projectId) return;
+    void api
+      .labelResult(projectId, ref.result_id, { label })
+      .then(async () => {
+        notify(label ? `Labeled run "${label}"` : "Cleared run label");
+        await refetchScene();
+      })
+      .catch((err: unknown) =>
+        notifyError(err instanceof ApiError ? err.message : String(err)),
+      );
+  };
+
+  const prune = async () => {
+    if (!projectId) return;
+    setPruning(true);
+    try {
+      const res = await api.pruneResults(projectId, { keep_latest: keepN });
+      notify(`Pruned ${res.removed.length} result file(s)`);
+      await refetchScene();
+    } catch (err) {
+      notifyError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setPruning(false);
+    }
+  };
+
+  return (
+    <Collapsible title="Run history">
+      {refs.length === 0 ? (
+        <p className="hint">No stored runs yet.</p>
+      ) : (
+        <>
+          <div className="results-meta">
+            {refs.length} stored run(s) · total on disk{" "}
+            <span className="mono">{formatBytes(totalBytes)}</span>
+          </div>
+          {RUN_HISTORY_KINDS.filter((k) => (grouped.get(k)?.length ?? 0) > 0).map((kind) => (
+            <div key={kind} style={{ marginTop: 8 }}>
+              <h4>
+                {kind} ({grouped.get(kind)!.length})
+              </h4>
+              <table className="results-table">
+                <thead>
+                  <tr>
+                    <th>label</th>
+                    <th>result_id</th>
+                    <th>backend</th>
+                    <th>created</th>
+                    <th>size</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {grouped.get(kind)!.map((r) => (
+                    <RunHistoryRow
+                      key={r.result_id}
+                      refItem={r}
+                      disabled={disabled}
+                      onLoad={(ref) => void activateResult(ref)}
+                      onLabel={onLabel}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ))}
+        </>
+      )}
+      <div className="panel-actions" style={{ marginTop: 10 }}>
+        <label className="solver-field">
+          <span className="solver-field-label">Keep latest</span>
+          <span className="solver-field-input">
+            <input
+              type="number"
+              min={0}
+              max={100}
+              step={1}
+              value={keepN}
+              disabled={disabled || pruning}
+              onChange={(e) => setKeepN(Math.max(0, Math.min(100, Number(e.target.value))))}
+            />
+            <span className="solver-unit">per kind</span>
+          </span>
+        </label>
+        <button
+          className="danger"
+          disabled={disabled || pruning}
+          title="Delete older stored result files, keeping the newest N of each kind"
+          onClick={() => void prune()}
+        >
+          {pruning ? "Pruning…" : "Prune old results"}
+        </button>
+      </div>
+      <p className="hint">Labeled runs are spared server-side even if they fall outside the keep window.</p>
+    </Collapsible>
+  );
+}
+
 export default function ResultExplorer() {
   const pathResults = useAppStore((s) => s.pathResults);
   const selectedPathId = useAppStore((s) => s.selectedPathId);
@@ -2612,6 +3382,9 @@ export default function ResultExplorer() {
       )}
 
       <MeshRadioMapSection />
+      <AltitudeSweepSection />
+      <RadioMapCompareSection />
+      <RunHistorySection />
       </div>
     </>
   );

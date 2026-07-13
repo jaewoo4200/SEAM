@@ -106,6 +106,7 @@ function draftFromDevice(d: Device): DeviceDraft {
 function DeviceCard({ device }: { device: Device }) {
   const updateDevice = useAppStore((s) => s.updateDevice);
   const deleteDevice = useAppStore((s) => s.deleteDevice);
+  const duplicateDevice = useAppStore((s) => s.duplicateDevice);
   const surfaceZAt = useAppStore((s) => s.surfaceZAt);
   const busy = useAppStore((s) => s.busy);
   const [draft, setDraft] = useState<DeviceDraft>(() => draftFromDevice(device));
@@ -311,6 +312,13 @@ function DeviceCard({ device }: { device: Device }) {
           <button className="primary" onClick={apply} disabled={disabled}>
             Apply
           </button>
+          <button
+            onClick={() => void duplicateDevice(device.id)}
+            disabled={disabled}
+            title="Create a copy of this device (offset 5 m in X)"
+          >
+            Duplicate
+          </button>
           <DeleteConfirmButton
             label="delete this radio device"
             disabled={disabled}
@@ -320,9 +328,106 @@ function DeviceCard({ device }: { device: Device }) {
         </div>
       </div>
 
+      <DeviceOrientationEditor device={device} />
+
       <Row label="Color">
         <Swatch color={device.color} /> <span className="mono">{device.color}</span>
       </Row>
+    </div>
+  );
+}
+
+/** Antenna aim editor: yaw / pitch / roll (deg) written straight to
+ *  orientation_deg (same direct-commit pattern as the waypoint rows), plus a
+ *  "Look at" helper that points the boresight from this device toward another
+ *  device. Kept out of the draft/Apply block above so an Aim never discards
+ *  pending position edits. Shown for TX and RX — directional patterns matter
+ *  for both. */
+function DeviceOrientationEditor({ device }: { device: Device }) {
+  const scene = useAppStore((s) => s.scene);
+  const updateDevice = useAppStore((s) => s.updateDevice);
+  const busy = useAppStore((s) => s.busy);
+  const disabled = busy !== null;
+  const [target, setTarget] = useState("");
+
+  // Devices this one can aim at (guard against self-selection).
+  const others = (scene?.devices ?? []).filter((d) => d.id !== device.id);
+
+  const ORIENT_HINT =
+    "Z-up ENU degrees — yaw about +Z from +X, pitch elevation up from XY, roll about boresight";
+  const AXES: [number, string][] = [
+    [0, "Yaw (°)"],
+    [1, "Pitch (°)"],
+    [2, "Roll (°)"],
+  ];
+
+  const setAxis = (axis: number, value: number) => {
+    if (!Number.isFinite(value)) return;
+    const next: Vec3 = [...device.orientation_deg];
+    next[axis] = value;
+    void updateDevice(device.id, { orientation_deg: next });
+  };
+
+  // Point the boresight from this device toward the picked target: yaw about
+  // +Z from +X, pitch elevation up from the XY plane, roll 0 (Z-up scene).
+  const aim = () => {
+    const tgt = others.find((d) => d.id === target);
+    if (!tgt) return;
+    const [sx, sy, sz] = device.position;
+    const [tx, ty, tz] = tgt.position;
+    const dx = tx - sx;
+    const dy = ty - sy;
+    const dz = tz - sz;
+    if (dx === 0 && dy === 0 && dz === 0) return; // zero distance — nothing to aim at
+    const yaw = (Math.atan2(dy, dx) * 180) / Math.PI;
+    const pitch = (Math.atan2(dz, Math.hypot(dx, dy)) * 180) / Math.PI;
+    void updateDevice(device.id, {
+      orientation_deg: [Number(yaw.toFixed(2)), Number(pitch.toFixed(2)), 0],
+    });
+  };
+
+  return (
+    <div className="mat-editor" style={{ marginTop: 10 }}>
+      <h4>Antenna orientation</h4>
+      <div className="field-grid">
+        {AXES.map(([axis, label]) => (
+          <label key={axis} title={ORIENT_HINT}>
+            {label}
+            <input
+              type="number"
+              step={5}
+              value={device.orientation_deg[axis]}
+              disabled={disabled}
+              onChange={(e) => setAxis(axis, Number(e.target.value))}
+            />
+          </label>
+        ))}
+      </div>
+      <div className="panel-actions" style={{ marginTop: 6 }}>
+        <select
+          value={target}
+          disabled={disabled || others.length === 0}
+          onChange={(e) => setTarget(e.target.value)}
+        >
+          <option value="">{others.length === 0 ? "— no other devices —" : "Look at…"}</option>
+          {others.map((d) => (
+            <option key={d.id} value={d.id}>
+              {d.name ? `${d.name} (${d.id})` : d.id}
+            </option>
+          ))}
+        </select>
+        <button
+          disabled={disabled || !target}
+          title="Aim the antenna boresight from this device toward the selected target"
+          onClick={aim}
+        >
+          Aim
+        </button>
+      </div>
+      <p className="hint">
+        Yaw about +Z from +X, pitch elevation, roll about boresight (Z-up ENU degrees). Look at sets
+        yaw + pitch to point the boresight at another device.
+      </p>
     </div>
   );
 }
@@ -360,6 +465,7 @@ function ActorCard({ actor }: { actor: Actor }) {
   const scene = useAppStore((s) => s.scene);
   const updateActor = useAppStore((s) => s.updateActor);
   const deleteActor = useAppStore((s) => s.deleteActor);
+  const duplicateActor = useAppStore((s) => s.duplicateActor);
   const busy = useAppStore((s) => s.busy);
   const [draft, setDraft] = useState<ActorDraft>(() => draftFromActor(actor));
   const [err, setErr] = useState<string | null>(null);
@@ -488,6 +594,13 @@ function ActorCard({ actor }: { actor: Actor }) {
         <div className="editor-actions">
           <button className="primary" onClick={applyPose} disabled={disabled}>
             Apply
+          </button>
+          <button
+            onClick={() => void duplicateActor(actor.id)}
+            disabled={disabled}
+            title="Create a copy of this actor (shape, material, trajectory)"
+          >
+            Duplicate
           </button>
           <DeleteConfirmButton
             label="delete this actor"
@@ -700,11 +813,29 @@ function ActorTrajectoryEditor({ actor }: { actor: Actor }) {
 
 function PrimCard({ prim }: { prim: Prim }) {
   const materials = useAppStore((s) => s.materials);
+  const scene = useAppStore((s) => s.scene);
   const selection = useAppStore((s) => s.selection);
   const validation = useAppStore((s) => s.validation);
   const assignMaterial = useAppStore((s) => s.assignMaterial);
   const selectPrim = useAppStore((s) => s.selectPrim);
+  const selectManyPrims = useAppStore((s) => s.selectManyPrims);
   const busy = useAppStore((s) => s.busy);
+
+  // Bulk-select groups computed from the whole scene (idea #11): jump from one
+  // prim to every unassigned prim, every prim sharing this one's RF material,
+  // or the whole scene — so batch material work doesn't need tree ctrl-clicks.
+  const prims = scene?.prims ?? [];
+  const unassignedIds = prims
+    .filter((p) => p.rf.material_id == null || p.rf.assignment_status === "unassigned")
+    .map((p) => p.id);
+  const allIds = prims.map((p) => p.id);
+  // "Same material" is only meaningful with exactly one prim selected that
+  // actually carries a material.
+  const soleSelected = selection.length === 1 ? prims.find((p) => p.id === selection[0]) : undefined;
+  const soleMaterial = soleSelected?.rf.material_id ?? null;
+  const sameMaterialIds = soleMaterial
+    ? prims.filter((p) => p.rf.material_id === soleMaterial).map((p) => p.id)
+    : [];
 
   const rfMat = materialById(materials, prim.rf.material_id);
   const baseColor = rgbaToCss(prim.visual?.base_color_rgba);
@@ -728,6 +859,35 @@ function PrimCard({ prim }: { prim: Prim }) {
       <h3 className="panel-title">
         <span className="mono">{prim.id}</span>
       </h3>
+      <div
+        className="panel-actions"
+        style={{ marginTop: 2, marginBottom: 8, flexWrap: "wrap", alignItems: "center" }}
+      >
+        <span className="hint" style={{ marginRight: 2 }}>
+          Select:
+        </span>
+        <button
+          disabled={unassignedIds.length === 0}
+          title="Select every prim with no RF material assigned"
+          onClick={() => selectManyPrims(unassignedIds)}
+        >
+          All unassigned ({unassignedIds.length})
+        </button>
+        <button
+          disabled={!soleMaterial || sameMaterialIds.length === 0}
+          title="Select every prim sharing this prim's RF material (select a single prim first)"
+          onClick={() => selectManyPrims(sameMaterialIds)}
+        >
+          Same material{sameMaterialIds.length ? ` (${sameMaterialIds.length})` : ""}
+        </button>
+        <button
+          disabled={allIds.length === 0}
+          title="Select every prim in the scene"
+          onClick={() => selectManyPrims(allIds)}
+        >
+          All prims ({allIds.length})
+        </button>
+      </div>
       <Row label="Name">{prim.name}</Row>
       <Row label="Type">{prim.type}</Row>
       {prim.semantic_tags.length > 0 && <Row label="Tags">{prim.semantic_tags.join(", ")}</Row>}

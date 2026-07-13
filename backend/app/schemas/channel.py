@@ -17,6 +17,9 @@ PathLossModelName = Literal[
     "tr38901_umi_nlos",
     "tr38901_inh_los",
     "tr38901_inh_nlos",
+    # 3GPP TR 36.777 UMa-AV air-to-ground (UAV) models, Annex B.1.2.
+    "tr36777_uma_av_los",
+    "tr36777_uma_av_nlos",
     "ci_n2",
     "ci_n3",
 ]
@@ -119,5 +122,91 @@ class ChannelAnalysisResult(StrictModel):
     cir_time_envelope_db: list[float] = Field(default_factory=list)
     # Empirical model comparison.
     pl_models: list[PathLossModelResult] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    metadata: dict = Field(default_factory=dict)
+
+
+# Sweepable link knobs: SimulationConfig scalars plus the serving TX power.
+# Each is a scalar the single-link analysis consumes directly, so a sweep is
+# exactly "the same analysis with one field patched per point".
+ChannelSweepField = Literal[
+    "frequency_hz",
+    "tx_power_dbm",
+    "bandwidth_hz",
+    "noise_figure_db",
+]
+
+
+class ChannelSweepRequest(ChannelAnalysisRequest):
+    """Body for POST /analyze/channel-sweep: the normal single-link selection
+    plus the field to sweep and the values to evaluate it at. Nothing is
+    persisted; each point is an independent on-demand analysis."""
+
+    sweep_field: ChannelSweepField
+    # 2..50 points: one point is not a sweep, and 50 solver runs is the ceiling
+    # for an interactive readout.
+    sweep_values: list[float] = Field(min_length=2, max_length=50)
+
+
+class ChannelSweepPoint(StrictModel):
+    """One sweep row: the swept value plus the scalar KPIs of that analysis.
+    All KPIs inherit the null-ness of ChannelAnalysisResult (e.g. no LoS path
+    -> k_factor_db is None)."""
+
+    value: float
+    path_loss_db: Optional[float] = None  # ray-traced (tx power - RSS)
+    rss_dbm: Optional[float] = None
+    snr_db: Optional[float] = None
+    sinr_db: Optional[float] = None
+    rms_delay_spread_ns: Optional[float] = None
+    k_factor_db: Optional[float] = None
+
+
+class ChannelSweepResult(StrictModel):
+    tx_id: str
+    rx_id: str
+    backend: str
+    sweep_field: ChannelSweepField
+    rows: list[ChannelSweepPoint] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class SpectrogramRequest(StrictModel):
+    """Body for POST /analyze/spectrogram: Doppler-time spectrogram of the
+    coherent channel h(t) (ISAC sensing readout). Deliberately its own schema:
+    the spectrogram needs thousands of time samples, far beyond the 64-step cap
+    the normal analysis keeps for its inline envelope."""
+
+    config_id: Optional[str] = None
+    config: Optional[SimulationConfig] = None
+    tx_id: Optional[str] = None  # None = first tx
+    rx_id: Optional[str] = None  # None = first rx
+    # Observation window [s]; long captures resolve slow Doppler, capped so
+    # duration*fs stays a JSON-sized series (see the 8192-sample service cap).
+    duration_s: float = Field(default=1.0, gt=0.0, le=10.0)
+    # h(t) sampling rate [Hz]; must exceed 2x the largest expected |Doppler|
+    # (Nyquist) or shifts alias into the wrong bin.
+    sampling_frequency_hz: float = Field(default=500.0, gt=0.0, le=4000.0)
+    # STFT window length in samples (Hann). Powers of two keep the FFT cheap;
+    # the default 128 gives fs/128 Hz Doppler resolution.
+    window: int = Field(default=128, ge=8, le=512)
+    # Frame advance in samples; None = window // 2 (50% overlap).
+    hop: Optional[int] = Field(default=None, ge=1, le=512)
+
+
+class SpectrogramResult(StrictModel):
+    tx_id: str
+    rx_id: str
+    backend: str
+    frequency_hz: float
+    sampling_frequency_hz: float
+    window: int
+    hop: int
+    num_paths: int = 0
+    # magnitude_db[i][j] is frame times_s[i] at Doppler bin doppler_hz[j];
+    # bins are fftshifted so 0 Hz sits at index window//2 (ascending axis).
+    times_s: list[float] = Field(default_factory=list)
+    doppler_hz: list[float] = Field(default_factory=list)
+    magnitude_db: list[list[float]] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     metadata: dict = Field(default_factory=dict)

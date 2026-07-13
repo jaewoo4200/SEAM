@@ -9,7 +9,7 @@
  * otherwise shows its own empty hint.
  */
 
-import { useMemo } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useAppStore } from "../store/appStore";
 import { StaleChip } from "./ResultExplorer";
 import { PATH_COLORS } from "./common";
@@ -17,11 +17,21 @@ import {
   BarChart,
   LineChart,
   StemChart,
+  ChartFrame,
   exportCsv,
+  ticks,
+  fmtTick,
   CHART_COLORS,
+  CHART_FONT,
   type Series,
 } from "../charts";
-import type { ChannelAnalysisResult, PathType, TrajectorySample } from "../types/api";
+import type {
+  ChannelAnalysisResult,
+  HandoverEvent,
+  HandoverSummary,
+  PathType,
+  TrajectorySample,
+} from "../types/api";
 
 const KNOWN_PATH_TYPES = new Set<string>(Object.keys(PATH_COLORS));
 function tapColor(pathType: string): string {
@@ -35,6 +45,171 @@ function num(v: number | null | undefined, digits = 1): string {
   return v === null || v === undefined || !Number.isFinite(v)
     ? "—"
     : (Math.round(v * 10 ** digits) / 10 ** digits).toString();
+}
+
+/** TX with the strongest per-step RSS at `step` (fallback serving-cell guess
+ *  when the samples predate the serving_tx_id field). */
+function argmaxTxAtStep(
+  byTx: Record<string, (number | null)[]>,
+  step: number,
+): string | null {
+  let best: string | null = null;
+  let bestV = -Infinity;
+  for (const [tx, arr] of Object.entries(byTx)) {
+    const v = Array.isArray(arr) ? arr[step] : null;
+    if (typeof v === "number" && Number.isFinite(v) && v > bestV) {
+      bestV = v;
+      best = tx;
+    }
+  }
+  return best;
+}
+
+/** Reconstruct the per-step serving TX purely from A3 events (+ an optional
+ *  per-TX RSS table for the pre-first-event cell), for results whose samples
+ *  don't carry serving_tx_id. */
+function reconstructServing(
+  events: HandoverEvent[],
+  numSteps: number,
+  byTx: Record<string, (number | null)[]> | undefined,
+): (string | null)[] {
+  const sorted = [...events].sort((a, b) => a.step - b.step);
+  let cur: string | null =
+    sorted.length > 0 ? sorted[0].from_tx : byTx ? argmaxTxAtStep(byTx, 0) : null;
+  const out: (string | null)[] = new Array(numSteps).fill(null);
+  let ei = 0;
+  for (let s = 0; s < numSteps; s++) {
+    while (ei < sorted.length && sorted[ei].step <= s) {
+      cur = sorted[ei].to_tx;
+      ei++;
+    }
+    out[s] = cur;
+  }
+  return out;
+}
+
+/** Stepwise serving-cell chart: x = trajectory step, y = a categorical lane per
+ *  distinct serving TX (labeled with the tx_id), with dashed markers at each A3
+ *  handover step. Self-contained paper-styled SVG (charts.tsx has no step
+ *  chart) wrapped in ChartFrame so it exports PNG / SVG / CSV like the rest. */
+function ServingTxChart({
+  title,
+  name,
+  steps,
+  serving,
+  lanes,
+  laneOf,
+  events,
+}: {
+  title: string;
+  name: string;
+  steps: number[];
+  serving: (string | null)[];
+  lanes: string[];
+  laneOf: Map<string, number>;
+  events: HandoverEvent[];
+}) {
+  const ref = useRef<SVGSVGElement>(null);
+  const width = 460;
+  const rowH = 26;
+  const T = 10;
+  const B = 34;
+  const L = 96;
+  const R = 14;
+  const K = Math.max(1, lanes.length);
+  const height = Math.max(150, T + B + K * rowH);
+  const xMin = steps.length ? steps[0] : 0;
+  const xMaxRaw = steps.length ? steps[steps.length - 1] : 1;
+  const xMax = xMaxRaw > xMin ? xMaxRaw : xMin + 1;
+  const sx = (v: number) => L + ((v - xMin) / (xMax - xMin)) * (width - L - R);
+  const yc = (lane: number) =>
+    height - B - ((lane + 0.5) / K) * (height - T - B);
+  const xs = ticks(xMin, xMax);
+
+  // Post-step staircase: hold each serving lane until the next step boundary.
+  let d = "";
+  let pen = false;
+  for (let i = 0; i < steps.length; i++) {
+    const v = serving[i];
+    const lane = v == null ? undefined : laneOf.get(v);
+    if (lane === undefined) {
+      pen = false;
+      continue;
+    }
+    const x = sx(steps[i]);
+    const y = yc(lane);
+    d += `${pen ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`;
+    pen = true;
+    const xNext = i + 1 < steps.length ? sx(steps[i + 1]) : x;
+    d += `L${xNext.toFixed(1)},${y.toFixed(1)}`;
+  }
+
+  return (
+    <ChartFrame
+      title={title}
+      name={name}
+      svgRef={ref}
+      onCsv={() =>
+        exportCsv(name, ["step", "serving_tx"], steps.map((s, i) => [s, serving[i] ?? ""]))
+      }
+    >
+      <svg ref={ref} viewBox={`0 0 ${width} ${height}`} className="chart-svg">
+        <g fontFamily={CHART_FONT} fontSize={11} fill="#000">
+          {/* lane gridlines + tx_id y labels */}
+          {lanes.map((tx, l) => (
+            <g key={tx}>
+              <line x1={L} y1={yc(l)} x2={width - R} y2={yc(l)} stroke="#eeeeee" strokeWidth={0.5} />
+              <line x1={L - 4} y1={yc(l)} x2={L} y2={yc(l)} stroke="#000" strokeWidth={1} />
+              <text x={L - 7} y={yc(l) + 3.5} textAnchor="end">{tx}</text>
+            </g>
+          ))}
+          {/* x gridlines + tick labels */}
+          {xs.map((v) => (
+            <g key={`x${v}`}>
+              <line x1={sx(v)} y1={T} x2={sx(v)} y2={height - B} stroke="#dddddd" strokeWidth={0.5} />
+              <text x={sx(v)} y={height - B + 14} textAnchor="middle">{fmtTick(v)}</text>
+            </g>
+          ))}
+          {/* plot frame */}
+          <rect x={L} y={T} width={width - L - R} height={height - T - B} fill="none" stroke="#000" strokeWidth={1} />
+          {/* A3 handover markers */}
+          {events.map((e, i) => (
+            <line
+              key={`ev${i}`}
+              x1={sx(e.step)}
+              y1={T}
+              x2={sx(e.step)}
+              y2={height - B}
+              stroke="#c23b22"
+              strokeWidth={1}
+              strokeDasharray="4 3"
+            />
+          ))}
+          {/* serving-cell staircase */}
+          <path d={d} fill="none" stroke={CHART_COLORS[0]} strokeWidth={1.8} />
+          {/* per-sample dots, colored by serving lane */}
+          {steps.map((s, i) => {
+            const v = serving[i];
+            const lane = v == null ? undefined : laneOf.get(v);
+            if (lane === undefined) return null;
+            return (
+              <circle
+                key={`d${i}`}
+                cx={sx(s)}
+                cy={yc(lane)}
+                r={2.4}
+                fill={CHART_COLORS[lane % CHART_COLORS.length]}
+              />
+            );
+          })}
+          {/* x axis label */}
+          <text x={(L + width - R) / 2} y={height - 4} textAnchor="middle" fontSize={12}>
+            step
+          </text>
+        </g>
+      </svg>
+    </ChartFrame>
+  );
 }
 
 interface Kpi {
@@ -118,6 +293,9 @@ function EmptyFigure({ title, hint }: { title: string; hint: string }) {
 export default function MetricsPanel() {
   const r = useAppStore((s) => s.channelResult);
   const trajectory = useAppStore((s) => s.trajectory);
+  const scenario = useAppStore((s) => s.scenario);
+  // Which UE's handover to show (multi-UE runs); null = the primary UE.
+  const [hoUe, setHoUe] = useState<string | null>(null);
 
   const kpis = useMemo(() => (r ? kpiRows(r) : []), [r]);
 
@@ -212,6 +390,143 @@ export default function MetricsPanel() {
     () => (traj ? [{ label: "path count", x: traj.t, y: traj.pc, color: CHART_COLORS[2] }] : []),
     [traj],
   );
+
+  // --- Doppler spread over time (idea #15: Doppler is computed, keep it) ---
+  // metadata.doppler_spread_hz is parallel to samples; follow the FIRST routed
+  // UE (like the other trajectory charts). Scenario runs may expose an
+  // analogous per-frame array — plotted as a second series when present.
+  const dopplerSeries = useMemo<Series[]>(() => {
+    const out: Series[] = [];
+    if (trajectory) {
+      const dop = trajectory.metadata.doppler_spread_hz as (number | null)[] | undefined;
+      const all = trajectory.samples;
+      if (Array.isArray(dop) && all.length > 0) {
+        const firstUe = all[0]?.ue_id;
+        const n = Math.min(all.length, dop.length);
+        const x: number[] = [];
+        const y: (number | null)[] = [];
+        for (let i = 0; i < n; i++) {
+          if (all[i].ue_id !== firstUe) continue;
+          x.push(all[i].time_s);
+          const v = dop[i];
+          y.push(typeof v === "number" && Number.isFinite(v) ? v : null);
+        }
+        if (y.some((v) => v != null)) {
+          out.push({ label: `Doppler (${firstUe ?? "UE"})`, x, y, color: CHART_COLORS[4] });
+        }
+      }
+    }
+    if (scenario) {
+      const dop = scenario.metadata.doppler_spread_hz as (number | null)[] | undefined;
+      const frames = scenario.frames;
+      if (Array.isArray(dop) && Array.isArray(frames) && frames.length > 0) {
+        const n = Math.min(frames.length, dop.length);
+        const x: number[] = [];
+        const y: (number | null)[] = [];
+        for (let i = 0; i < n; i++) {
+          x.push(frames[i].time_s);
+          const v = dop[i];
+          y.push(typeof v === "number" && Number.isFinite(v) ? v : null);
+        }
+        if (y.some((v) => v != null)) {
+          out.push({ label: "Doppler (scenario)", x, y, color: CHART_COLORS[5] });
+        }
+      }
+    }
+    return out;
+  }, [trajectory, scenario]);
+
+  // --- handover (idea #13: per-step serving TX + A3 events) ---
+  // metadata.handover is present only on A3 runs; guard every read.
+  const handover = useMemo(() => {
+    const ho = trajectory?.metadata.handover as Record<string, HandoverSummary> | undefined;
+    if (!ho || typeof ho !== "object") return null;
+    const ueKeys = Object.keys(ho);
+    if (ueKeys.length === 0) return null;
+    return { ho, ueKeys };
+  }, [trajectory]);
+
+  // Resolve the shown UE: explicit pick if still valid, else the primary UE
+  // (trajectory.ue_id) if it has handover data, else the first key.
+  const hoUeSel = useMemo(() => {
+    if (!handover) return null;
+    const { ho, ueKeys } = handover;
+    const primary = trajectory?.ue_id && ho[trajectory.ue_id] ? trajectory.ue_id : ueKeys[0];
+    return hoUe && ho[hoUe] ? hoUe : primary;
+  }, [handover, hoUe, trajectory]);
+
+  const hoSummary = handover && hoUeSel ? handover.ho[hoUeSel] : null;
+
+  // Serving-cell staircase + per-TX RSS series for the shown UE.
+  const hoChart = useMemo(() => {
+    if (!handover || !hoUeSel || !trajectory || !hoSummary) return null;
+    const events = Array.isArray(hoSummary.events) ? hoSummary.events : [];
+
+    const ueSamples = trajectory.samples.filter((s) => s.ue_id === hoUeSel);
+    const txRssAll = trajectory.metadata.tx_rss_dbm as
+      | Record<string, Record<string, (number | null)[]>>
+      | undefined;
+    const byTx =
+      txRssAll && typeof txRssAll === "object" ? txRssAll[hoUeSel] : undefined;
+
+    // Step count: the largest evidence we have (samples / per-TX RSS / num_steps).
+    let numSteps = ueSamples.length;
+    if (byTx) {
+      for (const arr of Object.values(byTx)) {
+        if (Array.isArray(arr)) numSteps = Math.max(numSteps, arr.length);
+      }
+    }
+    const metaSteps = trajectory.metadata.num_steps;
+    if (typeof metaSteps === "number") numSteps = Math.max(numSteps, metaSteps);
+    if (numSteps <= 0) return null;
+
+    // Prefer per-sample serving_tx_id; fall back to reconstructing from events.
+    const fromSamples = ueSamples.map((s) => s.serving_tx_id ?? null);
+    let serving: (string | null)[] = fromSamples.some((v) => v != null)
+      ? fromSamples.slice(0, numSteps)
+      : reconstructServing(events, numSteps, byTx);
+    // Clamp / pad to exactly numSteps (hold the last known cell).
+    if (serving.length > numSteps) serving = serving.slice(0, numSteps);
+    while (serving.length < numSteps) {
+      serving.push(serving.length ? serving[serving.length - 1] : null);
+    }
+    const steps = Array.from({ length: numSteps }, (_, i) => i);
+
+    // Distinct serving cells (+ event endpoints) → integer lanes, in first-seen
+    // order so the y axis reads chronologically.
+    const lanes: string[] = [];
+    const laneOf = new Map<string, number>();
+    const see = (tx: string) => {
+      if (!laneOf.has(tx)) {
+        laneOf.set(tx, lanes.length);
+        lanes.push(tx);
+      }
+    };
+    for (const v of serving) if (v != null) see(v);
+    for (const e of events) {
+      see(e.from_tx);
+      see(e.to_tx);
+    }
+    if (lanes.length === 0) return null;
+
+    // Per-TX RSS overlay series (why the handover fired), colored to match lanes.
+    let rssSeries: Series[] = [];
+    if (byTx) {
+      rssSeries = Object.keys(byTx).map((tx, i) => {
+        const arr = Array.isArray(byTx[tx]) ? byTx[tx] : [];
+        const n = Math.min(arr.length, numSteps);
+        const lane = laneOf.get(tx);
+        return {
+          label: tx,
+          x: steps.slice(0, n),
+          y: arr.slice(0, n).map((v) => (typeof v === "number" && Number.isFinite(v) ? v : null)),
+          color: CHART_COLORS[(lane ?? lanes.length + i) % CHART_COLORS.length],
+        };
+      });
+    }
+
+    return { events, steps, serving, lanes, laneOf, rssSeries };
+  }, [handover, hoUeSel, hoSummary, trajectory]);
 
   const exportAll = () => {
     if (!r) return;
@@ -363,6 +678,102 @@ export default function MetricsPanel() {
           title="Trajectory time series"
           hint="Simulate a trajectory (Trajectory panel) to plot RSS / SNR / delay spread over time."
         />
+      )}
+
+      {/* f. Doppler spread over time (only when the run recorded it) */}
+      {dopplerSeries.length > 0 && (
+        <LineChart
+          title="Doppler spread over trajectory"
+          name="doppler_spread"
+          xLabel="time (s)"
+          yLabel="Doppler spread (Hz)"
+          series={dopplerSeries}
+          legend={dopplerSeries.length > 1}
+        />
+      )}
+
+      {/* g. handover (A3 runs only) */}
+      {handover && hoUeSel && hoSummary && (
+        <>
+          <h4 className="metrics-section-head">
+            Handover <StaleChip kind="trajectory" />
+          </h4>
+          {handover.ueKeys.length > 1 && (
+            <div className="results-meta">
+              UE{" "}
+              <select value={hoUeSel} onChange={(e) => setHoUe(e.target.value)}>
+                {handover.ueKeys.map((u) => (
+                  <option key={u} value={u}>
+                    {u}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          <div className="results-meta">
+            <span className="mono">{hoUeSel}</span>: {hoSummary.count} handover
+            {hoSummary.count === 1 ? "" : "s"},{" "}
+            {hoSummary.ping_pongs > 0 ? (
+              <span className="badge" style={{ borderColor: "var(--warn)", color: "var(--warn)" }}>
+                {hoSummary.ping_pongs} ping-pong{hoSummary.ping_pongs === 1 ? "" : "s"}
+              </span>
+            ) : (
+              <span>0 ping-pongs</span>
+            )}
+          </div>
+
+          {hoChart && (
+            <ServingTxChart
+              title="Serving cell over trajectory"
+              name="handover_serving_tx"
+              steps={hoChart.steps}
+              serving={hoChart.serving}
+              lanes={hoChart.lanes}
+              laneOf={hoChart.laneOf}
+              events={hoChart.events}
+            />
+          )}
+
+          {hoChart && hoChart.rssSeries.length > 0 && (
+            <LineChart
+              title="Per-TX RSS over trajectory (serving-cell selection)"
+              name="handover_tx_rss"
+              xLabel="step"
+              yLabel="RSS (dBm)"
+              series={hoChart.rssSeries}
+            />
+          )}
+
+          <table className="results-table">
+            <thead>
+              <tr>
+                <th>step</th>
+                <th>time (s)</th>
+                <th>from → to</th>
+              </tr>
+            </thead>
+            <tbody>
+              {hoSummary.events.length === 0 ? (
+                <tr>
+                  <td colSpan={3} className="hint">
+                    No handover events on this UE.
+                  </td>
+                </tr>
+              ) : (
+                hoSummary.events.map((e, i) => (
+                  <tr key={i}>
+                    <td className="mono">{e.step}</td>
+                    <td className="mono">{num(e.time_s, 2)}</td>
+                    <td>
+                      <span className="mono">{e.from_tx}</span> →{" "}
+                      <span className="mono">{e.to_tx}</span>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </>
       )}
     </div>
   );

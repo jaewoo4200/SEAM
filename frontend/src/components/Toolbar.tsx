@@ -41,6 +41,7 @@ export default function Toolbar() {
   const exportRfdata = useAppStore((s) => s.exportRfdata);
   const runBeamforming = useAppStore((s) => s.runBeamforming);
   const deleteCurrentProject = useAppStore((s) => s.deleteCurrentProject);
+  const notify = useAppStore((s) => s.notify);
 
   // Destructive delete confirm: the modal is armed from the Actions menu and
   // requires the user to type the exact project id to enable the red button.
@@ -74,12 +75,22 @@ export default function Toolbar() {
         ))}
       </select>
 
+      <ProjectControls />
+
       <ImportSceneButton
         disabled={busy !== null}
         existingIds={projects.map((p) => p.project_id)}
-        onImported={async (newId) => {
+        onImported={async (newId, warnings) => {
           await init();
           await openProject(newId);
+          // Surface non-fatal import warnings (skipped meshes, remapped
+          // materials) that were previously buried in provenance.json.
+          if (warnings.length > 0) {
+            notify(
+              `Imported with ${warnings.length} warning(s): ${warnings[0]}` +
+                (warnings.length > 1 ? ` (+${warnings.length - 1} more)` : ""),
+            );
+          }
         }}
       />
 
@@ -195,6 +206,91 @@ export default function Toolbar() {
   );
 }
 
+/** Compact project-management controls grouped with the switcher: rename the
+ *  current project's display name inline (Rename → text input, Enter/✓ commit,
+ *  Esc/✕ cancel) and duplicate it (deep-copies the folder and opens the copy).
+ *  Both disable when there's no open project or the app is busy; the destructive
+ *  "Delete project…" lives with these in the Actions menu. */
+function ProjectControls() {
+  const projects = useAppStore((s) => s.projects);
+  const projectId = useAppStore((s) => s.projectId);
+  const busy = useAppStore((s) => s.busy);
+  const renameCurrentProject = useAppStore((s) => s.renameCurrentProject);
+  const duplicateCurrentProject = useAppStore((s) => s.duplicateCurrentProject);
+
+  const currentName = projects.find((p) => p.project_id === projectId)?.name ?? "";
+  const disabled = !projectId || busy !== null;
+
+  // Local-only inline-rename state (open flag + edited value); no store fields.
+  const [renaming, setRenaming] = useState(false);
+  const [value, setValue] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (renaming) inputRef.current?.focus();
+  }, [renaming]);
+
+  // Drop out of the editor if the project switches away or the toolbar goes busy
+  // (e.g. the rename itself started), so we never confirm against a stale name.
+  useEffect(() => {
+    if (disabled) setRenaming(false);
+  }, [disabled]);
+
+  const open = () => {
+    setValue(currentName);
+    setRenaming(true);
+  };
+
+  const commit = () => {
+    const next = value.trim();
+    // Ignore empty or unchanged names; the store refreshes the switcher list.
+    if (next && next !== currentName) void renameCurrentProject(next);
+    setRenaming(false);
+  };
+
+  if (renaming) {
+    return (
+      <span className="toolbar-actions">
+        <input
+          ref={inputRef}
+          type="text"
+          size={16}
+          value={value}
+          placeholder={currentName}
+          disabled={busy !== null}
+          title="New project name — Enter to save, Esc to cancel"
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") commit();
+            else if (e.key === "Escape") setRenaming(false);
+          }}
+        />
+        <button title="Save name (Enter)" disabled={busy !== null} onClick={commit}>
+          ✓
+        </button>
+        <button title="Cancel (Esc)" onClick={() => setRenaming(false)}>
+          ✕
+        </button>
+      </span>
+    );
+  }
+
+  return (
+    <span className="toolbar-actions">
+      <button title="Rename this project's display name" disabled={disabled} onClick={open}>
+        Rename
+      </button>
+      <button
+        title="Duplicate this project (deep-copies the folder and opens the copy)"
+        disabled={disabled}
+        onClick={() => void duplicateCurrentProject(`${currentName} copy`)}
+      >
+        Duplicate
+      </button>
+    </span>
+  );
+}
+
 /** Destructive delete confirm modal: shows the project id and requires the user
  *  to type it exactly before the red Delete button enables (guards against an
  *  accidental irreversible folder removal). Esc / backdrop / Cancel dismiss. */
@@ -289,7 +385,7 @@ function ImportSceneButton({
 }: {
   disabled: boolean;
   existingIds: string[];
-  onImported: (newId: string) => Promise<void>;
+  onImported: (newId: string, warnings: string[]) => Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
   // A store flag lets other surfaces (the empty-state "Import a scene" CTA in
@@ -380,7 +476,7 @@ function ImportSceneButton({
       });
       setOpen(false);
       reset();
-      await onImported(info.project_id);
+      await onImported(info.project_id, info.warnings ?? []);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
       setSubmitting(false);
@@ -401,7 +497,7 @@ function ImportSceneButton({
       const info = await api.importScene(form);
       setOpen(false);
       reset();
-      await onImported(info.project_id);
+      await onImported(info.project_id, info.warnings ?? []);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
       setSubmitting(false);

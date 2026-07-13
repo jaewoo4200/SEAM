@@ -28,8 +28,10 @@ canonical scene.
 """
 
 import json
+import logging
 import os
 import re
+import shutil
 import threading
 import uuid
 import warnings
@@ -38,6 +40,7 @@ from pathlib import Path
 from typing import Iterator, Optional
 
 import yaml
+from pydantic import ValidationError as PydanticValidationError
 
 from app.core.config import APP_VERSION, get_settings
 from app.core.paths import DEFAULT_RF_MATERIALS_FILE
@@ -52,6 +55,12 @@ PROJECT_SUFFIX = ".seam"
 # Legacy (SionnaTwin) format, still discovered and saved back in place.
 LEGACY_SCENE_FILENAME = "scene.sionnatwin.json"
 LEGACY_PROJECT_SUFFIX = ".sionnatwin"
+
+# Bounded scene-edit history (undo ring + corrupt-scene recovery source).
+HISTORY_DIRNAME = "history"
+HISTORY_KEEP = 20
+
+_logger = logging.getLogger(__name__)
 
 # Every scene filename we recognize, in preference order (new wins).
 SCENE_FILENAMES = (SCENE_FILENAME, LEGACY_SCENE_FILENAME)
@@ -271,21 +280,96 @@ class ProjectStore:
 
     # ------------------------------------------------------------ scene I/O
 
+    def _history_dir(self, project_dir: Path) -> Path:
+        return project_dir / HISTORY_DIRNAME
+
+    def _rotate_history(self, project_dir: Path, scene_file: Path) -> None:
+        """Copy the CURRENT on-disk scene into history/ before it is replaced.
+
+        Bounded ring (HISTORY_KEEP): scene edits are frequent and campus scenes
+        are a few MB, so the ceiling stays tens of MB per project."""
+        if not scene_file.exists():
+            return
+        hist = self._history_dir(project_dir)
+        hist.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
+        shutil.copy2(scene_file, hist / f"scene.{stamp}.json")
+        snapshots = sorted(hist.glob("scene.*.json"))
+        for old in snapshots[:-HISTORY_KEEP]:
+            old.unlink(missing_ok=True)
+
+    def history_snapshots(self, project_id: str) -> list[Path]:
+        """Newest-first history snapshots for a project (may be empty)."""
+        project_dir = self.resolve(project_id)
+        hist = self._history_dir(project_dir)
+        if not hist.is_dir():
+            return []
+        return sorted(hist.glob("scene.*.json"), reverse=True)
+
+    def restore_scene(self, project_id: str, steps: int = 1) -> Scene:
+        """Undo: load the steps-th newest history snapshot and make it current.
+
+        Consumed snapshots are deleted and the restore itself is NOT recorded
+        into history, so repeated restores walk strictly backward (bounded
+        undo without a redo stack)."""
+        snapshots = self.history_snapshots(project_id)
+        if steps < 1 or steps > len(snapshots):
+            raise FileNotFoundError(
+                f"no history snapshot {steps} step(s) back "
+                f"({len(snapshots)} available)"
+            )
+        target = snapshots[steps - 1]
+        scene = Scene.model_validate_json(target.read_text(encoding="utf-8"))
+        for consumed in snapshots[: steps]:
+            consumed.unlink(missing_ok=True)
+        self.save_scene(project_id, scene, record_history=False)
+        return self.load_scene(project_id)
+
+
     def load_scene(self, project_id: str) -> Scene:
         project_dir = self.resolve(project_id)
         scene_file = scene_file_in(project_dir)
         if scene_file is None:  # resolve() guaranteed a scene file exists
             scene_file = project_dir / SCENE_FILENAME
         raw = scene_file.read_text(encoding="utf-8")
-        return Scene.model_validate_json(raw)
+        try:
+            return Scene.model_validate_json(raw)
+        except PydanticValidationError:
+            # A corrupt / hand-edited / schema-drifted scene.json used to make
+            # the whole project permanently unopenable (every endpoint 500s).
+            # Fall back to the newest loadable history snapshot instead.
+            for snapshot in self.history_snapshots(project_id):
+                try:
+                    scene = Scene.model_validate_json(
+                        snapshot.read_text(encoding="utf-8")
+                    )
+                except PydanticValidationError:
+                    continue
+                _logger.warning(
+                    "scene.json for %s failed validation; recovered from %s",
+                    project_id,
+                    snapshot.name,
+                )
+                return scene
+            raise
 
     def save_scene(
-        self, project_id: str, scene: Scene, *, clear_live_overlay: bool = True
-    ) -> None:
+        self,
+        project_id: str,
+        scene: Scene,
+        *,
+        clear_live_overlay: bool = True,
+        record_history: bool = True,
+    ) -> Scene:
         project_dir = self.resolve(project_id)
         # Write back to whichever scene file the project already has; a legacy
         # project keeps its scene.sionnatwin.json (never silently migrated).
         scene_file = scene_file_in(project_dir) or (project_dir / SCENE_FILENAME)
+        if record_history:
+            self._rotate_history(project_dir, scene_file)
+        # Optimistic-concurrency counter: bump from the revision the caller
+        # loaded, so a round-tripping client always carries the current value.
+        scene = scene.model_copy(update={"revision": (scene.revision or 0) + 1})
         _atomic_write_text(scene_file, scene.model_dump_json(indent=2))
         # An authoritative position edit is now the truth: drop any non-persisted
         # live-state overlay so it can never resurrect stale positions on top of
@@ -297,6 +381,7 @@ class ProjectStore:
             from app.services import live_state
 
             live_state.clear(project_id)
+        return scene
 
     # -------------------------------------------------------- materials I/O
 

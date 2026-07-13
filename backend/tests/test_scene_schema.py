@@ -31,7 +31,12 @@ class TestSceneSchema:
         self, store: ProjectStore, demo_project: ProjectInfo, demo_scene: Scene
     ):
         loaded = store.load_scene(DEMO_PROJECT_ID)
-        assert loaded.model_dump(mode="json") == demo_scene.model_dump(mode="json")
+        # save_scene bumps the optimistic-concurrency counter (None -> 1); the
+        # rest of the scene must survive the store round-trip byte-for-byte.
+        assert loaded.revision == 1
+        assert loaded.model_dump(mode="json", exclude={"revision"}) == (
+            demo_scene.model_dump(mode="json", exclude={"revision"})
+        )
         wall = loaded.prim_by_id("/buildings/b01/wall_01")
         assert wall is not None
         assert wall.rf.material_id == "itu_concrete"

@@ -140,11 +140,15 @@ export interface SimulationConfig {
 
 export interface ResultSetRef {
   result_id: string;
-  kind: "paths" | "radio_map" | "mesh_radio_map" | "trajectory" | "scenario";
+  kind: "paths" | "radio_map" | "mesh_radio_map" | "trajectory" | "scenario" | "channel";
   backend: string;
   simulation_config_id: string;
   uri: string;
   created_at: string | null;
+  /** User-facing run name; labeled runs are spared by results pruning. */
+  label?: string | null;
+  /** On-disk size of the persisted result file, stamped at save time. */
+  size_bytes?: number | null;
 }
 
 // Compute engine registry entry (GET /api/engines).
@@ -205,6 +209,10 @@ export interface Scene {
   actors: Actor[];
   simulation_configs: SimulationConfig[];
   result_sets: ResultSetRef[];
+  /** Optimistic-concurrency counter bumped on every save. Sent back on PUT so
+   *  a stale write (another tab saved meanwhile) gets a 409 instead of
+   *  clobbering. null on fresh/pre-revision scenes = "skip the check". */
+  revision?: number | null;
 }
 
 /** World-space AABB of the visual scene (GET /scene/bounds, Z-up meters).
@@ -458,6 +466,9 @@ export interface TrajectorySample {
   path_count: number;
   strongest_delay_ns: number | null;
   paths: RayPath[] | null;
+  /** Serving cell used for this sample's link budget. In handover mode it is
+   *  the per-step A3 re-selection; otherwise the one requested serving TX. */
+  serving_tx_id?: string | null;
 }
 
 export interface TrajectoryResultSet {
@@ -522,6 +533,31 @@ export interface TrajectorySimulateRequest {
   /** Multi-UE only: also solve every un-routed RX at its fixed position each
    *  step (fixed + moving UEs share one per-frame link table). */
   include_static_rx?: boolean;
+  /** When set, the serving TX is re-selected per step (3GPP A3 with
+   *  hysteresis + time-to-trigger); serving_tx_id above only picks the
+   *  INITIAL cell. Metadata gains a per-UE handover event log + per-TX RSS. */
+  handover?: HandoverConfig | null;
+}
+
+/** Per-step serving-TX re-selection along a trajectory (3GPP A3-style). */
+export interface HandoverConfig {
+  hysteresis_db?: number;
+  time_to_trigger_steps?: number;
+}
+
+/** One A3 handover event on a trajectory (from the result metadata). */
+export interface HandoverEvent {
+  step: number;
+  time_s: number;
+  from_tx: string;
+  to_tx: string;
+}
+
+/** Per-UE handover summary in TrajectoryResultSet.metadata.handover[ue_id]. */
+export interface HandoverSummary {
+  events: HandoverEvent[];
+  count: number;
+  ping_pongs: number;
 }
 
 export interface RFDataExportSummary {
@@ -734,6 +770,13 @@ export interface DatasetSampling {
   seed: number;
   // Snap sampled z to the scene surface underneath + height_m (outdoor terrain).
   follow_terrain?: boolean;
+  /** Explicit flight-path polyline (>=2 pts), arc-length resampled to
+   *  num_samples. Precedence: waypoints > actor_id > start_m/end_m. */
+  waypoints?: Vec3[] | null;
+  /** Sample along a scene actor's authored trajectory (its own dt/speed). */
+  actor_id?: string | null;
+  /** Finite-difference time step behind the ue_velocity labels. */
+  dt_s?: number;
 }
 
 export interface DatasetGenerateRequest {
@@ -1240,6 +1283,13 @@ export interface ProjectInfo {
   modified_at: string | null;
 }
 
+/** POST /projects/import — the created project plus non-fatal import warnings
+ *  (skipped meshes, out-of-band material remaps) so they can be surfaced
+ *  instead of buried in provenance.json. */
+export interface SceneImportResult extends ProjectInfo {
+  warnings: string[];
+}
+
 export interface ProjectCreateRequest {
   name: string;
   project_id?: string | null;
@@ -1287,4 +1337,165 @@ export interface HealthResponse {
   backends: HealthBackendStatus[];
   ai_providers: AIProviderStatus[];
   project_roots: string[];
+}
+
+// ---------------------------------------------------- session-wave additions
+
+/** PATCH /projects/{id}/results/{result_id}/label — name/clear a stored run. */
+export interface ResultLabelRequest {
+  label?: string | null;
+}
+
+/** POST /projects/{id}/duplicate — deep-copy a project folder. */
+export interface ProjectDuplicateRequest {
+  new_id?: string | null;
+  name?: string | null;
+}
+
+/** PATCH /projects/{id} — rename the project (display name only). */
+export interface ProjectRenameRequest {
+  name: string;
+}
+
+/** POST /rf/materials/import — merge a material library into the project. */
+export interface MaterialImportRequest {
+  materials: RFMaterial[];
+}
+
+export interface MaterialImportResponse {
+  imported: string[];
+  /** Map of requested id -> id it was renamed to on collision. */
+  renamed: Record<string, string>;
+  skipped: string[];
+}
+
+/** POST /simulate/radio-map-sweep — one planar solve per altitude. */
+export interface RadioMapSweepRequest {
+  heights_m: number[];
+  threshold_db?: number | null;
+  config_id?: string | null;
+  config?: SimulationConfig | null;
+}
+
+export interface RadioMapSweepRun {
+  height_m: number;
+  result_id: string;
+}
+
+export interface RadioMapSweepCoveragePoint {
+  height_m: number;
+  /** Fraction of solved cells >= threshold_db; null when no threshold given. */
+  coverage: number | null;
+}
+
+export interface RadioMapSweepResult {
+  runs: RadioMapSweepRun[];
+  coverage: RadioMapSweepCoveragePoint[];
+}
+
+/** POST /analyze/channel-sweep — link metrics vs one swept config field. */
+export interface ChannelSweepRequest {
+  config_id?: string | null;
+  config?: SimulationConfig | null;
+  tx_id?: string | null;
+  rx_id?: string | null;
+  num_cfr_points?: number;
+  num_time_steps?: number;
+  sampling_frequency_hz?: number | null;
+  subcarrier_spacing_khz?: number;
+  sweep_field: "frequency_hz" | "tx_power_dbm" | "bandwidth_hz" | "noise_figure_db";
+  sweep_values: number[];
+}
+
+export interface ChannelSweepPoint {
+  value: number;
+  path_loss_db: number | null;
+  rss_dbm: number | null;
+  snr_db: number | null;
+  sinr_db: number | null;
+  rms_delay_spread_ns: number | null;
+  k_factor_db: number | null;
+}
+
+export interface ChannelSweepResult {
+  tx_id: string;
+  rx_id: string;
+  backend: string;
+  sweep_field: string;
+  rows: ChannelSweepPoint[];
+  warnings: string[];
+}
+
+/** POST /analyze/spectrogram — Doppler-time STFT of the channel h(t). */
+export interface SpectrogramRequest {
+  config_id?: string | null;
+  config?: SimulationConfig | null;
+  tx_id?: string | null;
+  rx_id?: string | null;
+  duration_s?: number;
+  sampling_frequency_hz?: number;
+  window?: number;
+  hop?: number | null;
+}
+
+export interface SpectrogramResult {
+  tx_id: string;
+  rx_id: string;
+  backend: string;
+  frequency_hz: number;
+  sampling_frequency_hz: number;
+  window: number;
+  hop: number;
+  num_paths: number;
+  times_s: number[];
+  doppler_hz: number[];
+  /** magnitude_db[frame][bin], fftshifted so 0 Hz sits at window/2. */
+  magnitude_db: number[][];
+  warnings: string[];
+  metadata: Record<string, unknown>;
+}
+
+/** One measured RX sample for flight-log validation. */
+export interface MeasurementSample {
+  measurement_id?: string | null;
+  time_s?: number | null;
+  rx_position: number[];
+  tx_id?: string | null;
+  measured_path_gain_db: number;
+  measured_rms_delay_spread_ns?: number | null;
+}
+
+/** POST /calibrate/validate-trajectory — replay measured RX positions and
+ *  compare measured vs predicted path gain along the flight. */
+export interface TrajectoryValidationRequest {
+  config_id?: string | null;
+  config?: SimulationConfig | null;
+  tx_id?: string | null;
+  measurements?: MeasurementSample[] | null;
+  max_points?: number;
+}
+
+export interface TrajectoryValidationPoint {
+  index: number;
+  time_s: number | null;
+  position: number[];
+  measured_db: number;
+  predicted_db: number;
+  aligned_predicted_db: number;
+  error_db: number;
+}
+
+export interface TrajectoryValidationStats {
+  level_offset_db: number;
+  rmse_db: number;
+  mean_abs_error_db: number;
+  n: number;
+}
+
+export interface TrajectoryValidationReport {
+  tx_id: string;
+  points: TrajectoryValidationPoint[];
+  stats: TrajectoryValidationStats;
+  backend: string;
+  warnings: string[];
 }

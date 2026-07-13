@@ -27,6 +27,10 @@ export default function App() {
   const dismissError = useAppStore((s) => s.dismissError);
   const dismissNotice = useAppStore((s) => s.dismissNotice);
   const setImportOpen = useAppStore((s) => s.setImportOpen);
+  const undo = useAppStore((s) => s.undo);
+  const undoDepth = useAppStore((s) => s.undoDepth);
+  const solveProgress = useAppStore((s) => s.solveProgress);
+  const cancelSolve = useAppStore((s) => s.cancelSolve);
 
   const panel = usePanelSize();
 
@@ -43,6 +47,43 @@ export default function App() {
     const t = setTimeout(() => dismissNotice(), 5000);
     return () => clearTimeout(t);
   }, [notice, dismissNotice]);
+
+  // Global keyboard shortcuts: Ctrl/Cmd+Z undoes the last scene edit; Delete /
+  // Backspace removes the selected device or actor. Both are suppressed while a
+  // form field is focused so typing (and the browser's own undo) is untouched.
+  useEffect(() => {
+    function isEditableTarget(t: EventTarget | null): boolean {
+      const el = t as HTMLElement | null;
+      if (!el) return false;
+      const tag = el.tagName;
+      return (
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        tag === "SELECT" ||
+        el.isContentEditable === true
+      );
+    }
+    function onKeyDown(e: KeyboardEvent): void {
+      if (isEditableTarget(e.target)) return;
+      const state = useAppStore.getState();
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === "z" || e.key === "Z")) {
+        e.preventDefault();
+        void state.undo();
+      } else if (e.key === "Delete" || e.key === "Backspace") {
+        // Remove the selected radio device / actor (geometry prims are not
+        // deletable — they are the imported scene mesh).
+        if (state.selectedDeviceId) {
+          e.preventDefault();
+          void state.deleteDevice(state.selectedDeviceId);
+        } else if (state.selectedActorId) {
+          e.preventDefault();
+          void state.deleteActor(state.selectedActorId);
+        }
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   let rightPanel;
   switch (mode) {
@@ -146,8 +187,61 @@ export default function App() {
           </button>
         </div>
       )}
+      {projectId && undoDepth > 0 && (
+        <button
+          className="undo-fab"
+          onClick={() => void undo()}
+          title="Undo last scene change (Ctrl+Z)"
+        >
+          ↶ Undo
+        </button>
+      )}
+      {solveProgress && (
+        <div className="solve-progress" role="status" aria-live="polite">
+          <div className="solve-progress-head">
+            <span>
+              {solveProgressLabel(solveProgress.kind)}
+              {solveProgress.total > 0
+                ? ` — ${solveProgress.done}/${solveProgress.total}`
+                : "…"}
+            </span>
+            <button onClick={() => void cancelSolve()} title="Cancel solve">
+              Cancel
+            </button>
+          </div>
+          <div className="solve-progress-track">
+            <div
+              className="solve-progress-fill"
+              style={{
+                width:
+                  solveProgress.total > 0
+                    ? `${Math.round((solveProgress.done / solveProgress.total) * 100)}%`
+                    : "100%",
+                // total 0 = "started, no count yet": show an indeterminate full
+                // bar (a pulse via CSS) rather than a misleading 0%.
+                opacity: solveProgress.total > 0 ? 1 : 0.5,
+              }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
+}
+
+/** Human label for the solve-progress bar's `kind` (matches the backend's
+ *  publish_event kinds). */
+function solveProgressLabel(kind: string): string {
+  const map: Record<string, string> = {
+    trajectory: "Simulating trajectory",
+    dataset: "Generating dataset",
+    mesh_radio_map: "Simulating mesh radio map",
+    radio_map: "Simulating radio map",
+    radio_map_sweep: "Altitude sweep",
+    scenario: "Simulating scenario",
+    paths: "Simulating paths",
+  };
+  return map[kind] ?? "Solving";
 }
 
 /** Thin draggable strip between a sidebar and the canvas. Drag resizes the

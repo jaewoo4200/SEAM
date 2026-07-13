@@ -8,9 +8,19 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAppStore } from "../store/appStore";
+import { api } from "../api/client";
+import { LineChart } from "../charts";
 import { StaleChip } from "./ResultExplorer";
 import { PATH_COLORS } from "./common";
-import type { CirTap, PathType } from "../types/api";
+import type { Series } from "../charts";
+import type {
+  CirTap,
+  PathType,
+  ChannelSweepResult,
+  SpectrogramResult,
+  MeasurementSample,
+  TrajectoryValidationReport,
+} from "../types/api";
 
 /** SCS options for the OFDM grid (kHz). 15 = LTE, 30 = 5G FR1 default. */
 const SCS_OPTIONS = [15, 30, 60, 120] as const;
@@ -192,6 +202,607 @@ function CfrPlot({ freq, mag }: { freq: number[]; mag: number[] }) {
         <polyline points={points} fill="none" stroke="var(--accent)" strokeWidth={1.5} />
       </svg>
     </div>
+  );
+}
+
+// ----------------------------------------------------- sweep + ISAC helpers
+// Independent, direct-api subsections rendered below the main link-budget
+// view: a config-field sweep, a Doppler-time spectrogram (first ISAC output),
+// and measured-vs-predicted flight-log validation. Each reuses the panel's
+// TX/RX selection, the paper-style chart kit, and the shared notice/error bus.
+
+const SWEEP_FIELDS = [
+  { key: "frequency_hz", label: "Frequency (Hz)" },
+  { key: "tx_power_dbm", label: "TX power (dBm)" },
+  { key: "bandwidth_hz", label: "Bandwidth (Hz)" },
+  { key: "noise_figure_db", label: "Noise figure (dB)" },
+] as const;
+
+type SweepField = (typeof SWEEP_FIELDS)[number]["key"];
+
+type SweepMetric =
+  | "rss_dbm"
+  | "snr_db"
+  | "sinr_db"
+  | "path_loss_db"
+  | "rms_delay_spread_ns"
+  | "k_factor_db";
+
+const SWEEP_METRICS: { key: SweepMetric; label: string }[] = [
+  { key: "rss_dbm", label: "RSS (dBm)" },
+  { key: "snr_db", label: "SNR (dB)" },
+  { key: "sinr_db", label: "SINR (dB)" },
+  { key: "path_loss_db", label: "Path loss (dB)" },
+  { key: "rms_delay_spread_ns", label: "RMS delay spread (ns)" },
+  { key: "k_factor_db", label: "K-factor (dB)" },
+];
+
+/** Parse a comma / whitespace / newline separated list of numbers, tolerating
+ *  scientific notation ("3.5e9") and stray blanks. Non-numeric tokens drop. */
+function parseSweepValues(text: string): number[] {
+  return text
+    .split(/[\s,]+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+    .map((s) => Number(s))
+    .filter((v) => Number.isFinite(v));
+}
+
+/** Jet colormap: t in 0..1 -> [r,g,b] (0..255). Standard 4-segment approx. */
+function jet(t: number): [number, number, number] {
+  const x = Math.min(1, Math.max(0, t));
+  const c = (v: number) => Math.round(255 * Math.min(1, Math.max(0, v)));
+  return [c(1.5 - Math.abs(4 * x - 3)), c(1.5 - Math.abs(4 * x - 2)), c(1.5 - Math.abs(4 * x - 1))];
+}
+
+/** Parse pasted flight-log measurements: a JSON array of MeasurementSample, or
+ *  CSV with header `time_s,x,y,z,measured_path_gain_db` (time_s optional; the
+ *  header itself optional — headerless rows are read positionally). */
+function parseMeasurements(text: string): MeasurementSample[] {
+  const trimmed = text.trim();
+  if (!trimmed) return [];
+  if (trimmed.startsWith("[") || trimmed.startsWith("{")) {
+    const parsed: unknown = JSON.parse(trimmed);
+    const arr = Array.isArray(parsed) ? parsed : [parsed];
+    const out: MeasurementSample[] = [];
+    for (const item of arr) {
+      const o = item as Record<string, unknown>;
+      const pos = Array.isArray(o.rx_position)
+        ? (o.rx_position as unknown[]).map((v) => Number(v))
+        : [Number(o.x), Number(o.y), Number(o.z)];
+      const gain = Number(o.measured_path_gain_db);
+      if (!Number.isFinite(gain) || pos.length < 3 || pos.some((v) => !Number.isFinite(v))) continue;
+      out.push({
+        rx_position: [pos[0], pos[1], pos[2]],
+        measured_path_gain_db: gain,
+        time_s: o.time_s == null ? null : Number(o.time_s),
+        tx_id: typeof o.tx_id === "string" ? o.tx_id : undefined,
+      });
+    }
+    return out;
+  }
+  return parseMeasurementCsv(trimmed);
+}
+
+function parseMeasurementCsv(text: string): MeasurementSample[] {
+  const lines = text
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+  if (lines.length === 0) return [];
+  const firstCols = lines[0].split(",").map((s) => s.trim());
+  const hasHeader = firstCols.some((tok) => Number.isNaN(Number(tok)));
+  let idx = { time: -1, x: 0, y: 1, z: 2, gain: 3 };
+  let dataLines = lines;
+  if (hasHeader) {
+    const cols = firstCols.map((s) => s.toLowerCase());
+    const find = (names: string[]) => cols.findIndex((c) => names.includes(c));
+    idx = {
+      time: find(["time_s", "time", "t"]),
+      x: find(["x", "rx_x"]),
+      y: find(["y", "rx_y"]),
+      z: find(["z", "rx_z"]),
+      gain: find(["measured_path_gain_db", "path_gain_db", "gain_db", "measured_db"]),
+    };
+    if (idx.x < 0 || idx.y < 0 || idx.z < 0 || idx.gain < 0) {
+      throw new Error("CSV header must include x, y, z and measured_path_gain_db.");
+    }
+    dataLines = lines.slice(1);
+  } else if (firstCols.length >= 5) {
+    idx = { time: 0, x: 1, y: 2, z: 3, gain: 4 };
+  }
+  const out: MeasurementSample[] = [];
+  for (const line of dataLines) {
+    const c = line.split(",").map((s) => Number(s.trim()));
+    const gain = c[idx.gain];
+    const x = c[idx.x];
+    const y = c[idx.y];
+    const z = c[idx.z];
+    if (![gain, x, y, z].every((v) => Number.isFinite(v))) continue;
+    out.push({
+      rx_position: [x, y, z],
+      measured_path_gain_db: gain,
+      time_s: idx.time >= 0 && Number.isFinite(c[idx.time]) ? c[idx.time] : null,
+    });
+  }
+  return out;
+}
+
+/** 1. Channel sweep: link metrics vs one swept config field, charted. */
+function ChannelSweepSection({
+  txId,
+  rxId,
+  disabled,
+}: {
+  txId: string;
+  rxId: string;
+  disabled: boolean;
+}) {
+  const projectId = useAppStore((s) => s.projectId);
+  const notify = useAppStore((s) => s.notify);
+  const notifyError = useAppStore((s) => s.notifyError);
+
+  const [open, setOpen] = useState(false);
+  const [field, setField] = useState<SweepField>("frequency_hz");
+  const [valuesText, setValuesText] = useState("3.5e9, 28e9");
+  const [metric, setMetric] = useState<SweepMetric>("rss_dbm");
+  const [result, setResult] = useState<ChannelSweepResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [inlineError, setInlineError] = useState<string | null>(null);
+
+  const fieldLabel = SWEEP_FIELDS.find((f) => f.key === field)?.label ?? field;
+  const metricLabel = SWEEP_METRICS.find((m) => m.key === metric)?.label ?? metric;
+
+  const series: Series[] = useMemo(() => {
+    if (!result) return [];
+    return [
+      {
+        label: metricLabel,
+        x: result.rows.map((row) => row.value),
+        y: result.rows.map((row) => row[metric]),
+      },
+    ];
+  }, [result, metric, metricLabel]);
+
+  async function run() {
+    if (!projectId) return;
+    const vals = parseSweepValues(valuesText);
+    if (vals.length < 2) {
+      setInlineError("Enter at least two numeric sweep values (comma-separated).");
+      return;
+    }
+    setInlineError(null);
+    setLoading(true);
+    try {
+      const res = await api.analyzeChannelSweep(projectId, {
+        sweep_field: field,
+        sweep_values: vals,
+        tx_id: txId || undefined,
+        rx_id: rxId || undefined,
+      });
+      setResult(res);
+      notify(`Swept ${res.rows.length} point(s) over ${fieldLabel}.`);
+    } catch (err) {
+      notifyError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const busy = disabled || loading;
+
+  return (
+    <Section title="Channel sweep" open={open} onToggle={() => setOpen((o) => !o)}>
+      <label className="solver-field">
+        <span className="solver-field-label">Sweep field</span>
+        <select value={field} disabled={busy} onChange={(e) => setField(e.target.value as SweepField)}>
+          {SWEEP_FIELDS.map((f) => (
+            <option key={f.key} value={f.key}>
+              {f.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="solver-field">
+        <span className="solver-field-label">Values</span>
+        <span className="solver-field-input">
+          <input
+            type="text"
+            value={valuesText}
+            disabled={busy}
+            placeholder="e.g. 3.5e9, 28e9 or 10, 20, 30"
+            onChange={(e) => setValuesText(e.target.value)}
+          />
+        </span>
+      </label>
+      <label className="solver-field">
+        <span className="solver-field-label">Y metric</span>
+        <select value={metric} disabled={busy} onChange={(e) => setMetric(e.target.value as SweepMetric)}>
+          {SWEEP_METRICS.map((m) => (
+            <option key={m.key} value={m.key}>
+              {m.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      {inlineError && (
+        <p className="hint" style={{ color: "#ef5350" }}>
+          {inlineError}
+        </p>
+      )}
+      <div className="panel-actions">
+        <button className="primary" disabled={busy || !projectId || !txId || !rxId} onClick={() => void run()}>
+          {loading ? "Running…" : "Run sweep"}
+        </button>
+      </div>
+      {result && (
+        <>
+          {result.warnings.length > 0 && (
+            <div className="ai-note">
+              {result.warnings.map((w, i) => (
+                <div key={i}>{w}</div>
+              ))}
+            </div>
+          )}
+          <LineChart
+            title={`${metricLabel} vs ${fieldLabel}`}
+            name={`channel_sweep_${field}_${metric}`}
+            xLabel={fieldLabel}
+            yLabel={metricLabel}
+            series={series}
+            legend={false}
+          />
+        </>
+      )}
+    </Section>
+  );
+}
+
+/** 2. Doppler-time spectrogram: STFT of h(t) drawn as a jet heatmap. */
+function SpectrogramSection({
+  txId,
+  rxId,
+  disabled,
+}: {
+  txId: string;
+  rxId: string;
+  disabled: boolean;
+}) {
+  const projectId = useAppStore((s) => s.projectId);
+  const notify = useAppStore((s) => s.notify);
+  const notifyError = useAppStore((s) => s.notifyError);
+
+  const [open, setOpen] = useState(false);
+  const [durationS, setDurationS] = useState(1);
+  const [fs, setFs] = useState(500);
+  const [windowLen, setWindowLen] = useState(128);
+  const [result, setResult] = useState<SpectrogramResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  async function run() {
+    if (!projectId) return;
+    setLoading(true);
+    try {
+      const res = await api.analyzeSpectrogram(projectId, {
+        tx_id: txId || undefined,
+        rx_id: rxId || undefined,
+        duration_s: durationS,
+        sampling_frequency_hz: fs,
+        window: windowLen,
+      });
+      setResult(res);
+      notify(`Spectrogram: ${res.times_s.length} frame(s), ${res.num_paths} path(s).`);
+    } catch (err) {
+      notifyError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Repaint the magnitude_db matrix as a jet heatmap whenever the result changes.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !result) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const mag = result.magnitude_db;
+    const nF = mag.length;
+    const nB = nF > 0 ? mag[0].length : 0;
+    if (nF === 0 || nB === 0) return;
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const frame of mag) {
+      for (const v of frame) {
+        if (!Number.isFinite(v)) continue;
+        if (v < lo) lo = v;
+        if (v > hi) hi = v;
+      }
+    }
+    if (!Number.isFinite(lo)) {
+      lo = 0;
+      hi = 1;
+    }
+    const span = hi - lo || 1;
+    const img = new ImageData(nF, nB);
+    for (let f = 0; f < nF; f++) {
+      const frame = mag[f];
+      for (let b = 0; b < nB; b++) {
+        const v = frame[b];
+        const t = Number.isFinite(v) ? (v - lo) / span : 0;
+        const [rr, gg, bb] = jet(t);
+        const row = nB - 1 - b; // highest Doppler at the top
+        const p = (row * nF + f) * 4;
+        img.data[p] = rr;
+        img.data[p + 1] = gg;
+        img.data[p + 2] = bb;
+        img.data[p + 3] = 255;
+      }
+    }
+    const off = document.createElement("canvas");
+    off.width = nF;
+    off.height = nB;
+    off.getContext("2d")?.putImageData(img, 0, 0);
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(off, 0, 0, canvas.width, canvas.height);
+  }, [result]);
+
+  const busy = disabled || loading;
+  const empty = result != null && result.magnitude_db.length === 0;
+  const tMin = result && result.times_s.length ? result.times_s[0] : 0;
+  const tMax = result && result.times_s.length ? result.times_s[result.times_s.length - 1] : 0;
+  const dMin = result && result.doppler_hz.length ? Math.min(...result.doppler_hz) : 0;
+  const dMax = result && result.doppler_hz.length ? Math.max(...result.doppler_hz) : 0;
+
+  return (
+    <Section title="Doppler-time spectrogram" open={open} onToggle={() => setOpen((o) => !o)}>
+      <label className="solver-field">
+        <span className="solver-field-label">Duration (s)</span>
+        <span className="solver-field-input">
+          <input
+            type="number"
+            min={0.05}
+            max={10}
+            step={0.05}
+            value={durationS}
+            disabled={busy}
+            onChange={(e) => setDurationS(Number(e.target.value))}
+          />
+        </span>
+      </label>
+      <label className="solver-field">
+        <span className="solver-field-label">Sampling freq (Hz)</span>
+        <span className="solver-field-input">
+          <input
+            type="number"
+            min={1}
+            max={100000}
+            step={1}
+            value={fs}
+            disabled={busy}
+            onChange={(e) => setFs(Number(e.target.value))}
+          />
+        </span>
+      </label>
+      <label className="solver-field">
+        <span className="solver-field-label">Window</span>
+        <span className="solver-field-input">
+          <input
+            type="number"
+            min={8}
+            max={2048}
+            step={1}
+            value={windowLen}
+            disabled={busy}
+            onChange={(e) => setWindowLen(Math.round(Number(e.target.value)))}
+          />
+        </span>
+      </label>
+      <div className="panel-actions">
+        <button className="primary" disabled={busy || !projectId || !txId || !rxId} onClick={() => void run()}>
+          {loading ? "Computing…" : "Compute spectrogram"}
+        </button>
+      </div>
+      {result && (
+        <>
+          <div className="results-meta">
+            backend <span className="mono">{result.backend}</span> · {result.num_paths} path(s) ·{" "}
+            {result.times_s.length}×{result.doppler_hz.length} (time×Doppler)
+          </div>
+          {result.warnings.length > 0 && (
+            <div className="ai-note">
+              {result.warnings.map((w, i) => (
+                <div key={i}>{w}</div>
+              ))}
+            </div>
+          )}
+          {empty ? (
+            <p className="hint">No spectrogram data (the channel has no time variation).</p>
+          ) : (
+            <div className="scatter-wrap">
+              <h4>Doppler-time magnitude (jet, dB)</h4>
+              <div style={{ display: "flex", gap: 6 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "space-between",
+                    fontSize: 10,
+                    color: "var(--muted)",
+                    textAlign: "right",
+                  }}
+                >
+                  <span>{dMax.toFixed(0)} Hz</span>
+                  <span>0</span>
+                  <span>{dMin.toFixed(0)} Hz</span>
+                </div>
+                <div>
+                  <canvas
+                    ref={canvasRef}
+                    width={340}
+                    height={200}
+                    style={{
+                      width: 340,
+                      height: 200,
+                      border: "1px solid var(--border, #333)",
+                      imageRendering: "pixelated",
+                      display: "block",
+                    }}
+                  />
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      fontSize: 10,
+                      color: "var(--muted)",
+                    }}
+                  >
+                    <span>{tMin.toFixed(2)} s</span>
+                    <span>time →</span>
+                    <span>{tMax.toFixed(2)} s</span>
+                  </div>
+                </div>
+              </div>
+              <p className="hint" style={{ marginTop: 4 }}>
+                Color = STFT magnitude in dB (jet, normalized over min–max). Y = Doppler, 0 Hz centered.
+              </p>
+            </div>
+          )}
+        </>
+      )}
+    </Section>
+  );
+}
+
+/** 3. Flight-log validation: measured vs predicted path gain along the route. */
+function FlightLogValidationSection({ txId, disabled }: { txId: string; disabled: boolean }) {
+  const projectId = useAppStore((s) => s.projectId);
+  const notify = useAppStore((s) => s.notify);
+  const notifyError = useAppStore((s) => s.notifyError);
+
+  const [open, setOpen] = useState(false);
+  const [text, setText] = useState("");
+  const [report, setReport] = useState<TrajectoryValidationReport | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [inlineError, setInlineError] = useState<string | null>(null);
+
+  const hasTime = report != null && report.points.length > 0 && report.points.every((p) => p.time_s != null);
+
+  const series: Series[] = useMemo(() => {
+    if (!report || report.points.length === 0) return [];
+    const useTime = report.points.every((p) => p.time_s != null);
+    const xs = report.points.map((p) => (useTime ? (p.time_s as number) : p.index));
+    return [
+      { label: "Measured", x: xs, y: report.points.map((p) => p.measured_db) },
+      { label: "Predicted (aligned)", x: xs, y: report.points.map((p) => p.aligned_predicted_db) },
+    ];
+  }, [report]);
+
+  async function run() {
+    if (!projectId) return;
+    let measurements: MeasurementSample[] | undefined;
+    const trimmed = text.trim();
+    if (trimmed) {
+      try {
+        measurements = parseMeasurements(trimmed);
+      } catch (e) {
+        setInlineError(`Could not parse measurements: ${e instanceof Error ? e.message : String(e)}`);
+        return;
+      }
+      if (measurements.length === 0) {
+        setInlineError("No valid rows found. Expected: time_s,x,y,z,measured_path_gain_db.");
+        return;
+      }
+    }
+    setInlineError(null);
+    setLoading(true);
+    try {
+      const rep = await api.validateTrajectory(projectId, {
+        tx_id: txId || undefined,
+        measurements: measurements ?? null,
+      });
+      setReport(rep);
+      notify(`Validated ${rep.stats.n} point(s); RMSE ${rep.stats.rmse_db.toFixed(2)} dB.`);
+    } catch (err) {
+      // 400 = no measurements supplied and none stored; surface backend detail.
+      notifyError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const busy = disabled || loading;
+
+  return (
+    <Section title="Flight-log validation" open={open} onToggle={() => setOpen((o) => !o)}>
+      <p className="hint">
+        Paste measurements as CSV (header <span className="mono">time_s,x,y,z,measured_path_gain_db</span>, or
+        without <span className="mono">time_s</span>) or a JSON array. Leave blank to use the project's stored
+        measurements.
+      </p>
+      <textarea
+        className="mono"
+        rows={5}
+        value={text}
+        disabled={busy}
+        placeholder={"time_s,x,y,z,measured_path_gain_db\n0.0,10,5,1.5,-82.3\n0.5,12,5,1.5,-84.1"}
+        style={{ width: "100%", resize: "vertical", fontSize: 11, boxSizing: "border-box" }}
+        onChange={(e) => setText(e.target.value)}
+      />
+      {inlineError && (
+        <p className="hint" style={{ color: "#ef5350" }}>
+          {inlineError}
+        </p>
+      )}
+      <div className="panel-actions">
+        <button className="primary" disabled={busy || !projectId} onClick={() => void run()}>
+          {loading ? "Validating…" : "Validate"}
+        </button>
+      </div>
+      {report && (
+        <>
+          <div className="results-meta">
+            <span className="mono">{report.tx_id}</span> · backend{" "}
+            <span className="mono">{report.backend}</span> · {report.stats.n} point(s)
+          </div>
+          {report.warnings.length > 0 && (
+            <div className="ai-note">
+              {report.warnings.map((w, i) => (
+                <div key={i}>{w}</div>
+              ))}
+            </div>
+          )}
+          <div className="traj-kpis">
+            <div className="traj-kpi">
+              <span className="traj-kpi-label">Level offset</span>
+              <span className="traj-kpi-value mono">{report.stats.level_offset_db.toFixed(2)} dB</span>
+            </div>
+            <div className="traj-kpi">
+              <span className="traj-kpi-label">RMSE</span>
+              <span className="traj-kpi-value mono">{report.stats.rmse_db.toFixed(2)} dB</span>
+            </div>
+            <div className="traj-kpi">
+              <span className="traj-kpi-label">Mean abs err</span>
+              <span className="traj-kpi-value mono">{report.stats.mean_abs_error_db.toFixed(2)} dB</span>
+            </div>
+            <div className="traj-kpi">
+              <span className="traj-kpi-label">N</span>
+              <span className="traj-kpi-value mono">{report.stats.n}</span>
+            </div>
+          </div>
+          {series.length > 0 && (
+            <LineChart
+              title="Measured vs predicted path gain"
+              name="flight_log_validation"
+              xLabel={hasTime ? "time (s)" : "index"}
+              yLabel="path gain (dB)"
+              series={series}
+            />
+          )}
+        </>
+      )}
+    </Section>
   );
 }
 
@@ -575,24 +1186,41 @@ export default function ChannelPanel() {
                   <td className="mono">{r.rt_path_loss_db === null ? "n/a" : r.rt_path_loss_db.toFixed(1)}</td>
                   <td className="mono">ref</td>
                 </tr>
-                {r.pl_models.map((m) => (
-                  <tr key={m.model} className={m.valid ? "" : "channel-pl-invalid"}>
-                    <td className="mono" title={m.notes}>
-                      {m.model}
-                    </td>
-                    <td className="mono">{m.path_loss_db === null ? "n/a" : m.path_loss_db.toFixed(1)}</td>
-                    <td className="mono">
-                      {m.delta_vs_rt_db === null
-                        ? "n/a"
-                        : `${m.delta_vs_rt_db > 0 ? "+" : ""}${m.delta_vs_rt_db.toFixed(1)}`}
-                    </td>
-                  </tr>
-                ))}
+                {r.pl_models.map((m) =>
+                  m.valid ? (
+                    <tr key={m.model}>
+                      <td className="mono" title={m.notes}>
+                        {m.model}
+                      </td>
+                      <td className="mono">{m.path_loss_db === null ? "n/a" : m.path_loss_db.toFixed(1)}</td>
+                      <td className="mono">
+                        {m.delta_vs_rt_db === null
+                          ? "n/a"
+                          : `${m.delta_vs_rt_db > 0 ? "+" : ""}${m.delta_vs_rt_db.toFixed(1)}`}
+                      </td>
+                    </tr>
+                  ) : (
+                    // Invalid model (e.g. TR 36.777 aerial rows on a terrestrial
+                    // link): muted, no bare number — show the reason from `notes`.
+                    <tr key={m.model} className="channel-pl-invalid">
+                      <td className="mono" title={m.notes}>
+                        {m.model}
+                      </td>
+                      <td className="mono" colSpan={2} title={m.notes}>
+                        {m.notes ? `N/A — ${m.notes}` : "N/A"}
+                      </td>
+                    </tr>
+                  ),
+                )}
               </tbody>
             </table>
           </>
         )}
       </Section>
+
+      <ChannelSweepSection txId={txId} rxId={rxId} disabled={disabled} />
+      <SpectrogramSection txId={txId} rxId={rxId} disabled={disabled} />
+      <FlightLogValidationSection txId={txId} disabled={disabled} />
     </div>
   );
 }

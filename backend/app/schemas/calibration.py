@@ -22,6 +22,9 @@ class MeasurementSample(StrictModel):
     # Optional stable id carried from the imported CSV (measurement_id column);
     # lets the UI/exports round-trip a caller's own row identity.
     measurement_id: Optional[str] = None
+    # Optional capture time in seconds (drive/flight log); when present the
+    # import and the trajectory validation keep samples time-ordered.
+    time_s: Optional[float] = None
     # RX (receiver) position in meters, Z-up.
     rx_position: Vec3
     tx_id: Optional[str] = None  # None = first tx
@@ -105,4 +108,52 @@ class DisambiguationReport(StrictModel):
     # Lowest-RMSE candidate; None when nothing produced comparable links.
     best_material_id: Optional[str] = None
     backend: str
+    warnings: list[str] = Field(default_factory=list)
+
+
+class TrajectoryValidationRequest(StrictModel):
+    """Body for POST /calibrate/validate-trajectory.
+
+    Replay a measurement log's RX positions through the trajectory solver and
+    score measured vs predicted path gain per point with the same level-offset
+    alignment the material calibration uses (measured-vs-predicted along the
+    flight/drive log — the measurement round-trip check).
+    """
+
+    config_id: Optional[str] = None
+    config: Optional[SimulationConfig] = None
+    tx_id: Optional[str] = None  # None = first tx
+    # Inline samples; None = the project's stored (imported) measurements.
+    measurements: Optional[list[MeasurementSample]] = Field(
+        default=None, min_length=1
+    )
+    # Solve budget: logs longer than this are subsampled evenly (first and
+    # last point kept) before the per-point trajectory solve.
+    max_points: int = Field(default=200, ge=1)
+
+
+class TrajectoryValidationPoint(StrictModel):
+    # Index into the time-ordered (and subsampled) measurement sequence, so
+    # excluded zero-path points leave visible gaps instead of shifting rows.
+    index: int
+    time_s: Optional[float] = None
+    position: Vec3
+    measured_db: float
+    predicted_db: float
+    aligned_predicted_db: float  # predicted + level_offset_db
+    error_db: float  # aligned predicted - measured (same sign as LinkError)
+
+
+class TrajectoryValidationStats(StrictModel):
+    level_offset_db: float
+    rmse_db: float
+    mean_abs_error_db: float
+    n: int  # points compared (zero-path points excluded)
+
+
+class TrajectoryValidationReport(StrictModel):
+    tx_id: str
+    points: list[TrajectoryValidationPoint] = Field(default_factory=list)
+    stats: TrajectoryValidationStats
+    backend: str = ""
     warnings: list[str] = Field(default_factory=list)
