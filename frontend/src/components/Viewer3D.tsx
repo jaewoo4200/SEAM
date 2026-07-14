@@ -541,7 +541,7 @@ function GizmoWrapped({
   );
 }
 
-function Devices({ hideDeviceIds = [] }: { hideDeviceIds?: string[] }) {
+function Devices() {
   const scene = useAppStore((s) => s.scene);
   const env = useAppStore((s) => s.resolvedEnvironment);
   const selectedDeviceId = useAppStore((s) => s.selectedDeviceId);
@@ -558,7 +558,6 @@ function Devices({ hideDeviceIds = [] }: { hideDeviceIds?: string[] }) {
   return (
     <group>
       {scene.devices.map((d) => {
-        if (hideDeviceIds.includes(d.id)) return null;
         const selected = d.id === selectedDeviceId;
         const radius = attachedIds.has(d.id) ? baseRadius * 0.35 : baseRadius;
         const marker = (
@@ -1014,6 +1013,7 @@ function UeMarker({
 function TrajectoryOverlay({ trajectory }: { trajectory: TrajectoryResultSet }) {
   const trajFrame = useAppStore((s) => s.trajFrame);
   const trajUeFrames = useAppStore((s) => s.trajUeFrames);
+  const trajPlaying = useAppStore((s) => s.trajPlaying);
   const showTrajectoryRays = useAppStore((s) => s.showTrajectoryRays);
   const scene = useAppStore((s) => s.scene);
   const env = useAppStore((s) => s.resolvedEnvironment);
@@ -1022,9 +1022,21 @@ function TrajectoryOverlay({ trajectory }: { trajectory: TrajectoryResultSet }) 
   // so the moving UE reads as "the animated one".
   const ueRadius = scene ? deviceMarkerRadius(scene, env, markerScale) * 0.9 : 0.5;
 
+  // Only draw the playback marker while playback is actually ENGAGED (fresh
+  // run leaves the rays toggle on; playing; scrubbed). A project reopen
+  // auto-loads the LAST stored trajectory — rendering its marker then put a
+  // phantom "moved RX" at a stale start position the moment the user pressed
+  // Simulate paths (which switches to Results and turns the rays toggle off).
+  const engaged =
+    showTrajectoryRays ||
+    trajPlaying ||
+    trajFrame > 0 ||
+    Object.keys(trajUeFrames).length > 0;
+
   const ueIds = trajectoryUeIds(trajectory);
   // Each UE follows its own scrub bar when set, else the master frame.
   const frameFor = (ueId: string) => trajUeFrames[ueId] ?? trajFrame;
+  if (!engaged) return null;
   const framePaths = ueIds.flatMap((ueId) => {
     const samples = samplesForUe(trajectory, ueId);
     const s = Math.max(0, Math.min(samples.length - 1, frameFor(ueId)));
@@ -2821,15 +2833,7 @@ export default function Viewer3D() {
           <ScenarioOverlay showPaths={showPaths} />
         ) : (
           <>
-            {/* During trajectory playback the routed UEs are drawn by the
-                moving UeMarkers — their static markers would sit frozen at
-                the start position next to the animated one ("why isn't my
-                UE moving?"), so they step aside for the playback. */}
-            {scene && (
-              <Devices
-                hideDeviceIds={trajActive ? trajectoryUeIds(trajectory) : []}
-              />
-            )}
+            {scene && <Devices />}
             {scene && <Actors />}
           </>
         )}

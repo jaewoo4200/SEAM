@@ -1336,7 +1336,11 @@ export const useAppStore = create<AppState>()((set, get) => {
           showRadioMap: true,
           showMeshRadioMap: true,
           showBeamforming: true,
-          showTrajectoryRays: true,
+          // OFF on open: a stored trajectory auto-loads below, and playback
+          // engagement (rays toggle) carrying over would render its marker at
+          // a long-gone position the moment the project appears. Every fresh
+          // trajectory run turns it back on (latest computation wins).
+          showTrajectoryRays: false,
           // A persisted scenario loads for playback ON DEMAND - it must not
           // take over the viewport just because the project has one stored.
           showScenario: false,
@@ -1809,9 +1813,14 @@ export const useAppStore = create<AppState>()((set, get) => {
           selectedPathId: null,
           // Latest computation wins: a fresh static solve is what the user
           // wants to see, so the trajectory-ray takeover steps aside (both
-          // remain independently toggleable in the overlay row).
+          // remain independently toggleable in the overlay row) and any
+          // scrubbed/playing trajectory playback disengages — its marker
+          // must not linger as a phantom "moved RX" next to fresh paths.
           showPaths: true,
           showTrajectoryRays: false,
+          trajPlaying: false,
+          trajFrame: 0,
+          trajUeFrames: {},
           ...resultsMode(),
           notice: `Simulated ${result.paths.length} path(s) via ${result.backend} backend`,
         });
