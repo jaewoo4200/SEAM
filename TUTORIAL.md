@@ -42,6 +42,9 @@ Even if both are Mock/off, you can complete the entire tutorial.
 There are 5 **mode tabs** in the center of the toolbar. Click through them and
 watch how the left/right panels change.
 
+![Visual mode: scene tree, devices/actors, toolbar with the five mode tabs](docs/images/01_visual_mode.png)
+*Visual mode on the Sample Demo project — scene tree and DEVICES/ACTORS on the left, mode tabs and status chips in the toolbar.*
+
 | Tab | What it does |
 |---|---|
 | **Visual** | Orbit/pan/zoom the textured 3D scene, object picking, scene tree, inspector. |
@@ -143,6 +146,9 @@ cosine≈1·dRSS≈0, it means the geometry/LoS dominates the link and the mater
    maps and displays the vertices and interactions to canonical prim ids and RF materials,
    and a delay/power chart appears.
 
+![Results mode with simulated paths and the Simulation panel](docs/images/06_paths.png)
+*Five ray paths solved on the Sionna backend; the Simulation panel on the right holds the Global / Beamforming / Paths sections.*
+
 In the **Global** section of the **Simulation** panel you can adjust **Backend** (auto/mock/sionna),
 **Frequency** (default 28 GHz), **Seed**, and so on. The **Paths** section has
 **Max depth**, a **Samples / it (log 10)** slider, and mechanism checkboxes (Line of
@@ -172,6 +178,9 @@ Adjustable options:
 - **Cell size** (m) — grid cell size,
 - **Height** (m) — measurement plane height,
 - **Metric** — `path_gain_db`, `rss_dbm`, or `sinr_db`.
+
+![Radio map heatmap with the Path gain legend](docs/images/07_radio_map.png)
+*A computed radio map drapes a jet-colormap heatmap over the scene; the legend shows the dB range.*
 
 To clear it, use **Remove**.
 

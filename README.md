@@ -239,6 +239,12 @@ curl/scripts (backend defaults to `http://127.0.0.1:8000`):
 |---|---|
 | [INSTALL.md](INSTALL.md) | prerequisites, install (scripts/manual), engine & LLM options, troubleshooting |
 | [TUTORIAL.md](TUTORIAL.md) | 15-minute first session (scene → materials → sim → dataset) |
+| [docs/guides/getting_started.md](docs/guides/getting_started.md) | illustrated guide: first launch, toolbar, modes, panels |
+| [docs/guides/scene_import.md](docs/guides/scene_import.md) | illustrated guide: Mitsuba XML / OSM / device JSON imports |
+| [docs/guides/materials_and_ai.md](docs/guides/materials_and_ai.md) | illustrated guide: RF materials, validation, AI-assisted assignment |
+| [docs/guides/simulation.md](docs/guides/simulation.md) | illustrated guide: paths, radio maps, beamforming, channel analysis |
+| [docs/guides/trajectory_uav.md](docs/guides/trajectory_uav.md) | illustrated guide: trajectories, UAV actors, playback, POV views |
+| [docs/guides/datasets_export.md](docs/guides/datasets_export.md) | illustrated guide: ML datasets and exports |
 | [docs/architecture.md](docs/architecture.md) | unified scene graph & dual-projection architecture |
 | [docs/scene_format.md](docs/scene_format.md) | scene/project folder format and schemas |
 | [docs/rf_materials.md](docs/rf_materials.md) | RF material library and models |

@@ -221,6 +221,12 @@ curl/스크립트로 프로그래매틱하게** 호출한다(백엔드는 기본
 |---|---|
 | [INSTALL.md](INSTALL.ko.md) | 사전 요구사항, 설치(스크립트/수동), 엔진·LLM 옵션, 문제 해결 |
 | [TUTORIAL.md](TUTORIAL.ko.md) | 15분 첫 세션 실습 (씬 → 재질 → 시뮬 → 데이터셋) |
+| [docs/guides/getting_started.md](docs/guides/getting_started.ko.md) | 그림 가이드: 첫 실행, 툴바, 모드, 패널 |
+| [docs/guides/scene_import.md](docs/guides/scene_import.ko.md) | 그림 가이드: Mitsuba XML · OSM · 디바이스 JSON 임포트 |
+| [docs/guides/materials_and_ai.md](docs/guides/materials_and_ai.ko.md) | 그림 가이드: RF 재질, 검증, AI 보조 할당 |
+| [docs/guides/simulation.md](docs/guides/simulation.ko.md) | 그림 가이드: 경로, 라디오맵, 빔포밍, 채널 분석 |
+| [docs/guides/trajectory_uav.md](docs/guides/trajectory_uav.ko.md) | 그림 가이드: 궤적, UAV 액터, 재생, POV 뷰 |
+| [docs/guides/datasets_export.md](docs/guides/datasets_export.ko.md) | 그림 가이드: ML 데이터셋과 내보내기 |
 | [docs/architecture.md](docs/architecture.ko.md) | 통합 씬 그래프와 이중 프로젝션 아키텍처 |
 | [docs/scene_format.md](docs/scene_format.ko.md) | 씬·프로젝트 폴더 포맷과 스키마 |
 | [docs/rf_materials.md](docs/rf_materials.ko.md) | RF 재질 라이브러리와 모델 |
