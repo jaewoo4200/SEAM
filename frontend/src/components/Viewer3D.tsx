@@ -541,7 +541,7 @@ function GizmoWrapped({
   );
 }
 
-function Devices() {
+function Devices({ hideDeviceIds = [] }: { hideDeviceIds?: string[] }) {
   const scene = useAppStore((s) => s.scene);
   const env = useAppStore((s) => s.resolvedEnvironment);
   const selectedDeviceId = useAppStore((s) => s.selectedDeviceId);
@@ -558,6 +558,7 @@ function Devices() {
   return (
     <group>
       {scene.devices.map((d) => {
+        if (hideDeviceIds.includes(d.id)) return null;
         const selected = d.id === selectedDeviceId;
         const radius = attachedIds.has(d.id) ? baseRadius * 0.35 : baseRadius;
         const marker = (
@@ -969,11 +970,15 @@ function UeMarker({
   samples,
   step,
   color,
+  radius,
 }: {
   ueId: string;
   samples: TrajectoryResultSet["samples"];
   step: number;
   color: string;
+  /** Scene-scaled marker radius (same sizing as static device markers — a
+   *  hardcoded 0.5 m used to vanish to sub-pixel in campus-scale scenes). */
+  radius: number;
 }) {
   const markerRef = useRef<THREE.Mesh>(null);
   const s = Math.max(0, Math.min(samples.length - 1, step));
@@ -992,10 +997,10 @@ function UeMarker({
       {trail.length > 1 && <Line points={trail} color="#ffee58" lineWidth={2} />}
       <group position={current.position}>
         <mesh ref={markerRef}>
-          <sphereGeometry args={[0.5, 24, 16]} />
+          <sphereGeometry args={[radius, 24, 16]} />
           <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.6} />
         </mesh>
-        <Html position={[0, 0, 1.4]} center zIndexRange={[10, 0]}>
+        <Html position={[0, 0, radius * 2.4]} center zIndexRange={[10, 0]}>
           <div className="device-label selected">{ueId}</div>
         </Html>
       </group>
@@ -1010,6 +1015,12 @@ function TrajectoryOverlay({ trajectory }: { trajectory: TrajectoryResultSet }) 
   const trajFrame = useAppStore((s) => s.trajFrame);
   const trajUeFrames = useAppStore((s) => s.trajUeFrames);
   const showTrajectoryRays = useAppStore((s) => s.showTrajectoryRays);
+  const scene = useAppStore((s) => s.scene);
+  const env = useAppStore((s) => s.resolvedEnvironment);
+  const markerScale = useAppStore((s) => s.viewport.markerScale);
+  // Same scene-scaled sizing as the static device markers, slightly smaller
+  // so the moving UE reads as "the animated one".
+  const ueRadius = scene ? deviceMarkerRadius(scene, env, markerScale) * 0.9 : 0.5;
 
   const ueIds = trajectoryUeIds(trajectory);
   // Each UE follows its own scrub bar when set, else the master frame.
@@ -1032,6 +1043,7 @@ function TrajectoryOverlay({ trajectory }: { trajectory: TrajectoryResultSet }) 
           samples={samplesForUe(trajectory, ueId)}
           step={frameFor(ueId)}
           color={UE_COLORS[i % UE_COLORS.length]}
+          radius={ueRadius}
         />
       ))}
     </group>
@@ -2809,7 +2821,15 @@ export default function Viewer3D() {
           <ScenarioOverlay showPaths={showPaths} />
         ) : (
           <>
-            {scene && <Devices />}
+            {/* During trajectory playback the routed UEs are drawn by the
+                moving UeMarkers — their static markers would sit frozen at
+                the start position next to the animated one ("why isn't my
+                UE moving?"), so they step aside for the playback. */}
+            {scene && (
+              <Devices
+                hideDeviceIds={trajActive ? trajectoryUeIds(trajectory) : []}
+              />
+            )}
             {scene && <Actors />}
           </>
         )}
