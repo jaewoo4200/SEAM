@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>(function(){try{var t=localStorage.getItem('seam-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
+<title>Getting Started: First Launch and UI Tour — SEAM Studio</title>
+<meta name="description" content="From first launch to a full tour of the SEAM Studio window — the toolbar, the five mode tabs, the scene tree, the inspector, and the dockable panels — all on the built-in Mock backend.">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Cdefs%3E%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%22%20x2%3D%221%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23173a8a%22/%3E%3Cstop%20offset%3D%22.5%22%20stop-color%3D%22%232fd0c0%22/%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23e2632e%22/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect%20width%3D%2264%22%20height%3D%2264%22%20rx%3D%2212%22%20fill%3D%22%230b111b%22/%3E%3Ctext%20x%3D%2232%22%20y%3D%2242%22%20font-family%3D%22Segoe%20UI%2CArial%2Csans-serif%22%20font-size%3D%2236%22%20font-weight%3D%22700%22%20fill%3D%22%232e9bff%22%20text-anchor%3D%22middle%22%3ES%3C/text%3E%3Crect%20x%3D%2214%22%20y%3D%2250%22%20width%3D%2236%22%20height%3D%225%22%20rx%3D%222.5%22%20fill%3D%22url%28%23g%29%22/%3E%3C/svg%3E">
+<link rel="canonical" href="https://jaewoo4200.github.io/SEAM/en/guides/getting_started.html">
+<link rel="alternate" hreflang="ko" href="https://jaewoo4200.github.io/SEAM/ko/guides/getting_started.html">
+<link rel="alternate" hreflang="en" href="https://jaewoo4200.github.io/SEAM/en/guides/getting_started.html">
+<meta name="theme-color" content="#0b111b" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f4f7fc" media="(prefers-color-scheme: light)">
+<style>
+:root{
+  --bg:#0b111b; --panel:#141d2b; --line:#233246; --ink:#e2eaf4; --mut:#8a9cb0;
+  --acc:#2e9bff; --mut2:#6f8299; --link-mut:#8fb4dd; --code-acc:#7bb8f5;
+}
+:root[data-theme="light"]{ --bg:#f4f7fc; --panel:#ffffff; --line:#dde5ef; --ink:#17242f; --mut:#54677a; --acc:#1f77dd; --mut2:#54677a; --link-mut:#3a6ea5; --code-acc:#2f6595 }
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){ --bg:#f4f7fc; --panel:#ffffff; --line:#dde5ef; --ink:#17242f; --mut:#54677a; --acc:#1f77dd; --mut2:#54677a; --link-mut:#3a6ea5; --code-acc:#2f6595 }
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:16px/1.7 "Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,sans-serif}
+img{max-width:100%;display:block}
+a{color:var(--acc);text-decoration:none}
+a:hover{text-decoration:underline}
+.mono{font-family:"Cascadia Code",Consolas,ui-monospace,monospace}
+.wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+
+/* top tab bar (flat research-site style) */
+.topbar{position:sticky;top:0;z-index:20;background:var(--panel);border-bottom:1px solid var(--line)}
+.topbar .in{max-width:1120px;margin:0 auto;padding:0 24px;display:flex;align-items:center;gap:20px;height:52px}
+.topbar .brand{font:700 15px/1 "Segoe UI Variable Display","Segoe UI",sans-serif;color:var(--ink);letter-spacing:-.01em;white-space:nowrap}
+.topbar .brand .studio{color:var(--acc)}
+.topbar a{text-decoration:none}
+.topbar nav.tabs{display:flex;gap:2px;overflow-x:auto;scrollbar-width:none;flex:1}
+.topbar nav.tabs::-webkit-scrollbar{display:none}
+.topbar nav.tabs a{color:var(--mut);font-size:13.5px;font-weight:600;padding:6px 11px;border-radius:4px;white-space:nowrap}
+.topbar nav.tabs a:hover{color:var(--ink);text-decoration:none}
+.topbar nav.tabs a.active{color:var(--acc)}
+.topbar .side{display:flex;gap:10px;align-items:center;white-space:nowrap}
+.topbar .side .lang{font-family:Consolas,monospace;font-size:12px;letter-spacing:.08em;color:var(--mut)}
+.topbar .side .lang a{color:var(--link-mut)}
+.topbar .side .lang b{color:var(--ink)}
+.topbar .side .lang span{margin:0 5px;color:var(--mut2)}
+.theme-sw{display:flex;gap:2px;background:transparent;border:1px solid var(--line);border-radius:999px;padding:3px}
+.theme-sw button{font:600 11px/1 Consolas,monospace;letter-spacing:.04em;color:var(--mut);
+  background:transparent;border:0;border-radius:999px;padding:5px 9px;cursor:pointer}
+.theme-sw button[aria-pressed="true"]{background:var(--acc);color:#04101f}
+a:focus-visible,button:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+
+/* docs layout */
+.docwrap{display:grid;grid-template-columns:230px minmax(0,1fr);gap:44px;padding:44px 0 72px}
+@media (max-width:860px){ .docwrap{grid-template-columns:1fr} aside.sidenav{position:static;order:2;border-top:1px solid var(--line);padding-top:20px} }
+aside.sidenav{position:sticky;top:76px;align-self:start}
+aside.sidenav .cap{font-family:Consolas,monospace;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--mut2);margin:0 0 10px}
+aside.sidenav a{display:block;color:var(--mut);font-size:13.5px;padding:6px 10px;border-left:2px solid var(--line);text-decoration:none}
+aside.sidenav a:hover{color:var(--ink)}
+aside.sidenav a.active{color:var(--acc);border-left-color:var(--acc);font-weight:600}
+aside.sidenav .all{margin-top:12px;border-left:0;padding-left:10px;font-weight:600;color:var(--link-mut)}
+
+article{max-width:820px;min-width:0}
+article .eyebrow{font-family:Consolas,monospace;font-size:12px;letter-spacing:.22em;color:var(--acc);text-transform:uppercase}
+article h1{font:650 clamp(28px,4vw,40px)/1.15 "Segoe UI Variable Display","Segoe UI",sans-serif;letter-spacing:-.02em;margin:8px 0 10px}
+article p.lead{color:var(--mut);font-size:16.5px;margin:0 0 8px}
+article .spectrum{height:3px;background:linear-gradient(90deg,#173a8a,#2e9bff,#2fd0c0,#8fd45e,#e8b93c,#e2632e);border-radius:2px;width:110px;margin:18px 0 26px}
+article h2{font:650 22px/1.3 "Segoe UI Variable Display","Segoe UI",sans-serif;margin:40px 0 12px;padding-top:18px;border-top:1px solid var(--line)}
+article h3{font:600 17px/1.35 "Segoe UI",sans-serif;margin:26px 0 8px}
+article p{margin:10px 0;color:var(--ink)}
+article p.note, article li{color:var(--ink)}
+article ul,article ol{padding-left:24px;margin:10px 0}
+article li{margin:5px 0}
+article table{border-collapse:collapse;width:100%;font-size:14px;margin:14px 0;display:block;overflow-x:auto}
+article th,article td{border:1px solid var(--line);padding:8px 12px;text-align:left;vertical-align:top}
+article th{background:var(--panel);font-weight:600}
+article code{font-family:"Cascadia Code",Consolas,ui-monospace,monospace;font-size:.92em;color:var(--code-acc);background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:1px 6px}
+article pre{background:#0e1622;border:1px solid #233246;border-radius:6px;padding:16px 18px;overflow-x:auto;
+  font-family:"Cascadia Code",Consolas,monospace;font-size:13px;line-height:1.8;color:#cfe0f2;margin:14px 0}
+article pre code{background:none;border:0;padding:0;color:inherit}
+article figure.doc-shot{margin:20px 0;background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+article figure.doc-shot img{width:100%}
+article figure.doc-shot figcaption{padding:10px 14px;font-size:13px;color:var(--mut);border-top:1px solid var(--line)}
+article blockquote{margin:14px 0;padding:10px 16px;border-left:3px solid var(--acc);background:var(--panel);border-radius:0 6px 6px 0;color:var(--mut);font-size:14.5px}
+article blockquote p{color:var(--mut)}
+.pn{display:flex;justify-content:space-between;gap:14px;margin-top:48px;padding-top:18px;border-top:1px solid var(--line);font-size:14px;font-weight:600}
+.pn a{max-width:48%}
+.pn .lbl{display:block;font:400 11px/1 Consolas,monospace;letter-spacing:.14em;text-transform:uppercase;color:var(--mut2);margin-bottom:4px}
+
+footer{border-top:1px solid var(--line)}
+.fineprint{padding:26px 0 40px;color:var(--mut2);font-size:12.5px;line-height:1.8;text-align:center}
+.fineprint a{color:var(--link-mut)}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="in">
+    <a class="brand" href="../">SEAM <span class="studio">Studio</span></a>
+    <nav class="tabs" aria-label="Site">
+      <a href="../">Overview</a>
+      <a href="../#features">Features</a>
+      <a href="../#capabilities">Capabilities</a>
+      <a href="../#agent">SEAM-Agent</a>
+      <a class="active" href="./">Guides</a>
+      <a href="../#quickstart">Quickstart</a>
+    </nav>
+    <div class="side">
+      <nav class="theme-sw" aria-label="Theme"><button data-theme="auto">Auto</button><button data-theme="light">Light</button><button data-theme="dark">Dark</button></nav>
+      <nav class="lang" aria-label="Language"><a href="../../ko/guides/getting_started.html">KO</a><span>·</span><b>EN</b></nav>
+    </div>
+  </div>
+</div>
+
+<div class="wrap docwrap">
+  <aside class="sidenav">
+    <p class="cap">User guides</p>
+    <a class="active" href="getting_started.html">Getting started</a>
+    <a href="scene_import.html">Importing scenes</a>
+    <a href="materials_and_ai.html">RF materials &amp; AI</a>
+    <a href="simulation.html">Simulating</a>
+    <a href="trajectory_uav.html">Trajectories &amp; UAVs</a>
+    <a href="datasets_export.html">ML datasets &amp; exports</a>
+    <a class="all" href="./">← All guides</a>
+  </aside>
+
+  <article>
+    <div class="eyebrow">Guide 01 · SEAM Studio docs</div>
+    <h1>Getting Started: First Launch and UI Tour</h1>
+    <p class="lead">This guide takes you from a fresh install to knowing your way around the SEAM Studio window: the toolbar, the five mode tabs, the scene tree, the inspector, and the dockable panels. No GPU, no Sionna, no LLM required — everything here works with the built-in <b>Mock backend</b>. For the full installation reference see <a href="https://github.com/jaewoo4200/SEAM/blob/master/INSTALL.md">INSTALL.md</a>.</p>
+    <div class="spectrum"></div>
+
+    <h2>1. Install and launch</h2>
+    <p>There are two ways to run SEAM Studio. Pick one.</p>
+
+    <h3>Route A — pip install (the packaged app)</h3>
+    <pre><code>pip install seam-studio
+seam-studio</code></pre>
+    <p>The <code>seam-studio</code> command starts the server on <b>http://127.0.0.1:8000</b> and opens your browser. On first run it bootstraps the <b>Sample Demo</b> project into <code>~/.seam/projects</code>, so the app never starts empty. Useful flags: <code>--port 9000</code>, <code>--project-root D:\twins</code>, <code>--no-browser</code>.</p>
+
+    <h3>Route B — source checkout (dev servers)</h3>
+    <p>Clone the repo, run the install script once (<a href="https://github.com/jaewoo4200/SEAM/blob/master/INSTALL.md">INSTALL.md</a> walks through it), then start both servers:</p>
+    <pre><code># Windows
+powershell -ExecutionPolicy Bypass -File scripts\start.ps1
+# Linux/macOS
+bash scripts/start.sh</code></pre>
+    <p>This runs the backend on :8000 and the Vite dev frontend on <b>http://localhost:5173</b> — open the :5173 address. The rest of this guide assumes the dev URL, but the packaged app looks identical.</p>
+
+    <h2>2. The toolbar</h2>
+    <figure class="doc-shot"><img loading="lazy" decoding="async" src="../../assets/guides/01_visual_mode.png" alt="Visual mode with the Sample Demo project: scene tree on the left, textured 3D viewport in the middle, mode tabs and status chips in the toolbar"><figcaption>Visual mode on the Sample Demo project — scene tree, devices <code>tx_001</code> / <code>rx_001</code>, actors <code>car_001</code> / <code>human_001</code>, and the toolbar.</figcaption></figure>
+    <p>From left to right, the top toolbar shows:</p>
+    <ol>
+      <li>The <b>SEAM Studio</b> title and the <b>project select</b>. The Sample Demo project loads automatically; switch projects here.</li>
+      <li><b>Rename</b> and <b>Duplicate</b> — rename the current project's display name inline (Enter to save, Esc to cancel) or deep-copy the whole project folder and open the copy.</li>
+      <li><b>Import</b> — bring in a new scene as a new project, either a <b>Mitsuba XML</b> file (or a .zip bundle with meshes and textures) or an <b>OpenStreetMap</b> rectangle fetched by coordinate.</li>
+      <li>The five <b>mode tabs</b>:
+        <table>
+          <thead><tr><th>Tab</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td><b>Visual</b></td><td>3D scene navigation, picking, scene tree, inspector.</td></tr>
+            <tr><td><b>RF Materials</b></td><td>Color overlay per RF material; assign from a dropdown.</td></tr>
+            <tr><td><b>Validation</b></td><td>Scene validation warnings (unassigned materials, etc.).</td></tr>
+            <tr><td><b>AI Assist</b></td><td>AI material suggestions with review/approve workflow.</td></tr>
+            <tr><td><b>Results</b></td><td>All simulations: paths, radio map, beamforming, channel, …</td></tr>
+          </tbody>
+        </table>
+      </li>
+      <li><b>Panels ▾</b> — lists every dockable panel with its current dock state; click a row to float it (see <a href="#5-dockable-panels">section 5</a>).</li>
+      <li>The <b>Env</b> select — <code>Auto (indoor)</code>, <code>Indoor</code>, or <code>Outdoor</code>. On <code>Auto</code> the app infers the environment and applies matching solver presets; the inferred value shows in parentheses.</li>
+      <li>Two <b>status chips</b>:
+        <ul>
+          <li><b>Sionna</b> / <b>Mock only</b> — whether the real ray-tracing backend is installed. <code>Mock only</code> is fine for learning the UI.</li>
+          <li>Provider name (e.g. <code>rule_based</code>) / <b>AI off</b> — which AI suggestion provider is active.</li>
+        </ul>
+      </li>
+      <li><b>Actions ▾</b> (Validate, Compile RF, Beamforming, Export RFData, Delete project…) and the blue <b>Simulate paths</b> button.</li>
+    </ol>
+
+    <h2>3. Visual mode tour</h2>
+    <p>Stay on the <b>Visual</b> tab and look at the left sidebar.</p>
+
+    <h3>Scene tree</h3>
+    <p>The tree mirrors the scene hierarchy (<code>/buildings/b01/walls</code>, <code>/roads/r01/surface</code>, …). Each mesh row carries a status dot showing its RF-material assignment state, the assigned material id, and an eye toggle (◉/◌) to hide or show it in the viewer. Click a row to select the object; Ctrl-click to multi-select.</p>
+
+    <h3>Devices section</h3>
+    <p>The <b>Devices</b> header has four buttons:</p>
+    <ul>
+      <li><b>+TX</b> / <b>+RX</b> — add a transmitter or a receiver.</li>
+      <li><b>⤓ JSON</b> — import TX/RX devices from a JSON file (cartesian x/y/z or geographic lat/lon; see <a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/point_import.md">point_import.md</a>).</li>
+      <li><b>Clear all</b> — remove every radio device (click twice to confirm).</li>
+    </ul>
+    <p>The Sample Demo ships with <code>tx_001</code> ("Rooftop TX", red ▲) and <code>rx_001</code> ("Street RX", blue ●). Each row has a × delete button.</p>
+
+    <h3>Actors section</h3>
+    <p>Actors are movable scatterers with their own RF geometry. The <b>Actors</b> header adds them with <b>+Car</b>, <b>+Human</b>, <b>+UAV</b>, and <b>+Custom</b>. The demo includes <code>car_001</code> (a sedan driving down the road) and <code>human_001</code> (a pedestrian).</p>
+
+    <h3>Navigating and picking</h3>
+    <ul>
+      <li><b>Left-drag</b> — orbit around the scene.</li>
+      <li><b>Right-drag</b> — pan.</li>
+      <li><b>Scroll wheel</b> — zoom.</li>
+      <li><b>Click an object</b> — select it (the inspector on the right updates). Clicking a device or actor also shows an X/Y/Z translate gizmo you can drag to move it.</li>
+    </ul>
+
+    <h2>4. The inspector</h2>
+    <figure class="doc-shot"><img loading="lazy" decoding="async" src="../../assets/guides/02_inspector.png" alt="Inspector with the window prim selected: name and semantic tags, visual material and RF material side by side, and the material authoring buttons"><figcaption>The inspector for <code>window_01</code> — semantic tags <code>building, window</code>, visual material <code>blue_glass_pbr</code>, RF material still unassigned.</figcaption></figure>
+    <p>Click the window prim (<code>/buildings/b01/window_01</code>) in the tree or the viewport. The inspector shows, top to bottom:</p>
+    <ol>
+      <li><b>Name &amp; tags</b> — the prim's display name and its comma-separated <b>Semantic tags</b> (here <code>building, window</code>). Tags drive rule-based and AI material suggestions; both fields commit on Enter or blur.</li>
+      <li>Two side-by-side columns:
+        <ul>
+          <li><b>Visual material</b> — what the object <em>looks like</em>: material name/id (<code>blue_glass_pbr</code>), texture, base color.</li>
+          <li><b>RF material</b> — how it <em>behaves electromagnetically</em>: material, assignment status badge (the demo window starts <code>unassigned</code>), sources, confidence, thickness, scattering, XPD.</li>
+        </ul>
+        <p>This split is the core idea of the app: a blue-glass texture tells you nothing certain about RF penetration loss, so the two bindings are authored and validated separately.</p>
+      </li>
+      <li><b>Material authoring</b> — one home for every way to fix that:
+        <ul>
+          <li>a dropdown to assign an RF material directly (saved as user-confirmed),</li>
+          <li><b>Suggest with AI</b> — asks the AI provider for a proposal and jumps to the AI Assist review screen,</li>
+          <li><b>Split into connected parts…</b> — break a merged mesh (e.g. a whole city block exported as one blob) into per-part prims,</li>
+          <li><b>SEAM-Agent (AI material authoring)…</b> — an agent that captures multi-view renders of the mesh, segments it, and proposes an RF material per region with evidence.</li>
+        </ul>
+      </li>
+    </ol>
+    <p>Selecting a device instead shows an editable device card (position, power, antenna array, orientation); selecting an actor shows pose, size, RF material, attached devices, and a waypoint trajectory editor.</p>
+
+    <h2 id="5-dockable-panels">5. Dockable panels</h2>
+    <p>Result panels (Metrics dashboard, Channel analysis, UE trajectory, Scenario playback, ML dataset) are dockable, photo-editor style. Small buttons on the right of each panel header move it:</p>
+    <ul>
+      <li><b>◧ / ◨</b> — dock to the left / right sidebar.</li>
+      <li><b>⧉</b> — detach as a <b>floating window</b> over the viewport; drag its header to move it, drag edges to resize.</li>
+    </ul>
+    <p>A floated panel survives mode-tab switches — float the Channel analysis panel and it stays visible while you edit the scene in Visual mode. The <b>Panels ▾</b> toolbar menu reaches every panel from any mode: clicking a row floats it (or focuses it if already floating), and the ◧/◨ buttons next to each row dock it back.</p>
+
+    <h2>Where to go next</h2>
+    <p>Work through the <a href="https://github.com/jaewoo4200/SEAM/blob/master/TUTORIAL.md">15-minute tutorial</a> — it runs the whole loop from material assignment to path simulation, radio maps, and ML dataset export, entirely on the Mock backend if needed.</p>
+
+    <h2>Related docs</h2>
+    <ul>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/TUTORIAL.md">TUTORIAL.md</a> — 15-minute first session, end to end</li>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/INSTALL.md">INSTALL.md</a> — full installation guide (Sionna RT, local LLM)</li>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/architecture.md">architecture.md</a> — how frontend, backend, and engines fit together</li>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/scene_format.md">scene_format.md</a> — the <code>.seam</code> project / scene format</li>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/rf_materials.md">rf_materials.md</a> — the RF material library</li>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/ai_assistant.md">ai_assistant.md</a> — AI material suggestion workflow</li>
+    </ul>
+
+    <div class="pn">
+      <span></span>
+      <a href="scene_import.html"><span class="lbl">Next</span>Importing Scenes: Mitsuba XML, OpenStreetMap, and Device JSON</a>
+    </div>
+  </article>
+</div>
+
+<footer>
+  <div class="wrap fineprint">
+    SEAM Studio · Apache License 2.0 · <a href="https://github.com/jaewoo4200/SEAM">github.com/jaewoo4200/SEAM</a> · <a href="../../ko/guides/getting_started.html">한국어 가이드</a><br>
+    Developed by <b>Jaewoo Lee (이재우)</b> · Wireless Systems Laboratory (WSL), Hanyang University · BEYOND-G Global Innovation Center
+  </div>
+</footer>
+
+<script>(function(){
+  var root=document.documentElement, sw=document.querySelector('.theme-sw');
+  if(!sw)return;
+  function cur(){return localStorage.getItem('seam-theme')||'auto';}
+  function paint(m){sw.querySelectorAll('button').forEach(function(b){
+    b.setAttribute('aria-pressed', String(b.dataset.theme===m));});}
+  function apply(m){
+    if(m==='auto'){root.removeAttribute('data-theme');try{localStorage.removeItem('seam-theme');}catch(e){}}
+    else{root.setAttribute('data-theme',m);try{localStorage.setItem('seam-theme',m);}catch(e){}}
+    paint(m);}
+  sw.addEventListener('click',function(e){var b=e.target.closest('button');if(b)apply(b.dataset.theme);});
+  paint(cur());
+})();</script>
+</body>
+</html>

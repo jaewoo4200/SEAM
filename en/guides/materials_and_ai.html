@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>(function(){try{var t=localStorage.getItem('seam-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
+<title>RF materials: library, validation, and AI-assisted assignment — SEAM Studio</title>
+<meta name="description" content="How to assign RF materials from the library, validate scene readiness, and use AI-assisted suggestions to turn visual geometry into a simulatable digital twin in SEAM Studio.">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Cdefs%3E%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%22%20x2%3D%221%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23173a8a%22/%3E%3Cstop%20offset%3D%22.5%22%20stop-color%3D%22%232fd0c0%22/%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23e2632e%22/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect%20width%3D%2264%22%20height%3D%2264%22%20rx%3D%2212%22%20fill%3D%22%230b111b%22/%3E%3Ctext%20x%3D%2232%22%20y%3D%2242%22%20font-family%3D%22Segoe%20UI%2CArial%2Csans-serif%22%20font-size%3D%2236%22%20font-weight%3D%22700%22%20fill%3D%22%232e9bff%22%20text-anchor%3D%22middle%22%3ES%3C/text%3E%3Crect%20x%3D%2214%22%20y%3D%2250%22%20width%3D%2236%22%20height%3D%225%22%20rx%3D%222.5%22%20fill%3D%22url%28%23g%29%22/%3E%3C/svg%3E">
+<link rel="canonical" href="https://jaewoo4200.github.io/SEAM/en/guides/materials_and_ai.html">
+<link rel="alternate" hreflang="ko" href="https://jaewoo4200.github.io/SEAM/ko/guides/materials_and_ai.html">
+<link rel="alternate" hreflang="en" href="https://jaewoo4200.github.io/SEAM/en/guides/materials_and_ai.html">
+<meta name="theme-color" content="#0b111b" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f4f7fc" media="(prefers-color-scheme: light)">
+<style>
+:root{
+  --bg:#0b111b; --panel:#141d2b; --line:#233246; --ink:#e2eaf4; --mut:#8a9cb0;
+  --acc:#2e9bff; --mut2:#6f8299; --link-mut:#8fb4dd; --code-acc:#7bb8f5;
+}
+:root[data-theme="light"]{ --bg:#f4f7fc; --panel:#ffffff; --line:#dde5ef; --ink:#17242f; --mut:#54677a; --acc:#1f77dd; --mut2:#54677a; --link-mut:#3a6ea5; --code-acc:#2f6595 }
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){ --bg:#f4f7fc; --panel:#ffffff; --line:#dde5ef; --ink:#17242f; --mut:#54677a; --acc:#1f77dd; --mut2:#54677a; --link-mut:#3a6ea5; --code-acc:#2f6595 }
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:16px/1.7 "Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,sans-serif}
+img{max-width:100%;display:block}
+a{color:var(--acc);text-decoration:none}
+a:hover{text-decoration:underline}
+.mono{font-family:"Cascadia Code",Consolas,ui-monospace,monospace}
+.wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+
+/* top tab bar (flat research-site style) */
+.topbar{position:sticky;top:0;z-index:20;background:var(--panel);border-bottom:1px solid var(--line)}
+.topbar .in{max-width:1120px;margin:0 auto;padding:0 24px;display:flex;align-items:center;gap:20px;height:52px}
+.topbar .brand{font:700 15px/1 "Segoe UI Variable Display","Segoe UI",sans-serif;color:var(--ink);letter-spacing:-.01em;white-space:nowrap}
+.topbar .brand .studio{color:var(--acc)}
+.topbar a{text-decoration:none}
+.topbar nav.tabs{display:flex;gap:2px;overflow-x:auto;scrollbar-width:none;flex:1}
+.topbar nav.tabs::-webkit-scrollbar{display:none}
+.topbar nav.tabs a{color:var(--mut);font-size:13.5px;font-weight:600;padding:6px 11px;border-radius:4px;white-space:nowrap}
+.topbar nav.tabs a:hover{color:var(--ink);text-decoration:none}
+.topbar nav.tabs a.active{color:var(--acc)}
+.topbar .side{display:flex;gap:10px;align-items:center;white-space:nowrap}
+.topbar .side .lang{font-family:Consolas,monospace;font-size:12px;letter-spacing:.08em;color:var(--mut)}
+.topbar .side .lang a{color:var(--link-mut)}
+.topbar .side .lang b{color:var(--ink)}
+.topbar .side .lang span{margin:0 5px;color:var(--mut2)}
+.theme-sw{display:flex;gap:2px;background:transparent;border:1px solid var(--line);border-radius:999px;padding:3px}
+.theme-sw button{font:600 11px/1 Consolas,monospace;letter-spacing:.04em;color:var(--mut);
+  background:transparent;border:0;border-radius:999px;padding:5px 9px;cursor:pointer}
+.theme-sw button[aria-pressed="true"]{background:var(--acc);color:#04101f}
+a:focus-visible,button:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+
+/* docs layout */
+.docwrap{display:grid;grid-template-columns:230px minmax(0,1fr);gap:44px;padding:44px 0 72px}
+@media (max-width:860px){ .docwrap{grid-template-columns:1fr} aside.sidenav{position:static;order:2;border-top:1px solid var(--line);padding-top:20px} }
+aside.sidenav{position:sticky;top:76px;align-self:start}
+aside.sidenav .cap{font-family:Consolas,monospace;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--mut2);margin:0 0 10px}
+aside.sidenav a{display:block;color:var(--mut);font-size:13.5px;padding:6px 10px;border-left:2px solid var(--line);text-decoration:none}
+aside.sidenav a:hover{color:var(--ink)}
+aside.sidenav a.active{color:var(--acc);border-left-color:var(--acc);font-weight:600}
+aside.sidenav .all{margin-top:12px;border-left:0;padding-left:10px;font-weight:600;color:var(--link-mut)}
+
+article{max-width:820px;min-width:0}
+article .eyebrow{font-family:Consolas,monospace;font-size:12px;letter-spacing:.22em;color:var(--acc);text-transform:uppercase}
+article h1{font:650 clamp(28px,4vw,40px)/1.15 "Segoe UI Variable Display","Segoe UI",sans-serif;letter-spacing:-.02em;margin:8px 0 10px}
+article p.lead{color:var(--mut);font-size:16.5px;margin:0 0 8px}
+article .spectrum{height:3px;background:linear-gradient(90deg,#173a8a,#2e9bff,#2fd0c0,#8fd45e,#e8b93c,#e2632e);border-radius:2px;width:110px;margin:18px 0 26px}
+article h2{font:650 22px/1.3 "Segoe UI Variable Display","Segoe UI",sans-serif;margin:40px 0 12px;padding-top:18px;border-top:1px solid var(--line)}
+article h3{font:600 17px/1.35 "Segoe UI",sans-serif;margin:26px 0 8px}
+article p{margin:10px 0;color:var(--ink)}
+article p.note, article li{color:var(--ink)}
+article ul,article ol{padding-left:24px;margin:10px 0}
+article li{margin:5px 0}
+article table{border-collapse:collapse;width:100%;font-size:14px;margin:14px 0;display:block;overflow-x:auto}
+article th,article td{border:1px solid var(--line);padding:8px 12px;text-align:left;vertical-align:top}
+article th{background:var(--panel);font-weight:600}
+article code{font-family:"Cascadia Code",Consolas,ui-monospace,monospace;font-size:.92em;color:var(--code-acc);background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:1px 6px}
+article pre{background:#0e1622;border:1px solid #233246;border-radius:6px;padding:16px 18px;overflow-x:auto;
+  font-family:"Cascadia Code",Consolas,monospace;font-size:13px;line-height:1.8;color:#cfe0f2;margin:14px 0}
+article pre code{background:none;border:0;padding:0;color:inherit}
+article figure.doc-shot{margin:20px 0;background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+article figure.doc-shot img{width:100%}
+article figure.doc-shot figcaption{padding:10px 14px;font-size:13px;color:var(--mut);border-top:1px solid var(--line)}
+article blockquote{margin:14px 0;padding:10px 16px;border-left:3px solid var(--acc);background:var(--panel);border-radius:0 6px 6px 0;color:var(--mut);font-size:14.5px}
+article blockquote p{color:var(--mut)}
+.pn{display:flex;justify-content:space-between;gap:14px;margin-top:48px;padding-top:18px;border-top:1px solid var(--line);font-size:14px;font-weight:600}
+.pn a{max-width:48%}
+.pn .lbl{display:block;font:400 11px/1 Consolas,monospace;letter-spacing:.14em;text-transform:uppercase;color:var(--mut2);margin-bottom:4px}
+
+footer{border-top:1px solid var(--line)}
+.fineprint{padding:26px 0 40px;color:var(--mut2);font-size:12.5px;line-height:1.8;text-align:center}
+.fineprint a{color:var(--link-mut)}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="in">
+    <a class="brand" href="../">SEAM <span class="studio">Studio</span></a>
+    <nav class="tabs" aria-label="Site">
+      <a href="../">Overview</a>
+      <a href="../#features">Features</a>
+      <a href="../#capabilities">Capabilities</a>
+      <a href="../#agent">SEAM-Agent</a>
+      <a class="active" href="./">Guides</a>
+      <a href="../#quickstart">Quickstart</a>
+    </nav>
+    <div class="side">
+      <nav class="theme-sw" aria-label="Theme"><button data-theme="auto">Auto</button><button data-theme="light">Light</button><button data-theme="dark">Dark</button></nav>
+      <nav class="lang" aria-label="Language"><a href="../../ko/guides/materials_and_ai.html">KO</a><span>·</span><b>EN</b></nav>
+    </div>
+  </div>
+</div>
+
+<div class="wrap docwrap">
+  <aside class="sidenav">
+    <p class="cap">User guides</p>
+    <a href="getting_started.html">Getting started</a>
+    <a href="scene_import.html">Importing scenes</a>
+    <a class="active" href="materials_and_ai.html">RF materials &amp; AI</a>
+    <a href="simulation.html">Simulating</a>
+    <a href="trajectory_uav.html">Trajectories &amp; UAVs</a>
+    <a href="datasets_export.html">ML datasets &amp; exports</a>
+    <a class="all" href="./">← All guides</a>
+  </aside>
+
+  <article>
+    <div class="eyebrow">Guide 03 · SEAM Studio docs</div>
+    <h1>RF materials: library, validation, and AI-assisted assignment</h1>
+    <p class="lead">A textured scene that <em>looks</em> finished is not RF-ready. This guide walks through the three modes that turn visual geometry into a simulatable digital twin: the <b>RF Materials</b> library, <b>Validation</b>, and <b>AI Assist</b>. Everything here works with the Mock backend alone — no GPU or Sionna RT installation required.</p>
+    <div class="spectrum"></div>
+
+    <h2>1. Why RF materials matter</h2>
+    <p>The ray tracer computes every reflection, transmission, and diffraction from each surface's electromagnetic properties — relative permittivity (εr), conductivity (σ), thickness, scattering and XPD coefficients. A visual/PBR material tells you what a surface <em>looks like</em>; it says nothing about how a 28 GHz wave bounces off it. SEAM Studio therefore keeps the two deliberately separate: every mesh prim carries a visual material <em>and</em> an RF material binding, and the inspector shows them side by side.</p>
+    <p>Until a prim has an RF material, the solver cannot model it faithfully — which is why unassigned surfaces <b>glow warning-orange</b> in the RF overlay and produce <code>MISSING_RF_MATERIAL</code> warnings in validation.</p>
+    <p>For the file format and the full default library table, see <a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/rf_materials.md">../rf_materials.md</a>.</p>
+
+    <h2>2. RF Materials mode — the library and assignment</h2>
+    <p>Switch to the <b>RF Materials</b> tab. The viewport recolors every prim by its RF material's preview color, and anything unassigned glows orange. On the right, the <b>RF material library</b> panel lists the project's materials:</p>
+    <figure class="doc-shot"><img loading="lazy" decoding="async" src="../../assets/guides/03_rf_materials.png" alt="RF Materials mode: library table with ITU and const entries, assign controls, and unassigned prims glowing orange in the viewport"><figcaption>RF Materials mode — the library table (<code>id</code> / <code>category</code> / <code>model</code> / <code>εr / σ</code>), the assign buttons below it, and orange unassigned buildings in the viewer.</figcaption></figure>
+    <p>The table columns:</p>
+    <ul>
+      <li><b>id</b> — the material id you assign (e.g. <code>itu_concrete</code>, <code>itu_glass</code>, <code>asphalt_custom</code>).</li>
+      <li><b>category</b> — concrete, glass, ground, human, …</li>
+      <li><b>model</b> — <code>ITU</code> or <code>const</code>. <b>ITU</b> entries derive εr/σ from the ITU-R P.2040 parameterization <em>at the simulation frequency</em>, so their <b>εr / σ</b> column shows <code>— / —</code>. <b>const</b> entries (like <code>asphalt_custom</code> or <code>ground_28ghz</code>) use the fixed εr/σ values shown, at every frequency — use them for measured or literature values, and mind their valid band.</li>
+    </ul>
+
+    <h3>Assign a material to a selection</h3>
+    <ol>
+      <li>Select surfaces in the scene tree or viewport — <b>Ctrl-click adds</b> to the selection. The panel's counter chip shows <code>N selected</code>.</li>
+      <li>Click a material row in the table to make it active.</li>
+      <li>Press <b>Assign to selection (N)</b>.</li>
+    </ol>
+    <p>The overlay recolors immediately and the binding is saved to the project as <code>user_confirmed</code>. If some selected prims already carry a <em>different</em> user-confirmed material, the button turns into a two-step confirm (<code>N assigned — overwrite?</code>) so one click cannot silently discard a manual decision. <b>Unassign selection (N)</b> clears the binding, with the same two-step guard for confirmed assignments.</p>
+
+    <h3>Custom materials</h3>
+    <p>Press <b>New custom material</b>, type a name (the id is auto-slugged from it, e.g. "My Facade Glass" → <code>my_facade_glass</code>), and press <b>Create</b>. If a library row was active, the new material is cloned from it. Clicking any row opens the editor below the table, with fields for <b>Display name</b>, <b>Relative permittivity εr</b>, <b>Conductivity σ (S/m)</b>, <b>Thickness (m)</b>, <b>Scattering coeff (0–1)</b>, <b>XPD coeff (0–1)</b>, and <b>Preview color</b> — save with <b>Save material</b>. Leaving εr/σ empty makes the material fall back to the ITU frequency-dependent model at simulation time. Custom materials can be removed with <b>Delete material</b> (two clicks — the first arms the confirm); builtin materials cannot be deleted.</p>
+
+    <h3>Move libraries between projects</h3>
+    <ul>
+      <li><b>Export library</b> downloads the whole library as a portable JSON file — useful when you have calibrated materials you want to reuse.</li>
+      <li><b>Import library</b> merges a library JSON into the current project. Colliding ids are renamed by the server, never overwritten.</li>
+    </ul>
+
+    <h2>3. Validation mode — find what's missing</h2>
+    <p>Switch to the <b>Validation</b> tab and press <b>Run validation</b>. The <b>Scene validation</b> panel summarizes the report as severity chips — errors, warnings, info — plus an overall <code>ok</code> / <code>blocked</code> chip:</p>
+    <figure class="doc-shot"><img loading="lazy" decoding="async" src="../../assets/guides/04_validation.png" alt="Validation mode: 0 errors / 6 warnings / 1 info chips and MISSING_RF_MATERIAL warning cards with per-prim remediation hints"><figcaption>A validation run on the Sample Demo: six <code>MISSING_RF_MATERIAL</code> warnings, each naming the prim and listing concrete next steps.</figcaption></figure>
+    <p>Each issue row shows the machine-readable code, a message, and the affected prim id — <b>click a row to select that prim</b> in the scene, so you can fix issues one by one. <code>MISSING_RF_MATERIAL</code> warnings carry per-prim remediation hints such as "Assign an RF material in the RF Materials tab" and "Run rule-based or AI suggestion". Other checks cover unknown material ids, visual/RF mismatches, missing thickness, invalid mesh references, and more.</p>
+    <p>If the report is hard to read, press <b>Explain with AI</b>: it re-runs validation and explains every issue in plain language with suggested actions. It is strictly read-only — it never changes the scene — and it needs a local LLM provider (e.g. Ollama); without one you get a clear message instead.</p>
+
+    <h2>4. AI Assist mode — evidence-based suggestions</h2>
+    <p>Switch to the <b>AI Assist</b> tab. The <b>AI material assist</b> panel starts with the <b>Providers</b> list:</p>
+    <figure class="doc-shot"><img loading="lazy" decoding="async" src="../../assets/guides/05_ai_assist.png" alt="AI Assist mode: provider radios with reachability dots, vision attachment checkboxes, the suggest button, the natural-language rules box, and an ITU Concrete suggestion card at 90% confidence"><figcaption>AI Assist — providers (only <code>rule_based</code> reachable here), the natural-language rules box, and a suggestion card recommending ITU Concrete at 90% confidence with evidence bullets.</figcaption></figure>
+    <ul>
+      <li><b>auto (best available)</b> — picks the best reachable provider.</li>
+      <li><b>rule_based</b> — deterministic keyword rules over prim names, visual material names, and tags. Always available, no server needed — so the whole flow works offline and with the Mock backend.</li>
+      <li><b>local_openai</b> — a local OpenAI-compatible server (e.g. LM Studio).</li>
+      <li><b>ollama_text</b> — a local Ollama server.</li>
+      <li><b>disabled</b> — AI turned off.</li>
+    </ul>
+    <p>Each row has a reachability dot; unreachable providers are grayed out with a detail message (the toolbar also shows the active provider name, or <b>AI off</b>). For <code>local_openai</code>/<code>ollama_text</code> a <b>Model</b> picker appears so you can pin a specific model.</p>
+    <p>Two checkboxes feed extra visual evidence to vision-capable models:</p>
+    <ul>
+      <li><b>Attach viewport screenshot</b> — the provider sees the 3D view from 4 sides (Ollama may switch to its vision model).</li>
+      <li><b>Attach per-prim texture crops</b> — close-ups of each prim's baseColor texture from the GLB (textured scenes only).</li>
+    </ul>
+
+    <h3>Suggest, review, apply</h3>
+    <p>Press <b>Suggest RF materials (all unassigned)</b> (with a selection active it becomes <code>(N selected)</code>). Each suggestion arrives as a card: the prim id, the recommended material (e.g. <b>ITU Concrete</b>), a <b>confidence bar</b>, evidence bullets ("prim name contains 'wall'", "visual material name contains 'concrete'"), and alternative chips. On each card choose <b>Approve</b>, <b>Reject</b>, or pick another material via <b>Edit: pick other…</b> — then press <b>Apply decisions (N)</b>. Suggestions are evidence only; nothing touches the scene until you apply, and <b>↩ Revert</b> restores the previous bindings after an apply. Cards also carry an <b>RF disambiguate</b> fold-out that ranks candidate materials against measured path gains — see <a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/ai_assistant.md">../ai_assistant.md</a> for the full contract.</p>
+
+    <h3>Natural-language assignment rules</h3>
+    <p>In <b>Assignment rules (natural language)</b>, describe the mapping in one sentence (e.g. "assign concrete to walls and glass to windows/glazing") and press <b>Generate rules</b>. The LLM drafts editable rules — comma-separated name-match terms → material — which you can tweak or delete before pressing <b>Apply rules (N)</b>. Applying only <em>suggests</em>: the matched prims populate the same review cards above, and nothing is committed until <b>Apply decisions</b>.</p>
+
+    <h3>SEAM-Agent batch for large textured scenes</h3>
+    <p>For big photogrammetry scenes with many textured buildings, open <b>SEAM-Agent batch (multi-building)…</b>. Check the buildings to process, add an optional <b>Hint</b> (a shared site hint such as "Hanyang University Seoul campus"), optionally enable <b>Allow web evidence</b>, and press <b>Run N building(s) sequentially</b>. The agent captures, analyzes, and proposes per-facade materials one building at a time; finished items show <b>needs review</b>, and the <b>Review</b> button opens that building's proposals on its prim card. A running batch can be halted with <b>■ Stop batch</b>.</p>
+
+    <h2>Related docs</h2>
+    <ul>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/rf_materials.md">../rf_materials.md</a> — library file format, ITU vs constant models, the default library, per-prim overrides.</li>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/ai_assistant.md">../ai_assistant.md</a> — provider chain, configuration variables, the strict JSON contract, provenance logging.</li>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/accuracy.md">../accuracy.md</a> — why materials dominate RT accuracy and how measurement calibration reduces the residual.</li>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/TUTORIAL.md">../../TUTORIAL.md</a> — the 15-minute first-session tour, including a hands-on assignment walkthrough.</li>
+    </ul>
+
+    <div class="pn">
+      <a href="scene_import.html"><span class="lbl">Previous</span>Importing Scenes: Mitsuba XML, OpenStreetMap, and Device JSON</a>
+      <a href="simulation.html"><span class="lbl">Next</span>Simulating: paths, radio maps, beamforming, and channel analysis</a>
+    </div>
+  </article>
+</div>
+
+<footer>
+  <div class="wrap fineprint">
+    SEAM Studio · Apache License 2.0 · <a href="https://github.com/jaewoo4200/SEAM">github.com/jaewoo4200/SEAM</a> · <a href="../../ko/guides/materials_and_ai.html">한국어 가이드</a><br>
+    Developed by <b>Jaewoo Lee (이재우)</b> · Wireless Systems Laboratory (WSL), Hanyang University · BEYOND-G Global Innovation Center
+  </div>
+</footer>
+
+<script>(function(){
+  var root=document.documentElement, sw=document.querySelector('.theme-sw');
+  if(!sw)return;
+  function cur(){return localStorage.getItem('seam-theme')||'auto';}
+  function paint(m){sw.querySelectorAll('button').forEach(function(b){
+    b.setAttribute('aria-pressed', String(b.dataset.theme===m));});}
+  function apply(m){
+    if(m==='auto'){root.removeAttribute('data-theme');try{localStorage.removeItem('seam-theme');}catch(e){}}
+    else{root.setAttribute('data-theme',m);try{localStorage.setItem('seam-theme',m);}catch(e){}}
+    paint(m);}
+  sw.addEventListener('click',function(e){var b=e.target.closest('button');if(b)apply(b.dataset.theme);});
+  paint(cur());
+})();</script>
+</body>
+</html>

@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>(function(){try{var t=localStorage.getItem('seam-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
+<title>시뮬레이션: 경로, 라디오맵, 빔포밍, 채널 분석 — SEAM Studio</title>
+<meta name="description" content="SEAM Studio의 Results 모드에서 레이 경로, 커버리지 라디오맵, MIMO 빔포밍, 링크별 채널 분석을 실행하고 결과를 읽는 방법을 안내합니다.">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Cdefs%3E%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%22%20x2%3D%221%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23173a8a%22/%3E%3Cstop%20offset%3D%22.5%22%20stop-color%3D%22%232fd0c0%22/%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23e2632e%22/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect%20width%3D%2264%22%20height%3D%2264%22%20rx%3D%2212%22%20fill%3D%22%230b111b%22/%3E%3Ctext%20x%3D%2232%22%20y%3D%2242%22%20font-family%3D%22Segoe%20UI%2CArial%2Csans-serif%22%20font-size%3D%2236%22%20font-weight%3D%22700%22%20fill%3D%22%232e9bff%22%20text-anchor%3D%22middle%22%3ES%3C/text%3E%3Crect%20x%3D%2214%22%20y%3D%2250%22%20width%3D%2236%22%20height%3D%225%22%20rx%3D%222.5%22%20fill%3D%22url%28%23g%29%22/%3E%3C/svg%3E">
+<link rel="canonical" href="https://jaewoo4200.github.io/SEAM/ko/guides/simulation.html">
+<link rel="alternate" hreflang="ko" href="https://jaewoo4200.github.io/SEAM/ko/guides/simulation.html">
+<link rel="alternate" hreflang="en" href="https://jaewoo4200.github.io/SEAM/en/guides/simulation.html">
+<meta name="theme-color" content="#0b111b" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f4f7fc" media="(prefers-color-scheme: light)">
+<style>
+:root{
+  --bg:#0b111b; --panel:#141d2b; --line:#233246; --ink:#e2eaf4; --mut:#8a9cb0;
+  --acc:#2e9bff; --mut2:#6f8299; --link-mut:#8fb4dd; --code-acc:#7bb8f5;
+}
+:root[data-theme="light"]{ --bg:#f4f7fc; --panel:#ffffff; --line:#dde5ef; --ink:#17242f; --mut:#54677a; --acc:#1f77dd; --mut2:#54677a; --link-mut:#3a6ea5; --code-acc:#2f6595 }
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){ --bg:#f4f7fc; --panel:#ffffff; --line:#dde5ef; --ink:#17242f; --mut:#54677a; --acc:#1f77dd; --mut2:#54677a; --link-mut:#3a6ea5; --code-acc:#2f6595 }
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:16px/1.7 "Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,sans-serif}
+img{max-width:100%;display:block}
+a{color:var(--acc);text-decoration:none}
+a:hover{text-decoration:underline}
+.mono{font-family:"Cascadia Code",Consolas,ui-monospace,monospace}
+.wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+
+/* top tab bar (flat research-site style) */
+.topbar{position:sticky;top:0;z-index:20;background:var(--panel);border-bottom:1px solid var(--line)}
+.topbar .in{max-width:1120px;margin:0 auto;padding:0 24px;display:flex;align-items:center;gap:20px;height:52px}
+.topbar .brand{font:700 15px/1 "Segoe UI Variable Display","Segoe UI",sans-serif;color:var(--ink);letter-spacing:-.01em;white-space:nowrap}
+.topbar .brand .studio{color:var(--acc)}
+.topbar a{text-decoration:none}
+.topbar nav.tabs{display:flex;gap:2px;overflow-x:auto;scrollbar-width:none;flex:1}
+.topbar nav.tabs::-webkit-scrollbar{display:none}
+.topbar nav.tabs a{color:var(--mut);font-size:13.5px;font-weight:600;padding:6px 11px;border-radius:4px;white-space:nowrap}
+.topbar nav.tabs a:hover{color:var(--ink);text-decoration:none}
+.topbar nav.tabs a.active{color:var(--acc)}
+.topbar .side{display:flex;gap:10px;align-items:center;white-space:nowrap}
+.topbar .side .lang{font-family:Consolas,monospace;font-size:12px;letter-spacing:.08em;color:var(--mut)}
+.topbar .side .lang a{color:var(--link-mut)}
+.topbar .side .lang b{color:var(--ink)}
+.topbar .side .lang span{margin:0 5px;color:var(--mut2)}
+.theme-sw{display:flex;gap:2px;background:transparent;border:1px solid var(--line);border-radius:999px;padding:3px}
+.theme-sw button{font:600 11px/1 Consolas,monospace;letter-spacing:.04em;color:var(--mut);
+  background:transparent;border:0;border-radius:999px;padding:5px 9px;cursor:pointer}
+.theme-sw button[aria-pressed="true"]{background:var(--acc);color:#04101f}
+a:focus-visible,button:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+
+/* docs layout */
+.docwrap{display:grid;grid-template-columns:230px minmax(0,1fr);gap:44px;padding:44px 0 72px}
+@media (max-width:860px){ .docwrap{grid-template-columns:1fr} aside.sidenav{position:static;order:2;border-top:1px solid var(--line);padding-top:20px} }
+aside.sidenav{position:sticky;top:76px;align-self:start}
+aside.sidenav .cap{font-family:Consolas,monospace;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--mut2);margin:0 0 10px}
+aside.sidenav a{display:block;color:var(--mut);font-size:13.5px;padding:6px 10px;border-left:2px solid var(--line);text-decoration:none}
+aside.sidenav a:hover{color:var(--ink)}
+aside.sidenav a.active{color:var(--acc);border-left-color:var(--acc);font-weight:600}
+aside.sidenav .all{margin-top:12px;border-left:0;padding-left:10px;font-weight:600;color:var(--link-mut)}
+
+article{max-width:820px;min-width:0}
+article .eyebrow{font-family:Consolas,monospace;font-size:12px;letter-spacing:.22em;color:var(--acc);text-transform:uppercase}
+article h1{font:650 clamp(28px,4vw,40px)/1.15 "Segoe UI Variable Display","Segoe UI",sans-serif;letter-spacing:-.02em;margin:8px 0 10px}
+article p.lead{color:var(--mut);font-size:16.5px;margin:0 0 8px}
+article .spectrum{height:3px;background:linear-gradient(90deg,#173a8a,#2e9bff,#2fd0c0,#8fd45e,#e8b93c,#e2632e);border-radius:2px;width:110px;margin:18px 0 26px}
+article h2{font:650 22px/1.3 "Segoe UI Variable Display","Segoe UI",sans-serif;margin:40px 0 12px;padding-top:18px;border-top:1px solid var(--line)}
+article h3{font:600 17px/1.35 "Segoe UI",sans-serif;margin:26px 0 8px}
+article p{margin:10px 0;color:var(--ink)}
+article p.note, article li{color:var(--ink)}
+article ul,article ol{padding-left:24px;margin:10px 0}
+article li{margin:5px 0}
+article table{border-collapse:collapse;width:100%;font-size:14px;margin:14px 0;display:block;overflow-x:auto}
+article th,article td{border:1px solid var(--line);padding:8px 12px;text-align:left;vertical-align:top}
+article th{background:var(--panel);font-weight:600}
+article code{font-family:"Cascadia Code",Consolas,ui-monospace,monospace;font-size:.92em;color:var(--code-acc);background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:1px 6px}
+article pre{background:#0e1622;border:1px solid #233246;border-radius:6px;padding:16px 18px;overflow-x:auto;
+  font-family:"Cascadia Code",Consolas,monospace;font-size:13px;line-height:1.8;color:#cfe0f2;margin:14px 0}
+article pre code{background:none;border:0;padding:0;color:inherit}
+article figure.doc-shot{margin:20px 0;background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+article figure.doc-shot img{width:100%}
+article figure.doc-shot figcaption{padding:10px 14px;font-size:13px;color:var(--mut);border-top:1px solid var(--line)}
+article blockquote{margin:14px 0;padding:10px 16px;border-left:3px solid var(--acc);background:var(--panel);border-radius:0 6px 6px 0;color:var(--mut);font-size:14.5px}
+article blockquote p{color:var(--mut)}
+.pn{display:flex;justify-content:space-between;gap:14px;margin-top:48px;padding-top:18px;border-top:1px solid var(--line);font-size:14px;font-weight:600}
+.pn a{max-width:48%}
+.pn .lbl{display:block;font:400 11px/1 Consolas,monospace;letter-spacing:.14em;text-transform:uppercase;color:var(--mut2);margin-bottom:4px}
+
+footer{border-top:1px solid var(--line)}
+.fineprint{padding:26px 0 40px;color:var(--mut2);font-size:12.5px;line-height:1.8;text-align:center}
+.fineprint a{color:var(--link-mut)}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="in">
+    <a class="brand" href="../">SEAM <span class="studio">Studio</span></a>
+    <nav class="tabs" aria-label="사이트">
+      <a href="../">개요</a>
+      <a href="../#features">기능</a>
+      <a href="../#capabilities">세부 기능</a>
+      <a href="../#agent">SEAM-Agent</a>
+      <a class="active" href="./">가이드</a>
+      <a href="../#quickstart">설치</a>
+    </nav>
+    <div class="side">
+      <nav class="theme-sw" aria-label="테마"><button data-theme="auto">자동</button><button data-theme="light">라이트</button><button data-theme="dark">다크</button></nav>
+      <nav class="lang" aria-label="Language"><b>KO</b><span>·</span><a href="../../en/guides/simulation.html">EN</a></nav>
+    </div>
+  </div>
+</div>
+
+<div class="wrap docwrap">
+  <aside class="sidenav">
+    <p class="cap">사용 가이드</p>
+    <a href="getting_started.html">시작하기</a>
+    <a href="scene_import.html">씬 임포트</a>
+    <a href="materials_and_ai.html">RF 재질 &amp; AI</a>
+    <a class="active" href="simulation.html">시뮬레이션</a>
+    <a href="trajectory_uav.html">궤적 &amp; UAV</a>
+    <a href="datasets_export.html">ML 데이터셋 &amp; 내보내기</a>
+    <a class="all" href="./">← 전체 가이드</a>
+  </aside>
+
+  <article>
+    <div class="eyebrow">Guide 04 · SEAM Studio docs</div>
+    <h1>시뮬레이션: 경로, 라디오맵, 빔포밍, 채널 분석</h1>
+    <p class="lead">SEAM Studio의 모든 계산은 <b>Results</b> 모드에서 이뤄집니다: 레이 경로, 커버리지 라디오맵, MIMO 빔포밍, 링크별 채널 분석. 이 가이드는 각 솔버와 핵심 노브, 결과를 읽는 법을 차례로 안내합니다. Sionna RT가 설치되어 있지 않아도 전 과정이 <b>Mock 백엔드</b>로 동작하므로 GPU 없이 그대로 따라 할 수 있습니다.</p>
+    <div class="spectrum"></div>
+
+    <h2>1. Results 모드 화면 구성</h2>
+
+    <p>툴바에서 <b>Results</b> 탭을 클릭하세요. 오른쪽 사이드바에 <b>Global</b>,
+    <b>Paths</b>, <b>Radio map</b> 세 개의 접이식 섹션을 가진 <b>Simulation</b> 패널과,
+    경로 테이블·오버레이 토글이 있는 <b>Results</b> 패널이 놓입니다.
+    <b>Channel analysis</b>, <b>Metrics dashboard</b>, <b>UE trajectory</b>,
+    <b>Scenario playback</b>, <b>ML dataset</b> 패널은 도킹 가능합니다 — 어느 모드에서든
+    툴바의 <b>Panels ▾</b> 메뉴에서 플로팅하거나 좌/우 사이드바로 옮길 수 있습니다.</p>
+
+    <p><b>Global</b> 섹션은 모든 솔버(경로/라디오맵/빔포밍/채널)가 공유하는 설정입니다:</p>
+
+    <table>
+      <thead>
+        <tr><th>필드</th><th>하는 일</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><b>Preset</b></td><td>대표 시나리오 설정을 Paths와 Radio map에 한 번에 적용: <code>28 GHz Indoor Lab</code>, <code>28 GHz Outdoor Campus</code>, <code>3.5 GHz Urban Macro</code>, <code>60 GHz Indoor</code>, <code>28 GHz UAV A2G</code>. 노브를 손으로 바꾸면 <code>Custom</code>으로 전환됩니다.</td></tr>
+        <tr><td><b>Backend</b></td><td><code>auto</code> / <code>mock</code> / <code>sionna</code>. <code>auto</code>는 Sionna RT가 설치되어 있으면 사용하고, 없으면 mock 솔버로 대체합니다.</td></tr>
+        <tr><td><b>Engine</b></td><td>등록된 Sionna RT 버전이 둘 이상일 때만 표시 — paths 솔브를 돌릴 버전을 고릅니다(예: <code>Sionna RT 2.0.1</code>). <a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/engines.ko.md">../engines.ko.md</a> 참고.</td></tr>
+        <tr><td><b>Frequency</b> (GHz)</td><td>반송파 주파수(기본 28 GHz).</td></tr>
+        <tr><td><b>Bandwidth</b> (MHz)</td><td>잡음·CFR·용량 계산에 쓰는 채널 대역폭.</td></tr>
+        <tr><td><b>Noise figure</b> (dB)</td><td>SNR/SINR용 수신기 잡음지수.</td></tr>
+        <tr><td><b>Seed</b></td><td>난수 시드 — 시드가 같으면 레이도 같습니다.</td></tr>
+      </tbody>
+    </table>
+
+    <p>Global 섹션에는 <b>Beamforming array</b> 설정(4절)과 <b>Live sync</b> 토글도
+    함께 있습니다.</p>
+
+    <h2>2. 경로 (Paths)</h2>
+
+    <figure class="doc-shot"><img loading="lazy" decoding="async" src="../../assets/guides/06_paths.png" alt="3D 씬 위에 TX에서 RX로 그려진 다섯 개의 레이 경로와 오른쪽에 열린 Simulation 패널"><figcaption>경로 솔브 결과: 상호작용 종류별로 색이 다른 TX→RX 폴리라인과 Simulation 패널의 Global·Paths 섹션.</figcaption></figure>
+
+    <p>같은 솔브를 실행하는 버튼이 두 개 있습니다:</p>
+
+    <ul>
+      <li>툴바 오른쪽의 파란 <b>Simulate paths</b> 버튼(어느 모드에서든 원클릭),</li>
+      <li>Simulation 패널 <b>Paths</b> 섹션 안의 <b>Compute paths</b>(노브를 먼저
+        조정하고 실행할 때).</li>
+    </ul>
+
+    <ol>
+      <li>둘 중 하나를 누르면 토스트가 결과를 알려줍니다(예:
+        <code>Simulated 5 path(s) via sionna backend</code>).</li>
+      <li>3D 씬 위에 TX→RX 폴리라인이 오버레이됩니다. 상호작용별 색상:
+        <b>LOS 시안, 반사 마젠타, 회절 주황, 산란 초록</b>. TX 마커는 빨강,
+        RX 마커는 파랑입니다.</li>
+      <li><b>Results</b> 패널의 테이블에 경로가 나열됩니다(<b>type / dBm / ns / #int</b>
+        열). 행을 클릭하면 정점과 상호작용이 prim id·RF 재질로 매핑되어
+        표시되고, <b>Delay vs power</b> 산점도와 <b>AoA / AoD</b> 플롯이 함께
+        나타납니다.</li>
+    </ol>
+
+    <h3>정확도 프리셋 (Accuracy)</h3>
+
+    <p>레이 수를 하나씩 만지는 대신 Paths 섹션의 <b>Accuracy</b> 세그먼트 버튼을
+    쓰세요:</p>
+
+    <table>
+      <thead>
+        <tr><th>프리셋</th><th>Samples/it</th><th>Max depth</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><b>Preview</b></td><td>10^5</td><td>2</td></tr>
+        <tr><td><b>Balanced</b></td><td>10^6</td><td>3</td></tr>
+        <tr><td><b>High</b></td><td>5×10^6</td><td>5</td></tr>
+      </tbody>
+    </table>
+
+    <p><b>Max depth</b>(0–12)나 <b>Samples / it (log 10)</b>(10^4–10^7) 슬라이더를
+    직접 움직이면 <b>Custom</b>으로 표시됩니다. 그 아래 메커니즘 체크박스
+    (<b>Line of sight</b>, <b>Specular reflection</b>, <b>Diffuse reflection</b>,
+    <b>Refraction</b>, <b>Diffraction</b>, <b>Edge diffraction</b>,
+    <b>Lit-region diffraction</b>)로 솔버가 추적할 상호작용을 고릅니다.</p>
+
+    <h3>오버레이 토글과 필터</h3>
+
+    <p>Results 패널의 <b>Show:</b> 줄에서 오버레이를 각각 켜고 끕니다 — <b>Rays</b>,
+    <b>Radio map</b>, <b>Beamforming</b>, <b>Trajectory rays</b>, <b>Scenario</b>.
+    뷰어 컨트롤로 그려지는 경로를 거를 수 있습니다: <b>Strongest N</b>(또는
+    <b>All</b>), <b>Min power</b>(dBm), <b>Color by</b> <code>type</code>/<code>power</code>/<code>depth</code>,
+    <b>Line width by power</b>. 레이 오버레이를 완전히 지우려면 Paths 섹션의
+    <b>Remove</b>를 누르세요. <b>Auto update</b>를 켜 두면 씬이 바뀔 때마다 경로가
+    자동으로 다시 계산됩니다.</p>
+
+    <h2>3. 라디오맵 (Radio map)</h2>
+
+    <figure class="doc-shot"><img loading="lazy" decoding="async" src="../../assets/guides/07_radio_map.png" alt="jet 컬러맵 커버리지 히트맵과 Path gain 범례, 결과 토스트"><figcaption>씬에 깔린 라디오맵: jet 컬러맵, "Path gain" dB 컬러바, 완료 토스트.</figcaption></figure>
+
+    <p>라디오맵은 씬 위에 수신 격자를 깔고 수신 세기를 히트맵으로 칠합니다:</p>
+
+    <ol>
+      <li>Simulation 패널의 <b>Radio map</b> 섹션에서 <b>Compute radio map</b>을
+        누릅니다(Results 패널의 <b>Simulate radio map</b>도 동일).</li>
+      <li><b>jet</b> 컬러맵(파랑=약함, 빨강=강함) 히트맵이 나타나고, 뷰포트에
+        <b>Path gain</b>(dB) — 또는 <b>RSS</b>(dBm) — 라벨이 붙은 컬러바 범례가 값
+        범위를 보여줍니다.</li>
+      <li>옵션: <b>Cell size</b>(m), <b>Height</b>(m), <b>Metric</b> — <code>Path gain (dB)</code>,
+        <code>RSS (dBm)</code>, <code>SINR (multi-TX)</code>. 섹션에는 별도의 <b>Accuracy</b> /
+        <b>Max depth</b> / <b>Samples</b> / 메커니즘 노브도 있습니다.</li>
+      <li><b>Remove</b>로 오버레이를 지웁니다. <b>Auto update</b>는 씬 편집 시
+        재계산하고, <b>every</b> 셀렉트(10 s / 30 s / 1 min / 5 min)는 라이브
+        센싱 씬을 위해 고정 주기로 다시 풉니다.</li>
+    </ol>
+
+    <h3>셀 맵 vs 메시 맵</h3>
+
+    <p>위의 맵은 고정 높이의 수평 격자, 즉 <b>평면 셀 맵</b>입니다. 커버리지를
+    <b>실제 표면</b>(벽·바닥·도로)에 칠하려면 대상 프림을 선택한 뒤 Results
+    패널의 <b>Mesh radio map</b> 접이식 섹션을 열고 <b>Run mesh radio map</b>을
+    누르세요. 삼각형마다 탐침을 하나씩 풀어 색을 지오메트리 위에 입히고,
+    전용 <b>Mesh map</b> 체크박스로 오버레이를 토글하며, 값 범위는 예를 들어
+    <code>Path gain range −95.2 … −61.4 dB (jet: low → high)</code>처럼 표시됩니다.</p>
+
+    <h2>4. 빔포밍 어레이 (Beamforming array)</h2>
+
+    <figure class="doc-shot"><img loading="lazy" decoding="async" src="../../assets/guides/08_beamforming.png" alt="빔포밍 결과 토스트와 Global 섹션의 어레이 설정"><figcaption>코드북 스윕 결과: Global 섹션의 어레이 설정과 요약 토스트.</figcaption></figure>
+
+    <ol>
+      <li><b>Global</b> 섹션에서 <b>Beamforming array</b>를 설정합니다:
+        <b>TX rows × cols</b>, <b>RX rows × cols</b>(각각 1/2/4/8, 예: 4 × 4).</li>
+      <li><b>Mode</b>를 고릅니다:
+        <ul>
+          <li><b>codebook sweep</b> — 양단의 빔 각도를 스윕합니다.
+            <b>Sweep start / Sweep stop / Sweep step</b>(°) 필드가 나타납니다.</li>
+          <li><b>TX-MRT</b> — TX 측 최대비 전송.</li>
+          <li><b>SVD</b> — 양단 SVD 빔포밍.</li>
+        </ul>
+      </li>
+      <li><b>Beamforming</b> 버튼을 누릅니다(Results 패널과 툴바
+        <b>Actions ▾ → Beamforming</b>에서도 실행 가능).</li>
+      <li>토스트가 실행 결과를 요약합니다(예:
+        <code>Beamforming 4x4→4x4 (mock) · codebook 25.0 dB · best TX 0° / RX 0°</code>).
+        결과 카드에는 단일 소자 기준값과 이득이, 코드북 스윕에서는 TX/RX
+        각도별 이득의 jet 히트맵이 함께 표시됩니다. 버튼 옆 <b>Auto update</b>
+        체크박스를 켜면 씬이 바뀔 때 자동으로 다시 실행됩니다.</li>
+    </ol>
+
+    <h2>5. 채널 분석 (Channel analysis)</h2>
+
+    <figure class="doc-shot"><img loading="lazy" decoding="async" src="../../assets/guides/09_channel_analysis.png" alt="링크 버짓 KPI와 CIR/CFR 차트가 있는 플로팅 Channel analysis 패널"><figcaption>뷰포트 위에 플로팅한 Channel analysis 패널: 링크 버짓, CIR 전력-지연 프로파일, CFR 크기.</figcaption></figure>
+
+    <p><b>Channel analysis</b> 패널은 도킹 가능합니다 — <b>Panels ▾</b>에서 열고,
+    3D 뷰와 나란히 보고 싶으면 플로팅하세요.</p>
+
+    <ol>
+      <li><b>TX</b>와 <b>RX</b> 디바이스를 고르고 <b>CFR points</b>(대역 내 주파수 표본
+        수, 기본 128)를 설정합니다.</li>
+      <li>필요하면 <b>Live parameters</b>를 조정합니다: <b>Frequency (GHz)</b>,
+        <b>Bandwidth (MHz)</b>, <b>TX power (dBm)</b>, <b>Noise figure (dB)</b>,
+        <b>SCS (kHz)</b>(15/30/60/120). SCS 옆에는 파생값 <b>N_RB</b>(자원블록 수 =
+        ⌊BW/(12·SCS)⌋)가 실시간으로 갱신되고, <b>Reset to config</b>는 값을 현재
+        솔버 설정과 TX 디바이스 값으로 되돌립니다.</li>
+      <li><b>Analyze</b>를 누릅니다. 결과 줄에 TX→RX 쌍이 <b>fixed link</b> 배지와
+        함께 표시됩니다(현재 위치에서의 스냅샷 — 이동 수신기 스윕은 UE
+        trajectory 패널 담당). 백엔드, 주파수, 3D 거리, 경로 수도 함께
+        나옵니다.</li>
+    </ol>
+
+    <p>그 아래:</p>
+
+    <ul>
+      <li><b>Link budget</b> — <b>RSS</b>, <b>SNR</b>, <b>SINR</b>, <b>Interference</b>(다중 TX
+        씬에서는 간섭 TX 수 포함), <b>Shannon</b> 용량, <b>K-factor</b>, <b>RMS DS</b>
+        (지연확산), <b>Coh. BW</b>, 그리고 시변 채널이면 <b>Doppler spread</b>·
+        <b>Coh. time</b>.</li>
+      <li><b>CIR (power delay profile)</b> — 탭마다 경로 종류 색으로 그린 스템 플롯.</li>
+      <li><b>CFR magnitude</b> — 대역에 걸친 |H| (dB).</li>
+      <li><b>Path-loss models vs RT</b> — 3GPP 모델 예측과 레이 트레이싱 기준 대비
+        차이.</li>
+    </ul>
+
+    <p>한 번 분석한 뒤 Live parameter를 바꾸면 같은 쌍이 자동으로 재분석됩니다
+    (디바운스). <b>Auto update</b> 체크박스는 씬이 바뀔 때마다 마지막 분석을
+    다시 실행합니다(먼저 수동 <b>Analyze</b>가 한 번 필요). <b>Clear</b>는 결과를
+    지웁니다.</p>
+
+    <p>접혀 있는 세 개의 확장 섹션도 있습니다: <b>Channel sweep</b>(설정 필드
+    하나를 스윕하며 링크 지표를 차트로 — <b>Run sweep</b>), <b>Doppler-time
+    spectrogram</b>(<b>Compute spectrogram</b> — 시변 채널의 STFT 히트맵),
+    <b>Flight-log validation</b>(<b>Validate</b> — 경로를 따라 실측 vs 예측
+    path gain 비교).</p>
+
+    <h2>6. 백엔드, 결과 보존, stale 표시</h2>
+
+    <ul>
+      <li>Sionna RT가 없으면 <b>모든 솔버가 Mock 백엔드로 대체</b>됩니다(툴바 칩이
+        <b>Mock only</b>로 표시). mock은 결정적이고 결과 형식이 동일하므로, 어느
+        노트북에서든 전체 워크플로를 만들어 시험한 뒤 실 장비에서 <b>Backend</b>를
+        <code>sionna</code>로 바꾸면 됩니다.</li>
+      <li>결과는 프로젝트별로 보존됩니다: 경로 결과는 프로젝트 폴더의
+        <code>results/{backend}_paths_{NNN}.json</code>에 쌓이고, 종류별 최신 결과는
+        프로젝트를 열 때 함께 로드됩니다.</li>
+      <li>Results 패널의 <b>Run history</b> 접이식 섹션이 결과 탐색기입니다: 지난
+        실행을 종류별로 묶어 보여주고, 클릭 한 번으로 다시 로드하며, 라벨을
+        붙이고, 정리할 수 있습니다(<b>Keep latest</b> N per kind →
+        <b>Prune old results</b>; 라벨 붙은 실행은 보존).</li>
+      <li>계산 후 씬이 바뀌면 결과에 <b>⚠ stale</b> 배지가 붙습니다 — 오래된 숫자를
+        조용히 보여주는 일은 없으니, 다시 실행해 갱신하세요.</li>
+    </ul>
+
+    <h2>관련 문서</h2>
+
+    <ul>
+      <li><a href="getting_started.html">시작 가이드</a> — 설치, 첫 프로젝트, 모드 둘러보기</li>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/TUTORIAL.ko.md">TUTORIAL</a> — 15분 첫 세션 전체 흐름</li>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/engines.ko.md">엔진</a> — 다른 Sionna RT 버전으로 paths 솔브</li>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/sionna_versions.ko.md">Sionna 버전</a> — 버전별 기능·재질 변천사</li>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/accuracy.ko.md">정확도</a> — RT 정확도의 한계와 측정 보정</li>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/ml_datasets.ko.md">ML 데이터셋</a> — 솔브 결과를 학습 데이터로</li>
+    </ul>
+
+    <div class="pn">
+      <a href="materials_and_ai.html"><span class="lbl">이전</span>RF 재질: 라이브러리·검증·AI 지원 지정</a>
+      <a href="trajectory_uav.html"><span class="lbl">다음</span>궤적과 UAV: 이동 수신기, 재생, POV 뷰</a>
+    </div>
+  </article>
+</div>
+
+<footer>
+  <div class="wrap fineprint">
+    SEAM Studio · Apache License 2.0 · <a href="https://github.com/jaewoo4200/SEAM">github.com/jaewoo4200/SEAM</a> · <a href="../../en/guides/simulation.html">English guides</a><br>
+    Developed by <b>Jaewoo Lee (이재우)</b> · Wireless Systems Laboratory (WSL), Hanyang University · BEYOND-G Global Innovation Center
+  </div>
+</footer>
+
+<script>(function(){
+  var root=document.documentElement, sw=document.querySelector('.theme-sw');
+  if(!sw)return;
+  function cur(){return localStorage.getItem('seam-theme')||'auto';}
+  function paint(m){sw.querySelectorAll('button').forEach(function(b){
+    b.setAttribute('aria-pressed', String(b.dataset.theme===m));});}
+  function apply(m){
+    if(m==='auto'){root.removeAttribute('data-theme');try{localStorage.removeItem('seam-theme');}catch(e){}}
+    else{root.setAttribute('data-theme',m);try{localStorage.setItem('seam-theme',m);}catch(e){}}
+    paint(m);}
+  sw.addEventListener('click',function(e){var b=e.target.closest('button');if(b)apply(b.dataset.theme);});
+  paint(cur());
+})();</script>
+</body>
+</html>

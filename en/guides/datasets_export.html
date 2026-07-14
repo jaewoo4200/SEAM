@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>(function(){try{var t=localStorage.getItem('seam-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
+<title>ML datasets and exports — SEAM Studio</title>
+<meta name="description" content="Export ML-ready NumPy .npz ground-truth datasets, AODT-compatible RFData bundles, WYSIWYG viewport captures, and per-chart CSV/PNG/SVG figures from SEAM Studio.">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Cdefs%3E%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%22%20x2%3D%221%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23173a8a%22/%3E%3Cstop%20offset%3D%22.5%22%20stop-color%3D%22%232fd0c0%22/%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23e2632e%22/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect%20width%3D%2264%22%20height%3D%2264%22%20rx%3D%2212%22%20fill%3D%22%230b111b%22/%3E%3Ctext%20x%3D%2232%22%20y%3D%2242%22%20font-family%3D%22Segoe%20UI%2CArial%2Csans-serif%22%20font-size%3D%2236%22%20font-weight%3D%22700%22%20fill%3D%22%232e9bff%22%20text-anchor%3D%22middle%22%3ES%3C/text%3E%3Crect%20x%3D%2214%22%20y%3D%2250%22%20width%3D%2236%22%20height%3D%225%22%20rx%3D%222.5%22%20fill%3D%22url%28%23g%29%22/%3E%3C/svg%3E">
+<link rel="canonical" href="https://jaewoo4200.github.io/SEAM/en/guides/datasets_export.html">
+<link rel="alternate" hreflang="ko" href="https://jaewoo4200.github.io/SEAM/ko/guides/datasets_export.html">
+<link rel="alternate" hreflang="en" href="https://jaewoo4200.github.io/SEAM/en/guides/datasets_export.html">
+<meta name="theme-color" content="#0b111b" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f4f7fc" media="(prefers-color-scheme: light)">
+<style>
+:root{
+  --bg:#0b111b; --panel:#141d2b; --line:#233246; --ink:#e2eaf4; --mut:#8a9cb0;
+  --acc:#2e9bff; --mut2:#6f8299; --link-mut:#8fb4dd; --code-acc:#7bb8f5;
+}
+:root[data-theme="light"]{ --bg:#f4f7fc; --panel:#ffffff; --line:#dde5ef; --ink:#17242f; --mut:#54677a; --acc:#1f77dd; --mut2:#54677a; --link-mut:#3a6ea5; --code-acc:#2f6595 }
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){ --bg:#f4f7fc; --panel:#ffffff; --line:#dde5ef; --ink:#17242f; --mut:#54677a; --acc:#1f77dd; --mut2:#54677a; --link-mut:#3a6ea5; --code-acc:#2f6595 }
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:16px/1.7 "Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,sans-serif}
+img{max-width:100%;display:block}
+a{color:var(--acc);text-decoration:none}
+a:hover{text-decoration:underline}
+.mono{font-family:"Cascadia Code",Consolas,ui-monospace,monospace}
+.wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+
+/* top tab bar (flat research-site style) */
+.topbar{position:sticky;top:0;z-index:20;background:var(--panel);border-bottom:1px solid var(--line)}
+.topbar .in{max-width:1120px;margin:0 auto;padding:0 24px;display:flex;align-items:center;gap:20px;height:52px}
+.topbar .brand{font:700 15px/1 "Segoe UI Variable Display","Segoe UI",sans-serif;color:var(--ink);letter-spacing:-.01em;white-space:nowrap}
+.topbar .brand .studio{color:var(--acc)}
+.topbar a{text-decoration:none}
+.topbar nav.tabs{display:flex;gap:2px;overflow-x:auto;scrollbar-width:none;flex:1}
+.topbar nav.tabs::-webkit-scrollbar{display:none}
+.topbar nav.tabs a{color:var(--mut);font-size:13.5px;font-weight:600;padding:6px 11px;border-radius:4px;white-space:nowrap}
+.topbar nav.tabs a:hover{color:var(--ink);text-decoration:none}
+.topbar nav.tabs a.active{color:var(--acc)}
+.topbar .side{display:flex;gap:10px;align-items:center;white-space:nowrap}
+.topbar .side .lang{font-family:Consolas,monospace;font-size:12px;letter-spacing:.08em;color:var(--mut)}
+.topbar .side .lang a{color:var(--link-mut)}
+.topbar .side .lang b{color:var(--ink)}
+.topbar .side .lang span{margin:0 5px;color:var(--mut2)}
+.theme-sw{display:flex;gap:2px;background:transparent;border:1px solid var(--line);border-radius:999px;padding:3px}
+.theme-sw button{font:600 11px/1 Consolas,monospace;letter-spacing:.04em;color:var(--mut);
+  background:transparent;border:0;border-radius:999px;padding:5px 9px;cursor:pointer}
+.theme-sw button[aria-pressed="true"]{background:var(--acc);color:#04101f}
+a:focus-visible,button:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+
+/* docs layout */
+.docwrap{display:grid;grid-template-columns:230px minmax(0,1fr);gap:44px;padding:44px 0 72px}
+@media (max-width:860px){ .docwrap{grid-template-columns:1fr} aside.sidenav{position:static;order:2;border-top:1px solid var(--line);padding-top:20px} }
+aside.sidenav{position:sticky;top:76px;align-self:start}
+aside.sidenav .cap{font-family:Consolas,monospace;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--mut2);margin:0 0 10px}
+aside.sidenav a{display:block;color:var(--mut);font-size:13.5px;padding:6px 10px;border-left:2px solid var(--line);text-decoration:none}
+aside.sidenav a:hover{color:var(--ink)}
+aside.sidenav a.active{color:var(--acc);border-left-color:var(--acc);font-weight:600}
+aside.sidenav .all{margin-top:12px;border-left:0;padding-left:10px;font-weight:600;color:var(--link-mut)}
+
+article{max-width:820px;min-width:0}
+article .eyebrow{font-family:Consolas,monospace;font-size:12px;letter-spacing:.22em;color:var(--acc);text-transform:uppercase}
+article h1{font:650 clamp(28px,4vw,40px)/1.15 "Segoe UI Variable Display","Segoe UI",sans-serif;letter-spacing:-.02em;margin:8px 0 10px}
+article p.lead{color:var(--mut);font-size:16.5px;margin:0 0 8px}
+article .spectrum{height:3px;background:linear-gradient(90deg,#173a8a,#2e9bff,#2fd0c0,#8fd45e,#e8b93c,#e2632e);border-radius:2px;width:110px;margin:18px 0 26px}
+article h2{font:650 22px/1.3 "Segoe UI Variable Display","Segoe UI",sans-serif;margin:40px 0 12px;padding-top:18px;border-top:1px solid var(--line)}
+article h3{font:600 17px/1.35 "Segoe UI",sans-serif;margin:26px 0 8px}
+article p{margin:10px 0;color:var(--ink)}
+article p.note, article li{color:var(--ink)}
+article ul,article ol{padding-left:24px;margin:10px 0}
+article li{margin:5px 0}
+article table{border-collapse:collapse;width:100%;font-size:14px;margin:14px 0;display:block;overflow-x:auto}
+article th,article td{border:1px solid var(--line);padding:8px 12px;text-align:left;vertical-align:top}
+article th{background:var(--panel);font-weight:600}
+article code{font-family:"Cascadia Code",Consolas,ui-monospace,monospace;font-size:.92em;color:var(--code-acc);background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:1px 6px}
+article pre{background:#0e1622;border:1px solid #233246;border-radius:6px;padding:16px 18px;overflow-x:auto;
+  font-family:"Cascadia Code",Consolas,monospace;font-size:13px;line-height:1.8;color:#cfe0f2;margin:14px 0}
+article pre code{background:none;border:0;padding:0;color:inherit}
+article figure.doc-shot{margin:20px 0;background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+article figure.doc-shot img{width:100%}
+article figure.doc-shot figcaption{padding:10px 14px;font-size:13px;color:var(--mut);border-top:1px solid var(--line)}
+article blockquote{margin:14px 0;padding:10px 16px;border-left:3px solid var(--acc);background:var(--panel);border-radius:0 6px 6px 0;color:var(--mut);font-size:14.5px}
+article blockquote p{color:var(--mut)}
+.pn{display:flex;justify-content:space-between;gap:14px;margin-top:48px;padding-top:18px;border-top:1px solid var(--line);font-size:14px;font-weight:600}
+.pn a{max-width:48%}
+.pn .lbl{display:block;font:400 11px/1 Consolas,monospace;letter-spacing:.14em;text-transform:uppercase;color:var(--mut2);margin-bottom:4px}
+
+footer{border-top:1px solid var(--line)}
+.fineprint{padding:26px 0 40px;color:var(--mut2);font-size:12.5px;line-height:1.8;text-align:center}
+.fineprint a{color:var(--link-mut)}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="in">
+    <a class="brand" href="../">SEAM <span class="studio">Studio</span></a>
+    <nav class="tabs" aria-label="Site">
+      <a href="../">Overview</a>
+      <a href="../#features">Features</a>
+      <a href="../#capabilities">Capabilities</a>
+      <a href="../#agent">SEAM-Agent</a>
+      <a class="active" href="./">Guides</a>
+      <a href="../#quickstart">Quickstart</a>
+    </nav>
+    <div class="side">
+      <nav class="theme-sw" aria-label="Theme"><button data-theme="auto">Auto</button><button data-theme="light">Light</button><button data-theme="dark">Dark</button></nav>
+      <nav class="lang" aria-label="Language"><a href="../../ko/guides/datasets_export.html">KO</a><span>·</span><b>EN</b></nav>
+    </div>
+  </div>
+</div>
+
+<div class="wrap docwrap">
+  <aside class="sidenav">
+    <p class="cap">User guides</p>
+    <a href="getting_started.html">Getting started</a>
+    <a href="scene_import.html">Importing scenes</a>
+    <a href="materials_and_ai.html">RF materials &amp; AI</a>
+    <a href="simulation.html">Simulating</a>
+    <a href="trajectory_uav.html">Trajectories &amp; UAVs</a>
+    <a class="active" href="datasets_export.html">ML datasets &amp; exports</a>
+    <a class="all" href="./">← All guides</a>
+  </aside>
+
+  <article>
+    <div class="eyebrow">Guide 06 · SEAM Studio docs</div>
+    <h1>ML datasets and exports</h1>
+    <p class="lead">SEAM Studio is not just a viewer — everything you simulate can leave the app as files: NumPy <code>.npz</code> ground-truth datasets for training ML models, an AODT-viewer-compatible RFData bundle, WYSIWYG viewport captures, and per-chart CSV/PNG/SVG exports. This guide walks through each export path.</p>
+    <div class="spectrum"></div>
+
+    <p>Everything here works with the <b>Mock backend</b> too — if Sionna RT is not installed, dataset generation and all exports still run end to end (the numbers come from the mock solver, which is fine for testing pipelines).</p>
+
+    <h2>1. The ML dataset panel</h2>
+    <p>The dataset generator lives in the <b>ML dataset</b> panel (its header renders as <code>ML DATASET</code>). You can reach it two ways:</p>
+    <ul>
+      <li><b>Results</b> mode — it is one of the dockable cards on the right.</li>
+      <li>From any mode via the toolbar <b>Panels ▾</b> menu — click the <b>ML dataset</b> row to float it over the viewport, or dock it left/right with the <b>◧ / ◨</b> buttons. A floated panel stays visible when you switch modes.</li>
+    </ul>
+
+    <figure class="doc-shot"><img loading="lazy" decoding="async" src="../../assets/guides/10_dataset.png" alt="Floating ML DATASET panel over a radio-map heatmap, showing sampling controls, region fields, the Generate dataset button, and two existing dataset rows with npz/json links"><figcaption>The ML DATASET panel floated over a computed radio map — sampling controls on top, the region picker in the middle, and the dataset list with <code>npz</code> / <code>json</code> downloads at the bottom.</figcaption></figure>
+
+    <h3>Generate a dataset step by step</h3>
+    <ol>
+      <li><b>Name</b> — the dataset's display name (it also appears in the list below).</li>
+      <li><b>Sampling mode</b> — how UE positions are chosen:
+        <ul>
+          <li><code>random</code> — uniform random positions inside the region,</li>
+          <li><code>grid</code> — a regular grid over the region (adds a <b>Grid spacing</b> field, in m),</li>
+          <li><code>trajectory</code> — points along a straight start→end line.</li>
+        </ul>
+      </li>
+      <li><b>Actor flight path</b> — optionally sample along a scene actor's authored trajectory (a car, pedestrian, or UAV with waypoints). Pick an actor here and it <b>overrides</b> the region / start-end below; leave it at <code>— none —</code> to use the sampling mode's own geometry. If no actor has a trajectory yet, the panel says so — assign one in Visual mode first. The hint under the field spells out the precedence: <em>waypoints &gt; actor flight path &gt; start/end (or region)</em>.</li>
+      <li><b>dt</b> (s) — the finite-difference time step behind the velocity / Doppler labels the backend adds to moving samples.</li>
+      <li><b>Num samples</b> — how many UE positions to solve (1–20000). <b>CFR points</b> — frequency-response samples per position (2–4096). <b>Height</b> (m) — the UE sampling height.</li>
+      <li>Set the region (for <code>random</code> / <code>grid</code>):
+        <ul>
+          <li><b>⌖ Pick region in viewport</b> — the button switches to <code>Click 2 corners… (Esc)</code>; click two opposite corners of the region on the scene surface and the XY fields fill in (Esc cancels).</li>
+          <li><b>Fit to scene</b> — sets the region and height to cover the whole scene (the panel also seeds itself from the real scene bounds when a project loads, so you rarely start from garbage values).</li>
+          <li><b>Region min</b> / <b>Region max</b> — the XY corners as numbers.</li>
+          <li>Watch the hint line, e.g. <em>"Scene spans [-40.0, -40.0]…[40.0, 40.0] m — samples outside it get zero paths."</em> Sampling outside the geometry is the #1 cause of useless datasets.</li>
+        </ul>
+        <p>For <code>trajectory</code> mode you instead get <b>⌖ Pick path in viewport</b> plus <b>Start</b> / <b>End</b> XYZ fields.</p>
+      </li>
+      <li><b>Seed</b> — makes the random sampling reproducible; record it for papers.</li>
+      <li><b>Include paths</b> — additionally dumps every sample's full ray paths (vertices + interactions) as <code>paths.jsonl</code>. Large; off by default.</li>
+      <li><b>Follow terrain</b> — snaps each sample's height to the surface below it plus the height offset. Use it on sloped outdoor scenes; leave it off indoors (it would snap to the roof).</li>
+      <li>Press <b>Generate dataset</b>. The button shows <code>Generating…</code> while the solver sweeps the positions.</li>
+    </ol>
+
+    <h3>The dataset list</h3>
+    <p>Finished datasets appear in the table below the button, one row each:</p>
+    <ul>
+      <li><b>name / # / created / size</b> — name, sample count, creation time, file size.</li>
+      <li><b>files</b> — download links for <b>npz</b> (<code>dataset.npz</code>, the arrays) and <b>json</b> (<code>metadata.json</code>, the config echo + conventions).</li>
+      <li>A <b>⚠ N zero-path</b> flag on the name means N samples produced no paths at all (UE outside the scene or fully occluded) — re-check your region.</li>
+      <li>The <b>×</b> button deletes a dataset; it arms to <b>✓?</b> and you click again to confirm (it auto-disarms after a few seconds).</li>
+    </ul>
+    <p>On disk, datasets live under the project folder at <code>export/datasets/&lt;dataset_id&gt;/</code>.</p>
+
+    <h3>What is in the labels</h3>
+    <p>The <code>.npz</code> contains per-sample positions, complex CFR, per-path CIR gains and delays, LOS flags, RSS, and dispersion metrics — the exact array schema, the AODT field mapping, and a ready-to-run training example (<code>examples/ml/train_channel_estimator.py</code>) are documented in <a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/ml_datasets.md">ML ground-truth datasets</a>.</p>
+
+    <h2>2. RFData export (AODT-viewer bundle)</h2>
+    <p>To hand results to an external AODT-style viewer or your own pipeline, use the toolbar: <b>Actions ▾ → Export RFData</b>. It writes a bundle to <code>export/rfdata/</code> inside the project folder:</p>
+    <table>
+      <thead>
+        <tr><th>File</th><th>Content</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>scenario_meta.json</code></td><td>units, frequency, coordinate transform, time window</td></tr>
+        <tr><td><code>devices.json</code></td><td>transmitters + receivers (positions in meters)</td></tr>
+        <tr><td><code>paths.json</code></td><td>time-indexed ray paths</td></tr>
+        <tr><td><code>trajectory.csv</code></td><td>per-waypoint UE metrics (<code>time_s, ue_id, x_m, y_m, z_m, rss_dbm, sinr_db, path_gain_db</code>)</td></tr>
+        <tr><td><code>radio_map.csv</code></td><td>plane heatmap samples</td></tr>
+        <tr><td><code>calibration_points.json</code></td><td>3 coordinate-check reference points</td></tr>
+      </tbody>
+    </table>
+    <p>After the export, a dismissible row appears in <b>Results</b> — <em>"Exported RFData to <code>export/rfdata</code>"</em> — with a download link per file, so you don't have to dig through the project folder.</p>
+
+    <h2>3. Viewport captures — Snapshot and Render</h2>
+    <p>The two icon buttons in the bottom-right cluster of the viewport save scene images:</p>
+    <ul>
+      <li><b>Snapshot</b> (camera icon) — saves <em>exactly</em> what you see (WYSIWYG): current camera pose, rays, markers, radio-map overlay, at full canvas resolution, as PNG. The tooltip reads <em>"Save this exact view as a PNG (what you see, full resolution — paper-ready)"</em>. This is the button for paper and slide figures.</li>
+      <li><b>Render</b> (film icon) — an offline, physically shaded path-traced render via Mitsuba. Slower, and deliberately <em>not</em> the on-screen view — no rays or overlays, just the shaded scene.</li>
+    </ul>
+    <p>The entity <b>POV inset</b> (the live first-person view from a device or actor) has its own camera button that saves the POV frame as a full-resolution PNG.</p>
+
+    <h2>4. CSV and figure exports from the dashboards</h2>
+    <ul>
+      <li>Every chart in the <b>Metrics dashboard</b> panel (and the other paper-styled charts) sits in a frame with <b>PNG / SVG / CSV</b> buttons in its header — bitmap at 3×, vector, or the raw data as CSV. Figures export as shown: white background, Times New Roman.</li>
+      <li>The dashboard header has an <b>Export all (CSV)</b> button that downloads the entire KPI table as <code>metric,value,unit</code> rows.</li>
+      <li>The paths table in <b>Results</b> has <b>Export filtered CSV (N)</b> — it exports exactly the currently filtered path set, one row per path with type, power, delay, and interaction materials.</li>
+    </ul>
+
+    <h2>Related docs</h2>
+    <ul>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/ml_datasets.md">ML ground-truth datasets</a> — the <code>.npz</code> schema, zero-path warnings, AODT field mapping, and the training example script.</li>
+      <li><a href="getting_started.html">Getting started</a> — install, first project, the mode tabs.</li>
+      <li><a href="simulation.html">Simulation guide</a> — paths, radio maps, and the solver settings a dataset inherits.</li>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/scene_format.md">Scene &amp; project format</a> — where files live inside a project folder.</li>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/sionna_versions.md">Sionna versions</a> — the <code>engine</code> recorded in <code>metadata.json</code> for reproducibility.</li>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/TUTORIAL.md">15-minute tutorial</a> — the full first-session loop, including dataset generation.</li>
+    </ul>
+
+    <div class="pn">
+      <a href="trajectory_uav.html"><span class="lbl">Previous</span>Trajectories and UAVs: moving receivers, playback, and POV views</a>
+      <span></span>
+    </div>
+  </article>
+</div>
+
+<footer>
+  <div class="wrap fineprint">
+    SEAM Studio · Apache License 2.0 · <a href="https://github.com/jaewoo4200/SEAM">github.com/jaewoo4200/SEAM</a> · <a href="../../ko/guides/datasets_export.html">한국어 가이드</a><br>
+    Developed by <b>Jaewoo Lee (이재우)</b> · Wireless Systems Laboratory (WSL), Hanyang University · BEYOND-G Global Innovation Center
+  </div>
+</footer>
+
+<script>(function(){
+  var root=document.documentElement, sw=document.querySelector('.theme-sw');
+  if(!sw)return;
+  function cur(){return localStorage.getItem('seam-theme')||'auto';}
+  function paint(m){sw.querySelectorAll('button').forEach(function(b){
+    b.setAttribute('aria-pressed', String(b.dataset.theme===m));});}
+  function apply(m){
+    if(m==='auto'){root.removeAttribute('data-theme');try{localStorage.removeItem('seam-theme');}catch(e){}}
+    else{root.setAttribute('data-theme',m);try{localStorage.setItem('seam-theme',m);}catch(e){}}
+    paint(m);}
+  sw.addEventListener('click',function(e){var b=e.target.closest('button');if(b)apply(b.dataset.theme);});
+  paint(cur());
+})();</script>
+</body>
+</html>

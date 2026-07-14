@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>(function(){try{var t=localStorage.getItem('seam-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
+<title>RF 재질: 라이브러리·검증·AI 지원 지정 — SEAM Studio</title>
+<meta name="description" content="SEAM Studio에서 RF 재질 라이브러리로 재질을 지정하고, 검증으로 누락을 찾고, AI 지원 제안으로 시각적 지오메트리를 시뮬레이션 가능한 디지털 트윈으로 만드는 방법을 안내합니다.">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Cdefs%3E%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%22%20x2%3D%221%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23173a8a%22/%3E%3Cstop%20offset%3D%22.5%22%20stop-color%3D%22%232fd0c0%22/%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23e2632e%22/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect%20width%3D%2264%22%20height%3D%2264%22%20rx%3D%2212%22%20fill%3D%22%230b111b%22/%3E%3Ctext%20x%3D%2232%22%20y%3D%2242%22%20font-family%3D%22Segoe%20UI%2CArial%2Csans-serif%22%20font-size%3D%2236%22%20font-weight%3D%22700%22%20fill%3D%22%232e9bff%22%20text-anchor%3D%22middle%22%3ES%3C/text%3E%3Crect%20x%3D%2214%22%20y%3D%2250%22%20width%3D%2236%22%20height%3D%225%22%20rx%3D%222.5%22%20fill%3D%22url%28%23g%29%22/%3E%3C/svg%3E">
+<link rel="canonical" href="https://jaewoo4200.github.io/SEAM/ko/guides/materials_and_ai.html">
+<link rel="alternate" hreflang="ko" href="https://jaewoo4200.github.io/SEAM/ko/guides/materials_and_ai.html">
+<link rel="alternate" hreflang="en" href="https://jaewoo4200.github.io/SEAM/en/guides/materials_and_ai.html">
+<meta name="theme-color" content="#0b111b" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f4f7fc" media="(prefers-color-scheme: light)">
+<style>
+:root{
+  --bg:#0b111b; --panel:#141d2b; --line:#233246; --ink:#e2eaf4; --mut:#8a9cb0;
+  --acc:#2e9bff; --mut2:#6f8299; --link-mut:#8fb4dd; --code-acc:#7bb8f5;
+}
+:root[data-theme="light"]{ --bg:#f4f7fc; --panel:#ffffff; --line:#dde5ef; --ink:#17242f; --mut:#54677a; --acc:#1f77dd; --mut2:#54677a; --link-mut:#3a6ea5; --code-acc:#2f6595 }
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){ --bg:#f4f7fc; --panel:#ffffff; --line:#dde5ef; --ink:#17242f; --mut:#54677a; --acc:#1f77dd; --mut2:#54677a; --link-mut:#3a6ea5; --code-acc:#2f6595 }
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:16px/1.7 "Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,sans-serif}
+img{max-width:100%;display:block}
+a{color:var(--acc);text-decoration:none}
+a:hover{text-decoration:underline}
+.mono{font-family:"Cascadia Code",Consolas,ui-monospace,monospace}
+.wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+
+/* top tab bar (flat research-site style) */
+.topbar{position:sticky;top:0;z-index:20;background:var(--panel);border-bottom:1px solid var(--line)}
+.topbar .in{max-width:1120px;margin:0 auto;padding:0 24px;display:flex;align-items:center;gap:20px;height:52px}
+.topbar .brand{font:700 15px/1 "Segoe UI Variable Display","Segoe UI",sans-serif;color:var(--ink);letter-spacing:-.01em;white-space:nowrap}
+.topbar .brand .studio{color:var(--acc)}
+.topbar a{text-decoration:none}
+.topbar nav.tabs{display:flex;gap:2px;overflow-x:auto;scrollbar-width:none;flex:1}
+.topbar nav.tabs::-webkit-scrollbar{display:none}
+.topbar nav.tabs a{color:var(--mut);font-size:13.5px;font-weight:600;padding:6px 11px;border-radius:4px;white-space:nowrap}
+.topbar nav.tabs a:hover{color:var(--ink);text-decoration:none}
+.topbar nav.tabs a.active{color:var(--acc)}
+.topbar .side{display:flex;gap:10px;align-items:center;white-space:nowrap}
+.topbar .side .lang{font-family:Consolas,monospace;font-size:12px;letter-spacing:.08em;color:var(--mut)}
+.topbar .side .lang a{color:var(--link-mut)}
+.topbar .side .lang b{color:var(--ink)}
+.topbar .side .lang span{margin:0 5px;color:var(--mut2)}
+.theme-sw{display:flex;gap:2px;background:transparent;border:1px solid var(--line);border-radius:999px;padding:3px}
+.theme-sw button{font:600 11px/1 Consolas,monospace;letter-spacing:.04em;color:var(--mut);
+  background:transparent;border:0;border-radius:999px;padding:5px 9px;cursor:pointer}
+.theme-sw button[aria-pressed="true"]{background:var(--acc);color:#04101f}
+a:focus-visible,button:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+
+/* docs layout */
+.docwrap{display:grid;grid-template-columns:230px minmax(0,1fr);gap:44px;padding:44px 0 72px}
+@media (max-width:860px){ .docwrap{grid-template-columns:1fr} aside.sidenav{position:static;order:2;border-top:1px solid var(--line);padding-top:20px} }
+aside.sidenav{position:sticky;top:76px;align-self:start}
+aside.sidenav .cap{font-family:Consolas,monospace;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--mut2);margin:0 0 10px}
+aside.sidenav a{display:block;color:var(--mut);font-size:13.5px;padding:6px 10px;border-left:2px solid var(--line);text-decoration:none}
+aside.sidenav a:hover{color:var(--ink)}
+aside.sidenav a.active{color:var(--acc);border-left-color:var(--acc);font-weight:600}
+aside.sidenav .all{margin-top:12px;border-left:0;padding-left:10px;font-weight:600;color:var(--link-mut)}
+
+article{max-width:820px;min-width:0}
+article .eyebrow{font-family:Consolas,monospace;font-size:12px;letter-spacing:.22em;color:var(--acc);text-transform:uppercase}
+article h1{font:650 clamp(28px,4vw,40px)/1.15 "Segoe UI Variable Display","Segoe UI",sans-serif;letter-spacing:-.02em;margin:8px 0 10px}
+article p.lead{color:var(--mut);font-size:16.5px;margin:0 0 8px}
+article .spectrum{height:3px;background:linear-gradient(90deg,#173a8a,#2e9bff,#2fd0c0,#8fd45e,#e8b93c,#e2632e);border-radius:2px;width:110px;margin:18px 0 26px}
+article h2{font:650 22px/1.3 "Segoe UI Variable Display","Segoe UI",sans-serif;margin:40px 0 12px;padding-top:18px;border-top:1px solid var(--line)}
+article h3{font:600 17px/1.35 "Segoe UI",sans-serif;margin:26px 0 8px}
+article p{margin:10px 0;color:var(--ink)}
+article p.note, article li{color:var(--ink)}
+article ul,article ol{padding-left:24px;margin:10px 0}
+article li{margin:5px 0}
+article table{border-collapse:collapse;width:100%;font-size:14px;margin:14px 0;display:block;overflow-x:auto}
+article th,article td{border:1px solid var(--line);padding:8px 12px;text-align:left;vertical-align:top}
+article th{background:var(--panel);font-weight:600}
+article code{font-family:"Cascadia Code",Consolas,ui-monospace,monospace;font-size:.92em;color:var(--code-acc);background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:1px 6px}
+article pre{background:#0e1622;border:1px solid #233246;border-radius:6px;padding:16px 18px;overflow-x:auto;
+  font-family:"Cascadia Code",Consolas,monospace;font-size:13px;line-height:1.8;color:#cfe0f2;margin:14px 0}
+article pre code{background:none;border:0;padding:0;color:inherit}
+article figure.doc-shot{margin:20px 0;background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+article figure.doc-shot img{width:100%}
+article figure.doc-shot figcaption{padding:10px 14px;font-size:13px;color:var(--mut);border-top:1px solid var(--line)}
+article blockquote{margin:14px 0;padding:10px 16px;border-left:3px solid var(--acc);background:var(--panel);border-radius:0 6px 6px 0;color:var(--mut);font-size:14.5px}
+article blockquote p{color:var(--mut)}
+.pn{display:flex;justify-content:space-between;gap:14px;margin-top:48px;padding-top:18px;border-top:1px solid var(--line);font-size:14px;font-weight:600}
+.pn a{max-width:48%}
+.pn .lbl{display:block;font:400 11px/1 Consolas,monospace;letter-spacing:.14em;text-transform:uppercase;color:var(--mut2);margin-bottom:4px}
+
+footer{border-top:1px solid var(--line)}
+.fineprint{padding:26px 0 40px;color:var(--mut2);font-size:12.5px;line-height:1.8;text-align:center}
+.fineprint a{color:var(--link-mut)}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="in">
+    <a class="brand" href="../">SEAM <span class="studio">Studio</span></a>
+    <nav class="tabs" aria-label="사이트">
+      <a href="../">개요</a>
+      <a href="../#features">기능</a>
+      <a href="../#capabilities">세부 기능</a>
+      <a href="../#agent">SEAM-Agent</a>
+      <a class="active" href="./">가이드</a>
+      <a href="../#quickstart">설치</a>
+    </nav>
+    <div class="side">
+      <nav class="theme-sw" aria-label="테마"><button data-theme="auto">자동</button><button data-theme="light">라이트</button><button data-theme="dark">다크</button></nav>
+      <nav class="lang" aria-label="Language"><b>KO</b><span>·</span><a href="../../en/guides/materials_and_ai.html">EN</a></nav>
+    </div>
+  </div>
+</div>
+
+<div class="wrap docwrap">
+  <aside class="sidenav">
+    <p class="cap">사용 가이드</p>
+    <a href="getting_started.html">시작하기</a>
+    <a href="scene_import.html">씬 임포트</a>
+    <a class="active" href="materials_and_ai.html">RF 재질 &amp; AI</a>
+    <a href="simulation.html">시뮬레이션</a>
+    <a href="trajectory_uav.html">궤적 &amp; UAV</a>
+    <a href="datasets_export.html">ML 데이터셋 &amp; 내보내기</a>
+    <a class="all" href="./">← 전체 가이드</a>
+  </aside>
+
+  <article>
+    <div class="eyebrow">Guide 03 · SEAM Studio docs</div>
+    <h1>RF 재질: 라이브러리·검증·AI 지원 지정</h1>
+    <p class="lead">눈으로 보기에 완성된 텍스처 씬이라도 RF 관점에서는 아직 준비가 안 된 상태일 수 있습니다. 이 가이드는 시각적 지오메트리를 시뮬레이션 가능한 디지털 트윈으로 만드는 세 가지 모드 — <b>RF Materials</b> 라이브러리, <b>Validation</b>, <b>AI Assist</b> — 를 차례로 살펴봅니다. 여기 나오는 모든 기능은 Mock 백엔드만으로 동작하므로 GPU나 Sionna RT 설치 없이 따라 할 수 있습니다.</p>
+    <div class="spectrum"></div>
+
+    <h2>1. RF 재질이 왜 중요한가</h2>
+    <p>레이 트레이서는 각 표면의 전자기 특성 — 비유전율(εr), 전도도(σ), 두께, 산란·XPD 계수 — 로부터 모든 반사·투과·회절을 계산합니다. 시각/PBR 재질은 표면이 <em>어떻게 보이는지</em>를 말해줄 뿐, 28 GHz 전파가 그 표면에서 어떻게 튕기는지는 전혀 알려주지 않습니다. 그래서 SEAM Studio는 둘을 의도적으로 분리합니다: 모든 메시 프림은 시각 재질과 RF 재질 바인딩을 <em>각각</em> 가지며, 인스펙터에 나란히 표시됩니다.</p>
+    <p>프림에 RF 재질이 없으면 솔버가 그 표면을 제대로 모델링할 수 없습니다 — 그래서 미지정 표면은 RF 오버레이에서 <b>경고 주황색으로 빛나고</b>, 검증에서 <code>MISSING_RF_MATERIAL</code> 경고가 나옵니다.</p>
+    <p>파일 포맷과 기본 라이브러리 전체 표는 <a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/rf_materials.ko.md">../rf_materials.ko.md</a>를 보세요.</p>
+
+    <h2>2. RF Materials 모드 — 라이브러리와 지정</h2>
+    <p><b>RF Materials</b> 탭으로 전환하세요. 뷰포트의 모든 프림이 RF 재질의 프리뷰 색으로 다시 칠해지고, 미지정 프림은 주황색으로 빛납니다. 오른쪽의 <b>RF material library</b> 패널에 프로젝트의 재질 목록이 나옵니다:</p>
+    <figure class="doc-shot"><img loading="lazy" decoding="async" src="../../assets/guides/03_rf_materials.png" alt="RF Materials 모드: ITU·const 항목이 섞인 라이브러리 표, 지정 버튼, 뷰포트에서 주황색으로 빛나는 미지정 프림"><figcaption>RF Materials 모드 — 라이브러리 표(<code>id</code> / <code>category</code> / <code>model</code> / <code>εr / σ</code>), 그 아래의 지정 버튼, 그리고 주황색으로 빛나는 미지정 건물들.</figcaption></figure>
+    <p>표의 열은 다음과 같습니다:</p>
+    <ul>
+      <li><b>id</b> — 지정에 쓰는 재질 id (예: <code>itu_concrete</code>, <code>itu_glass</code>, <code>asphalt_custom</code>).</li>
+      <li><b>category</b> — concrete, glass, ground, human 등.</li>
+      <li><b>model</b> — <code>ITU</code> 또는 <code>const</code>. <b>ITU</b> 항목은 εr/σ를 <em>시뮬레이션 주파수에서</em> ITU-R P.2040 파라미터화로 유도하므로 <b>εr / σ</b> 열이 <code>— / —</code>로 표시됩니다. <b>const</b> 항목(<code>asphalt_custom</code>, <code>ground_28ghz</code> 등)은 표시된 고정 εr/σ 값을 모든 주파수에서 그대로 씁니다 — 실측값이나 문헌값에 쓰되, 값이 유효한 대역에 주의하세요.</li>
+    </ul>
+
+    <h3>선택 영역에 재질 지정하기</h3>
+    <ol>
+      <li>씬 트리나 뷰포트에서 표면을 선택합니다 — <b>Ctrl-클릭으로 추가 선택</b>됩니다. 패널의 카운터 칩에 <code>N selected</code>가 표시됩니다.</li>
+      <li>표에서 재질 행을 클릭해 활성화합니다.</li>
+      <li><b>Assign to selection (N)</b> 을 누릅니다.</li>
+    </ol>
+    <p>오버레이 색이 즉시 바뀌고, 바인딩은 <code>user_confirmed</code> 상태로 프로젝트에 저장됩니다. 선택된 프림 일부가 이미 <em>다른</em> 재질을 user_confirmed 상태로 갖고 있으면 버튼이 2단계 확인(<code>N assigned — overwrite?</code>)으로 바뀌어, 한 번의 클릭으로 수동 결정이 조용히 사라지는 일을 막아줍니다. <b>Unassign selection (N)</b> 은 바인딩을 지우며, 확인된 지정에 대해서는 같은 2단계 가드가 걸립니다.</p>
+
+    <h3>커스텀 재질</h3>
+    <p><b>New custom material</b> 을 누르고 이름을 입력하면(id는 이름에서 자동 생성됩니다. 예: "My Facade Glass" → <code>my_facade_glass</code>) <b>Create</b> 로 만듭니다. 라이브러리 행이 활성화된 상태였다면 그 재질을 복제해서 시작합니다. 아무 행이나 클릭하면 표 아래에 편집기가 열리고 <b>Display name</b>, <b>Relative permittivity εr</b>, <b>Conductivity σ (S/m)</b>, <b>Thickness (m)</b>, <b>Scattering coeff (0–1)</b>, <b>XPD coeff (0–1)</b>, <b>Preview color</b> 필드를 고쳐 <b>Save material</b> 로 저장합니다. εr/σ를 비워 두면 시뮬레이션 시점에 ITU 주파수 의존 모델로 폴백합니다. 커스텀 재질은 <b>Delete material</b> 로 지울 수 있고(첫 클릭은 확인 대기, 두 번째 클릭이 삭제), 빌트인 재질은 지울 수 없습니다.</p>
+
+    <h3>프로젝트 간 라이브러리 이동</h3>
+    <ul>
+      <li><b>Export library</b> — 라이브러리 전체를 이동 가능한 JSON 파일로 내려받습니다. 보정을 마친 재질을 다른 프로젝트에서 재사용할 때 유용합니다.</li>
+      <li><b>Import library</b> — 라이브러리 JSON을 현재 프로젝트에 병합합니다. id가 겹치면 서버가 이름을 바꿔서 들여오고, 절대 덮어쓰지 않습니다.</li>
+    </ul>
+
+    <h2>3. Validation 모드 — 빠진 것 찾기</h2>
+    <p><b>Validation</b> 탭으로 전환해 <b>Run validation</b> 을 누르세요. <b>Scene validation</b> 패널이 결과를 심각도 칩 — errors, warnings, info — 과 전체 상태 칩(<code>ok</code> / <code>blocked</code>)으로 요약합니다:</p>
+    <figure class="doc-shot"><img loading="lazy" decoding="async" src="../../assets/guides/04_validation.png" alt="Validation 모드: 0 errors / 6 warnings / 1 info 칩과 프림별 조치 힌트가 붙은 MISSING_RF_MATERIAL 경고 카드"><figcaption>Sample Demo 검증 결과: <code>MISSING_RF_MATERIAL</code> 경고 6건. 각 카드가 해당 프림을 지목하고 구체적인 다음 단계를 나열합니다.</figcaption></figure>
+    <p>각 이슈 행에는 기계 판독용 코드, 메시지, 해당 프림 id가 표시되고 — <b>행을 클릭하면 그 프림이 씬에서 선택</b>되어 하나씩 고쳐 나갈 수 있습니다. <code>MISSING_RF_MATERIAL</code> 경고에는 "Assign an RF material in the RF Materials tab", "Run rule-based or AI suggestion" 같은 프림별 조치 힌트가 붙습니다. 이 외에도 알 수 없는 재질 id, 시각/RF 모순, 두께 누락, 잘못된 메시 참조 등을 검사합니다.</p>
+    <p>리포트가 읽기 어렵다면 <b>Explain with AI</b> 를 누르세요. 검증을 다시 돌린 뒤 각 이슈를 권장 조치와 함께 평문으로 풀어 설명해 줍니다. 씬을 절대 바꾸지 않는 읽기 전용 기능이며, 로컬 LLM 제공자(예: Ollama)가 필요합니다 — 없으면 명확한 안내 메시지가 대신 나옵니다.</p>
+
+    <h2>4. AI Assist 모드 — 근거 기반 제안</h2>
+    <p><b>AI Assist</b> 탭으로 전환하세요. <b>AI material assist</b> 패널은 <b>Providers</b> 목록으로 시작합니다:</p>
+    <figure class="doc-shot"><img loading="lazy" decoding="async" src="../../assets/guides/05_ai_assist.png" alt="AI Assist 모드: 도달성 표시가 붙은 제공자 라디오, 비전 첨부 체크박스, 제안 버튼, 자연어 규칙 입력란, 그리고 90% 신뢰도의 ITU Concrete 제안 카드"><figcaption>AI Assist — 제공자 목록(여기서는 <code>rule_based</code>만 도달 가능), 자연어 규칙 입력란, 그리고 근거와 함께 ITU Concrete를 90% 신뢰도로 추천하는 제안 카드.</figcaption></figure>
+    <ul>
+      <li><b>auto (best available)</b> — 도달 가능한 제공자 중 최선을 자동 선택합니다.</li>
+      <li><b>rule_based</b> — 프림 이름·시각 재질 이름·태그에 대한 결정론적 키워드 규칙. 서버가 필요 없어 항상 사용 가능합니다 — 그래서 전체 흐름이 오프라인에서도, Mock 백엔드만으로도 동작합니다.</li>
+      <li><b>local_openai</b> — 로컬 OpenAI 호환 서버(예: LM Studio).</li>
+      <li><b>ollama_text</b> — 로컬 Ollama 서버.</li>
+      <li><b>disabled</b> — AI 끔.</li>
+    </ul>
+    <p>각 행에는 도달성 점이 붙고, 도달 불가한 제공자는 상세 메시지와 함께 회색으로 비활성화됩니다(툴바에도 활성 제공자 이름 또는 <b>AI off</b> 가 표시됩니다). <code>local_openai</code>/<code>ollama_text</code>를 고르면 특정 모델을 고정할 수 있는 <b>Model</b> 셀렉트가 나타납니다.</p>
+    <p>비전 지원 모델에 시각 근거를 추가로 보내는 체크박스가 두 개 있습니다:</p>
+    <ul>
+      <li><b>Attach viewport screenshot</b> — 제공자가 3D 뷰를 4방향에서 봅니다 (Ollama는 비전 모델로 전환될 수 있음).</li>
+      <li><b>Attach per-prim texture crops</b> — GLB에서 잘라낸 프림별 baseColor 텍스처 클로즈업(텍스처 씬 전용).</li>
+    </ul>
+
+    <h3>제안 → 검토 → 적용</h3>
+    <p><b>Suggest RF materials (all unassigned)</b> 를 누르세요(선택이 있으면 <code>(N selected)</code>로 바뀝니다). 제안은 카드 단위로 도착합니다: 프림 id, 추천 재질(예: <b>ITU Concrete</b>), <b>신뢰도 바</b>, 근거 불릿("prim name contains 'wall'", "visual material name contains 'concrete'"), 대안 칩. 카드마다 <b>Approve</b>, <b>Reject</b>, 또는 <b>Edit: pick other…</b> 로 다른 재질을 고른 뒤 <b>Apply decisions (N)</b> 을 누르세요. 제안은 근거일 뿐이라 적용 전에는 씬에 아무 일도 일어나지 않고, 적용 후에는 <b>↩ Revert</b> 로 이전 바인딩을 되돌릴 수 있습니다. 카드에는 실측 path gain으로 후보 재질을 판별하는 <b>RF disambiguate</b> 접이식 섹션도 있습니다 — 자세한 계약은 <a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/ai_assistant.ko.md">../ai_assistant.ko.md</a>를 보세요.</p>
+
+    <h3>자연어 지정 규칙</h3>
+    <p><b>Assignment rules (natural language)</b> 섹션에서 매핑을 한 문장으로 쓰고(예: "벽(wall)은 콘크리트, 창문(window)은 유리로 배정해줘") <b>Generate rules</b> 를 누르세요. LLM이 편집 가능한 규칙 — 쉼표로 구분한 이름 매칭 문자열 → 재질 — 초안을 만들고, 수정·삭제 후 <b>Apply rules (N)</b> 을 누릅니다. 적용은 어디까지나 <em>제안</em>입니다: 매칭된 프림이 위의 검토 카드로 올라올 뿐, <b>Apply decisions</b> 전에는 아무것도 확정되지 않습니다.</p>
+
+    <h3>대형 텍스처 씬을 위한 SEAM-Agent 배치</h3>
+    <p>텍스처 건물이 많은 대형 포토그래메트리 씬에서는 <b>SEAM-Agent batch (multi-building)…</b> 를 펼치세요. 처리할 건물을 체크하고, 필요하면 <b>Hint</b>(공유 사이트 힌트, 예: "Hanyang University Seoul campus")를 넣고, 선택적으로 <b>Allow web evidence</b> 를 켠 뒤 <b>Run N building(s) sequentially</b> 를 누릅니다. 에이전트가 건물 하나씩 캡처 → 분석 → 제안을 수행하고, 끝난 항목은 <b>needs review</b> 로 표시되며 <b>Review</b> 버튼이 그 건물의 제안을 프림 카드에 열어줍니다. 실행 중인 배치는 <b>■ Stop batch</b> 로 멈출 수 있습니다.</p>
+
+    <h2>관련 문서</h2>
+    <ul>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/rf_materials.ko.md">../rf_materials.ko.md</a> — 라이브러리 파일 포맷, ITU vs constant 모델, 기본 라이브러리, 프림별 오버라이드.</li>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/ai_assistant.ko.md">../ai_assistant.ko.md</a> — 제공자 체인, 설정 변수, 엄격한 JSON 계약, 이력(provenance) 로그.</li>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/accuracy.ko.md">../accuracy.ko.md</a> — 재질이 RT 정확도를 좌우하는 이유와 측정 보정으로 잔차를 줄이는 방법.</li>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/TUTORIAL.ko.md">../../TUTORIAL.ko.md</a> — 재질 지정 실습이 포함된 15분 첫 세션 투어.</li>
+    </ul>
+
+    <div class="pn">
+      <a href="scene_import.html"><span class="lbl">이전</span>씬 불러오기: Mitsuba XML · OpenStreetMap · 디바이스 JSON</a>
+      <a href="simulation.html"><span class="lbl">다음</span>시뮬레이션: 경로, 라디오맵, 빔포밍, 채널 분석</a>
+    </div>
+  </article>
+</div>
+
+<footer>
+  <div class="wrap fineprint">
+    SEAM Studio · Apache License 2.0 · <a href="https://github.com/jaewoo4200/SEAM">github.com/jaewoo4200/SEAM</a> · <a href="../../en/guides/materials_and_ai.html">English guides</a><br>
+    Developed by <b>Jaewoo Lee (이재우)</b> · Wireless Systems Laboratory (WSL), Hanyang University · BEYOND-G Global Innovation Center
+  </div>
+</footer>
+
+<script>(function(){
+  var root=document.documentElement, sw=document.querySelector('.theme-sw');
+  if(!sw)return;
+  function cur(){return localStorage.getItem('seam-theme')||'auto';}
+  function paint(m){sw.querySelectorAll('button').forEach(function(b){
+    b.setAttribute('aria-pressed', String(b.dataset.theme===m));});}
+  function apply(m){
+    if(m==='auto'){root.removeAttribute('data-theme');try{localStorage.removeItem('seam-theme');}catch(e){}}
+    else{root.setAttribute('data-theme',m);try{localStorage.setItem('seam-theme',m);}catch(e){}}
+    paint(m);}
+  sw.addEventListener('click',function(e){var b=e.target.closest('button');if(b)apply(b.dataset.theme);});
+  paint(cur());
+})();</script>
+</body>
+</html>
