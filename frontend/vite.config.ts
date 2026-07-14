@@ -6,6 +6,10 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   plugins: [react()],
   server: {
+    // Honor a harness/CI-assigned port (PORT env). Default stays 5173, but
+    // that port often belongs to ANOTHER local app — CLI --port (e.g. the
+    // 4610 preview config) still takes precedence over both.
+    port: process.env.PORT ? Number(process.env.PORT) : 5173,
     proxy: {
       // 127.0.0.1, not localhost: on Windows Node resolves localhost to ::1
       // first while uvicorn binds the IPv4 loopback, breaking the proxy.
