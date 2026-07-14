@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>(function(){try{var t=localStorage.getItem('seam-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
+<title>Simulating: paths, radio maps, beamforming, and channel analysis — SEAM Studio</title>
+<meta name="description" content="Run ray-path solves, coverage radio maps, MIMO beamforming, and per-link channel analysis in SEAM Studio's Results mode — with or without Sionna RT.">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Cdefs%3E%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%22%20x2%3D%221%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23173a8a%22/%3E%3Cstop%20offset%3D%22.5%22%20stop-color%3D%22%232fd0c0%22/%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23e2632e%22/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect%20width%3D%2264%22%20height%3D%2264%22%20rx%3D%2212%22%20fill%3D%22%230b111b%22/%3E%3Ctext%20x%3D%2232%22%20y%3D%2242%22%20font-family%3D%22Segoe%20UI%2CArial%2Csans-serif%22%20font-size%3D%2236%22%20font-weight%3D%22700%22%20fill%3D%22%232e9bff%22%20text-anchor%3D%22middle%22%3ES%3C/text%3E%3Crect%20x%3D%2214%22%20y%3D%2250%22%20width%3D%2236%22%20height%3D%225%22%20rx%3D%222.5%22%20fill%3D%22url%28%23g%29%22/%3E%3C/svg%3E">
+<link rel="canonical" href="https://jaewoo4200.github.io/SEAM/en/guides/simulation.html">
+<link rel="alternate" hreflang="ko" href="https://jaewoo4200.github.io/SEAM/ko/guides/simulation.html">
+<link rel="alternate" hreflang="en" href="https://jaewoo4200.github.io/SEAM/en/guides/simulation.html">
+<meta name="theme-color" content="#0b111b" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f4f7fc" media="(prefers-color-scheme: light)">
+<style>
+:root{
+  --bg:#0b111b; --panel:#141d2b; --line:#233246; --ink:#e2eaf4; --mut:#8a9cb0;
+  --acc:#2e9bff; --mut2:#6f8299; --link-mut:#8fb4dd; --code-acc:#7bb8f5;
+}
+:root[data-theme="light"]{ --bg:#f4f7fc; --panel:#ffffff; --line:#dde5ef; --ink:#17242f; --mut:#54677a; --acc:#1f77dd; --mut2:#54677a; --link-mut:#3a6ea5; --code-acc:#2f6595 }
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){ --bg:#f4f7fc; --panel:#ffffff; --line:#dde5ef; --ink:#17242f; --mut:#54677a; --acc:#1f77dd; --mut2:#54677a; --link-mut:#3a6ea5; --code-acc:#2f6595 }
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:16px/1.7 "Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,sans-serif}
+img{max-width:100%;display:block}
+a{color:var(--acc);text-decoration:none}
+a:hover{text-decoration:underline}
+.mono{font-family:"Cascadia Code",Consolas,ui-monospace,monospace}
+.wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+
+/* top tab bar (flat research-site style) */
+.topbar{position:sticky;top:0;z-index:20;background:var(--panel);border-bottom:1px solid var(--line)}
+.topbar .in{max-width:1120px;margin:0 auto;padding:0 24px;display:flex;align-items:center;gap:20px;height:52px}
+.topbar .brand{font:700 15px/1 "Segoe UI Variable Display","Segoe UI",sans-serif;color:var(--ink);letter-spacing:-.01em;white-space:nowrap}
+.topbar .brand .studio{color:var(--acc)}
+.topbar a{text-decoration:none}
+.topbar nav.tabs{display:flex;gap:2px;overflow-x:auto;scrollbar-width:none;flex:1}
+.topbar nav.tabs::-webkit-scrollbar{display:none}
+.topbar nav.tabs a{color:var(--mut);font-size:13.5px;font-weight:600;padding:6px 11px;border-radius:4px;white-space:nowrap}
+.topbar nav.tabs a:hover{color:var(--ink);text-decoration:none}
+.topbar nav.tabs a.active{color:var(--acc)}
+.topbar .side{display:flex;gap:10px;align-items:center;white-space:nowrap}
+.topbar .side .lang{font-family:Consolas,monospace;font-size:12px;letter-spacing:.08em;color:var(--mut)}
+.topbar .side .lang a{color:var(--link-mut)}
+.topbar .side .lang b{color:var(--ink)}
+.topbar .side .lang span{margin:0 5px;color:var(--mut2)}
+.theme-sw{display:flex;gap:2px;background:transparent;border:1px solid var(--line);border-radius:999px;padding:3px}
+.theme-sw button{font:600 11px/1 Consolas,monospace;letter-spacing:.04em;color:var(--mut);
+  background:transparent;border:0;border-radius:999px;padding:5px 9px;cursor:pointer}
+.theme-sw button[aria-pressed="true"]{background:var(--acc);color:#04101f}
+a:focus-visible,button:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+
+/* docs layout */
+.docwrap{display:grid;grid-template-columns:230px minmax(0,1fr);gap:44px;padding:44px 0 72px}
+@media (max-width:860px){ .docwrap{grid-template-columns:1fr} aside.sidenav{position:static;order:2;border-top:1px solid var(--line);padding-top:20px} }
+aside.sidenav{position:sticky;top:76px;align-self:start}
+aside.sidenav .cap{font-family:Consolas,monospace;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--mut2);margin:0 0 10px}
+aside.sidenav a{display:block;color:var(--mut);font-size:13.5px;padding:6px 10px;border-left:2px solid var(--line);text-decoration:none}
+aside.sidenav a:hover{color:var(--ink)}
+aside.sidenav a.active{color:var(--acc);border-left-color:var(--acc);font-weight:600}
+aside.sidenav .all{margin-top:12px;border-left:0;padding-left:10px;font-weight:600;color:var(--link-mut)}
+
+article{max-width:820px;min-width:0}
+article .eyebrow{font-family:Consolas,monospace;font-size:12px;letter-spacing:.22em;color:var(--acc);text-transform:uppercase}
+article h1{font:650 clamp(28px,4vw,40px)/1.15 "Segoe UI Variable Display","Segoe UI",sans-serif;letter-spacing:-.02em;margin:8px 0 10px}
+article p.lead{color:var(--mut);font-size:16.5px;margin:0 0 8px}
+article .spectrum{height:3px;background:linear-gradient(90deg,#173a8a,#2e9bff,#2fd0c0,#8fd45e,#e8b93c,#e2632e);border-radius:2px;width:110px;margin:18px 0 26px}
+article h2{font:650 22px/1.3 "Segoe UI Variable Display","Segoe UI",sans-serif;margin:40px 0 12px;padding-top:18px;border-top:1px solid var(--line)}
+article h3{font:600 17px/1.35 "Segoe UI",sans-serif;margin:26px 0 8px}
+article p{margin:10px 0;color:var(--ink)}
+article p.note, article li{color:var(--ink)}
+article ul,article ol{padding-left:24px;margin:10px 0}
+article li{margin:5px 0}
+article table{border-collapse:collapse;width:100%;font-size:14px;margin:14px 0;display:block;overflow-x:auto}
+article th,article td{border:1px solid var(--line);padding:8px 12px;text-align:left;vertical-align:top}
+article th{background:var(--panel);font-weight:600}
+article code{font-family:"Cascadia Code",Consolas,ui-monospace,monospace;font-size:.92em;color:var(--code-acc);background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:1px 6px}
+article pre{background:#0e1622;border:1px solid #233246;border-radius:6px;padding:16px 18px;overflow-x:auto;
+  font-family:"Cascadia Code",Consolas,monospace;font-size:13px;line-height:1.8;color:#cfe0f2;margin:14px 0}
+article pre code{background:none;border:0;padding:0;color:inherit}
+article figure.doc-shot{margin:20px 0;background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+article figure.doc-shot img{width:100%}
+article figure.doc-shot figcaption{padding:10px 14px;font-size:13px;color:var(--mut);border-top:1px solid var(--line)}
+article blockquote{margin:14px 0;padding:10px 16px;border-left:3px solid var(--acc);background:var(--panel);border-radius:0 6px 6px 0;color:var(--mut);font-size:14.5px}
+article blockquote p{color:var(--mut)}
+.pn{display:flex;justify-content:space-between;gap:14px;margin-top:48px;padding-top:18px;border-top:1px solid var(--line);font-size:14px;font-weight:600}
+.pn a{max-width:48%}
+.pn .lbl{display:block;font:400 11px/1 Consolas,monospace;letter-spacing:.14em;text-transform:uppercase;color:var(--mut2);margin-bottom:4px}
+
+footer{border-top:1px solid var(--line)}
+.fineprint{padding:26px 0 40px;color:var(--mut2);font-size:12.5px;line-height:1.8;text-align:center}
+.fineprint a{color:var(--link-mut)}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="in">
+    <a class="brand" href="../">SEAM <span class="studio">Studio</span></a>
+    <nav class="tabs" aria-label="Site">
+      <a href="../">Overview</a>
+      <a href="../#features">Features</a>
+      <a href="../#capabilities">Capabilities</a>
+      <a href="../#agent">SEAM-Agent</a>
+      <a class="active" href="./">Guides</a>
+      <a href="../#quickstart">Quickstart</a>
+    </nav>
+    <div class="side">
+      <nav class="theme-sw" aria-label="Theme"><button data-theme="auto">Auto</button><button data-theme="light">Light</button><button data-theme="dark">Dark</button></nav>
+      <nav class="lang" aria-label="Language"><a href="../../ko/guides/simulation.html">KO</a><span>·</span><b>EN</b></nav>
+    </div>
+  </div>
+</div>
+
+<div class="wrap docwrap">
+  <aside class="sidenav">
+    <p class="cap">User guides</p>
+    <a href="getting_started.html">Getting started</a>
+    <a href="scene_import.html">Importing scenes</a>
+    <a href="materials_and_ai.html">RF materials &amp; AI</a>
+    <a class="active" href="simulation.html">Simulating</a>
+    <a href="trajectory_uav.html">Trajectories &amp; UAVs</a>
+    <a href="datasets_export.html">ML datasets &amp; exports</a>
+    <a class="all" href="./">← All guides</a>
+  </aside>
+
+  <article>
+    <div class="eyebrow">Guide 04 · SEAM Studio docs</div>
+    <h1>Simulating: paths, radio maps, beamforming, and channel analysis</h1>
+    <p class="lead">Everything you compute in SEAM Studio happens in <b>Results</b> mode: ray paths, coverage radio maps, MIMO beamforming, and per-link channel analysis. This guide walks through each solver, the knobs that matter, and how to read the results. The whole workflow runs on the <b>Mock backend</b> if Sionna RT is not installed, so you can follow along without a GPU.</p>
+    <div class="spectrum"></div>
+
+    <h2>1. Results mode layout</h2>
+
+    <p>Click the <b>Results</b> tab in the toolbar. The right sidebar holds the
+    <b>Simulation</b> panel with three collapsible sections — <b>Global</b>, <b>Paths</b>,
+    and <b>Radio map</b> — plus the <b>Results</b> panel (path table, overlay toggles).
+    The <b>Channel analysis</b>, <b>Metrics dashboard</b>, <b>UE trajectory</b>,
+    <b>Scenario playback</b>, and <b>ML dataset</b> panels are dockable: open the
+    <b>Panels ▾</b> menu in the toolbar to float any of them or dock them to either
+    sidebar, from any mode.</p>
+
+    <p>The <b>Global</b> section is the shared solver configuration — every solver
+    (paths, radio map, beamforming, channel) reads it:</p>
+
+    <table>
+      <thead>
+        <tr><th>Field</th><th>What it does</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><b>Preset</b></td><td>Applies a canonical solver configuration to both Paths and Radio map: <code>28 GHz Indoor Lab</code>, <code>28 GHz Outdoor Campus</code>, <code>3.5 GHz Urban Macro</code>, <code>60 GHz Indoor</code>, <code>28 GHz UAV A2G</code>. Editing any knob by hand flips it to <code>Custom</code>.</td></tr>
+        <tr><td><b>Backend</b></td><td><code>auto</code> / <code>mock</code> / <code>sionna</code>. <code>auto</code> uses Sionna RT when installed and falls back to the mock solver otherwise.</td></tr>
+        <tr><td><b>Engine</b></td><td>Only shown when more than one Sionna RT version is registered — pick which version solves paths (e.g. <code>Sionna RT 2.0.1</code>). See <a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/engines.md">../engines.md</a>.</td></tr>
+        <tr><td><b>Frequency</b> (GHz)</td><td>Carrier frequency (default 28 GHz).</td></tr>
+        <tr><td><b>Bandwidth</b> (MHz)</td><td>Channel bandwidth used for noise, CFR, and capacity.</td></tr>
+        <tr><td><b>Noise figure</b> (dB)</td><td>Receiver noise figure for SNR/SINR.</td></tr>
+        <tr><td><b>Seed</b></td><td>Random seed — same seed, same rays.</td></tr>
+      </tbody>
+    </table>
+
+    <p>The Global section also hosts the <b>Beamforming array</b> settings (section 4)
+    and the <b>Live sync</b> toggle.</p>
+
+    <h2>2. Paths</h2>
+
+    <figure class="doc-shot"><img loading="lazy" decoding="async" src="../../assets/guides/06_paths.png" alt="Five ray paths drawn TX to RX over the 3D scene, with the Simulation panel open on the right"><figcaption>A paths solve: TX→RX polylines colored by interaction type, with the Simulation panel's Global and Paths sections.</figcaption></figure>
+
+    <p>There are two buttons that run the same solve:</p>
+
+    <ul>
+      <li>the blue <b>Simulate paths</b> button on the right of the toolbar (one-click,
+        available in any mode), and</li>
+      <li><b>Compute paths</b> inside the <b>Paths</b> section of the Simulation panel
+        (next to all the knobs, when you want to tune first).</li>
+    </ul>
+
+    <ol>
+      <li>Press either button. A toast reports the outcome, e.g.
+        <code>Simulated 5 path(s) via sionna backend</code>.</li>
+      <li>Rays overlay the 3D scene as TX→RX polylines, colored by interaction:
+        <b>LOS cyan, reflection magenta, diffraction orange, scattering green</b>.
+        TX markers are red, RX markers blue.</li>
+      <li>The <b>Results</b> panel lists every path (<b>type / dBm / ns / #int</b>
+        columns). Click a row to see its vertices and interactions mapped to prim
+        ids and RF materials, plus a <b>Delay vs power</b> scatter and an
+        <b>AoA / AoD</b> plot.</li>
+    </ol>
+
+    <h3>Accuracy presets</h3>
+
+    <p>Instead of tuning ray counts by hand, use the <b>Accuracy</b> segmented control
+    in the Paths section:</p>
+
+    <table>
+      <thead>
+        <tr><th>Preset</th><th>Samples/it</th><th>Max depth</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><b>Preview</b></td><td>10^5</td><td>2</td></tr>
+        <tr><td><b>Balanced</b></td><td>10^6</td><td>3</td></tr>
+        <tr><td><b>High</b></td><td>5×10^6</td><td>5</td></tr>
+      </tbody>
+    </table>
+
+    <p>Move the <b>Max depth</b> (0–12) or <b>Samples / it (log 10)</b> (10^4–10^7)
+    sliders yourself and the control shows <b>Custom</b>. Below them, mechanism
+    checkboxes (<b>Line of sight</b>, <b>Specular reflection</b>, <b>Diffuse
+    reflection</b>, <b>Refraction</b>, <b>Diffraction</b>, <b>Edge diffraction</b>,
+    <b>Lit-region diffraction</b>) pick which interactions the solver traces.</p>
+
+    <h3>Overlay toggles and filters</h3>
+
+    <p>The <b>Show:</b> row in the Results panel toggles each overlay independently —
+    <b>Rays</b>, <b>Radio map</b>, <b>Beamforming</b>, <b>Trajectory rays</b>, <b>Scenario</b>.
+    The viewer controls filter what is drawn: <b>Strongest N</b> (or <b>All</b>),
+    <b>Min power</b> (dBm), <b>Color by</b> <code>type</code>/<code>power</code>/<code>depth</code>, and <b>Line width by
+    power</b>. To clear the ray overlay entirely, press <b>Remove</b> in the Paths
+    section. Keep <b>Auto update</b> checked and the paths re-solve automatically
+    whenever the scene changes.</p>
+
+    <h2>3. Radio map</h2>
+
+    <figure class="doc-shot"><img loading="lazy" decoding="async" src="../../assets/guides/07_radio_map.png" alt="Jet-colormap coverage heatmap over the scene floor with the Path gain legend and a result toast"><figcaption>A radio map draped over the scene: jet colormap, the "Path gain" dB colorbar, and the completion toast.</figcaption></figure>
+
+    <p>A radio map sweeps a receive grid over the scene and paints received strength
+    as a heatmap:</p>
+
+    <ol>
+      <li>In the <b>Radio map</b> section of the Simulation panel, press
+        <b>Compute radio map</b> (or <b>Simulate radio map</b> in the Results panel).</li>
+      <li>The heatmap appears with a <b>jet</b> colormap (blue = weak, red = strong),
+        and a colorbar legend labeled <b>Path gain</b> (dB) — or <b>RSS</b> (dBm) —
+        shows the value range in the viewport.</li>
+      <li>Options: <b>Cell size</b> (m), <b>Height</b> (m), and <b>Metric</b> —
+        <code>Path gain (dB)</code>, <code>RSS (dBm)</code>, or <code>SINR (multi-TX)</code>. The section has its
+        own <b>Accuracy</b> / <b>Max depth</b> / <b>Samples</b> / mechanism knobs.</li>
+      <li><b>Remove</b> clears the overlay. <b>Auto update</b> recomputes on scene edits,
+        and the <b>every</b> select (10 s / 30 s / 1 min / 5 min) re-solves on a
+        fixed period for live-sensing scenes.</li>
+    </ol>
+
+    <h3>Cell map vs mesh map</h3>
+
+    <p>The map above is a <b>planar cell map</b> — a horizontal grid at a fixed height.
+    To paint coverage <b>onto actual surfaces</b> (walls, floors, roads), select the
+    target prims, open the <b>Mesh radio map</b> collapsible in the Results panel,
+    and press <b>Run mesh radio map</b>. It solves one probe per triangle and drapes
+    the color over the geometry; its own <b>Mesh map</b> checkbox toggles the
+    overlay, and the value range is reported as e.g. <code>Path gain range −95.2 … −61.4 dB (jet: low → high)</code>.</p>
+
+    <h2>4. Beamforming array</h2>
+
+    <figure class="doc-shot"><img loading="lazy" decoding="async" src="../../assets/guides/08_beamforming.png" alt="Beamforming result toast and the array configuration in the Global section"><figcaption>A codebook sweep result: array setup in the Global section and the summary toast.</figcaption></figure>
+
+    <ol>
+      <li>In the <b>Global</b> section, set the <b>Beamforming array</b>:
+        <b>TX rows × cols</b> and <b>RX rows × cols</b> (1/2/4/8 each, e.g. 4 × 4).</li>
+      <li>Pick a <b>Mode</b>:
+        <ul>
+          <li><b>codebook sweep</b> — sweeps beam angles on both ends; reveals the
+            <b>Sweep start / Sweep stop / Sweep step</b> (°) fields.</li>
+          <li><b>TX-MRT</b> — maximum-ratio transmission at the TX.</li>
+          <li><b>SVD</b> — both-ends SVD beamforming.</li>
+        </ul>
+      </li>
+      <li>Press the <b>Beamforming</b> button (also available in the Results panel and
+        via toolbar <b>Actions ▾ → Beamforming</b>).</li>
+      <li>The toast summarizes the run, e.g.
+        <code>Beamforming 4x4→4x4 (mock) · codebook 25.0 dB · best TX 0° / RX 0°</code>,
+        and a result card shows the single-element reference, the gain, and — for
+        a codebook sweep — a jet heatmap of gain vs TX/RX angle. The <b>Auto
+        update</b> checkbox next to the button re-runs it on scene changes.</li>
+    </ol>
+
+    <h2>5. Channel analysis</h2>
+
+    <figure class="doc-shot"><img loading="lazy" decoding="async" src="../../assets/guides/09_channel_analysis.png" alt="Floating Channel analysis panel with link budget KPIs and CIR/CFR charts"><figcaption>The Channel analysis panel floated over the viewport: link budget, CIR power-delay profile, and CFR magnitude.</figcaption></figure>
+
+    <p>The <b>Channel analysis</b> panel is dockable — reach it from <b>Panels ▾</b> and
+    float it if you want it side by side with the 3D view.</p>
+
+    <ol>
+      <li>Pick the <b>TX</b> and <b>RX</b> devices and set <b>CFR points</b> (frequency
+        samples across the band, default 128).</li>
+      <li>Adjust <b>Live parameters</b> if needed: <b>Frequency (GHz)</b>,
+        <b>Bandwidth (MHz)</b>, <b>TX power (dBm)</b>, <b>Noise figure (dB)</b>, and
+        <b>SCS (kHz)</b> (15/30/60/120). Next to SCS the derived <b>N_RB</b> (resource
+        blocks = ⌊BW/(12·SCS)⌋) updates live; <b>Reset to config</b> restores the
+        values from the solver config and TX device.</li>
+      <li>Press <b>Analyze</b>. The result line shows the pair with a <b>fixed link</b>
+        badge (a snapshot at the current positions — moving-receiver sweeps live
+        in the UE trajectory panel), the backend, frequency, 3D distance, and
+        path count.</li>
+    </ol>
+
+    <p>Below it:</p>
+
+    <ul>
+      <li><b>Link budget</b> — <b>RSS</b>, <b>SNR</b>, <b>SINR</b>, <b>Interference</b> (with the
+        interfering-TX count in multi-TX scenes), <b>Shannon</b> capacity,
+        <b>K-factor</b>, <b>RMS DS</b> (delay spread), <b>Coh. BW</b>, and, when the channel
+        is time-varying, <b>Doppler spread</b> and <b>Coh. time</b>.</li>
+      <li><b>CIR (power delay profile)</b> — one stem per tap, colored by path type.</li>
+      <li><b>CFR magnitude</b> — |H| in dB across the band.</li>
+      <li><b>Path-loss models vs RT</b> — 3GPP model predictions with their delta
+        against the ray-traced reference.</li>
+    </ul>
+
+    <p>Once you change a Live parameter after an analysis, the panel re-analyzes the
+    same pair automatically (debounced). The <b>Auto update</b> checkbox re-runs the
+    last analysis whenever the scene changes (it needs one manual <b>Analyze</b>
+    first); <b>Clear</b> discards the result.</p>
+
+    <p>Three collapsed sections extend the panel: <b>Channel sweep</b> (chart a link
+    metric against a swept config field via <b>Run sweep</b>), <b>Doppler-time
+    spectrogram</b> (<b>Compute spectrogram</b> — an STFT heatmap of the time-varying
+    channel), and <b>Flight-log validation</b> (<b>Validate</b> measured vs predicted
+    path gain along a route).</p>
+
+    <h2>6. Backends, persistence, and stale results</h2>
+
+    <ul>
+      <li><b>Every solver falls back to the Mock backend</b> when Sionna RT is not
+        installed (the toolbar chip reads <b>Mock only</b>). The mock is deterministic
+        and shape-compatible, so you can build and test full workflows on any
+        laptop, then flip <b>Backend</b> to <code>sionna</code> on a real machine.</li>
+      <li>Results persist per project: paths land in
+        <code>results/{backend}_paths_{NNN}.json</code> under the project folder, and the
+        latest of each kind reloads with the project.</li>
+      <li>The <b>Run history</b> collapsible in the Results panel is the results
+        explorer: past runs grouped by kind, reloadable with one click, labelable,
+        and prunable (<b>Keep latest</b> N per kind → <b>Prune old results</b>; labeled
+        runs are spared).</li>
+      <li>Whenever the scene changes after a compute, the result grows a <b>⚠ stale</b>
+        badge — the numbers are never silently outdated; re-run to refresh.</li>
+    </ul>
+
+    <h2>Related docs</h2>
+
+    <ul>
+      <li><a href="getting_started.html">Getting started guide</a> — install, first project, modes tour</li>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/TUTORIAL.md">TUTORIAL</a> — the full 15-minute first session</li>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/engines.md">Engines</a> — solving paths on alternate Sionna RT versions</li>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/sionna_versions.md">Sionna versions</a> — feature/material evolution per version</li>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/accuracy.md">Accuracy</a> — RT accuracy limits and measurement calibration</li>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/ml_datasets.md">ML datasets</a> — turning solves into training data</li>
+    </ul>
+
+    <div class="pn">
+      <a href="materials_and_ai.html"><span class="lbl">Previous</span>RF materials: library, validation, and AI-assisted assignment</a>
+      <a href="trajectory_uav.html"><span class="lbl">Next</span>Trajectories and UAVs: moving receivers, playback, and POV views</a>
+    </div>
+  </article>
+</div>
+
+<footer>
+  <div class="wrap fineprint">
+    SEAM Studio · Apache License 2.0 · <a href="https://github.com/jaewoo4200/SEAM">github.com/jaewoo4200/SEAM</a> · <a href="../../ko/guides/simulation.html">한국어 가이드</a><br>
+    Developed by <b>Jaewoo Lee (이재우)</b> · Wireless Systems Laboratory (WSL), Hanyang University · BEYOND-G Global Innovation Center
+  </div>
+</footer>
+
+<script>(function(){
+  var root=document.documentElement, sw=document.querySelector('.theme-sw');
+  if(!sw)return;
+  function cur(){return localStorage.getItem('seam-theme')||'auto';}
+  function paint(m){sw.querySelectorAll('button').forEach(function(b){
+    b.setAttribute('aria-pressed', String(b.dataset.theme===m));});}
+  function apply(m){
+    if(m==='auto'){root.removeAttribute('data-theme');try{localStorage.removeItem('seam-theme');}catch(e){}}
+    else{root.setAttribute('data-theme',m);try{localStorage.setItem('seam-theme',m);}catch(e){}}
+    paint(m);}
+  sw.addEventListener('click',function(e){var b=e.target.closest('button');if(b)apply(b.dataset.theme);});
+  paint(cur());
+})();</script>
+</body>
+</html>

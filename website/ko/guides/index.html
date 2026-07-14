@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>(function(){try{var t=localStorage.getItem('seam-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
+<title>사용 가이드 — SEAM Studio</title>
+<meta name="description" content="SEAM Studio 그림 가이드: 첫 실행, 씬 임포트, RF 재질과 AI 할당, 시뮬레이션, 궤적과 UAV, ML 데이터셋.">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Cdefs%3E%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%22%20x2%3D%221%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23173a8a%22/%3E%3Cstop%20offset%3D%22.5%22%20stop-color%3D%22%232fd0c0%22/%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23e2632e%22/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect%20width%3D%2264%22%20height%3D%2264%22%20rx%3D%2212%22%20fill%3D%22%230b111b%22/%3E%3Ctext%20x%3D%2232%22%20y%3D%2242%22%20font-family%3D%22Segoe%20UI%2CArial%2Csans-serif%22%20font-size%3D%2236%22%20font-weight%3D%22700%22%20fill%3D%22%232e9bff%22%20text-anchor%3D%22middle%22%3ES%3C/text%3E%3Crect%20x%3D%2214%22%20y%3D%2250%22%20width%3D%2236%22%20height%3D%225%22%20rx%3D%222.5%22%20fill%3D%22url%28%23g%29%22/%3E%3C/svg%3E">
+<link rel="canonical" href="https://jaewoo4200.github.io/SEAM/ko/guides/">
+<link rel="alternate" hreflang="ko" href="https://jaewoo4200.github.io/SEAM/ko/guides/">
+<link rel="alternate" hreflang="en" href="https://jaewoo4200.github.io/SEAM/en/guides/">
+<meta name="theme-color" content="#0b111b" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f4f7fc" media="(prefers-color-scheme: light)">
+<style>
+:root{
+  --bg:#0b111b; --panel:#141d2b; --line:#233246; --ink:#e2eaf4; --mut:#8a9cb0;
+  --acc:#2e9bff; --mut2:#6f8299; --link-mut:#8fb4dd; --code-acc:#7bb8f5;
+}
+:root[data-theme="light"]{ --bg:#f4f7fc; --panel:#ffffff; --line:#dde5ef; --ink:#17242f; --mut:#54677a; --acc:#1f77dd; --mut2:#54677a; --link-mut:#3a6ea5; --code-acc:#2f6595 }
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){ --bg:#f4f7fc; --panel:#ffffff; --line:#dde5ef; --ink:#17242f; --mut:#54677a; --acc:#1f77dd; --mut2:#54677a; --link-mut:#3a6ea5; --code-acc:#2f6595 }
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:16px/1.7 "Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,sans-serif}
+img{max-width:100%;display:block}
+a{color:var(--acc);text-decoration:none}
+.mono{font-family:"Cascadia Code",Consolas,ui-monospace,monospace}
+.wrap{max-width:1080px;margin:0 auto;padding:0 24px}
+.spectrum{height:3px;background:linear-gradient(90deg,#173a8a,#2e9bff,#2fd0c0,#8fd45e,#e8b93c,#e2632e);border-radius:2px}
+
+/* top tab bar (flat research-site style) */
+.topbar{position:sticky;top:0;z-index:20;background:var(--panel);border-bottom:1px solid var(--line)}
+.topbar .in{max-width:1080px;margin:0 auto;padding:0 24px;display:flex;align-items:center;gap:20px;height:52px}
+.topbar .brand{font:700 15px/1 "Segoe UI Variable Display","Segoe UI",sans-serif;color:var(--ink);letter-spacing:-.01em;white-space:nowrap}
+.topbar .brand .studio{color:var(--acc)}
+.topbar nav.tabs{display:flex;gap:2px;overflow-x:auto;scrollbar-width:none;flex:1}
+.topbar nav.tabs::-webkit-scrollbar{display:none}
+.topbar nav.tabs a{color:var(--mut);font-size:13.5px;font-weight:600;padding:6px 11px;border-radius:4px;white-space:nowrap}
+.topbar nav.tabs a:hover{color:var(--ink)}
+.topbar nav.tabs a.active{color:var(--acc)}
+.topbar .side{display:flex;gap:10px;align-items:center;white-space:nowrap}
+.topbar .side .lang{font-family:Consolas,monospace;font-size:12px;letter-spacing:.08em;color:var(--mut)}
+.topbar .side .lang a{color:var(--link-mut)}
+.topbar .side .lang b{color:var(--ink)}
+.topbar .side .lang span{margin:0 5px;color:var(--mut2)}
+.theme-sw{display:flex;gap:2px;background:transparent;border:1px solid var(--line);border-radius:999px;padding:3px}
+.theme-sw button{font:600 11px/1 Consolas,monospace;letter-spacing:.04em;color:var(--mut);
+  background:transparent;border:0;border-radius:999px;padding:5px 9px;cursor:pointer}
+.theme-sw button[aria-pressed="true"]{background:var(--acc);color:#04101f}
+a:focus-visible,button:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+
+/* page head */
+.pagehead{padding:64px 0 8px}
+.eyebrow{font-family:Consolas,monospace;font-size:12px;letter-spacing:.22em;color:var(--acc);text-transform:uppercase}
+h1{font:650 clamp(32px,5vw,52px)/1.1 "Segoe UI Variable Display","Segoe UI",sans-serif;letter-spacing:-.02em;margin:10px 0 8px}
+p.lead{color:var(--mut);max-width:70ch;margin:8px 0 0;font-size:17px}
+.pagehead .spectrum{width:120px;margin:22px 0 0}
+
+/* guide cards */
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr));gap:18px;padding:40px 0 24px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden;display:flex;flex-direction:column;transition:border-color .15s, transform .15s}
+.card:hover{border-color:var(--acc);transform:translateY(-2px)}
+.card img{width:100%;aspect-ratio:16/10;object-fit:cover;object-position:top left;border-bottom:1px solid var(--line)}
+.card .body{padding:16px 18px 18px;display:flex;flex-direction:column;gap:6px;flex:1}
+.card .k{font-family:Consolas,monospace;font-size:11px;color:var(--acc);letter-spacing:.16em;text-transform:uppercase}
+.card h3{margin:0;font-size:17.5px;color:var(--ink)}
+.card p{margin:0;color:var(--mut);font-size:13.5px;flex:1}
+.card .go{font-size:13px;font-weight:600;color:var(--acc);margin-top:8px}
+
+/* next-steps strip */
+.strip{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:20px 24px;margin:8px 0 72px;
+  display:flex;gap:18px;align-items:center;flex-wrap:wrap;justify-content:space-between}
+.strip p{margin:0;color:var(--mut);font-size:14px}
+.strip p b{color:var(--ink)}
+.strip .links{display:flex;gap:14px;flex-wrap:wrap}
+.strip a{font-size:13.5px;font-weight:600}
+
+footer{border-top:1px solid var(--line)}
+.fineprint{padding:26px 0 40px;color:var(--mut2);font-size:12.5px;line-height:1.8;text-align:center}
+.fineprint a{color:var(--link-mut)}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="in">
+    <a class="brand" href="../">SEAM <span class="studio">Studio</span></a>
+    <nav class="tabs" aria-label="사이트">
+      <a href="../">개요</a>
+      <a href="../#features">기능</a>
+      <a href="../#capabilities">세부 기능</a>
+      <a href="../#agent">SEAM-Agent</a>
+      <a class="active" href="./">가이드</a>
+      <a href="../#quickstart">설치</a>
+    </nav>
+    <div class="side">
+      <nav class="theme-sw" aria-label="테마"><button data-theme="auto">자동</button><button data-theme="light">라이트</button><button data-theme="dark">다크</button></nav>
+      <nav class="lang" aria-label="Language"><b>KO</b><span>·</span><a href="../../en/guides/">EN</a></nav>
+    </div>
+  </div>
+</div>
+
+<div class="wrap pagehead">
+  <div class="eyebrow">Documentation</div>
+  <h1>사용 가이드</h1>
+  <p class="lead">SEAM Studio의 모든 워크플로를 그림과 함께 단계별로 안내합니다. 모든 스크린샷은
+    실제 애플리케이션에서 캡처했고, 레이·히트맵·링크버짓 수치는 전부 실제 솔버 실행 결과입니다.
+    내장 Mock 백엔드만으로 전 과정을 따라 할 수 있어 GPU나 Sionna 설치가 없어도 됩니다.</p>
+  <div class="spectrum"></div>
+</div>
+
+<div class="wrap">
+  <div class="cards">
+    <a class="card" href="getting_started.html">
+      <img loading="lazy" decoding="async" src="../../assets/guides/01_visual_mode.png" alt="씬 트리, 디바이스, 액터가 보이는 SEAM Studio Visual 모드">
+      <div class="body"><span class="k">Guide 01</span>
+        <h3>시작하기</h3>
+        <p>첫 실행, 툴바와 다섯 가지 모드, 씬 트리, 디바이스·액터, 인스펙터, 도킹 패널까지.</p>
+        <span class="go">가이드 읽기 →</span>
+      </div>
+    </a>
+    <a class="card" href="scene_import.html">
+      <img loading="lazy" decoding="async" src="../../assets/guides/11_ftc_textured.png" alt="SEAM Studio로 임포트한 드론 스캔 텍스처 번들">
+      <div class="body"><span class="k">Guide 02</span>
+        <h3>씬 임포트</h3>
+        <p>Mitsuba XML·zip 번들, OpenStreetMap 건물 추출, 디바이스·궤적 JSON, 환경 모드.</p>
+        <span class="go">가이드 읽기 →</span>
+      </div>
+    </a>
+    <a class="card" href="materials_and_ai.html">
+      <img loading="lazy" decoding="async" src="../../assets/guides/05_ai_assist.png" alt="프로바이더 목록과 재질 제안 카드가 있는 AI Assist 모드">
+      <div class="body"><span class="k">Guide 03</span>
+        <h3>RF 재질 &amp; AI</h3>
+        <p>재질 라이브러리, 할당과 검증, 근거·신뢰도가 붙는 AI 재질 제안, 자연어 규칙.</p>
+        <span class="go">가이드 읽기 →</span>
+      </div>
+    </a>
+    <a class="card" href="simulation.html">
+      <img loading="lazy" decoding="async" src="../../assets/guides/07_radio_map.png" alt="데모 씬 위에 계산된 jet 컬러맵 라디오맵">
+      <div class="body"><span class="k">Guide 04</span>
+        <h3>시뮬레이션</h3>
+        <p>레이 경로와 정확도 프리셋, 라디오맵, MIMO 빔포밍, CIR/CFR 차트가 있는 채널 분석.</p>
+        <span class="go">가이드 읽기 →</span>
+      </div>
+    </a>
+    <a class="card" href="trajectory_uav.html">
+      <img loading="lazy" decoding="async" src="../../assets/guides/12_uav_trajectory.png" alt="비행 경로와 라이브 POV 인셋이 있는 UAV 액터">
+      <div class="body"><span class="k">Guide 05</span>
+        <h3>궤적 &amp; UAV</h3>
+        <p>움직이는 수신기, 안테나를 부착한 UAV 액터, 궤적 재생의 정확한 동작, 엔티티 POV 뷰.</p>
+        <span class="go">가이드 읽기 →</span>
+      </div>
+    </a>
+    <a class="card" href="datasets_export.html">
+      <img loading="lazy" decoding="async" src="../../assets/guides/10_dataset.png" alt="라디오맵 히트맵 위에 떠 있는 ML 데이터셋 패널">
+      <div class="body"><span class="k">Guide 06</span>
+        <h3>ML 데이터셋 &amp; 내보내기</h3>
+        <p>그라운드트루스 데이터셋 생성, RFData 번들 내보내기, 논문용 그림 캡처.</p>
+        <span class="go">가이드 읽기 →</span>
+      </div>
+    </a>
+  </div>
+
+  <div class="strip">
+    <p><b>SEAM Studio가 처음이신가요?</b> 15분 튜토리얼이 씬 → 재질 → 시뮬레이션 → 데이터셋 루프를 한 번에 훑습니다.</p>
+    <div class="links">
+      <a href="https://github.com/jaewoo4200/SEAM/blob/master/TUTORIAL.ko.md">15분 튜토리얼 ↗</a>
+      <a href="https://github.com/jaewoo4200/SEAM/blob/master/INSTALL.ko.md">설치 가이드 ↗</a>
+      <a href="../#quickstart">Quickstart</a>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <div class="wrap fineprint">
+    SEAM Studio · Apache License 2.0 · <a href="https://github.com/jaewoo4200/SEAM">github.com/jaewoo4200/SEAM</a> · <a href="../../en/guides/">English guides</a><br>
+    Developed by <b>Jaewoo Lee (이재우)</b> · Wireless Systems Laboratory (WSL), Hanyang University · BEYOND-G Global Innovation Center
+  </div>
+</footer>
+
+<script>(function(){
+  var root=document.documentElement, sw=document.querySelector('.theme-sw');
+  if(!sw)return;
+  function cur(){return localStorage.getItem('seam-theme')||'auto';}
+  function paint(m){sw.querySelectorAll('button').forEach(function(b){
+    b.setAttribute('aria-pressed', String(b.dataset.theme===m));});}
+  function apply(m){
+    if(m==='auto'){root.removeAttribute('data-theme');try{localStorage.removeItem('seam-theme');}catch(e){}}
+    else{root.setAttribute('data-theme',m);try{localStorage.setItem('seam-theme',m);}catch(e){}}
+    paint(m);}
+  sw.addEventListener('click',function(e){var b=e.target.closest('button');if(b)apply(b.dataset.theme);});
+  paint(cur());
+})();</script>
+</body>
+</html>

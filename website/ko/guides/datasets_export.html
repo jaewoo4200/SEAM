@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>(function(){try{var t=localStorage.getItem('seam-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
+<title>ML 데이터셋과 내보내기 — SEAM Studio</title>
+<meta name="description" content="SEAM Studio에서 ML 학습용 NumPy .npz 그라운드트루스 데이터셋, AODT 호환 RFData 번들, WYSIWYG 뷰포트 캡처, 차트별 CSV/PNG/SVG 내보내기를 다루는 가이드.">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Cdefs%3E%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%22%20x2%3D%221%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23173a8a%22/%3E%3Cstop%20offset%3D%22.5%22%20stop-color%3D%22%232fd0c0%22/%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23e2632e%22/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect%20width%3D%2264%22%20height%3D%2264%22%20rx%3D%2212%22%20fill%3D%22%230b111b%22/%3E%3Ctext%20x%3D%2232%22%20y%3D%2242%22%20font-family%3D%22Segoe%20UI%2CArial%2Csans-serif%22%20font-size%3D%2236%22%20font-weight%3D%22700%22%20fill%3D%22%232e9bff%22%20text-anchor%3D%22middle%22%3ES%3C/text%3E%3Crect%20x%3D%2214%22%20y%3D%2250%22%20width%3D%2236%22%20height%3D%225%22%20rx%3D%222.5%22%20fill%3D%22url%28%23g%29%22/%3E%3C/svg%3E">
+<link rel="canonical" href="https://jaewoo4200.github.io/SEAM/ko/guides/datasets_export.html">
+<link rel="alternate" hreflang="ko" href="https://jaewoo4200.github.io/SEAM/ko/guides/datasets_export.html">
+<link rel="alternate" hreflang="en" href="https://jaewoo4200.github.io/SEAM/en/guides/datasets_export.html">
+<meta name="theme-color" content="#0b111b" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f4f7fc" media="(prefers-color-scheme: light)">
+<style>
+:root{
+  --bg:#0b111b; --panel:#141d2b; --line:#233246; --ink:#e2eaf4; --mut:#8a9cb0;
+  --acc:#2e9bff; --mut2:#6f8299; --link-mut:#8fb4dd; --code-acc:#7bb8f5;
+}
+:root[data-theme="light"]{ --bg:#f4f7fc; --panel:#ffffff; --line:#dde5ef; --ink:#17242f; --mut:#54677a; --acc:#1f77dd; --mut2:#54677a; --link-mut:#3a6ea5; --code-acc:#2f6595 }
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){ --bg:#f4f7fc; --panel:#ffffff; --line:#dde5ef; --ink:#17242f; --mut:#54677a; --acc:#1f77dd; --mut2:#54677a; --link-mut:#3a6ea5; --code-acc:#2f6595 }
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:16px/1.7 "Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,sans-serif}
+img{max-width:100%;display:block}
+a{color:var(--acc);text-decoration:none}
+a:hover{text-decoration:underline}
+.mono{font-family:"Cascadia Code",Consolas,ui-monospace,monospace}
+.wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+
+/* top tab bar (flat research-site style) */
+.topbar{position:sticky;top:0;z-index:20;background:var(--panel);border-bottom:1px solid var(--line)}
+.topbar .in{max-width:1120px;margin:0 auto;padding:0 24px;display:flex;align-items:center;gap:20px;height:52px}
+.topbar .brand{font:700 15px/1 "Segoe UI Variable Display","Segoe UI",sans-serif;color:var(--ink);letter-spacing:-.01em;white-space:nowrap}
+.topbar .brand .studio{color:var(--acc)}
+.topbar a{text-decoration:none}
+.topbar nav.tabs{display:flex;gap:2px;overflow-x:auto;scrollbar-width:none;flex:1}
+.topbar nav.tabs::-webkit-scrollbar{display:none}
+.topbar nav.tabs a{color:var(--mut);font-size:13.5px;font-weight:600;padding:6px 11px;border-radius:4px;white-space:nowrap}
+.topbar nav.tabs a:hover{color:var(--ink);text-decoration:none}
+.topbar nav.tabs a.active{color:var(--acc)}
+.topbar .side{display:flex;gap:10px;align-items:center;white-space:nowrap}
+.topbar .side .lang{font-family:Consolas,monospace;font-size:12px;letter-spacing:.08em;color:var(--mut)}
+.topbar .side .lang a{color:var(--link-mut)}
+.topbar .side .lang b{color:var(--ink)}
+.topbar .side .lang span{margin:0 5px;color:var(--mut2)}
+.theme-sw{display:flex;gap:2px;background:transparent;border:1px solid var(--line);border-radius:999px;padding:3px}
+.theme-sw button{font:600 11px/1 Consolas,monospace;letter-spacing:.04em;color:var(--mut);
+  background:transparent;border:0;border-radius:999px;padding:5px 9px;cursor:pointer}
+.theme-sw button[aria-pressed="true"]{background:var(--acc);color:#04101f}
+a:focus-visible,button:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+
+/* docs layout */
+.docwrap{display:grid;grid-template-columns:230px minmax(0,1fr);gap:44px;padding:44px 0 72px}
+@media (max-width:860px){ .docwrap{grid-template-columns:1fr} aside.sidenav{position:static;order:2;border-top:1px solid var(--line);padding-top:20px} }
+aside.sidenav{position:sticky;top:76px;align-self:start}
+aside.sidenav .cap{font-family:Consolas,monospace;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--mut2);margin:0 0 10px}
+aside.sidenav a{display:block;color:var(--mut);font-size:13.5px;padding:6px 10px;border-left:2px solid var(--line);text-decoration:none}
+aside.sidenav a:hover{color:var(--ink)}
+aside.sidenav a.active{color:var(--acc);border-left-color:var(--acc);font-weight:600}
+aside.sidenav .all{margin-top:12px;border-left:0;padding-left:10px;font-weight:600;color:var(--link-mut)}
+
+article{max-width:820px;min-width:0}
+article .eyebrow{font-family:Consolas,monospace;font-size:12px;letter-spacing:.22em;color:var(--acc);text-transform:uppercase}
+article h1{font:650 clamp(28px,4vw,40px)/1.15 "Segoe UI Variable Display","Segoe UI",sans-serif;letter-spacing:-.02em;margin:8px 0 10px}
+article p.lead{color:var(--mut);font-size:16.5px;margin:0 0 8px}
+article .spectrum{height:3px;background:linear-gradient(90deg,#173a8a,#2e9bff,#2fd0c0,#8fd45e,#e8b93c,#e2632e);border-radius:2px;width:110px;margin:18px 0 26px}
+article h2{font:650 22px/1.3 "Segoe UI Variable Display","Segoe UI",sans-serif;margin:40px 0 12px;padding-top:18px;border-top:1px solid var(--line)}
+article h3{font:600 17px/1.35 "Segoe UI",sans-serif;margin:26px 0 8px}
+article p{margin:10px 0;color:var(--ink)}
+article p.note, article li{color:var(--ink)}
+article ul,article ol{padding-left:24px;margin:10px 0}
+article li{margin:5px 0}
+article table{border-collapse:collapse;width:100%;font-size:14px;margin:14px 0;display:block;overflow-x:auto}
+article th,article td{border:1px solid var(--line);padding:8px 12px;text-align:left;vertical-align:top}
+article th{background:var(--panel);font-weight:600}
+article code{font-family:"Cascadia Code",Consolas,ui-monospace,monospace;font-size:.92em;color:var(--code-acc);background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:1px 6px}
+article pre{background:#0e1622;border:1px solid #233246;border-radius:6px;padding:16px 18px;overflow-x:auto;
+  font-family:"Cascadia Code",Consolas,monospace;font-size:13px;line-height:1.8;color:#cfe0f2;margin:14px 0}
+article pre code{background:none;border:0;padding:0;color:inherit}
+article figure.doc-shot{margin:20px 0;background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+article figure.doc-shot img{width:100%}
+article figure.doc-shot figcaption{padding:10px 14px;font-size:13px;color:var(--mut);border-top:1px solid var(--line)}
+article blockquote{margin:14px 0;padding:10px 16px;border-left:3px solid var(--acc);background:var(--panel);border-radius:0 6px 6px 0;color:var(--mut);font-size:14.5px}
+article blockquote p{color:var(--mut)}
+.pn{display:flex;justify-content:space-between;gap:14px;margin-top:48px;padding-top:18px;border-top:1px solid var(--line);font-size:14px;font-weight:600}
+.pn a{max-width:48%}
+.pn .lbl{display:block;font:400 11px/1 Consolas,monospace;letter-spacing:.14em;text-transform:uppercase;color:var(--mut2);margin-bottom:4px}
+
+footer{border-top:1px solid var(--line)}
+.fineprint{padding:26px 0 40px;color:var(--mut2);font-size:12.5px;line-height:1.8;text-align:center}
+.fineprint a{color:var(--link-mut)}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="in">
+    <a class="brand" href="../">SEAM <span class="studio">Studio</span></a>
+    <nav class="tabs" aria-label="사이트">
+      <a href="../">개요</a>
+      <a href="../#features">기능</a>
+      <a href="../#capabilities">세부 기능</a>
+      <a href="../#agent">SEAM-Agent</a>
+      <a class="active" href="./">가이드</a>
+      <a href="../#quickstart">설치</a>
+    </nav>
+    <div class="side">
+      <nav class="theme-sw" aria-label="테마"><button data-theme="auto">자동</button><button data-theme="light">라이트</button><button data-theme="dark">다크</button></nav>
+      <nav class="lang" aria-label="Language"><b>KO</b><span>·</span><a href="../../en/guides/datasets_export.html">EN</a></nav>
+    </div>
+  </div>
+</div>
+
+<div class="wrap docwrap">
+  <aside class="sidenav">
+    <p class="cap">사용 가이드</p>
+    <a href="getting_started.html">시작하기</a>
+    <a href="scene_import.html">씬 임포트</a>
+    <a href="materials_and_ai.html">RF 재질 &amp; AI</a>
+    <a href="simulation.html">시뮬레이션</a>
+    <a href="trajectory_uav.html">궤적 &amp; UAV</a>
+    <a class="active" href="datasets_export.html">ML 데이터셋 &amp; 내보내기</a>
+    <a class="all" href="./">← 전체 가이드</a>
+  </aside>
+
+  <article>
+    <div class="eyebrow">Guide 06 · SEAM Studio docs</div>
+    <h1>ML 데이터셋과 내보내기</h1>
+    <p class="lead">SEAM Studio는 뷰어로 끝나지 않습니다 — 시뮬레이션한 모든 것을 파일로 꺼낼 수 있습니다: ML 모델 학습용 NumPy <code>.npz</code> 그라운드트루스 데이터셋, AODT 뷰어 호환 RFData 번들, 보이는 그대로(WYSIWYG)의 뷰포트 캡처, 차트별 CSV/PNG/SVG 내보내기까지. 이 가이드에서 각 내보내기 경로를 하나씩 살펴봅니다.</p>
+    <div class="spectrum"></div>
+
+    <p>여기 나오는 모든 기능은 <b>Mock 백엔드</b>만으로도 동작합니다 — Sionna RT가 설치되어 있지 않아도 데이터셋 생성과 모든 내보내기가 끝까지 실행됩니다(값은 mock 솔버가 만들지만, 파이프라인 테스트에는 충분합니다).</p>
+
+    <h2>1. ML dataset 패널</h2>
+    <p>데이터셋 생성기는 <b>ML dataset</b> 패널에 있습니다(헤더에는 <code>ML DATASET</code>으로 표시됩니다). 두 가지 방법으로 열 수 있습니다:</p>
+    <ul>
+      <li><b>Results</b> 모드 — 오른쪽의 도킹 가능한 카드 중 하나입니다.</li>
+      <li>어느 모드에서든 툴바의 <b>Panels ▾</b> 메뉴 — <b>ML dataset</b> 행을 클릭하면 뷰포트 위에 플로팅되고, <b>◧ / ◨</b> 버튼으로 좌/우 사이드바에 도킹할 수도 있습니다. 플로팅한 패널은 모드를 바꿔도 그대로 유지됩니다.</li>
+    </ul>
+
+    <figure class="doc-shot"><img loading="lazy" decoding="async" src="../../assets/guides/10_dataset.png" alt="라디오맵 히트맵 위에 플로팅된 ML DATASET 패널 — 샘플링 컨트롤, 영역 필드, Generate dataset 버튼, npz/json 링크가 있는 기존 데이터셋 행이 보입니다"><figcaption>계산된 라디오맵 위에 띄운 ML DATASET 패널 — 위쪽에 샘플링 컨트롤, 가운데에 영역 픽커, 아래에 <code>npz</code> / <code>json</code> 다운로드가 있는 데이터셋 목록이 있습니다.</figcaption></figure>
+
+    <h3>데이터셋 생성 단계별 안내</h3>
+    <ol>
+      <li><b>Name</b> — 데이터셋 표시 이름입니다(아래 목록에도 나타납니다).</li>
+      <li><b>Sampling mode</b> — UE 위치를 고르는 방식:
+        <ul>
+          <li><code>random</code> — 영역 안 균일 랜덤 위치,</li>
+          <li><code>grid</code> — 영역 위 정규 격자(<b>Grid spacing</b> 필드가 추가됩니다, 단위 m),</li>
+          <li><code>trajectory</code> — 직선 start→end 구간 위의 점들.</li>
+        </ul>
+      </li>
+      <li><b>Actor flight path</b> — 씬 액터(웨이포인트를 가진 차량·보행자·UAV)의 저작된 궤적을 따라 샘플링하는 옵션입니다. 여기서 액터를 고르면 아래의 영역 / start-end 를 <b>덮어씁니다</b>; <code>— none —</code> 으로 두면 샘플링 모드 자체의 기하를 사용합니다. 궤적이 있는 액터가 없으면 패널이 알려 주니 먼저 Visual 모드에서 지정하세요. 필드 아래 힌트에 우선순위가 그대로 나옵니다: <em>waypoints &gt; actor flight path &gt; start/end (or region)</em>.</li>
+      <li><b>dt</b> (s) — 백엔드가 이동 샘플에 붙이는 속도/도플러 라벨의 유한차분(finite-difference) 시간 간격입니다.</li>
+      <li><b>Num samples</b> — 풀 UE 위치 수(1–20000). <b>CFR points</b> — 위치당 주파수 응답 표본 수(2–4096). <b>Height</b> (m) — UE 샘플링 높이.</li>
+      <li>영역을 설정합니다(<code>random</code> / <code>grid</code> 모드):
+        <ul>
+          <li><b>⌖ Pick region in viewport</b> — 버튼이 <code>Click 2 corners… (Esc)</code> 로 바뀌면, 씬 표면에서 영역의 마주 보는 두 모서리를 클릭하세요. XY 필드가 채워집니다(Esc 취소).</li>
+          <li><b>Fit to scene</b> — 영역과 높이를 씬 전체를 덮도록 설정합니다(프로젝트를 열 때 패널이 실제 씬 경계로 자동 시드되므로, 엉뚱한 값에서 시작하는 일은 드뭅니다).</li>
+          <li><b>Region min</b> / <b>Region max</b> — XY 모서리를 숫자로 직접 입력.</li>
+          <li>힌트 줄을 눈여겨보세요. 예: <em>"Scene spans [-40.0, -40.0]…[40.0, 40.0] m — samples outside it get zero paths."</em> 기하 밖을 샘플링하는 것이 쓸모없는 데이터셋이 나오는 1순위 원인입니다.</li>
+        </ul>
+        <p><code>trajectory</code> 모드에서는 대신 <b>⌖ Pick path in viewport</b> 버튼과 <b>Start</b> / <b>End</b> XYZ 필드가 나타납니다.</p>
+      </li>
+      <li><b>Seed</b> — 랜덤 샘플링을 재현 가능하게 만듭니다. 논문에는 함께 기록하세요.</li>
+      <li><b>Include paths</b> — 각 샘플의 전체 레이 경로(정점 + 상호작용)를 <code>paths.jsonl</code> 로 추가 덤프합니다. 용량이 크므로 기본은 꺼져 있습니다.</li>
+      <li><b>Follow terrain</b> — 각 샘플의 높이를 그 아래 표면에 스냅한 뒤 높이 오프셋을 더합니다. 경사 실외 씬에서 쓰고, 실내에서는 끄세요(지붕에 스냅됩니다).</li>
+      <li><b>Generate dataset</b> 을 누릅니다. 솔버가 위치들을 도는 동안 버튼에 <code>Generating…</code> 이 표시됩니다.</li>
+    </ol>
+
+    <h3>데이터셋 목록</h3>
+    <p>생성이 끝난 데이터셋은 버튼 아래 표에 한 행씩 나타납니다:</p>
+    <ul>
+      <li><b>name / # / created / size</b> — 이름, 샘플 수, 생성 시각, 파일 크기.</li>
+      <li><b>files</b> — <b>npz</b>(<code>dataset.npz</code>, 배열 본체)와 <b>json</b>(<code>metadata.json</code>, 설정 에코 + 좌표/단위 규약) 다운로드 링크.</li>
+      <li>이름 옆의 <b>⚠ N zero-path</b> 플래그는 N개 샘플에서 경로가 하나도 안 나왔다는 뜻입니다(UE가 씬 밖이거나 완전히 가려짐) — 영역을 다시 확인하세요.</li>
+      <li><b>×</b> 버튼으로 데이터셋을 삭제합니다. 한 번 누르면 <b>✓?</b> 로 바뀌고, 다시 눌러야 확정됩니다(몇 초 뒤 자동 해제).</li>
+    </ul>
+    <p>디스크에서는 프로젝트 폴더의 <code>export/datasets/&lt;dataset_id&gt;/</code> 아래에 쌓입니다.</p>
+
+    <h3>라벨에는 무엇이 들어 있나</h3>
+    <p><code>.npz</code> 에는 샘플별 위치, 복소 CFR, 경로별 CIR 이득·지연, LOS 플래그, RSS, 분산 지표가 들어 있습니다 — 정확한 배열 스키마, AODT 필드 매핑, 바로 실행할 수 있는 학습 예제(<code>examples/ml/train_channel_estimator.py</code>)는 <a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/ml_datasets.ko.md">ML 그라운드트루스 데이터셋</a> 문서에 정리되어 있습니다.</p>
+
+    <h2>2. RFData 내보내기 (AODT 뷰어 번들)</h2>
+    <p>결과를 외부 AODT 스타일 뷰어나 자체 파이프라인에 넘기려면 툴바의 <b>Actions ▾ → Export RFData</b> 를 사용하세요. 프로젝트 폴더 안 <code>export/rfdata/</code> 에 번들이 기록됩니다:</p>
+    <table>
+      <thead>
+        <tr><th>파일</th><th>내용</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>scenario_meta.json</code></td><td>단위, 주파수, 좌표 변환, 시간 창</td></tr>
+        <tr><td><code>devices.json</code></td><td>송신기 + 수신기(위치, m 단위)</td></tr>
+        <tr><td><code>paths.json</code></td><td>시간 인덱스가 붙은 레이 경로</td></tr>
+        <tr><td><code>trajectory.csv</code></td><td>웨이포인트별 UE 지표(<code>time_s, ue_id, x_m, y_m, z_m, rss_dbm, sinr_db, path_gain_db</code>)</td></tr>
+        <tr><td><code>radio_map.csv</code></td><td>평면 히트맵 샘플</td></tr>
+        <tr><td><code>calibration_points.json</code></td><td>좌표 검증용 기준점 3개</td></tr>
+      </tbody>
+    </table>
+    <p>내보내기가 끝나면 <b>Results</b> 에 닫을 수 있는 행이 나타납니다 — <em>"Exported RFData to <code>export/rfdata</code>"</em> — 파일별 다운로드 링크가 붙어 있어 프로젝트 폴더를 뒤질 필요가 없습니다.</p>
+
+    <h2>3. 뷰포트 캡처 — Snapshot 과 Render</h2>
+    <p>뷰포트 우측 하단 버튼 묶음의 아이콘 버튼 두 개가 씬 이미지를 저장합니다:</p>
+    <ul>
+      <li><b>Snapshot</b>(카메라 아이콘) — 보이는 <em>그대로</em>(WYSIWYG) 저장합니다: 현재 카메라 포즈, 레이, 마커, 라디오맵 오버레이를 캔버스 전체 해상도의 PNG로 내보냅니다. 툴팁은 <em>"Save this exact view as a PNG (what you see, full resolution — paper-ready)"</em> 입니다. 논문·슬라이드 그림에는 이 버튼을 쓰세요.</li>
+      <li><b>Render</b>(필름 아이콘) — Mitsuba 를 통한 오프라인 물리 기반 경로추적 렌더입니다. 더 느리고, 의도적으로 화면 뷰와 <em>다릅니다</em> — 레이나 오버레이 없이 셰이딩된 씬만 렌더합니다.</li>
+    </ul>
+    <p>디바이스/액터 시점의 실시간 1인칭 뷰인 <b>POV 인셋</b>에도 자체 카메라 버튼이 있어, POV 프레임을 전체 해상도 PNG로 저장할 수 있습니다.</p>
+
+    <h2>4. 대시보드의 CSV·그림 내보내기</h2>
+    <ul>
+      <li><b>Metrics dashboard</b> 패널의 모든 차트(그리고 다른 논문 스타일 차트들)는 헤더에 <b>PNG / SVG / CSV</b> 버튼이 있는 프레임 안에 있습니다 — 3× 비트맵, 벡터, 또는 원 데이터 CSV. 그림은 보이는 그대로(흰 배경, Times New Roman) 내보내집니다.</li>
+      <li>대시보드 헤더의 <b>Export all (CSV)</b> 버튼은 KPI 표 전체를 <code>metric,value,unit</code> 행으로 다운로드합니다.</li>
+      <li><b>Results</b> 의 경로 테이블에는 <b>Export filtered CSV (N)</b> 이 있습니다 — 현재 필터된 경로 집합을 그대로, 경로당 한 행(type, power, delay, 상호작용 재질 포함)으로 내보냅니다.</li>
+    </ul>
+
+    <h2>관련 문서</h2>
+    <ul>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/ml_datasets.ko.md">ML 그라운드트루스 데이터셋</a> — <code>.npz</code> 스키마, zero-path 경고, AODT 필드 매핑, 학습 예제 스크립트.</li>
+      <li><a href="getting_started.html">시작하기</a> — 설치, 첫 프로젝트, 모드 탭.</li>
+      <li><a href="simulation.html">시뮬레이션 가이드</a> — 경로, 라디오맵, 그리고 데이터셋이 물려받는 솔버 설정.</li>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/scene_format.ko.md">씬·프로젝트 포맷</a> — 프로젝트 폴더 안 파일들의 위치.</li>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/sionna_versions.ko.md">Sionna 버전</a> — 재현성을 위해 <code>metadata.json</code> 에 기록되는 <code>engine</code>.</li>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/TUTORIAL.ko.md">15분 튜토리얼</a> — 데이터셋 생성을 포함한 첫 세션 전체 흐름.</li>
+    </ul>
+
+    <div class="pn">
+      <a href="trajectory_uav.html"><span class="lbl">이전</span>궤적과 UAV: 이동 수신기, 재생, POV 뷰</a>
+      <span></span>
+    </div>
+  </article>
+</div>
+
+<footer>
+  <div class="wrap fineprint">
+    SEAM Studio · Apache License 2.0 · <a href="https://github.com/jaewoo4200/SEAM">github.com/jaewoo4200/SEAM</a> · <a href="../../en/guides/datasets_export.html">English guide</a><br>
+    Developed by <b>Jaewoo Lee (이재우)</b> · Wireless Systems Laboratory (WSL), Hanyang University · BEYOND-G Global Innovation Center
+  </div>
+</footer>
+
+<script>(function(){
+  var root=document.documentElement, sw=document.querySelector('.theme-sw');
+  if(!sw)return;
+  function cur(){return localStorage.getItem('seam-theme')||'auto';}
+  function paint(m){sw.querySelectorAll('button').forEach(function(b){
+    b.setAttribute('aria-pressed', String(b.dataset.theme===m));});}
+  function apply(m){
+    if(m==='auto'){root.removeAttribute('data-theme');try{localStorage.removeItem('seam-theme');}catch(e){}}
+    else{root.setAttribute('data-theme',m);try{localStorage.setItem('seam-theme',m);}catch(e){}}
+    paint(m);}
+  sw.addEventListener('click',function(e){var b=e.target.closest('button');if(b)apply(b.dataset.theme);});
+  paint(cur());
+})();</script>
+</body>
+</html>

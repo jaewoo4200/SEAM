@@ -39,7 +39,20 @@
 }
 *{box-sizing:border-box}
 html{scroll-behavior:smooth}
-section[id]{scroll-margin-top:32px}
+section[id]{scroll-margin-top:76px}
+
+/* top tab bar (flat research-site style) */
+.topbar{position:sticky;top:0;z-index:20;background:var(--panel);border-bottom:1px solid var(--line)}
+.topbar .in{max-width:1080px;margin:0 auto;padding:0 24px;display:flex;align-items:center;gap:20px;height:52px}
+.topbar .brand{font:700 15px/1 "Segoe UI Variable Display","Segoe UI",sans-serif;color:var(--ink);letter-spacing:-.01em;white-space:nowrap}
+.topbar .brand .studio{color:var(--acc)}
+.topbar nav.tabs{display:flex;gap:2px;overflow-x:auto;scrollbar-width:none;flex:1}
+.topbar nav.tabs::-webkit-scrollbar{display:none}
+.topbar nav.tabs a{color:var(--mut);font-size:13.5px;font-weight:600;padding:6px 11px;border-radius:4px;white-space:nowrap}
+.topbar nav.tabs a:hover{color:var(--ink)}
+.topbar nav.tabs a.active{color:var(--acc)}
+.topbar .gh{font-size:13.5px;font-weight:600;color:var(--mut);white-space:nowrap}
+.topbar .gh:hover{color:var(--ink)}
 body{margin:0;background:var(--bg);color:var(--ink);
   font:16px/1.7 "Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,sans-serif}
 img{max-width:100%;display:block}
@@ -180,6 +193,21 @@ footer{margin-top:40px;border-top:1px solid var(--line)}
 </head>
 <body>
 
+<div class="topbar">
+  <div class="in">
+    <a class="brand" href="./">SEAM <span class="studio">Studio</span></a>
+    <nav class="tabs" aria-label="사이트">
+      <a class="active" href="./">개요</a>
+      <a href="#features">기능</a>
+      <a href="#capabilities">세부 기능</a>
+      <a href="#agent">SEAM-Agent</a>
+      <a href="guides/">가이드</a>
+      <a href="#quickstart">설치</a>
+    </nav>
+    <a class="gh" href="https://github.com/jaewoo4200/SEAM">GitHub ↗</a>
+  </div>
+</div>
+
 <header class="hero">
   <img src="../assets/hero_campus.jpg" fetchpriority="high" alt="SEAM Studio에서 실제 항공 텍스처로 렌더링한 한양대학교 캠퍼스 디지털 트윈">
   <div class="shade"></div>
@@ -195,6 +223,7 @@ footer{margin-top:40px;border-top:1px solid var(--line)}
     <div class="spectrum hero-rule"></div>
     <div class="cta">
       <a class="btn primary" href="https://github.com/jaewoo4200/SEAM">GitHub에서 보기</a>
+      <a class="btn ghost" href="guides/">사용 가이드</a>
       <a class="btn ghost" href="#quickstart">Quickstart</a>
     </div>
   </div>
@@ -210,7 +239,7 @@ footer{margin-top:40px;border-top:1px solid var(--line)}
   </div>
 </section>
 
-<section>
+<section id="features">
   <div class="wrap">
     <h2>What it does</h2>
     <h3 class="sec">씬 임포트에서 전파 시뮬레이션까지, 한 화면에서</h3>
@@ -278,7 +307,7 @@ footer{margin-top:40px;border-top:1px solid var(--line)}
   </div>
 </section>
 
-<section style="padding-top:0">
+<section id="capabilities" style="padding-top:0">
   <div class="wrap">
     <h2>Capabilities</h2>
     <h3 class="sec">기능 자세히 보기</h3>
@@ -326,7 +355,7 @@ footer{margin-top:40px;border-top:1px solid var(--line)}
   </div>
 </section>
 
-<section style="padding-top:0">
+<section id="agent" style="padding-top:0">
   <div class="wrap">
     <h2>SEAM-Agent</h2>
     <h3 class="sec">"이 건물은 한양대 FTC야" — 그 한 줄이면 됩니다</h3>
@@ -379,7 +408,8 @@ bash scripts/start.sh   <span class="c"># → http://localhost:5173</span></pre>
       <span class="mono">sionna-rt</span> 패키지를 <b>별도 설치</b>(<span class="mono">pip install -e "backend[sionna]"</span>)해야 하고,
       NVIDIA GPU·로컬 LLM(LM Studio/Ollama)은 그 위에 얹는 선택 업그레이드입니다. 자세한 내용은
       <a href="https://github.com/jaewoo4200/SEAM/blob/master/INSTALL.ko.md">INSTALL.md</a> ·
-      <a href="https://github.com/jaewoo4200/SEAM/blob/master/TUTORIAL.ko.md">TUTORIAL.md</a>.</p>
+      <a href="https://github.com/jaewoo4200/SEAM/blob/master/TUTORIAL.ko.md">TUTORIAL.md</a> ·
+      또는 그림으로 따라가는 <a href="guides/">사용 가이드</a>에서 시작하세요.</p>
   </div>
 </section>
 

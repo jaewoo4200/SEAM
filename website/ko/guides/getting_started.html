@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>(function(){try{var t=localStorage.getItem('seam-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
+<title>시작하기: 첫 실행과 UI 둘러보기 — SEAM Studio</title>
+<meta name="description" content="설치 직후 첫 실행부터 툴바, 다섯 가지 모드 탭, 씬 트리, 인스펙터, 도킹 패널까지 내장 Mock 백엔드만으로 SEAM Studio 화면을 한 바퀴 둘러보는 가이드입니다.">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Cdefs%3E%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%22%20x2%3D%221%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23173a8a%22/%3E%3Cstop%20offset%3D%22.5%22%20stop-color%3D%22%232fd0c0%22/%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23e2632e%22/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect%20width%3D%2264%22%20height%3D%2264%22%20rx%3D%2212%22%20fill%3D%22%230b111b%22/%3E%3Ctext%20x%3D%2232%22%20y%3D%2242%22%20font-family%3D%22Segoe%20UI%2CArial%2Csans-serif%22%20font-size%3D%2236%22%20font-weight%3D%22700%22%20fill%3D%22%232e9bff%22%20text-anchor%3D%22middle%22%3ES%3C/text%3E%3Crect%20x%3D%2214%22%20y%3D%2250%22%20width%3D%2236%22%20height%3D%225%22%20rx%3D%222.5%22%20fill%3D%22url%28%23g%29%22/%3E%3C/svg%3E">
+<link rel="canonical" href="https://jaewoo4200.github.io/SEAM/ko/guides/getting_started.html">
+<link rel="alternate" hreflang="ko" href="https://jaewoo4200.github.io/SEAM/ko/guides/getting_started.html">
+<link rel="alternate" hreflang="en" href="https://jaewoo4200.github.io/SEAM/en/guides/getting_started.html">
+<meta name="theme-color" content="#0b111b" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f4f7fc" media="(prefers-color-scheme: light)">
+<style>
+:root{
+  --bg:#0b111b; --panel:#141d2b; --line:#233246; --ink:#e2eaf4; --mut:#8a9cb0;
+  --acc:#2e9bff; --mut2:#6f8299; --link-mut:#8fb4dd; --code-acc:#7bb8f5;
+}
+:root[data-theme="light"]{ --bg:#f4f7fc; --panel:#ffffff; --line:#dde5ef; --ink:#17242f; --mut:#54677a; --acc:#1f77dd; --mut2:#54677a; --link-mut:#3a6ea5; --code-acc:#2f6595 }
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){ --bg:#f4f7fc; --panel:#ffffff; --line:#dde5ef; --ink:#17242f; --mut:#54677a; --acc:#1f77dd; --mut2:#54677a; --link-mut:#3a6ea5; --code-acc:#2f6595 }
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:16px/1.7 "Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,sans-serif}
+img{max-width:100%;display:block}
+a{color:var(--acc);text-decoration:none}
+a:hover{text-decoration:underline}
+.mono{font-family:"Cascadia Code",Consolas,ui-monospace,monospace}
+.wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+
+/* top tab bar (flat research-site style) */
+.topbar{position:sticky;top:0;z-index:20;background:var(--panel);border-bottom:1px solid var(--line)}
+.topbar .in{max-width:1120px;margin:0 auto;padding:0 24px;display:flex;align-items:center;gap:20px;height:52px}
+.topbar .brand{font:700 15px/1 "Segoe UI Variable Display","Segoe UI",sans-serif;color:var(--ink);letter-spacing:-.01em;white-space:nowrap}
+.topbar .brand .studio{color:var(--acc)}
+.topbar a{text-decoration:none}
+.topbar nav.tabs{display:flex;gap:2px;overflow-x:auto;scrollbar-width:none;flex:1}
+.topbar nav.tabs::-webkit-scrollbar{display:none}
+.topbar nav.tabs a{color:var(--mut);font-size:13.5px;font-weight:600;padding:6px 11px;border-radius:4px;white-space:nowrap}
+.topbar nav.tabs a:hover{color:var(--ink);text-decoration:none}
+.topbar nav.tabs a.active{color:var(--acc)}
+.topbar .side{display:flex;gap:10px;align-items:center;white-space:nowrap}
+.topbar .side .lang{font-family:Consolas,monospace;font-size:12px;letter-spacing:.08em;color:var(--mut)}
+.topbar .side .lang a{color:var(--link-mut)}
+.topbar .side .lang b{color:var(--ink)}
+.topbar .side .lang span{margin:0 5px;color:var(--mut2)}
+.theme-sw{display:flex;gap:2px;background:transparent;border:1px solid var(--line);border-radius:999px;padding:3px}
+.theme-sw button{font:600 11px/1 Consolas,monospace;letter-spacing:.04em;color:var(--mut);
+  background:transparent;border:0;border-radius:999px;padding:5px 9px;cursor:pointer}
+.theme-sw button[aria-pressed="true"]{background:var(--acc);color:#04101f}
+a:focus-visible,button:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+
+/* docs layout */
+.docwrap{display:grid;grid-template-columns:230px minmax(0,1fr);gap:44px;padding:44px 0 72px}
+@media (max-width:860px){ .docwrap{grid-template-columns:1fr} aside.sidenav{position:static;order:2;border-top:1px solid var(--line);padding-top:20px} }
+aside.sidenav{position:sticky;top:76px;align-self:start}
+aside.sidenav .cap{font-family:Consolas,monospace;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--mut2);margin:0 0 10px}
+aside.sidenav a{display:block;color:var(--mut);font-size:13.5px;padding:6px 10px;border-left:2px solid var(--line);text-decoration:none}
+aside.sidenav a:hover{color:var(--ink)}
+aside.sidenav a.active{color:var(--acc);border-left-color:var(--acc);font-weight:600}
+aside.sidenav .all{margin-top:12px;border-left:0;padding-left:10px;font-weight:600;color:var(--link-mut)}
+
+article{max-width:820px;min-width:0}
+article .eyebrow{font-family:Consolas,monospace;font-size:12px;letter-spacing:.22em;color:var(--acc);text-transform:uppercase}
+article h1{font:650 clamp(28px,4vw,40px)/1.15 "Segoe UI Variable Display","Segoe UI",sans-serif;letter-spacing:-.02em;margin:8px 0 10px}
+article p.lead{color:var(--mut);font-size:16.5px;margin:0 0 8px}
+article .spectrum{height:3px;background:linear-gradient(90deg,#173a8a,#2e9bff,#2fd0c0,#8fd45e,#e8b93c,#e2632e);border-radius:2px;width:110px;margin:18px 0 26px}
+article h2{font:650 22px/1.3 "Segoe UI Variable Display","Segoe UI",sans-serif;margin:40px 0 12px;padding-top:18px;border-top:1px solid var(--line)}
+article h3{font:600 17px/1.35 "Segoe UI",sans-serif;margin:26px 0 8px}
+article p{margin:10px 0;color:var(--ink)}
+article p.note, article li{color:var(--ink)}
+article ul,article ol{padding-left:24px;margin:10px 0}
+article li{margin:5px 0}
+article table{border-collapse:collapse;width:100%;font-size:14px;margin:14px 0;display:block;overflow-x:auto}
+article th,article td{border:1px solid var(--line);padding:8px 12px;text-align:left;vertical-align:top}
+article th{background:var(--panel);font-weight:600}
+article code{font-family:"Cascadia Code",Consolas,ui-monospace,monospace;font-size:.92em;color:var(--code-acc);background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:1px 6px}
+article pre{background:#0e1622;border:1px solid #233246;border-radius:6px;padding:16px 18px;overflow-x:auto;
+  font-family:"Cascadia Code",Consolas,monospace;font-size:13px;line-height:1.8;color:#cfe0f2;margin:14px 0}
+article pre code{background:none;border:0;padding:0;color:inherit}
+article figure.doc-shot{margin:20px 0;background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+article figure.doc-shot img{width:100%}
+article figure.doc-shot figcaption{padding:10px 14px;font-size:13px;color:var(--mut);border-top:1px solid var(--line)}
+article blockquote{margin:14px 0;padding:10px 16px;border-left:3px solid var(--acc);background:var(--panel);border-radius:0 6px 6px 0;color:var(--mut);font-size:14.5px}
+article blockquote p{color:var(--mut)}
+.pn{display:flex;justify-content:space-between;gap:14px;margin-top:48px;padding-top:18px;border-top:1px solid var(--line);font-size:14px;font-weight:600}
+.pn a{max-width:48%}
+.pn .lbl{display:block;font:400 11px/1 Consolas,monospace;letter-spacing:.14em;text-transform:uppercase;color:var(--mut2);margin-bottom:4px}
+
+footer{border-top:1px solid var(--line)}
+.fineprint{padding:26px 0 40px;color:var(--mut2);font-size:12.5px;line-height:1.8;text-align:center}
+.fineprint a{color:var(--link-mut)}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="in">
+    <a class="brand" href="../">SEAM <span class="studio">Studio</span></a>
+    <nav class="tabs" aria-label="사이트">
+      <a href="../">개요</a>
+      <a href="../#features">기능</a>
+      <a href="../#capabilities">세부 기능</a>
+      <a href="../#agent">SEAM-Agent</a>
+      <a class="active" href="./">가이드</a>
+      <a href="../#quickstart">설치</a>
+    </nav>
+    <div class="side">
+      <nav class="theme-sw" aria-label="테마"><button data-theme="auto">자동</button><button data-theme="light">라이트</button><button data-theme="dark">다크</button></nav>
+      <nav class="lang" aria-label="Language"><b>KO</b><span>·</span><a href="../../en/guides/getting_started.html">EN</a></nav>
+    </div>
+  </div>
+</div>
+
+<div class="wrap docwrap">
+  <aside class="sidenav">
+    <p class="cap">사용 가이드</p>
+    <a class="active" href="getting_started.html">시작하기</a>
+    <a href="scene_import.html">씬 임포트</a>
+    <a href="materials_and_ai.html">RF 재질 &amp; AI</a>
+    <a href="simulation.html">시뮬레이션</a>
+    <a href="trajectory_uav.html">궤적 &amp; UAV</a>
+    <a href="datasets_export.html">ML 데이터셋 &amp; 내보내기</a>
+    <a class="all" href="./">← 전체 가이드</a>
+  </aside>
+
+  <article>
+    <div class="eyebrow">Guide 01 · SEAM Studio docs</div>
+    <h1>시작하기: 첫 실행과 UI 둘러보기</h1>
+    <p class="lead">이 가이드는 설치 직후부터 SEAM Studio 화면에 익숙해질 때까지를 다룹니다: 툴바, 다섯 가지 모드 탭, 씬 트리, 인스펙터, 도킹 가능한 패널. GPU·Sionna·LLM 없이도 내장 <b>Mock 백엔드</b>만으로 여기 나오는 모든 내용이 동작합니다. 전체 설치 절차는 <a href="https://github.com/jaewoo4200/SEAM/blob/master/INSTALL.ko.md">INSTALL.md</a>를 참고하세요.</p>
+    <div class="spectrum"></div>
+
+    <h2>1. 설치와 실행</h2>
+    <p>SEAM Studio를 실행하는 방법은 두 가지입니다. 하나를 고르세요.</p>
+
+    <h3>방법 A — pip 설치 (패키지 앱)</h3>
+    <pre><code>pip install seam-studio
+seam-studio</code></pre>
+    <p><code>seam-studio</code> 명령은 <b>http://127.0.0.1:8000</b> 에 서버를 띄우고 브라우저를 자동으로 엽니다. 첫 실행 시 <code>~/.seam/projects</code> 에 <b>Sample Demo</b> 프로젝트를 자동 생성하므로 앱이 빈 화면으로 시작하지 않습니다. 유용한 플래그: <code>--port 9000</code>, <code>--project-root D:\twins</code>, <code>--no-browser</code>.</p>
+
+    <h3>방법 B — 소스 체크아웃 (개발 서버)</h3>
+    <p>저장소를 클론하고 설치 스크립트를 한 번 실행한 뒤 (<a href="https://github.com/jaewoo4200/SEAM/blob/master/INSTALL.ko.md">INSTALL.md</a>에 단계별 설명이 있습니다) 두 서버를 띄웁니다:</p>
+    <pre><code># Windows
+powershell -ExecutionPolicy Bypass -File scripts\start.ps1
+# Linux/macOS
+bash scripts/start.sh</code></pre>
+    <p>백엔드는 :8000, Vite 개발 프론트엔드는 <b>http://localhost:5173</b> 에 뜹니다 — 브라우저에서는 :5173 주소를 여세요. 이 가이드는 개발 서버 URL 기준으로 설명하지만 패키지 앱도 화면은 동일합니다.</p>
+
+    <h2>2. 툴바</h2>
+    <figure class="doc-shot"><img loading="lazy" decoding="async" src="../../assets/guides/01_visual_mode.png" alt="Sample Demo 프로젝트의 Visual 모드: 왼쪽 씬 트리, 가운데 텍스처 3D 뷰포트, 툴바의 모드 탭과 상태칩"><figcaption>Sample Demo 프로젝트의 Visual 모드 — 씬 트리, 디바이스 <code>tx_001</code> / <code>rx_001</code>, 액터 <code>car_001</code> / <code>human_001</code>, 그리고 툴바.</figcaption></figure>
+    <p>상단 툴바에는 왼쪽부터 다음이 있습니다:</p>
+    <ol>
+      <li><b>SEAM Studio</b> 타이틀과 <b>프로젝트 셀렉트</b>. Sample Demo 프로젝트가 자동 로드되며, 여기서 프로젝트를 전환합니다.</li>
+      <li><b>Rename</b> / <b>Duplicate</b> — 현재 프로젝트의 표시 이름을 인라인으로 바꾸거나(Enter 저장, Esc 취소), 프로젝트 폴더 전체를 복제해 사본을 엽니다.</li>
+      <li><b>Import</b> — 새 씬을 새 프로젝트로 불러옵니다. <b>Mitsuba XML</b> 파일 (메시·텍스처가 든 .zip 번들도 가능) 또는 좌표로 가져오는 <b>OpenStreetMap</b> 사각형 영역 중에서 고릅니다.</li>
+      <li>다섯 가지 <b>모드 탭</b>:
+        <table>
+          <thead><tr><th>탭</th><th>하는 일</th></tr></thead>
+          <tbody>
+            <tr><td><b>Visual</b></td><td>3D 씬 탐색, 픽킹, 씬 트리, 인스펙터.</td></tr>
+            <tr><td><b>RF Materials</b></td><td>RF 재질별 색 오버레이; 드롭다운으로 지정.</td></tr>
+            <tr><td><b>Validation</b></td><td>씬 검증 경고(미지정 재질 등).</td></tr>
+            <tr><td><b>AI Assist</b></td><td>AI 재질 제안과 검토·승인 워크플로.</td></tr>
+            <tr><td><b>Results</b></td><td>경로/라디오맵/빔포밍/채널 등 모든 시뮬레이션.</td></tr>
+          </tbody>
+        </table>
+      </li>
+      <li><b>Panels ▾</b> — 도킹 가능한 패널 전체를 현재 도킹 상태와 함께 나열합니다. 행을 클릭하면 플로팅됩니다(<a href="#5-도킹-가능한-패널">5절</a> 참고).</li>
+      <li><b>Env</b> 셀렉트 — <code>Auto (indoor)</code>, <code>Indoor</code>, <code>Outdoor</code>. <code>Auto</code>로 두면 앱이 환경을 추론해 그에 맞는 솔버 프리셋을 적용하고, 추론된 값이 괄호 안에 표시됩니다.</li>
+      <li><b>상태칩</b> 두 개:
+        <ul>
+          <li><b>Sionna</b> / <b>Mock only</b> — 실제 레이 트레이싱 백엔드 설치 여부. UI를 익히는 단계에서는 <code>Mock only</code>로 충분합니다.</li>
+          <li>제공자 이름(예: <code>rule_based</code>) / <b>AI off</b> — 활성화된 AI 제안 제공자.</li>
+        </ul>
+      </li>
+      <li><b>Actions ▾</b> (Validate, Compile RF, Beamforming, Export RFData, Delete project…)와 파란 <b>Simulate paths</b> 버튼.</li>
+    </ol>
+
+    <h2>3. Visual 모드 둘러보기</h2>
+    <p><b>Visual</b> 탭에 머문 채 왼쪽 사이드바를 보세요.</p>
+
+    <h3>씬 트리</h3>
+    <p>트리는 씬 계층 구조(<code>/buildings/b01/walls</code>, <code>/roads/r01/surface</code>, …)를 그대로 보여줍니다. 메시 행마다 RF 재질 지정 상태를 나타내는 상태 점, 지정된 재질 id, 그리고 뷰어에서 숨기고 보이는 눈 토글(◉/◌)이 붙습니다. 행을 클릭하면 오브젝트가 선택되고, Ctrl+클릭으로 다중 선택합니다.</p>
+
+    <h3>Devices 섹션</h3>
+    <p><b>Devices</b> 헤더에는 버튼 네 개가 있습니다:</p>
+    <ul>
+      <li><b>+TX</b> / <b>+RX</b> — 송신기/수신기를 추가합니다.</li>
+      <li><b>⤓ JSON</b> — JSON 파일에서 TX/RX 디바이스를 불러옵니다(직교 x/y/z 또는 위경도 lat/lon; <a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/point_import.ko.md">point_import.md</a> 참고).</li>
+      <li><b>Clear all</b> — 모든 무선 디바이스를 제거합니다(두 번 클릭해 확인).</li>
+    </ul>
+    <p>Sample Demo에는 <code>tx_001</code>("Rooftop TX", 빨강 ▲)과 <code>rx_001</code>("Street RX", 파랑 ●)이 들어 있습니다. 각 행에는 × 삭제 버튼이 있습니다.</p>
+
+    <h3>Actors 섹션</h3>
+    <p>액터는 자체 RF 형상을 가진 움직이는 산란체입니다. <b>Actors</b> 헤더의 <b>+Car</b>, <b>+Human</b>, <b>+UAV</b>, <b>+Custom</b> 으로 추가합니다. 데모에는 도로를 달리는 <code>car_001</code>(승용차)과 보행자 <code>human_001</code>이 있습니다.</p>
+
+    <h3>탐색과 픽킹</h3>
+    <ul>
+      <li><b>좌드래그</b> — 씬 주위를 궤도 회전(orbit).</li>
+      <li><b>우드래그</b> — 화면 이동(pan).</li>
+      <li><b>휠 스크롤</b> — 줌.</li>
+      <li><b>오브젝트 클릭</b> — 선택(오른쪽 인스펙터가 갱신됩니다). 디바이스나 액터를 클릭하면 드래그로 옮길 수 있는 X/Y/Z 이동 기즈모도 나타납니다.</li>
+    </ul>
+
+    <h2>4. 인스펙터</h2>
+    <figure class="doc-shot"><img loading="lazy" decoding="async" src="../../assets/guides/02_inspector.png" alt="창문 프림이 선택된 인스펙터: 이름과 시맨틱 태그, 나란히 표시된 visual 재질과 RF 재질, 재질 저작 버튼들"><figcaption><code>window_01</code>의 인스펙터 — 시맨틱 태그 <code>building, window</code>, visual 재질 <code>blue_glass_pbr</code>, RF 재질은 아직 미지정(unassigned).</figcaption></figure>
+    <p>트리나 뷰포트에서 창문 프림(<code>/buildings/b01/window_01</code>)을 클릭하세요. 인스펙터에는 위에서부터 다음이 나옵니다:</p>
+    <ol>
+      <li><b>Name &amp; tags</b> — 프림의 표시 이름과 쉼표로 구분된 <b>Semantic tags</b> (여기서는 <code>building, window</code>). 태그는 규칙 기반·AI 재질 제안의 근거가 되며, 두 필드 모두 Enter 또는 포커스 아웃 시 저장됩니다.</li>
+      <li>나란히 놓인 두 컬럼:
+        <ul>
+          <li><b>Visual material</b> — 오브젝트가 <em>어떻게 보이는가</em>: 재질 이름/id (<code>blue_glass_pbr</code>), 텍스처, 기본 색.</li>
+          <li><b>RF material</b> — <em>전자기적으로 어떻게 행동하는가</em>: 재질, 지정 상태 배지(데모의 창문은 <code>unassigned</code>로 시작), 소스, 신뢰도, 두께, 산란, XPD.</li>
+        </ul>
+        <p>이 분리가 이 앱의 핵심 아이디어입니다. 파란 유리 텍스처만으로는 RF 관통손실을 확정할 수 없으므로, 두 바인딩을 따로 저작하고 검증합니다.</p>
+      </li>
+      <li><b>Material authoring</b> — 이를 해결하는 모든 방법이 한곳에 모여 있습니다:
+        <ul>
+          <li>RF 재질을 직접 지정하는 드롭다운(user-confirmed로 저장),</li>
+          <li><b>Suggest with AI</b> — AI 제공자에게 제안을 요청하고 AI Assist 검토 화면으로 이동,</li>
+          <li><b>Split into connected parts…</b> — 병합된 메시(예: 도시 블록 전체가 한 덩어리로 익스포트된 경우)를 부품별 프림으로 분리,</li>
+          <li><b>SEAM-Agent (AI material authoring)…</b> — 메시의 멀티뷰 렌더를 캡처·분할하고 영역별 RF 재질을 근거와 함께 제안하는 에이전트.</li>
+        </ul>
+      </li>
+    </ol>
+    <p>디바이스를 선택하면 대신 편집 가능한 디바이스 카드(위치, 출력, 안테나 어레이, 지향)가, 액터를 선택하면 포즈·크기·RF 재질·부착 디바이스·웨이포인트 궤적 편집기가 나옵니다.</p>
+
+    <h2 id="5-도킹-가능한-패널">5. 도킹 가능한 패널</h2>
+    <p>결과 패널(Metrics dashboard, Channel analysis, UE trajectory, Scenario playback, ML dataset)은 포토 에디터 스타일로 도킹할 수 있습니다. 각 패널 헤더 오른쪽의 작은 버튼으로 옮깁니다:</p>
+    <ul>
+      <li><b>◧ / ◨</b> — 왼쪽/오른쪽 사이드바로 도킹.</li>
+      <li><b>⧉</b> — 뷰포트 위에 뜨는 <b>플로팅 창</b>으로 분리. 헤더를 드래그해 옮기고, 가장자리를 드래그해 크기를 바꿉니다.</li>
+    </ul>
+    <p>플로팅한 패널은 모드 탭을 바꿔도 그대로 유지됩니다 — Channel analysis 패널을 띄워 두면 Visual 모드에서 씬을 편집하는 동안에도 계속 보입니다. 툴바의 <b>Panels ▾</b> 메뉴로는 어느 모드에서든 모든 패널에 접근할 수 있습니다: 행을 클릭하면 플로팅되고(이미 떠 있으면 앞으로 가져옴), 행 옆의 ◧/◨ 버튼으로 다시 도킹합니다.</p>
+
+    <h2>다음 단계</h2>
+    <p><a href="https://github.com/jaewoo4200/SEAM/blob/master/TUTORIAL.ko.md">15분 튜토리얼</a>을 따라 해 보세요 — 재질 지정부터 경로 시뮬레이션, 라디오맵, ML 데이터셋 내보내기까지 전체 루프를 Mock 백엔드만으로도 한 바퀴 돌 수 있습니다.</p>
+
+    <h2>관련 문서</h2>
+    <ul>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/TUTORIAL.ko.md">TUTORIAL.md</a> — 15분 첫 세션 튜토리얼</li>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/INSTALL.ko.md">INSTALL.md</a> — 전체 설치 가이드(Sionna RT, 로컬 LLM)</li>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/architecture.ko.md">architecture.md</a> — 프론트엔드·백엔드·엔진 구조</li>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/scene_format.ko.md">scene_format.md</a> — <code>.seam</code> 프로젝트/씬 포맷</li>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/rf_materials.ko.md">rf_materials.md</a> — RF 재질 라이브러리</li>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/ai_assistant.ko.md">ai_assistant.md</a> — AI 재질 제안 워크플로</li>
+    </ul>
+
+    <div class="pn">
+      <span></span>
+      <a href="scene_import.html"><span class="lbl">다음</span>씬 불러오기: Mitsuba XML · OpenStreetMap · 디바이스 JSON</a>
+    </div>
+  </article>
+</div>
+
+<footer>
+  <div class="wrap fineprint">
+    SEAM Studio · Apache License 2.0 · <a href="https://github.com/jaewoo4200/SEAM">github.com/jaewoo4200/SEAM</a> · <a href="../../en/guides/getting_started.html">English guide</a><br>
+    Developed by <b>Jaewoo Lee (이재우)</b> · Wireless Systems Laboratory (WSL), Hanyang University · BEYOND-G Global Innovation Center
+  </div>
+</footer>
+
+<script>(function(){
+  var root=document.documentElement, sw=document.querySelector('.theme-sw');
+  if(!sw)return;
+  function cur(){return localStorage.getItem('seam-theme')||'auto';}
+  function paint(m){sw.querySelectorAll('button').forEach(function(b){
+    b.setAttribute('aria-pressed', String(b.dataset.theme===m));});}
+  function apply(m){
+    if(m==='auto'){root.removeAttribute('data-theme');try{localStorage.removeItem('seam-theme');}catch(e){}}
+    else{root.setAttribute('data-theme',m);try{localStorage.setItem('seam-theme',m);}catch(e){}}
+    paint(m);}
+  sw.addEventListener('click',function(e){var b=e.target.closest('button');if(b)apply(b.dataset.theme);});
+  paint(cur());
+})();</script>
+</body>
+</html>
