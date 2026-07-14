@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from app.services.project_store import LEGACY_SCENE_FILENAME
+from seam_studio.services.project_store import LEGACY_SCENE_FILENAME
 
 from .conftest import make_demo_scene
 

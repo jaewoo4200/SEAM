@@ -6,21 +6,21 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from app.schemas.devices import Device
-from app.schemas.scene import MeshRef, Prim, RFBinding, Scene
-from app.schemas.simulation import SimulationConfig
-from app.services.availability import sionna_available
-from app.services.project_store import load_default_library
-from app.services.simulation_backends import (
+from seam_studio.schemas.devices import Device
+from seam_studio.schemas.scene import MeshRef, Prim, RFBinding, Scene
+from seam_studio.schemas.simulation import SimulationConfig
+from seam_studio.services.availability import sionna_available
+from seam_studio.services.project_store import load_default_library
+from seam_studio.services.simulation_backends import (
     BackendUnavailableError,
     get_backend,
     resolve_backend,
 )
-from app.services.simulation_backends.mock_backend import (
+from seam_studio.services.simulation_backends.mock_backend import (
     SPEED_OF_LIGHT,
     MockBackend,
 )
-from app.services.simulation_backends.sionna_backend import SionnaBackend
+from seam_studio.services.simulation_backends.sionna_backend import SionnaBackend
 
 # Whether Sionna RT is installed in this environment. The backend registry
 # tests below branch on it so the suite passes both with and without Sionna:
@@ -245,13 +245,13 @@ def api_client(tmp_path, monkeypatch):
     """TestClient against a temp project root with a ready-to-simulate project."""
     monkeypatch.setenv("SIONNATWIN_PROJECT_ROOTS", str(tmp_path))
 
-    from app.api.deps import get_store
-    from app.core.config import get_settings
+    from seam_studio.api.deps import get_store
+    from seam_studio.core.config import get_settings
 
     get_settings.cache_clear()
     get_store.cache_clear()
 
-    from app.main import app
+    from seam_studio.main import app
 
     store = get_store()
     store.create_project("Sim Test", project_id="sim_test")
@@ -312,7 +312,7 @@ def test_api_simulate_and_results_roundtrip(api_client):
     assert unknown.status_code == 404
 
     # Scene now records both refs.
-    from app.api.deps import get_store
+    from seam_studio.api.deps import get_store
 
     refs = get_store().load_scene("sim_test").result_sets
     assert [r.result_id for r in refs] == ["mock_paths_001", "mock_paths_002"]

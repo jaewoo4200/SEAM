@@ -187,10 +187,10 @@ It brings up the backend (:8000) and the frontend (:5173) together and prints th
 **Terminal 1 — backend (:8000):**
 
 ```bash
-backend/.venv/bin/python -m uvicorn --app-dir backend app.main:app --port 8000
+backend/.venv/bin/python -m uvicorn --app-dir backend seam_studio.main:app --port 8000
 ```
 
-(Windows: `backend\.venv\Scripts\python.exe -m uvicorn --app-dir backend app.main:app --port 8000`)
+(Windows: `backend\.venv\Scripts\python.exe -m uvicorn --app-dir backend seam_studio.main:app --port 8000`)
 
 **Terminal 2 — frontend (:5173):**
 
@@ -292,7 +292,7 @@ Supported providers (all configured via environment variables):
 ```powershell
 $env:SEAM_OPENAI_URL   = "http://localhost:1234/v1"
 $env:SEAM_OPENAI_MODEL = "google/gemma-4-31b"
-backend\.venv\Scripts\python.exe -m uvicorn --app-dir backend app.main:app --port 8000
+backend\.venv\Scripts\python.exe -m uvicorn --app-dir backend seam_studio.main:app --port 8000
 ```
 
 **Key environment variables:** the canonical prefix is `SEAM_*`, and for every variable the legacy

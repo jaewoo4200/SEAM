@@ -8,10 +8,10 @@ import numpy as np
 import pytest
 import trimesh
 
-from app.schemas.materials import RFMaterialLibrary
-from app.schemas.scene import MeshRef, Prim, RFBinding, Scene
-from app.services import mesh_tools, project_store
-from app.services.rf_compiler import compile_project
+from seam_studio.schemas.materials import RFMaterialLibrary
+from seam_studio.schemas.scene import MeshRef, Prim, RFBinding, Scene
+from seam_studio.services import mesh_tools, project_store
+from seam_studio.services.rf_compiler import compile_project
 
 WALL_ID = "/buildings/b01/wall"
 GLASS_ID = "/buildings/b01/glass"

@@ -5,13 +5,13 @@ from pathlib import Path
 
 import pytest
 
-from app.schemas.materials import (
+from seam_studio.schemas.materials import (
     AssignRequest,
     BatchAssignRequest,
     RFMaterialLibrary,
     RFOverrides,
 )
-from app.services.material_assignment import (
+from seam_studio.services.material_assignment import (
     UnknownMaterialError,
     apply_batch,
     assign_materials,

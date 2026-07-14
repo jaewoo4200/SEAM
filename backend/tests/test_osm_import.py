@@ -17,13 +17,13 @@ import os
 import pytest
 import trimesh
 
-from app.services import osm_import
-from app.services.osm_import import (
+from seam_studio.services import osm_import
+from seam_studio.services.osm_import import (
     bbox_for,
     import_osm_project,
     meters_per_degree,
 )
-from app.services.project_store import ProjectStore, load_default_library
+from seam_studio.services.project_store import ProjectStore, load_default_library
 
 # Center used across the geometry tests (arbitrary urban point).
 CENTER_LAT = 36.3721

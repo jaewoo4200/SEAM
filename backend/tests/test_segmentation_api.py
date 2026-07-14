@@ -20,8 +20,8 @@ import pytest
 import trimesh
 from PIL import Image
 
-from app.api import deps
-from app.schemas.scene import MeshRef, Prim, RFBinding, Scene, VisualBinding
+from seam_studio.api import deps
+from seam_studio.schemas.scene import MeshRef, Prim, RFBinding, Scene, VisualBinding
 
 MESH_NAME = "building_box"
 PRIM_ID = "/buildings/b01/box"

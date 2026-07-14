@@ -11,17 +11,17 @@ import trimesh
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.api import deps
-from app.api import simulate as simulate_api
-from app.core.config import get_settings
-from app.schemas.materials import AssignRequest
-from app.schemas.scene import Device, MeshRef, Prim, RFBinding, Scene
-from app.schemas.simulation import BeamformingRequest, SimulationConfig
-from app.services.availability import sionna_available
-from app.services.material_assignment import assign_materials
-from app.services.project_store import load_default_library
-from app.services.simulation_backends.mock_backend import MockBackend
-from app.services.simulation_backends.sionna_backend import SionnaBackend
+from seam_studio.api import deps
+from seam_studio.api import simulate as simulate_api
+from seam_studio.core.config import get_settings
+from seam_studio.schemas.materials import AssignRequest
+from seam_studio.schemas.scene import Device, MeshRef, Prim, RFBinding, Scene
+from seam_studio.schemas.simulation import BeamformingRequest, SimulationConfig
+from seam_studio.services.availability import sionna_available
+from seam_studio.services.material_assignment import assign_materials
+from seam_studio.services.project_store import load_default_library
+from seam_studio.services.simulation_backends.mock_backend import MockBackend
+from seam_studio.services.simulation_backends.sionna_backend import SionnaBackend
 
 
 def _scene() -> Scene:

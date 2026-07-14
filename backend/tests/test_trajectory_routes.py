@@ -18,17 +18,17 @@ from pathlib import Path
 
 import pytest
 
-from app.schemas.devices import Antenna, Device
-from app.schemas.results import TrajectoryResultSet
-from app.schemas.scene import MeshRef, Prim, RFBinding, Scene
-from app.schemas.simulation import (
+from seam_studio.schemas.devices import Antenna, Device
+from seam_studio.schemas.results import TrajectoryResultSet
+from seam_studio.schemas.scene import MeshRef, Prim, RFBinding, Scene
+from seam_studio.schemas.simulation import (
     SimulationConfig,
     TrajectorySimulateRequest,
     UERoute,
 )
-from app.services.project_store import load_default_library
-from app.services.simulation_backends.mock_backend import MockBackend
-from app.services.trajectory import resample_polyline, run_trajectory
+from seam_studio.services.project_store import load_default_library
+from seam_studio.services.simulation_backends.mock_backend import MockBackend
+from seam_studio.services.trajectory import resample_polyline, run_trajectory
 
 
 class _CapturingBackend(MockBackend):
@@ -603,7 +603,7 @@ def test_trajectory_serving_tx_id_rejected_when_excluded_by_tx_ids():
 
 # ----------------------------------------- per-waypoint orientation (P2 fix)
 
-from app.services.trajectory import resample_orientations  # noqa: E402
+from seam_studio.services.trajectory import resample_orientations  # noqa: E402
 
 
 def test_resample_orientations_nearest_waypoint():

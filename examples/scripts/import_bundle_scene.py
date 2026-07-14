@@ -25,10 +25,10 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parents[1]
 sys.path.insert(0, str(REPO_ROOT / "backend"))
 
-from app.schemas.devices import Antenna, Device  # noqa: E402
-from app.schemas.simulation import SimulationConfig  # noqa: E402
-from app.services.mitsuba_import import import_mitsuba_scene  # noqa: E402
-from app.services.project_store import ProjectStore, load_default_library  # noqa: E402
+from seam_studio.schemas.devices import Antenna, Device  # noqa: E402
+from seam_studio.schemas.simulation import SimulationConfig  # noqa: E402
+from seam_studio.services.mitsuba_import import import_mitsuba_scene  # noqa: E402
+from seam_studio.services.project_store import ProjectStore, load_default_library  # noqa: E402
 
 BUNDLE = REPO_ROOT / "reference-bundle"
 

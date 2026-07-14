@@ -12,9 +12,9 @@ from pathlib import Path
 import pytest
 import trimesh
 
-from app.schemas.point_import import DeviceImportRequest, ImportDevice
-from app.schemas.scene import Scene
-from app.services.point_import import (
+from seam_studio.schemas.point_import import DeviceImportRequest, ImportDevice
+from seam_studio.schemas.scene import Scene
+from seam_studio.services.point_import import (
     GeoAnchorMissingError,
     geodetic_to_enu,
     import_devices,
@@ -249,7 +249,7 @@ def _make_project(api_client, project_id: str = "imp") -> str:
 
 
 def _store():
-    from app.api import deps
+    from seam_studio.api import deps
 
     return deps.get_store()
 
@@ -437,7 +437,7 @@ def test_templates_endpoint_returns_both_examples(api_client):
 
 
 def test_trajectory_import_carries_per_waypoint_orientation(tmp_path: Path):
-    from app.services.point_import import resolve_trajectory
+    from seam_studio.services.point_import import resolve_trajectory
 
     scene = Scene(scene_id="t", name="t")
     points = [
@@ -453,7 +453,7 @@ def test_trajectory_import_carries_per_waypoint_orientation(tmp_path: Path):
 
 
 def test_trajectory_import_no_orientation_returns_all_none(tmp_path: Path):
-    from app.services.point_import import resolve_trajectory
+    from seam_studio.services.point_import import resolve_trajectory
 
     scene = Scene(scene_id="t", name="t")
     wps, oris, _w = resolve_trajectory(

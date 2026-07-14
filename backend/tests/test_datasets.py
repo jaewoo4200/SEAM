@@ -5,12 +5,12 @@ import json
 import numpy as np
 import pytest
 
-from app.schemas.datasets import DatasetGenerateRequest, DatasetSampling
-from app.schemas.results import PathResultSet
-from app.schemas.simulation import SimulationConfig
-from app.services import dataset as ds
-from app.services.simulation_backends import get_backend
-from app.services.simulation_backends.base import UNSAVED_RESULT_ID
+from seam_studio.schemas.datasets import DatasetGenerateRequest, DatasetSampling
+from seam_studio.schemas.results import PathResultSet
+from seam_studio.schemas.simulation import SimulationConfig
+from seam_studio.services import dataset as ds
+from seam_studio.services.simulation_backends import get_backend
+from seam_studio.services.simulation_backends.base import UNSAVED_RESULT_ID
 
 from .conftest import make_demo_scene
 

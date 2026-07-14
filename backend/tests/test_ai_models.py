@@ -13,13 +13,13 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.api import ai as ai_api
-from app.api import deps
-from app.core.config import get_settings
-from app.schemas.ai import SuggestMaterialsRequest
-from app.schemas.scene import MeshRef, Prim, Scene, VisualBinding
-from app.services import ai_provider
-from app.services.ai_provider import (
+from seam_studio.api import ai as ai_api
+from seam_studio.api import deps
+from seam_studio.core.config import get_settings
+from seam_studio.schemas.ai import SuggestMaterialsRequest
+from seam_studio.schemas.scene import MeshRef, Prim, Scene, VisualBinding
+from seam_studio.services import ai_provider
+from seam_studio.services.ai_provider import (
     LocalOpenAIProvider,
     OllamaTextProvider,
     get_provider_models,
@@ -27,7 +27,7 @@ from app.services.ai_provider import (
     list_openai_models,
     suggest_materials,
 )
-from app.services.project_store import load_default_library
+from seam_studio.services.project_store import load_default_library
 
 WINDOW_ID = "/buildings/b01/window_12"
 

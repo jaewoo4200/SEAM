@@ -18,14 +18,14 @@ import trimesh
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.schemas.actors import (
+from seam_studio.schemas.actors import (
     ActorState,
     LiveStateUpdate,
     ScenarioSimulateRequest,
 )
-from app.schemas.devices import Device
-from app.schemas.materials import RFMaterialLibrary
-from app.schemas.scene import (
+from seam_studio.schemas.devices import Device
+from seam_studio.schemas.materials import RFMaterialLibrary
+from seam_studio.schemas.scene import (
     Actor,
     ActorTrajectory,
     MeshRef,
@@ -33,13 +33,13 @@ from app.schemas.scene import (
     RFBinding,
     Scene,
 )
-from app.schemas.simulation import SimulationConfig
-from app.services import project_store
-from app.services.availability import sionna_available
-from app.services.rf_compiler import compile_project
-from app.services.scenario import actor_position_at, run_scenario
-from app.services.simulation_backends.mock_backend import MockBackend
-from app.services.simulation_backends.sionna_backend import SionnaBackend
+from seam_studio.schemas.simulation import SimulationConfig
+from seam_studio.services import project_store
+from seam_studio.services.availability import sionna_available
+from seam_studio.services.rf_compiler import compile_project
+from seam_studio.services.scenario import actor_position_at, run_scenario
+from seam_studio.services.simulation_backends.mock_backend import MockBackend
+from seam_studio.services.simulation_backends.sionna_backend import SionnaBackend
 
 SIONNA_INSTALLED = sionna_available()
 
@@ -262,7 +262,7 @@ def test_scenario_two_tx_per_link_interference(project, library) -> None:
     signal/interferer roles symmetrically."""
     import math
 
-    from app.schemas.devices import Device
+    from seam_studio.schemas.devices import Device
 
     backend = MockBackend()
     scene = _scene_with_actor()
@@ -292,7 +292,7 @@ def test_scenario_tx_ids_filter_limits_link_tables(project, library) -> None:
     """config.tx_ids restricts which transmitters appear in the frame link
     tables: with two TXs in the scene but tx_ids=['tx_001'], every frame's links
     cover only tx_001 (matching the backend's solved tx->rx pairs)."""
-    from app.schemas.devices import Device
+    from seam_studio.schemas.devices import Device
 
     backend = MockBackend()
     scene = _scene_with_actor()
@@ -336,9 +336,9 @@ def test_scenario_include_paths_toggle(project, library) -> None:
 def _test_app() -> FastAPI:
     """Minimal app wiring the simulate + scenario routers (main.py wiring is
     the lead's job; this keeps the API tests self-contained)."""
-    from app.api import scenario as scenario_api
-    from app.api import scene as scene_api
-    from app.api import simulate as simulate_api
+    from seam_studio.api import scenario as scenario_api
+    from seam_studio.api import scene as scene_api
+    from seam_studio.api import simulate as simulate_api
 
     app = FastAPI()
     app.include_router(simulate_api.router, prefix="/api")
@@ -350,8 +350,8 @@ def _test_app() -> FastAPI:
 @pytest.fixture()
 def api_client(tmp_path, monkeypatch):
     monkeypatch.setenv("SIONNATWIN_PROJECT_ROOTS", str(tmp_path))
-    from app.api.deps import get_store
-    from app.core.config import get_settings
+    from seam_studio.api.deps import get_store
+    from seam_studio.core.config import get_settings
 
     get_settings.cache_clear()
     get_store.cache_clear()
@@ -392,7 +392,7 @@ def test_live_state_apply_and_persist(api_client) -> None:
     assert body["unknown_ids"] == []
 
     # Persisted: the stored scene now reflects the pushed positions.
-    from app.api.deps import get_store
+    from seam_studio.api.deps import get_store
 
     scene = get_store().load_scene("scenario_test")
     car = next(a for a in scene.actors if a.id == "car_001")
@@ -424,7 +424,7 @@ def test_live_state_nonpersisted_survives_a_solve_without_touching_disk(api_clie
     positions out, and the live overlay survives so the next solve still
     follows the feed."""
     client, _root = api_client
-    from app.api.deps import get_store
+    from seam_studio.api.deps import get_store
 
     disk_before = next(
         d for d in get_store().load_scene("scenario_test").devices if d.id == "rx_001"

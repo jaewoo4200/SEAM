@@ -18,20 +18,20 @@ from pathlib import Path
 import pytest
 import trimesh
 
-from app.schemas.devices import Antenna, Device
-from app.schemas.scene import MeshRef, Prim, RFBinding, Scene
-from app.schemas.simulation import SimulationConfig, TrajectorySimulateRequest
-from app.services.availability import sionna_available
-from app.services.project_store import load_default_library
-from app.services.rfdata_export import export_rfdata
-from app.services.simulation_backends.mock_backend import MockBackend
-from app.services.simulation_backends.sionna_backend import (
+from seam_studio.schemas.devices import Antenna, Device
+from seam_studio.schemas.scene import MeshRef, Prim, RFBinding, Scene
+from seam_studio.schemas.simulation import SimulationConfig, TrajectorySimulateRequest
+from seam_studio.services.availability import sionna_available
+from seam_studio.services.project_store import load_default_library
+from seam_studio.services.rfdata_export import export_rfdata
+from seam_studio.services.simulation_backends.mock_backend import MockBackend
+from seam_studio.services.simulation_backends.sionna_backend import (
     SionnaBackend,
     cache_stats,
     clear_scene_cache,
     noise_floor_dbm,
 )
-from app.services.trajectory import run_trajectory
+from seam_studio.services.trajectory import run_trajectory
 
 SIONNA = sionna_available()
 
@@ -364,6 +364,6 @@ def test_clear_scene_cache_resets_counters():
     """clear_scene_cache empties the cache dict (counters are cumulative until
     the process resets them; the dict itself must be emptied)."""
     clear_scene_cache()
-    from app.services.simulation_backends import sionna_backend as sb
+    from seam_studio.services.simulation_backends import sionna_backend as sb
 
     assert sb._SCENE_CACHE == {}

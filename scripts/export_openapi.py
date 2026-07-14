@@ -33,7 +33,7 @@ OUTPUT_PATH = BACKEND_DIR / "openapi.json"
 
 
 def _ensure_backend_importable() -> None:
-    """Make ``import app.main`` work regardless of the current directory."""
+    """Make ``import seam_studio.main`` work regardless of the current directory."""
     backend = str(BACKEND_DIR)
     if backend not in sys.path:
         # Prepend so the backend's ``app`` package wins over any same-named module.
@@ -44,7 +44,7 @@ def export(output_path: Path = OUTPUT_PATH) -> Path:
     _ensure_backend_importable()
 
     # Imported after sys.path is patched so this works from the repo root too.
-    from app.main import app
+    from seam_studio.main import app
 
     schema = app.openapi()
     output_path.parent.mkdir(parents=True, exist_ok=True)

@@ -14,7 +14,7 @@ real plugins/ directory.
 
 import pytest
 
-from app.services import plugins
+from seam_studio.services import plugins
 
 
 @pytest.fixture(autouse=True)

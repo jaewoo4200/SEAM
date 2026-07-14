@@ -14,13 +14,13 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.api import channel as channel_api
-from app.api import deps
-from app.core.config import get_settings
-from app.schemas.devices import Device
-from app.schemas.results import RayPath
-from app.schemas.scene import MeshRef, Prim, RFBinding, Scene
-from app.services import channel_analysis as ca
+from seam_studio.api import channel as channel_api
+from seam_studio.api import deps
+from seam_studio.core.config import get_settings
+from seam_studio.schemas.devices import Device
+from seam_studio.schemas.results import RayPath
+from seam_studio.schemas.scene import MeshRef, Prim, RFBinding, Scene
+from seam_studio.services import channel_analysis as ca
 
 C = 299_792_458.0
 TX_POS = [0.0, 0.0, 10.0]

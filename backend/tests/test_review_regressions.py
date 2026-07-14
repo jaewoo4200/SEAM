@@ -16,13 +16,13 @@ from pathlib import Path
 
 import trimesh
 
-from app.schemas.materials import AssignRequest
-from app.schemas.scene import MeshRef, Prim, RFBinding, Scene, VisualBinding
-from app.services import rf_compiler
-from app.services.material_assignment import assign_materials
-from app.services.project_store import load_default_library
-from app.services.scene_validator import validate_scene
-from app.services.simulation_backends.sionna_backend import SionnaBackend
+from seam_studio.schemas.materials import AssignRequest
+from seam_studio.schemas.scene import MeshRef, Prim, RFBinding, Scene, VisualBinding
+from seam_studio.services import rf_compiler
+from seam_studio.services.material_assignment import assign_materials
+from seam_studio.services.project_store import load_default_library
+from seam_studio.services.scene_validator import validate_scene
+from seam_studio.services.simulation_backends.sionna_backend import SionnaBackend
 
 
 def _scene_with(prims: list[Prim]) -> Scene:
@@ -149,11 +149,11 @@ def test_apply_custom_materials_accepts_unprefixed_name(tmp_path: Path):
 
 
 def test_sionna_available_never_raises(monkeypatch):
-    from app.services import availability
+    from seam_studio.services import availability
 
     availability.sionna_available.cache_clear()
     monkeypatch.setattr(
-        "app.services.availability.util.find_spec",
+        "seam_studio.services.availability.util.find_spec",
         lambda name: (_ for _ in ()).throw(OSError("broken DLL")),
     )
     assert availability.sionna_available() is False
@@ -206,7 +206,7 @@ def test_result_id_never_reuses_live_id_after_ref_pruning(api_client):
 
 def test_approving_rule_suggestions_yields_no_mismatch_warnings():
     """suggest -> approve -> validate must never contradict itself."""
-    from app.services.ai_provider import RuleBasedProvider
+    from seam_studio.services.ai_provider import RuleBasedProvider
 
     library = load_default_library()
     scene = _scene_with(

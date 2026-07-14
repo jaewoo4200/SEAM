@@ -11,10 +11,10 @@ from pathlib import Path
 
 import pytest
 
-from app.schemas.engines import EngineInfo
-from app.schemas.simulation import SimulationConfig
-from app.services import engines as reg
-from app.services.simulation_backends.sionna_backend import SionnaBackend
+from seam_studio.schemas.engines import EngineInfo
+from seam_studio.schemas.simulation import SimulationConfig
+from seam_studio.services import engines as reg
+from seam_studio.services.simulation_backends.sionna_backend import SionnaBackend
 
 from .conftest import make_demo_scene
 

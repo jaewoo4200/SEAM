@@ -7,19 +7,19 @@ from pathlib import Path
 
 import pytest
 
-from app.schemas.devices import Device
-from app.schemas.results import PathResultSet, RayPath
-from app.schemas.scene import MeshRef, Prim, RFBinding, Scene
-from app.schemas.simulation import (
+from seam_studio.schemas.devices import Device
+from seam_studio.schemas.results import PathResultSet, RayPath
+from seam_studio.schemas.scene import MeshRef, Prim, RFBinding, Scene
+from seam_studio.schemas.simulation import (
     RadioMapGridConfig,
     SimulationConfig,
     TrajectorySimulateRequest,
     UERoute,
 )
-from app.services.project_store import load_default_library
-from app.services.rfdata_export import export_rfdata
-from app.services.simulation_backends.mock_backend import MockBackend
-from app.services.trajectory import resolve_waypoints, run_trajectory
+from seam_studio.services.project_store import load_default_library
+from seam_studio.services.rfdata_export import export_rfdata
+from seam_studio.services.simulation_backends.mock_backend import MockBackend
+from seam_studio.services.trajectory import resolve_waypoints, run_trajectory
 
 
 def _scene() -> Scene:
@@ -356,7 +356,7 @@ def test_trajectory_fallback_two_tx_rows_do_not_mix_tx_powers(tmp_path: Path):
 
 
 def test_api_trajectory_and_export_roundtrip(api_client):
-    from app.api.deps import get_store
+    from seam_studio.api.deps import get_store
 
     store = get_store()
     store.create_project("WS2 API", project_id="ws2api")

@@ -25,13 +25,13 @@ def api_client(tmp_path, monkeypatch):
     """TestClient over a temp project root holding one ready-to-simulate project."""
     monkeypatch.setenv("SIONNATWIN_PROJECT_ROOTS", str(tmp_path))
 
-    from app.api.deps import get_store
-    from app.core.config import get_settings
+    from seam_studio.api.deps import get_store
+    from seam_studio.core.config import get_settings
 
     get_settings.cache_clear()
     get_store.cache_clear()
 
-    from app.main import app
+    from seam_studio.main import app
 
     store = get_store()
     store.create_project("Sim Test", project_id="sim_test")

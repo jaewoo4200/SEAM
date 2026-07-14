@@ -8,13 +8,13 @@ directly plus its integration through the store's load/save.
 
 from pathlib import Path
 
-from app.schemas.scene import Scene
-from app.services import live_state
-from app.services.project_store import ProjectStore
+from seam_studio.schemas.scene import Scene
+from seam_studio.services import live_state
+from seam_studio.services.project_store import ProjectStore
 
 
 def _scene() -> Scene:
-    from app.schemas.devices import Device
+    from seam_studio.schemas.devices import Device
 
     return Scene(
         scene_id="live_test",
@@ -70,7 +70,7 @@ def test_save_scene_clears_overlay(tmp_path: Path) -> None:
 def test_load_scene_reflects_overlay(tmp_path: Path) -> None:
     """GET /scene path (store.load_scene + deps overlay) follows a persist=false
     push without the scene file changing on disk."""
-    from app.api import deps
+    from seam_studio.api import deps
 
     root = tmp_path / "projects"
     root.mkdir()
@@ -78,7 +78,7 @@ def test_load_scene_reflects_overlay(tmp_path: Path) -> None:
     store.create_project(name="Live", project_id="live_load")
     # Seed one device so there is something to move.
     scene = store.load_scene("live_load")
-    from app.schemas.devices import Device
+    from seam_studio.schemas.devices import Device
 
     scene.devices.append(Device(id="rx_001", kind="rx", position=[0.0, 0.0, 1.5]))
     store.save_scene("live_load", scene)

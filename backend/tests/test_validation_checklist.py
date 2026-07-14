@@ -24,9 +24,9 @@ import math
 
 import pytest
 
-from app.schemas.simulation import SimulationConfig
-from app.services import channel_analysis as ca
-from app.services.simulation_backends.sionna_backend import noise_floor_dbm
+from seam_studio.schemas.simulation import SimulationConfig
+from seam_studio.services import channel_analysis as ca
+from seam_studio.services.simulation_backends.sionna_backend import noise_floor_dbm
 
 C = 299_792_458.0  # speed of light [m/s], matches channel_analysis.SPEED_OF_LIGHT
 
@@ -143,7 +143,7 @@ def test_breakpoint_is_continuous(los_fn, h_bs: float, h_ut: float, freq_hz: flo
 
 
 def _mk_paths():
-    from app.schemas.results import RayPath
+    from seam_studio.schemas.results import RayPath
 
     verts = [[0.0, 0.0, 10.0], [20.0, 0.0, 1.5]]
     return [

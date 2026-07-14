@@ -11,11 +11,11 @@ from pathlib import Path
 import pytest
 import trimesh
 
-from app.schemas.materials import RFMaterial, RFMaterialLibrary
-from app.schemas.scene import Device, MeshRef, Prim, RFBinding, Scene
-from app.services import scene_validator
-from app.services.project_store import load_default_library
-from app.services.scene_validator import validate_scene
+from seam_studio.schemas.materials import RFMaterial, RFMaterialLibrary
+from seam_studio.schemas.scene import Device, MeshRef, Prim, RFBinding, Scene
+from seam_studio.services import scene_validator
+from seam_studio.services.project_store import load_default_library
+from seam_studio.services.scene_validator import validate_scene
 
 
 # --------------------------------------------------------- status round-trips
@@ -225,7 +225,7 @@ def test_missing_asset_yields_no_geometry_issues(tmp_path: Path):
 def test_validate_route_passes_project_dir(api_client, tmp_path: Path):
     """The scene/validate endpoint resolves the project dir so geometry checks
     run end to end."""
-    from app.api.deps import get_store
+    from seam_studio.api.deps import get_store
 
     store = get_store()
     store.create_project("Geo API", project_id="geoapi")

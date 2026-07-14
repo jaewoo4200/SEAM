@@ -4,17 +4,17 @@ from pathlib import Path
 
 import pytest
 
-from app.schemas.calibration import (
+from seam_studio.schemas.calibration import (
     CalibrationRequest,
     DisambiguationRequest,
     MeasurementSample,
 )
-from app.schemas.scene import Device, MeshRef, Prim, RFBinding, Scene
-from app.schemas.simulation import SimulationConfig
-from app.services.calibration import calibrate_material, disambiguate_materials
-from app.services.project_store import load_default_library
-from app.services.scene_validator import validate_scene
-from app.services.simulation_backends.mock_backend import MockBackend
+from seam_studio.schemas.scene import Device, MeshRef, Prim, RFBinding, Scene
+from seam_studio.schemas.simulation import SimulationConfig
+from seam_studio.services.calibration import calibrate_material, disambiguate_materials
+from seam_studio.services.project_store import load_default_library
+from seam_studio.services.scene_validator import validate_scene
+from seam_studio.services.simulation_backends.mock_backend import MockBackend
 
 
 def _scene(freq_hz: float = 28e9, with_wall: bool = False) -> Scene:
@@ -95,7 +95,7 @@ def test_calibration_offset_and_report(tmp_path: Path):
         target_material_id="ground",
         param="scattering_coefficient",
     )
-    from app.services.calibration import _simulate_path_gains
+    from seam_studio.services.calibration import _simulate_path_gains
 
     sim = _simulate_path_gains(backend, tmp_path, scene, library, config, base_req)
     assert all(s is not None for s in sim)
@@ -131,7 +131,7 @@ def test_calibration_recovers_true_scattering(tmp_path: Path):
     backend = MockBackend()
     positions = [[10.0, 0.0, 1.5], [25.0, 5.0, 1.5], [40.0, -5.0, 1.5]]
 
-    from app.services.calibration import _simulate_path_gains
+    from seam_studio.services.calibration import _simulate_path_gains
 
     truth_lib = library.model_copy(deep=True)
     truth_lib.get("ground").scattering_coefficient = 0.1
@@ -169,8 +169,8 @@ def test_calibration_unknown_material_raises(tmp_path: Path):
 
 
 def test_api_calibration_and_apply(api_client, tmp_path):
-    from app.api.deps import get_store
-    from app.services.calibration import _simulate_path_gains
+    from seam_studio.api.deps import get_store
+    from seam_studio.services.calibration import _simulate_path_gains
 
     store = get_store()
     store.create_project("Cal API", project_id="calapi")
@@ -221,8 +221,8 @@ def test_api_calibration_and_apply(api_client, tmp_path):
 def test_api_apply_gate_refuses_without_improvement(api_client):
     """Measurements already consistent with the baseline: apply must be
     refused (no meaningful RMSE improvement) and nothing persisted."""
-    from app.api.deps import get_store
-    from app.services.calibration import _simulate_path_gains
+    from seam_studio.api.deps import get_store
+    from seam_studio.services.calibration import _simulate_path_gains
 
     store = get_store()
     store.create_project("Cal Gate", project_id="calgate")
@@ -278,7 +278,7 @@ def _disambig_measurements(tmp_path: Path, config: SimulationConfig,
     the scene as-shipped, so every candidate produces comparable links."""
     scene = _scene(with_wall=True)
     library = load_default_library()
-    from app.services.calibration import _simulate_path_gains
+    from seam_studio.services.calibration import _simulate_path_gains
 
     req0 = CalibrationRequest(
         config=config,
@@ -371,7 +371,7 @@ def test_disambiguation_unknown_candidate_skipped(tmp_path: Path):
 
 
 def _create_cal_project(api_client, pid: str = "measproj") -> None:
-    from app.api.deps import get_store
+    from seam_studio.api.deps import get_store
 
     store = get_store()
     store.create_project("Meas API", project_id=pid)
@@ -379,7 +379,7 @@ def _create_cal_project(api_client, pid: str = "measproj") -> None:
 
 
 def test_measurement_id_roundtrips_on_sample():
-    from app.schemas.calibration import MeasurementSample
+    from seam_studio.schemas.calibration import MeasurementSample
 
     s = MeasurementSample(
         measurement_id="m-42", rx_position=[1.0, 2.0, 1.5], measured_path_gain_db=-95.0

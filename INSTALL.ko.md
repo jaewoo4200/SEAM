@@ -184,10 +184,10 @@ bash scripts/start.sh
 **터미널 1 — 백엔드 (:8000):**
 
 ```bash
-backend/.venv/bin/python -m uvicorn --app-dir backend app.main:app --port 8000
+backend/.venv/bin/python -m uvicorn --app-dir backend seam_studio.main:app --port 8000
 ```
 
-(Windows: `backend\.venv\Scripts\python.exe -m uvicorn --app-dir backend app.main:app --port 8000`)
+(Windows: `backend\.venv\Scripts\python.exe -m uvicorn --app-dir backend seam_studio.main:app --port 8000`)
 
 **터미널 2 — 프론트엔드 (:5173):**
 
@@ -290,7 +290,7 @@ AI는 완전히 선택입니다. AI 서버가 없으면 **규칙 기반(rule-bas
 ```powershell
 $env:SEAM_OPENAI_URL   = "http://localhost:1234/v1"
 $env:SEAM_OPENAI_MODEL = "google/gemma-4-31b"
-backend\.venv\Scripts\python.exe -m uvicorn --app-dir backend app.main:app --port 8000
+backend\.venv\Scripts\python.exe -m uvicorn --app-dir backend seam_studio.main:app --port 8000
 ```
 
 **주요 환경변수:** 정식 접두사는 `SEAM_*`이며, 모든 변수에 대해 레거시

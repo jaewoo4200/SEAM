@@ -19,19 +19,19 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.api import channel as channel_api
-from app.api import deps
-from app.core.config import get_settings
+from seam_studio.api import channel as channel_api
+from seam_studio.api import deps
+from seam_studio.core.config import get_settings
 import math
 
-from app.schemas.material_impact import MaterialImpactRequest
-from app.schemas.results import RayPath
-from app.schemas.scene import Device, MeshRef, Prim, RFBinding, Scene
-from app.schemas.simulation import SimulationConfig
-from app.services.material_impact import _capacity_mbps, _cfr, material_impact
-from app.services.project_store import load_default_library
-from app.services.simulation_backends.mock_backend import MockBackend
-from app.services.simulation_backends.sionna_backend import noise_floor_dbm
+from seam_studio.schemas.material_impact import MaterialImpactRequest
+from seam_studio.schemas.results import RayPath
+from seam_studio.schemas.scene import Device, MeshRef, Prim, RFBinding, Scene
+from seam_studio.schemas.simulation import SimulationConfig
+from seam_studio.services.material_impact import _capacity_mbps, _cfr, material_impact
+from seam_studio.services.project_store import load_default_library
+from seam_studio.services.simulation_backends.mock_backend import MockBackend
+from seam_studio.services.simulation_backends.sionna_backend import noise_floor_dbm
 
 
 def _scene() -> Scene:

@@ -14,8 +14,8 @@ from pathlib import Path
 
 import pytest
 
-from app.core import config
-from app.services.project_store import (
+from seam_studio.core import config
+from seam_studio.services.project_store import (
     LEGACY_PROJECT_SUFFIX,
     LEGACY_SCENE_FILENAME,
     PROJECT_SUFFIX,

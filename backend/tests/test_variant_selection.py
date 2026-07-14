@@ -12,7 +12,7 @@ the solve methods).
 
 import pytest
 
-from app.services.simulation_backends.sionna_backend import (
+from seam_studio.services.simulation_backends.sionna_backend import (
     _LLVM_FALLBACK_WARNING,
     _SIONNA_CUDA_VARIANT,
     _SIONNA_LLVM_VARIANT,

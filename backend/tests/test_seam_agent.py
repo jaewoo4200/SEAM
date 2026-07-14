@@ -21,10 +21,10 @@ import pytest
 import trimesh
 from PIL import Image
 
-from app.api import deps
-from app.schemas.scene import MeshRef, Prim, RFBinding, Scene, VisualBinding
-from app.services import material_segmentation as seg
-from app.services import seam_agent
+from seam_studio.api import deps
+from seam_studio.schemas.scene import MeshRef, Prim, RFBinding, Scene, VisualBinding
+from seam_studio.services import material_segmentation as seg
+from seam_studio.services import seam_agent
 
 MESH_NAME = "agent_box"
 PRIM_ID = "/buildings/b01/box"

@@ -5,11 +5,11 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from app.schemas.materials import RFMaterialLibrary
-from app.schemas.projects import ProjectInfo
-from app.schemas.scene import Prim, RFBinding, Scene
-from app.services.project_store import ProjectStore
-from app.services.scene_validator import validate_scene
+from seam_studio.schemas.materials import RFMaterialLibrary
+from seam_studio.schemas.projects import ProjectInfo
+from seam_studio.schemas.scene import Prim, RFBinding, Scene
+from seam_studio.services.project_store import ProjectStore
+from seam_studio.services.scene_validator import validate_scene
 
 from .conftest import DEMO_PROJECT_ID, make_demo_scene
 

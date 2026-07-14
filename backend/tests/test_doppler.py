@@ -17,11 +17,11 @@ from pathlib import Path
 import pytest
 import trimesh
 
-from app.schemas.channel import ChannelAnalysisRequest
-from app.schemas.devices import Device
-from app.schemas.materials import RFMaterialLibrary
-from app.schemas.results import PathResultSet, RayPath
-from app.schemas.scene import (
+from seam_studio.schemas.channel import ChannelAnalysisRequest
+from seam_studio.schemas.devices import Device
+from seam_studio.schemas.materials import RFMaterialLibrary
+from seam_studio.schemas.results import PathResultSet, RayPath
+from seam_studio.schemas.scene import (
     Actor,
     ActorTrajectory,
     MeshRef,
@@ -29,18 +29,18 @@ from app.schemas.scene import (
     RFBinding,
     Scene,
 )
-from app.schemas.simulation import (
+from seam_studio.schemas.simulation import (
     SimulationConfig,
     TrajectorySimulateRequest,
 )
-from app.schemas.actors import ScenarioSimulateRequest
-from app.services import channel_analysis as ca
-from app.services import scenario as scen
-from app.services import trajectory as traj
-from app.services.availability import sionna_available
-from app.services.project_store import load_default_library
-from app.services.simulation_backends.base import UNSAVED_RESULT_ID, RayTracingBackend
-from app.services.simulation_backends.sionna_backend import SionnaBackend
+from seam_studio.schemas.actors import ScenarioSimulateRequest
+from seam_studio.services import channel_analysis as ca
+from seam_studio.services import scenario as scen
+from seam_studio.services import trajectory as traj
+from seam_studio.services.availability import sionna_available
+from seam_studio.services.project_store import load_default_library
+from seam_studio.services.simulation_backends.base import UNSAVED_RESULT_ID, RayTracingBackend
+from seam_studio.services.simulation_backends.sionna_backend import SionnaBackend
 
 C = 299_792_458.0
 SIONNA_INSTALLED = sionna_available()
@@ -175,7 +175,7 @@ class _CaptureBackend(RayTracingBackend):
         return True
 
     def compile(self, project_dir, scene, library):  # type: ignore[override]
-        from app.schemas.compile import CompileResult
+        from seam_studio.schemas.compile import CompileResult
         return CompileResult(ok=True)
 
     def simulate_paths(self, project_dir, scene, library, config, actor_states=None, actor_velocities=None):  # type: ignore[override]

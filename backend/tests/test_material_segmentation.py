@@ -13,8 +13,8 @@ import pytest
 import trimesh
 from PIL import Image
 
-from app.services import material_segmentation as seg
-from app.services.material_segmentation import (
+from seam_studio.services import material_segmentation as seg
+from seam_studio.services.material_segmentation import (
     SegmentationError,
     assign_face_materials,
     build_color_heuristic_mask,

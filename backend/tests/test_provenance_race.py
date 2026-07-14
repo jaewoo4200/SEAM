@@ -12,7 +12,7 @@ import json
 import threading
 from pathlib import Path
 
-from app.services.project_store import ProjectStore
+from seam_studio.services.project_store import ProjectStore
 
 THREADS = 8
 EVENTS_PER_THREAD = 25

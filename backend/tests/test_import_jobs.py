@@ -11,8 +11,8 @@ import time
 
 import trimesh
 
-from app.schemas.projects import ProjectInfo
-from app.services import import_jobs
+from seam_studio.schemas.projects import ProjectInfo
+from seam_studio.services import import_jobs
 
 # Minimal Sionna/Mitsuba XML: two ITU materials + two ply shapes (same shape
 # as test_import_api.SCENE_XML).

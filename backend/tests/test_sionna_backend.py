@@ -10,14 +10,14 @@ from pathlib import Path
 import pytest
 import trimesh
 
-from app.schemas.materials import AssignRequest
-from app.schemas.results import PathResultSet, RadioMapResultSet
-from app.schemas.scene import Device, MeshRef, Prim, RFBinding, Scene
-from app.schemas.simulation import RadioMapGridConfig, SimulationConfig
-from app.services.availability import sionna_available
-from app.services.material_assignment import assign_materials
-from app.services.project_store import load_default_library
-from app.services.simulation_backends.sionna_backend import SionnaBackend
+from seam_studio.schemas.materials import AssignRequest
+from seam_studio.schemas.results import PathResultSet, RadioMapResultSet
+from seam_studio.schemas.scene import Device, MeshRef, Prim, RFBinding, Scene
+from seam_studio.schemas.simulation import RadioMapGridConfig, SimulationConfig
+from seam_studio.services.availability import sionna_available
+from seam_studio.services.material_assignment import assign_materials
+from seam_studio.services.project_store import load_default_library
+from seam_studio.services.simulation_backends.sionna_backend import SionnaBackend
 
 pytestmark = pytest.mark.skipif(
     not sionna_available(), reason="sionna-rt not installed (optional backend)"

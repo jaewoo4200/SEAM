@@ -59,3 +59,9 @@ website/assets/SEAM_*
 
 # Local editor/agent launch config (machine-specific paths).
 .claude/
+
+# Wheel-only bundled frontend (copied in by scripts/build_wheel.py) + build
+# artifacts of the pip package.
+backend/seam_studio/static/
+backend/dist/
+backend/*.egg-info/

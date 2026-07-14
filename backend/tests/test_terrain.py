@@ -15,8 +15,8 @@ from pathlib import Path
 import pytest
 import trimesh
 
-from app.schemas.scene import Scene
-from app.services.terrain import snap_to_terrain
+from seam_studio.schemas.scene import Scene
+from seam_studio.services.terrain import snap_to_terrain
 
 
 def _box_glb(path: Path, boxes: list[tuple[tuple[float, float, float], tuple[float, float, float]]]) -> None:

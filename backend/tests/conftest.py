@@ -9,11 +9,11 @@ from typing import Callable
 
 import pytest
 
-from app.schemas.devices import Device
-from app.schemas.materials import RFMaterialLibrary
-from app.schemas.projects import ProjectInfo
-from app.schemas.scene import MeshRef, Prim, RFBinding, Scene, VisualBinding
-from app.services.project_store import ProjectStore, load_default_library
+from seam_studio.schemas.devices import Device
+from seam_studio.schemas.materials import RFMaterialLibrary
+from seam_studio.schemas.projects import ProjectInfo
+from seam_studio.schemas.scene import MeshRef, Prim, RFBinding, Scene, VisualBinding
+from seam_studio.services.project_store import ProjectStore, load_default_library
 
 DEMO_PROJECT_ID = "demo_scene"
 
@@ -118,8 +118,8 @@ def api_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """
     from fastapi.testclient import TestClient
 
-    from app.api import deps
-    from app.core import config
+    from seam_studio.api import deps
+    from seam_studio.core import config
 
     root = tmp_path / "api_projects"
     root.mkdir()
@@ -127,7 +127,7 @@ def api_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     config.get_settings.cache_clear()
     deps.get_store.cache_clear()
 
-    from app.main import create_app
+    from seam_studio.main import create_app
 
     with TestClient(create_app()) as client:
         yield client

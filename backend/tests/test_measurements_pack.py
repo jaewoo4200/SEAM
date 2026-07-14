@@ -11,14 +11,14 @@ from pathlib import Path
 
 import pytest
 
-from app.schemas.calibration import MeasurementSample, TrajectoryValidationRequest
-from app.schemas.scene import Device, MeshRef, Prim, RFBinding, Scene
-from app.schemas.simulation import SimulationConfig, TrajectorySimulateRequest
-from app.services.calibration import _stats
-from app.services.measurement_validation import order_measurements
-from app.services.project_store import load_default_library
-from app.services.simulation_backends.mock_backend import MockBackend
-from app.services.trajectory import run_trajectory
+from seam_studio.schemas.calibration import MeasurementSample, TrajectoryValidationRequest
+from seam_studio.schemas.scene import Device, MeshRef, Prim, RFBinding, Scene
+from seam_studio.schemas.simulation import SimulationConfig, TrajectorySimulateRequest
+from seam_studio.services.calibration import _stats
+from seam_studio.services.measurement_validation import order_measurements
+from seam_studio.services.project_store import load_default_library
+from seam_studio.services.simulation_backends.mock_backend import MockBackend
+from seam_studio.services.trajectory import run_trajectory
 
 POSITIONS = [[10.0, 0.0, 1.5], [25.0, 5.0, 1.5], [40.0, -5.0, 1.5], [55.0, 0.0, 1.5]]
 
@@ -51,7 +51,7 @@ def _scene() -> Scene:
 
 
 def _create_project(pid: str) -> None:
-    from app.api.deps import get_store
+    from seam_studio.api.deps import get_store
 
     store = get_store()
     store.create_project("Meas Pack", project_id=pid)

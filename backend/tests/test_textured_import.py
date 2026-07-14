@@ -20,8 +20,8 @@ import numpy as np
 import trimesh
 from PIL import Image
 
-from app.services.mitsuba_import import import_mitsuba_scene
-from app.services.project_store import load_default_library
+from seam_studio.services.mitsuba_import import import_mitsuba_scene
+from seam_studio.services.project_store import load_default_library
 
 # --------------------------------------------------------------------------- #
 # Synthetic-bundle helpers                                                     #

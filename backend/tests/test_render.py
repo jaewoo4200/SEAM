@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from app.core.paths import REPO_ROOT
+from seam_studio.core.paths import REPO_ROOT
 
 DEMO_SRC = REPO_ROOT / "examples" / "demo_project" / "sample_demo.sionnatwin"
 
@@ -41,8 +41,8 @@ def render_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     Copying keeps the render output (export/renders/*.png and any transient
     rewritten XML) out of the real example folder.
     """
-    from app.api import deps
-    from app.core import config
+    from seam_studio.api import deps
+    from seam_studio.core import config
 
     root = tmp_path / "render_projects"
     root.mkdir()
@@ -52,7 +52,7 @@ def render_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     config.get_settings.cache_clear()
     deps.get_store.cache_clear()
 
-    from app.main import create_app
+    from seam_studio.main import create_app
 
     with TestClient(create_app()) as client:
         yield client

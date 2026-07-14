@@ -1,0 +1,3 @@
+include README.md
+recursive-include seam_studio/data *.yaml
+recursive-include seam_studio/static *

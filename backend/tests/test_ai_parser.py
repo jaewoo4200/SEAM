@@ -13,14 +13,14 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from app.api import ai as ai_api
-from app.api import deps
-from app.core.config import get_settings
-from app.schemas.ai import SuggestMaterialsRequest
-from app.schemas.scene import MeshRef, Prim, Scene, VisualBinding
-from app.schemas.ai import AssignmentRule
-from app.services import ai_provider
-from app.services.ai_provider import (
+from seam_studio.api import ai as ai_api
+from seam_studio.api import deps
+from seam_studio.core.config import get_settings
+from seam_studio.schemas.ai import SuggestMaterialsRequest
+from seam_studio.schemas.scene import MeshRef, Prim, Scene, VisualBinding
+from seam_studio.schemas.ai import AssignmentRule
+from seam_studio.services import ai_provider
+from seam_studio.services.ai_provider import (
     AIParseError,
     LocalOpenAIProvider,
     NoTextProviderError,
@@ -35,7 +35,7 @@ from app.services.ai_provider import (
     parse_rules_response,
     suggest_materials,
 )
-from app.services.project_store import load_default_library
+from seam_studio.services.project_store import load_default_library
 
 WINDOW_ID = "/buildings/b01/window_12"
 WALLS_ID = "/buildings/b02/walls"
@@ -927,7 +927,7 @@ def _build_untextured_glb(path: Path, mesh_name: str) -> None:
 
 
 def test_extract_prim_texture_crops_returns_data_url(tmp_path, scene):
-    from app.services.ai_provider import extract_prim_texture_crops
+    from seam_studio.services.ai_provider import extract_prim_texture_crops
 
     _build_textured_glb(tmp_path / "visual" / "scene.glb", "building_01")
     crops = extract_prim_texture_crops(tmp_path, scene, [WINDOW_ID])
@@ -937,7 +937,7 @@ def test_extract_prim_texture_crops_returns_data_url(tmp_path, scene):
 
 
 def test_extract_prim_texture_crops_skips_untextured(tmp_path, scene):
-    from app.services.ai_provider import extract_prim_texture_crops
+    from seam_studio.services.ai_provider import extract_prim_texture_crops
 
     _build_untextured_glb(tmp_path / "visual" / "scene.glb", "building_01")
     crops = extract_prim_texture_crops(tmp_path, scene, [WINDOW_ID])
@@ -945,7 +945,7 @@ def test_extract_prim_texture_crops_skips_untextured(tmp_path, scene):
 
 
 def test_extract_prim_texture_crops_missing_glb_is_empty(tmp_path, scene):
-    from app.services.ai_provider import extract_prim_texture_crops
+    from seam_studio.services.ai_provider import extract_prim_texture_crops
 
     # No GLB written -> best-effort empty, no exception.
     crops = extract_prim_texture_crops(tmp_path, scene, [WINDOW_ID])
@@ -953,7 +953,7 @@ def test_extract_prim_texture_crops_missing_glb_is_empty(tmp_path, scene):
 
 
 def test_extract_prim_texture_crops_respects_max(tmp_path, scene):
-    from app.services.ai_provider import extract_prim_texture_crops
+    from seam_studio.services.ai_provider import extract_prim_texture_crops
 
     _build_textured_glb(tmp_path / "visual" / "scene.glb", "building_01")
     crops = extract_prim_texture_crops(tmp_path, scene, [WINDOW_ID], max_crops=0)
@@ -1011,7 +1011,7 @@ def test_build_evidence_includes_mesh_name(scene, library):
 def test_build_evidence_neighbor_context_is_siblings(scene, library):
     # WALLS and BLOB live under different parents than WINDOW, so WINDOW's
     # sibling list is empty; give a prim a real sibling to exercise the path.
-    from app.schemas.scene import MeshRef, Prim
+    from seam_studio.schemas.scene import MeshRef, Prim
 
     sib_a = Prim(
         id="/room/panel_a", name="panel_a", mesh_ref=MeshRef(mesh_name="pa")
@@ -1026,7 +1026,7 @@ def test_build_evidence_neighbor_context_is_siblings(scene, library):
 
 def test_mesh_name_evidence_drives_rule_suggestion(library):
     # A prim whose ONLY glass hint is the mesh_name still gets itu_glass.
-    from app.schemas.scene import MeshRef, Prim, Scene
+    from seam_studio.schemas.scene import MeshRef, Prim, Scene
 
     prim = Prim(
         id="/b/p1", name="p1", mesh_ref=MeshRef(mesh_name="glass_pane_07")
@@ -1101,7 +1101,7 @@ def test_parse_rules_garbage_raises(library):
 
 
 def test_rule_generation_prompt_lists_library_ids_and_few_shots(library):
-    from app.services.ai_provider import _build_rule_generation_messages
+    from seam_studio.services.ai_provider import _build_rule_generation_messages
 
     system, user = _build_rule_generation_messages("window은 glass로", library)
     # Every library id appears in the allowed-ids block.
@@ -1182,8 +1182,8 @@ def test_apply_rules_first_matching_rule_wins(scene, library):
 
 
 def test_apply_rules_skips_user_confirmed(scene, library):
-    from app.schemas.materials import AssignRequest
-    from app.services.material_assignment import assign_materials
+    from seam_studio.schemas.materials import AssignRequest
+    from seam_studio.services.material_assignment import assign_materials
 
     assign_materials(
         scene,
@@ -1248,7 +1248,7 @@ def test_generate_assignment_rules_raises_when_no_provider(library, monkeypatch)
 
 
 def test_explain_validation_warnings_uses_text_llm(library, monkeypatch):
-    from app.schemas.validation import ValidationIssue
+    from seam_studio.schemas.validation import ValidationIssue
 
     monkeypatch.setattr(httpx, "get", _openai_up_get)
     monkeypatch.setattr(

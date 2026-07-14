@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from app.core.paths import REPO_ROOT
-from app.services.mitsuba_import import _class_to_library_id, import_mitsuba_scene
-from app.services.project_store import load_default_library
+from seam_studio.core.paths import REPO_ROOT
+from seam_studio.services.mitsuba_import import _class_to_library_id, import_mitsuba_scene
+from seam_studio.services.project_store import load_default_library
 
 LAB_ROOM_XML = REPO_ROOT / "reference-bundle" / "indoor" / "lab_room.xml"
 requires_lab_room = pytest.mark.skipif(
@@ -89,7 +89,7 @@ def test_import_lab_room(tmp_path: Path):
 
 @requires_lab_room
 def test_imported_scene_validates_clean():
-    from app.services.scene_validator import validate_scene
+    from seam_studio.services.scene_validator import validate_scene
 
     library = load_default_library()
     scene, _tm, _w, _tex = import_mitsuba_scene(LAB_ROOM_XML, "lab_room", library)
@@ -128,7 +128,7 @@ def test_parse_transform_rotate_x_90():
     import numpy as np
     import xml.etree.ElementTree as ET
 
-    from app.services.mitsuba_import import _parse_transform
+    from seam_studio.services.mitsuba_import import _parse_transform
 
     shape = ET.fromstring(
         '<shape><transform name="to_world"><rotate x="1" angle="90"/></transform></shape>'
@@ -167,8 +167,8 @@ def test_import_remaps_out_of_band_itu_ground_to_28ghz_safe(tmp_path: Path):
 
     # The remapped scene validates without an out-of-band warning: the whole
     # point of remapping at import is that the first solve is band-safe.
-    from app.schemas.simulation import SimulationConfig
-    from app.services.scene_validator import validate_scene
+    from seam_studio.schemas.simulation import SimulationConfig
+    from seam_studio.services.scene_validator import validate_scene
 
     scene.simulation_configs = [SimulationConfig(id="default", frequency_hz=28e9)]
     report = validate_scene(scene, library)
@@ -178,7 +178,7 @@ def test_import_remaps_out_of_band_itu_ground_to_28ghz_safe(tmp_path: Path):
 def test_import_non_remappable_out_of_band_warns_with_fix(tmp_path: Path, monkeypatch):
     """When an out-of-band ITU material has no safe alternative, the binding is
     kept but a warning with the concrete fix text is emitted."""
-    import app.services.mitsuba_import as mi
+    import seam_studio.services.mitsuba_import as mi
 
     # Force the "no safe alternative" branch for the ground category.
     monkeypatch.setattr(mi, "itu_safe_alternative", lambda category: None)
@@ -222,7 +222,7 @@ def test_enrich_solve_failure_appends_itu_hint():
     'not defined for this frequency' error gets one actionable sentence
     appended; unrelated failures are returned unchanged and the hint is never
     double-appended."""
-    from app.services.simulation_backends.sionna_backend import (
+    from seam_studio.services.simulation_backends.sionna_backend import (
         _ITU_OUT_OF_BAND_HINT,
         _enrich_solve_failure,
     )

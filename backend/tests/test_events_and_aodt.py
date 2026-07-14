@@ -10,8 +10,8 @@ import threading
 
 import pytest
 
-from app.services import aodt_import
-from app.services.events import EventHub, get_hub, publish_event
+from seam_studio.services import aodt_import
+from seam_studio.services.events import EventHub, get_hub, publish_event
 
 try:  # pyarrow is optional; the round-trip tests skip without it.
     import pyarrow as pa  # noqa: F401

@@ -41,7 +41,7 @@ SIBLING_ROUTES = [
 
 def _openapi() -> dict:
     """The exact schema the export script serialises."""
-    from app.main import app
+    from seam_studio.main import app
 
     return app.openapi()
 

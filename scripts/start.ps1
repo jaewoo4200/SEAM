@@ -30,7 +30,7 @@ Write-Host "Starting backend  -> http://127.0.0.1:8000  (uvicorn)" -ForegroundCo
 # Ctrl+C in one does not kill the other.
 Start-Process powershell -ArgumentList @(
     "-NoExit", "-Command",
-    "Set-Location '$RepoRoot'; & '$VenvPython' -m uvicorn --app-dir backend app.main:app --port 8000"
+    "Set-Location '$RepoRoot'; & '$VenvPython' -m uvicorn --app-dir backend seam_studio.main:app --port 8000"
 )
 
 Write-Host "Starting frontend -> http://localhost:5173  (vite dev, proxies /api to :8000)" -ForegroundColor Cyan

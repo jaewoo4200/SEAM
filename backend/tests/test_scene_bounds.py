@@ -13,13 +13,13 @@ import trimesh
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.api import deps
-from app.api import scene as scene_api
-from app.core.config import get_settings
-from app.schemas.devices import Device
-from app.schemas.scene import Scene
-from app.services.scene_bounds import compute_scene_bounds
-from app.services.terrain import snap_to_terrain
+from seam_studio.api import deps
+from seam_studio.api import scene as scene_api
+from seam_studio.core.config import get_settings
+from seam_studio.schemas.devices import Device
+from seam_studio.schemas.scene import Scene
+from seam_studio.services.scene_bounds import compute_scene_bounds
+from seam_studio.services.terrain import snap_to_terrain
 
 
 def _box_glb(path: Path, extents=(10.0, 10.0, 4.0)) -> None:

@@ -15,17 +15,17 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from app.schemas.ai import MaterialSuggestionResponse, SuggestMaterialsRequest
-from app.schemas.scene import MeshRef, Prim, Scene, VisualBinding
-from app.services import ai_provider
-from app.services.ai_provider import (
+from seam_studio.schemas.ai import MaterialSuggestionResponse, SuggestMaterialsRequest
+from seam_studio.schemas.scene import MeshRef, Prim, Scene, VisualBinding
+from seam_studio.services import ai_provider
+from seam_studio.services.ai_provider import (
     MaterialSuggestionProvider,
     _crop_to_uv_bbox,
     _persist_evidence_crops,
     extract_prim_texture_crops,
     suggest_materials,
 )
-from app.services.project_store import load_default_library
+from seam_studio.services.project_store import load_default_library
 
 
 @pytest.fixture()
