@@ -6,9 +6,10 @@
   backend (editable, with dev extras), installs the frontend, regenerates the
   demo projects, and prints next steps.
 
-  The real ray-tracing engine (sionna-rt) is NOT installed here: the Mock
-  backend always works and the whole app runs without a GPU. See INSTALL.md for
-  the optional `sionna` extra and alternate engine venvs.
+  The real ray-tracing engine (sionna-rt) is a base backend dependency, so it
+  installs here too (Dr.Jit/Mitsuba, no GPU needed to install). The app still
+  falls back to the Mock backend whenever Sionna cannot load at runtime. See
+  INSTALL.md for alternate engine venvs.
 
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File scripts\install.ps1
