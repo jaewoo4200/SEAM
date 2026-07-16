@@ -408,11 +408,11 @@ bash scripts/install.sh
 bash scripts/start.sh   <span class="c"># → http://localhost:5173</span></pre>
       </div>
     </div>
-    <p class="qs-note"><b>Prerequisites:</b> Python 3.11/3.12 (3.13+ unverified) · Node.js 20+ on your PATH.
-      Nothing else is needed — the bundled Mock backend runs the full workflow on CPU alone. Real ray tracing
-      requires the <span class="mono">sionna-rt</span> package installed <b>separately</b>
-      (<span class="mono">pip install -e "backend[sionna]"</span>); an NVIDIA GPU and a local LLM
-      (LM Studio/Ollama) are optional upgrades on top of that. See
+    <p class="qs-note"><b>Prerequisites:</b> Python 3.11/3.12/3.14 (3.13 untested) · Node.js 20+ on your PATH
+      (Windows: <span class="mono">winget install OpenJS.NodeJS.LTS</span>, then open a new terminal).
+      The install script sets up everything else, including the real <span class="mono">sionna-rt</span>
+      ray-tracing engine — it is a base dependency now, and the app falls back to the bundled Mock backend
+      whenever Sionna cannot load. An NVIDIA GPU and a local LLM (LM Studio/Ollama) are optional upgrades. See
       <a href="https://github.com/jaewoo4200/SEAM/blob/master/INSTALL.md">INSTALL.md</a> ·
       <a href="https://github.com/jaewoo4200/SEAM/blob/master/TUTORIAL.md">TUTORIAL.md</a> ·
       or start with the illustrated <a href="guides/">user guides</a>.</p>
