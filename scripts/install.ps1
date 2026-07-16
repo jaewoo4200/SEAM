@@ -49,7 +49,9 @@ Write-Host "  python: $($python.Source)"
 
 $npm = Get-Command npm -ErrorAction SilentlyContinue
 if (-not $npm) {
-    Fail "npm not found on PATH. Install Node.js 20+ from https://nodejs.org/."
+    Fail ("npm not found on PATH. Install Node.js 20+ and re-run this script:`n" +
+          "         winget install OpenJS.NodeJS.LTS`n" +
+          "       (or download from https://nodejs.org/) - then OPEN A NEW terminal so PATH refreshes.")
 }
 Write-Host "  npm:    $($npm.Source)"
 

@@ -20,7 +20,7 @@ SEAM Studio는 **로컬 우선(local-first)** 워크벤치입니다. GPU도, Sio
 | 항목 | 요구 버전 | 비고 |
 |---|---|---|
 | Python | **3.11 / 3.12 / 3.14** | 백엔드(FastAPI). `python --version`으로 확인. 3.11은 CI(리눅스)에서 상시 검증, 3.12는 일상 개발 인터프리터, 3.14는 클린 venv 설치 + `sionna.rt` 로드 확인(2026-07-15, Windows). **3.13은 미검증**이지만 Mitsuba/Dr.Jit 휠이 존재해 동작이 기대됨 |
-| Node.js | **20 이상** (18+도 대체로 동작) | 프론트엔드(Vite). `node --version`으로 확인 |
+| Node.js | **20 이상** (18+도 대체로 동작) | 프론트엔드(Vite). `node --version`으로 확인. 대부분의 PC에 기본 설치되어 있지 않음 — Windows: `winget install OpenJS.NodeJS.LTS`, macOS: `brew install node@20`, Ubuntu: NodeSource 20.x. 설치 후 **새 터미널**을 열어야 PATH에 잡힘. 이 소스 체크아웃 경로에서만 필요하고, pip 패키지는 빌드된 프론트엔드를 포함해 Node가 필요 없음 |
 | OS | Windows 10/11, Linux, macOS | 스크립트는 Windows(PowerShell)/Unix(bash) 모두 제공 |
 
 > `python`·`npm`은 **PATH에 미리 있어야** 합니다(설치 스크립트가 없으면 즉시 중단).

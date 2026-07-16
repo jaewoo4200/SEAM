@@ -33,7 +33,7 @@ elif command -v python >/dev/null 2>&1; then PY_BIN="python"
 else fail "Python not found. Install Python 3.11+ (https://www.python.org/downloads/)."; fi
 echo "  python: $(command -v "$PY_BIN")"
 
-command -v npm >/dev/null 2>&1 || fail "npm not found. Install Node.js 20+ (https://nodejs.org/)."
+command -v npm >/dev/null 2>&1 || fail "npm not found. Install Node.js 20+ and re-run: Ubuntu/Debian 'sudo apt install nodejs npm' (20+ via nodesource), macOS 'brew install node@20', or https://nodejs.org/."
 echo "  npm:    $(command -v npm)"
 
 # ------------------------------------------------------------ backend venv
