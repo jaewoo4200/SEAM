@@ -19,7 +19,7 @@ SEAM Studio는 **로컬 우선(local-first)** 워크벤치입니다. GPU도, Sio
 
 | 항목 | 요구 버전 | 비고 |
 |---|---|---|
-| Python | **3.11 / 3.12** | 백엔드(FastAPI). `python --version`으로 확인. **3.13+는 미검증**(Mitsuba/Sionna 휠 부재 가능) |
+| Python | **3.11 / 3.12 / 3.14** | 백엔드(FastAPI). `python --version`으로 확인. 3.11은 CI(리눅스)에서 상시 검증, 3.12는 일상 개발 인터프리터, 3.14는 클린 venv 설치 + `sionna.rt` 로드 확인(2026-07-15, Windows). **3.13은 미검증**이지만 Mitsuba/Dr.Jit 휠이 존재해 동작이 기대됨 |
 | Node.js | **20 이상** (18+도 대체로 동작) | 프론트엔드(Vite). `node --version`으로 확인 |
 | OS | Windows 10/11, Linux, macOS | 스크립트는 Windows(PowerShell)/Unix(bash) 모두 제공 |
 
@@ -357,4 +357,4 @@ cd frontend && npm run build
 - 아키텍처 / 씬 포맷: [docs/architecture.md](docs/architecture.ko.md),
   [docs/scene_format.md](docs/scene_format.ko.md)
 
-> 검증된 인터프리터: Python 3.11/3.12 (3.13+는 미검증), Node 20+.
+> 검증된 인터프리터: Python 3.11(CI·리눅스) / 3.12(개발·Windows) / 3.14(클린 venv 설치 확인·Windows); 3.13은 미검증. Node 20+.

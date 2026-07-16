@@ -39,10 +39,13 @@ def _bootstrap_demo() -> None:
 
 
 def main() -> None:
+    # ASCII only: argparse writes help straight to stdout, and on Windows a
+    # legacy-codepage console (e.g. Korean cp949) raises UnicodeEncodeError on
+    # characters like an em dash, crashing `seam-studio --help`.
     parser = argparse.ArgumentParser(
         prog="seam-studio",
         description=(
-            "SEAM Studio — unified RF-visual scene authoring, validation and "
+            "SEAM Studio - unified RF-visual scene authoring, validation and "
             "Sionna RT simulation workbench."
         ),
     )
