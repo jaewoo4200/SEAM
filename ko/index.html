@@ -403,10 +403,11 @@ bash scripts/install.sh
 bash scripts/start.sh   <span class="c"># → http://localhost:5173</span></pre>
       </div>
     </div>
-    <p class="qs-note"><b>사전 요구사항:</b> Python 3.11/3.12(3.13+는 미검증) · Node.js 20+가 PATH에 있으면 됩니다.
-      그 외엔 아무것도 설치할 필요 없이 Mock 백엔드가 CPU만으로 전체 워크플로를 돌립니다. 실제 레이트레이싱은
-      <span class="mono">sionna-rt</span> 패키지를 <b>별도 설치</b>(<span class="mono">pip install -e "backend[sionna]"</span>)해야 하고,
-      NVIDIA GPU·로컬 LLM(LM Studio/Ollama)은 그 위에 얹는 선택 업그레이드입니다. 자세한 내용은
+    <p class="qs-note"><b>사전 요구사항:</b> Python 3.11/3.12/3.14(3.13은 미검증) · Node.js 20+가 PATH에 있으면 됩니다
+      (Windows: <span class="mono">winget install OpenJS.NodeJS.LTS</span> 후 새 터미널).
+      나머지는 설치 스크립트가 전부 준비합니다 — 실제 레이트레이싱 엔진 <span class="mono">sionna-rt</span>도
+      이제 기본 의존성으로 함께 설치되며, Sionna를 불러올 수 없는 환경에서는 내장 Mock 백엔드로 자동 강등됩니다.
+      NVIDIA GPU·로컬 LLM(LM Studio/Ollama)은 선택 업그레이드입니다. 자세한 내용은
       <a href="https://github.com/jaewoo4200/SEAM/blob/master/INSTALL.ko.md">INSTALL.md</a> ·
       <a href="https://github.com/jaewoo4200/SEAM/blob/master/TUTORIAL.ko.md">TUTORIAL.md</a> ·
       또는 그림으로 따라가는 <a href="guides/">사용 가이드</a>에서 시작하세요.</p>
