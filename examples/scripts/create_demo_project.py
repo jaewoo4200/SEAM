@@ -17,6 +17,7 @@ keeps its legacy ``.sionnatwin`` names — both load identically.
 from __future__ import annotations
 
 import argparse
+import shutil
 import sys
 from pathlib import Path
 
@@ -39,11 +40,26 @@ def main() -> None:
         default=DEFAULT_OUT,
         help=f"output root directory (default: {DEFAULT_OUT})",
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="delete an existing sample_demo and regenerate it",
+    )
     args = parser.parse_args()
     out_root = args.out.resolve()
     out_root.mkdir(parents=True, exist_ok=True)
 
     store = ProjectStore(roots=[out_root])
+    # Idempotent by default: a fresh clone already carries the committed demo,
+    # and the installers re-run this script on every invocation. The generator
+    # itself refuses duplicate ids, so skip (or, with --force, replace) here.
+    existing = next((p for p in store.list_projects() if p.project_id == PROJECT_ID), None)
+    if existing is not None:
+        if not args.force:
+            print(f"sample_demo already exists at {existing.path} - keeping it (use --force to regenerate).")
+            return
+        shutil.rmtree(existing.path)
+        store = ProjectStore(roots=[out_root])
     project_dir = create_demo_project(store)
 
     scene = store.load_scene(PROJECT_ID)
