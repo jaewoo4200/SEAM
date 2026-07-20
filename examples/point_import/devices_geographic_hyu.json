@@ -1,0 +1,30 @@
+{
+  "mode": "upsert",
+  "devices": [
+    {
+      "id": "tx_geo",
+      "kind": "tx",
+      "lat": 37.5580,
+      "lon": 127.0450,
+      "agl_m": 15.0,
+      "name": "Geo TX (HYU)",
+      "power_dbm": 30
+    },
+    {
+      "id": "rx_geo_1",
+      "kind": "rx",
+      "lat": 37.5572,
+      "lon": 127.0458,
+      "agl_m": 1.5,
+      "name": "Geo UE north"
+    },
+    {
+      "id": "rx_geo_2",
+      "kind": "rx",
+      "lat": 37.5570,
+      "lon": 127.0446,
+      "agl_m": 1.5,
+      "name": "Geo UE west"
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "points": [
+    { "x": -25.0, "y": -25.0, "agl_m": 1.5, "orientation_deg": [0, 0, 0] },
+    { "x": 0.0, "y": -20.0, "agl_m": 1.5, "orientation_deg": [45, 0, 0] },
+    { "x": 18.0, "y": 0.0, "agl_m": 1.5, "orientation_deg": [90, 0, 0] },
+    { "x": 18.0, "y": 22.0, "agl_m": 1.5, "orientation_deg": [180, 0, 0] }
+  ]
+}

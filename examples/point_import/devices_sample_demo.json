@@ -1,0 +1,29 @@
+{
+  "mode": "upsert",
+  "devices": [
+    {
+      "id": "tx_roof2",
+      "kind": "tx",
+      "x": -15.0,
+      "y": 10.0,
+      "z": 12.0,
+      "name": "Imported rooftop TX",
+      "power_dbm": 30,
+      "orientation_deg": [45, 0, 0]
+    },
+    {
+      "id": "rx_car",
+      "kind": "rx",
+      "x": 12.0,
+      "y": -4.0,
+      "agl_m": 1.5,
+      "name": "Car UE"
+    },
+    {
+      "id": "rx_walk",
+      "kind": "rx",
+      "position": [20.0, 15.0, 1.5],
+      "name": "Pedestrian UE"
+    }
+  ]
+}

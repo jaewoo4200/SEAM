@@ -11,6 +11,9 @@ Schemas: `backend/app/schemas/point_import.py`. Resolution logic:
 `backend/app/services/point_import.py`. Routes:
 `backend/app/api/point_import.py`.
 
+Ready-to-use example files (device + trajectory, per-file expected results):
+[examples/point_import/](../examples/point_import/README.md).
+
 ## Coordinate rules
 
 - **Cartesian** points are the canonical scene frame: **local ENU meters,

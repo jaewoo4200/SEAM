@@ -22,6 +22,9 @@
 `backend/app/services/point_import.py`. 라우트:
 `backend/app/api/point_import.py`.
 
+바로 쓸 수 있는 예제 파일(디바이스 + 궤적, 파일별 기대 결과 포함):
+[examples/point_import/](../examples/point_import/README.ko.md).
+
 ## Coordinate rules
 
 - **직교** 점은 정규 씬 프레임이다: **로컬 ENU 미터,
