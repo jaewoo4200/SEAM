@@ -85,7 +85,7 @@ ground truth를 내보낸다.
 시)를 비교한다:
 
 ```powershell
-backend\.venv\Scripts\python.exe examples/ml/train_channel_estimator.py examples/demo_project/sample_demo.sionnatwin/export/datasets/<dataset_id>/dataset.npz
+backend\.venv\Scripts\python.exe examples/ml/train_channel_estimator.py examples/demo_project/sample_demo.seam/export/datasets/<dataset_id>/dataset.npz
 ```
 
 `<dataset_id>` 는 UI(Results 모드의 ML dataset 목록) 또는 생성된

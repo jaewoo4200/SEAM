@@ -212,7 +212,7 @@ measurement_calibrated
 ## 데모 프로젝트
 
 `examples/scripts/create_demo_project.py`는
-`examples/demo_project/sample_demo.sionnatwin`을 결정론적으로 재생성합니다:
+`examples/demo_project/sample_demo.seam`을 결정론적으로 재생성합니다:
 `visual/scene.glb` 안의 명명된 메시 8개(월드 변환이 정점에 베이크됨), prim 13개
 (그룹 5개 + 메시 프리미티브 8개), 디바이스 2개, 저장된 시뮬레이션 구성 하나. 이
 프로젝트는 이 페이지에서 설명하는 모든 관례의 참조 예시 역할도 겸합니다.

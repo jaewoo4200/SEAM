@@ -342,7 +342,7 @@ Sample Demo에는 움직이는 **액터**가 있습니다: 도로를 달리는 *
 
 ### 파일이 저장되는 위치
 
-프로젝트 폴더 아래에 결과물이 쌓입니다(예: `examples/demo_project/sample_demo.sionnatwin/`):
+프로젝트 폴더 아래에 결과물이 쌓입니다(예: `examples/demo_project/sample_demo.seam/`):
 
 | 산출물 | 경로 |
 |---|---|

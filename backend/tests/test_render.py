@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 
 from seam_studio.core.paths import REPO_ROOT
 
-DEMO_SRC = REPO_ROOT / "examples" / "demo_project" / "sample_demo.sionnatwin"
+DEMO_SRC = REPO_ROOT / "examples" / "demo_project" / "sample_demo.seam"
 
 
 def _mitsuba_available() -> bool:
@@ -46,7 +46,7 @@ def render_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 
     root = tmp_path / "render_projects"
     root.mkdir()
-    shutil.copytree(DEMO_SRC, root / "sample_demo.sionnatwin")
+    shutil.copytree(DEMO_SRC, root / "sample_demo.seam")
 
     monkeypatch.setenv("SIONNATWIN_PROJECT_ROOTS", str(root))
     config.get_settings.cache_clear()

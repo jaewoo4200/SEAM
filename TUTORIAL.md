@@ -345,7 +345,7 @@ reflects the device/actor positions in the viewer.
 
 ### Where files are saved
 
-Outputs accumulate under the project folder (e.g. `examples/demo_project/sample_demo.sionnatwin/`):
+Outputs accumulate under the project folder (e.g. `examples/demo_project/sample_demo.seam/`):
 
 | Artifact | Path |
 |---|---|

@@ -92,7 +92,7 @@ channel estimation task, and compares an LS baseline (numpy) with a small MLP (i
 PyTorch is installed):
 
 ```powershell
-backend\.venv\Scripts\python.exe examples/ml/train_channel_estimator.py examples/demo_project/sample_demo.sionnatwin/export/datasets/<dataset_id>/dataset.npz
+backend\.venv\Scripts\python.exe examples/ml/train_channel_estimator.py examples/demo_project/sample_demo.seam/export/datasets/<dataset_id>/dataset.npz
 ```
 
 Run it with `<dataset_id>` replaced by the actual dataset id shown in the UI (the

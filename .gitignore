@@ -34,6 +34,9 @@ examples/**/export/
 # Textured overlay is a copy of the bundle GLB; regenerate via
 # examples/scripts/import_bundle_scene.py --visual-overlay
 examples/**/visual/overlay.glb
+# Face-group split keeps a timestamped backup of the pre-split GLB next to
+# the scene; it is a runtime artifact, not an authored asset.
+examples/**/visual/scene.pre-split-*.glb
 projects/
 
 # Reference scene bundle (large binary assets; download separately -

@@ -9,9 +9,9 @@ Run from the repo root:
 
     backend\\.venv\\Scripts\\python.exe examples/scripts/create_demo_project.py [--out DIR]
 
-Note: output follows the store's CURRENT canonical layout (``<id>.seam``
-folder + ``scene.seam.json``). The committed example predates the rename and
-keeps its legacy ``.sionnatwin`` names — both load identically.
+Note: output follows the store's canonical layout (``<id>.seam`` folder +
+``scene.seam.json``); the committed examples use the same names. Legacy
+``.sionnatwin`` projects still load identically.
 """
 
 from __future__ import annotations

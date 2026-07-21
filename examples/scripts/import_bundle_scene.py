@@ -1,4 +1,4 @@
-"""Import a bundle Sionna/Mitsuba XML scene into a SionnaTwin project.
+"""Import a bundle Sionna/Mitsuba XML scene into a SEAM project.
 
 Default: the indoor lab_room scene from the reference bundle. Produces a
 loadable project (canonical scene + combined visual GLB + material library +
@@ -90,9 +90,15 @@ def main() -> None:
                          frequency_hz=28e9, max_depth=3)
     ]
 
-    project_dir = Path(args.out) / f"{args.scene_id}.sionnatwin"
+    project_dir = Path(args.out) / f"{args.scene_id}.seam"
     if project_dir.exists():
         shutil.rmtree(project_dir)
+    # Pre-rename checkouts may still hold the legacy dir; remove it so the
+    # regenerated .seam project never collides with a stale .sionnatwin twin
+    # (discovery would prefer whichever it saw first and warn).
+    legacy_dir = Path(args.out) / f"{args.scene_id}.sionnatwin"
+    if legacy_dir.exists():
+        shutil.rmtree(legacy_dir)
     for sub in ("visual", "rf/meshes", "mapping", "ai", "results"):
         (project_dir / sub).mkdir(parents=True, exist_ok=True)
 
@@ -111,7 +117,7 @@ def main() -> None:
             print(f"textured overlay: {overlay_src.name}")
         else:
             print(f"warning: overlay not found: {overlay_src}")
-    (project_dir / "scene.sionnatwin.json").write_text(
+    (project_dir / "scene.seam.json").write_text(
         scene.model_dump_json(indent=2), encoding="utf-8"
     )
     ProjectStore.save_materials_to_dir(project_dir, library)
