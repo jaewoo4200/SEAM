@@ -1,5 +1,5 @@
 {
-  "$comment": "Alternate Sionna compute engines (see docs/sionna_versions.md and backend/engine_workers/). Relative python paths resolve against the repo root. The builtin engine (backend/.venv, in-process sionna-rt) is implicit and always listed first by GET /api/engines.",
+  "$comment": "Alternate Sionna compute engines (see docs/engines.md and docs/sionna_versions.md; worker scripts ship in backend/seam_studio/engine_workers/, with backend/engine_workers/ or ~/.seam/engine_workers/ as optional override locations). Relative python paths resolve against the repo root. The builtin engine (backend/.venv, in-process sionna-rt) is implicit and always listed first by GET /api/engines.",
   "engines": [
     {
       "id": "sionna-rt-1.2.2",

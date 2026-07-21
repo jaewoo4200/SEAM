@@ -1564,8 +1564,15 @@ export const useAppStore = create<AppState>()((set, get) => {
             agentTrace: null,
             agentBatch: null,
             lastDecisionApply: null,
+            aiStatuses: [],
             notice: `Deleted project ${pid} (no projects remaining)`,
           });
+          // No project left: stop the AI-status re-poll and drop the snapshot
+          // so the header chip doesn't keep showing a stale provider.
+          if (aiStatusTimer) {
+            clearInterval(aiStatusTimer);
+            aiStatusTimer = null;
+          }
         }
       });
     },

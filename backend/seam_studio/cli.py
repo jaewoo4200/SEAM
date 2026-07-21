@@ -63,7 +63,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    # Must land in the environment BEFORE app.core.config's lru_cached
+    # Must land in the environment BEFORE seam_studio.core.config's lru_cached
     # get_settings() is first evaluated (hence the local imports below).
     if args.project_root:
         os.environ["SEAM_PROJECT_ROOTS"] = args.project_root

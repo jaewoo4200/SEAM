@@ -48,9 +48,9 @@ def api_client(tmp_path, monkeypatch):
 def _project_dir(client) -> Path:
     """Resolve the on-disk project folder via the API.
 
-    The folder suffix is intentionally not hard-coded here: new projects use
-    ``.seam`` while legacy demos keep ``.sionnatwin``, so tests read the real
-    path from GET /projects/{id} instead of assuming one.
+    The folder suffix is intentionally not hard-coded here: the store writes
+    ``.seam`` but still reads legacy ``.sionnatwin`` projects, so tests read
+    the real path from GET /projects/{id} instead of assuming one.
     """
     resp = client.get("/api/projects/sim_test")
     assert resp.status_code == 200

@@ -2,11 +2,11 @@
 
 Two run modes share this module:
 
-- **Source checkout** (git clone): ``app`` lives at ``<repo>/backend/app``.
+- **Source checkout** (git clone): the package lives at ``<repo>/backend/seam_studio``.
   Project roots default to the repo's ``projects/`` + the committed example,
   and the engines/plugins registries sit at the repo root — the historical
   developer layout.
-- **Installed package** (``pip install seam-studio``): ``app`` lives in
+- **Installed package** (``pip install seam-studio``): the package lives in
   site-packages, so nothing repo-relative exists. Everything user-writable
   moves under ``SEAM_HOME`` (default ``~/.seam``): projects, plugins, and the
   optional multi-venv engine registry. Package data (default RF materials,
@@ -49,7 +49,7 @@ SEAM_HOME = Path(
 
 # Where projects are looked up, in order. The first root is where new
 # projects are created. (SEAM_PROJECT_ROOTS env overrides this entirely —
-# see app.core.config.get_settings.)
+# see seam_studio.core.config.get_settings.)
 if REPO_ROOT is not None:
     DEFAULT_PROJECT_ROOTS = [
         REPO_ROOT / "projects",
