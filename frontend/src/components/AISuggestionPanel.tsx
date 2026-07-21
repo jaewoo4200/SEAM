@@ -2,12 +2,10 @@ import { useEffect, useState } from "react";
 import { useAppStore } from "../store/appStore";
 import { api } from "../api/client";
 import { MaterialSelect, Swatch, materialById } from "./common";
-import { LineChart } from "../charts";
 import type {
   AssignmentRule,
   DisambiguationReport,
   GenerateRulesRequest,
-  MaterialImpactReport,
   MaterialSuggestion,
   MeasurementSample,
   Vec3,
@@ -370,176 +368,6 @@ function SuggestionCard({
         {disambigOpen ? "▾ RF disambiguate" : "▸ RF disambiguate"}
       </button>
       {disambigOpen && <DisambiguateForm suggestion={suggestion} />}
-    </div>
-  );
-}
-
-// ---------------------------------------------------- assignment impact
-
-/** 8 straight-line positions through the scene at 1.5 m, derived from the
- *  scene-bounds diagonal (mirrors the trajectory seeding in ResultExplorer). */
-function impactWaypoints(): Vec3[] {
-  const b = useAppStore.getState().sceneBounds;
-  const n = 8;
-  if (!b) {
-    // No bounds: a plain X sweep at head height so the request still runs.
-    return Array.from({ length: n }, (_, i) => {
-      const t = i / (n - 1);
-      return [-40 + t * 80, 0, 1.5] as Vec3;
-    });
-  }
-  // UE height: 1.5 m if it fits inside the scene's Z range, else mid-height.
-  const h = b.min[2] + 1.5 < b.max[2] ? b.min[2] + 1.5 : (b.min[2] + b.max[2]) / 2;
-  // Diagonal across the XY footprint, inset 10% off each corner so endpoints
-  // stay inside the geometry.
-  const x0 = b.min[0] + (b.max[0] - b.min[0]) * 0.1;
-  const y0 = b.min[1] + (b.max[1] - b.min[1]) * 0.1;
-  const x1 = b.min[0] + (b.max[0] - b.min[0]) * 0.9;
-  const y1 = b.min[1] + (b.max[1] - b.min[1]) * 0.9;
-  return Array.from({ length: n }, (_, i) => {
-    const t = i / (n - 1);
-    return [x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, h] as Vec3;
-  });
-}
-
-const fmtDb = (v: number | null | undefined, digits = 1) =>
-  v === null || v === undefined ? "—" : `${v.toFixed(digits)} dB`;
-
-function ImpactSection() {
-  const projectId = useAppStore((s) => s.projectId);
-  const materials = useAppStore((s) => s.materials);
-  const sceneBounds = useAppStore((s) => s.sceneBounds);
-
-  const [baseline, setBaseline] = useState("itu_concrete");
-  const [report, setReport] = useState<MaterialImpactReport | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const evaluate = async () => {
-    if (!projectId) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const rep = await api.materialImpact(projectId, {
-        baseline_material_id: baseline,
-        waypoints: impactWaypoints(),
-      });
-      setReport(rep);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const nmseSeries = report
-    ? [
-        {
-          label: "NMSE",
-          x: report.positions.map((_, i) => i),
-          y: report.positions.map((p) => p.nmse_db ?? null),
-        },
-      ]
-    : [];
-
-  return (
-    <div className="impact-section">
-      <h4>Assignment impact (vs single-material baseline)</h4>
-      <p className="hint">
-        Re-solves the channel along {impactWaypoints().length} positions through the scene with the
-        assigned materials vs a uniform baseline (Lee et al., KICS 2026).
-      </p>
-
-      <div className="impact-controls">
-        <label>
-          Baseline
-          <select value={baseline} onChange={(e) => setBaseline(e.target.value)}>
-            {(materials?.materials ?? []).map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.display_name} ({m.id})
-              </option>
-            ))}
-          </select>
-        </label>
-        <button
-          className="primary"
-          disabled={!projectId || busy}
-          onClick={() => void evaluate()}
-          title={sceneBounds ? "" : "No scene bounds yet — using a default X sweep"}
-        >
-          {busy ? "Evaluating…" : "Evaluate"}
-        </button>
-      </div>
-
-      {error && <div className="disambig-error">{error}</div>}
-
-      {report && (
-        <>
-          <div className="results-meta">
-            {report.tx_id} → {report.rx_id} · baseline{" "}
-            <span className="mono">{report.baseline_material_id}</span> · backend{" "}
-            <span className="mono">{report.backend}</span>
-          </div>
-
-          <div className="impact-kpis">
-            <div className="kpi">
-              <span className="kpi-label">global NMSE</span>
-              <span className="kpi-val">{fmtDb(report.global_nmse_db)}</span>
-            </div>
-            <div className="kpi">
-              <span className="kpi-label">mean cos-sim</span>
-              <span className="kpi-val">
-                {report.mean_cosine_similarity === null || report.mean_cosine_similarity === undefined
-                  ? "—"
-                  : report.mean_cosine_similarity.toFixed(3)}
-              </span>
-            </div>
-            <div className="kpi">
-              <span className="kpi-label">mean ΔRSS</span>
-              <span className="kpi-val">{fmtDb(report.mean_delta_rss_db)}</span>
-            </div>
-            <div className="kpi">
-              <span className="kpi-label">capacity mat / base</span>
-              <span className="kpi-val">
-                {report.mean_capacity_material_mbps === null ||
-                report.mean_capacity_material_mbps === undefined
-                  ? "—"
-                  : `${report.mean_capacity_material_mbps.toFixed(0)}`}
-                {" / "}
-                {report.mean_capacity_baseline_mbps === null ||
-                report.mean_capacity_baseline_mbps === undefined
-                  ? "—"
-                  : `${report.mean_capacity_baseline_mbps.toFixed(0)} Mbps`}
-              </span>
-            </div>
-            <div className="kpi">
-              <span className="kpi-label">sensitive</span>
-              <span className="kpi-val">
-                {report.material_sensitive_count} / {report.positions.length}
-              </span>
-            </div>
-          </div>
-
-          {report.warnings.length > 0 && (
-            <ul className="disambig-warnings">
-              {report.warnings.map((w, i) => (
-                <li key={i}>{w}</li>
-              ))}
-            </ul>
-          )}
-
-          {report.positions.length > 0 && (
-            <LineChart
-              title="Per-position NMSE (material vs baseline)"
-              name="material_impact_nmse"
-              xLabel="position index"
-              yLabel="NMSE (dB)"
-              series={nmseSeries}
-              legend={false}
-            />
-          )}
-        </>
-      )}
     </div>
   );
 }
@@ -1122,8 +950,9 @@ export default function AISuggestionPanel() {
           </button>
         </div>
       )}
-
-      <ImpactSection />
+      {/* Assignment-impact (NMSE vs single-material baseline) UI removed after
+          verification feedback — the research API stays at
+          POST /rf/materials/assignment-impact; ImpactSection is unmounted. */}
     </div>
   );
 }

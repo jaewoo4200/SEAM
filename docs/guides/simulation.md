@@ -192,6 +192,10 @@ path gain along a route).
   installed (the toolbar chip reads **Mock only**). The mock is deterministic
   and shape-compatible, so you can build and test full workflows on any
   laptop, then flip **Backend** to `sionna` on a real machine.
+- **Mock rays are not physical.** The mock emits a fixed demo set (LOS + a
+  ground bounce + one wall reflection) so the UI pipeline can be exercised —
+  reflection and refraction points are *not* geometrically traced against the
+  scene. Judge ray plausibility only on the Sionna backend.
 - Results persist per project: paths land in
   `results/{backend}_paths_{NNN}.json` under the project folder, and the
   latest of each kind reloads with the project.

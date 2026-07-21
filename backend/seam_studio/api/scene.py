@@ -111,6 +111,19 @@ def put_scene(project_id: str, body: Scene) -> Scene:
     return saved
 
 
+@router.get("/projects/{project_id}/scene/history")
+def scene_history_depth(project_id: str) -> dict[str, int]:
+    """How many undo steps are available (server-side history ring depth).
+
+    The Undo button reads this so it survives operations that reload the scene
+    (split, agent segmentation) instead of relying on a client-side counter
+    that those reloads reset.
+    """
+    store = deps.get_store()
+    deps.load_scene_or_404(store, project_id)  # 404 for unknown projects
+    return {"depth": len(store.history_snapshots(project_id))}
+
+
 @router.post("/projects/{project_id}/scene/restore", response_model=Scene)
 def restore_scene(project_id: str, steps: int = 1) -> Scene:
     """Undo: make the steps-th newest history snapshot the current scene."""

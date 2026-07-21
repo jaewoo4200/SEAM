@@ -203,6 +203,10 @@ export const api = {
     request<ScenePositions>("GET", `/projects/${pid}/scene/positions`),
   sceneBounds: (pid: string) => request<SceneBounds>("GET", `/projects/${pid}/scene/bounds`),
   putScene: (pid: string, scene: Scene) => request<Scene>("PUT", `/projects/${pid}/scene`, scene),
+  // How many undo steps the server-side history ring holds (survives scene
+  // reloads that a client-side counter would miss, e.g. after a split).
+  sceneHistoryDepth: (pid: string) =>
+    request<{ depth: number }>("GET", `/projects/${pid}/scene/history`),
   // Undo: make the steps-th newest history snapshot the current scene.
   restoreScene: (pid: string, steps = 1) =>
     request<Scene>("POST", `/projects/${pid}/scene/restore?steps=${steps}`),

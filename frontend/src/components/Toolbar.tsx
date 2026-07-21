@@ -810,12 +810,14 @@ function ImportSceneButton({
               Cancel
             </button>
           </div>
-          <p className="hint">
-            Either a self-contained .xml plus its referenced mesh files, or a .zip of
-            the whole scene folder (XML + meshes/ + textures/). Zipped bundles keep
-            their textures, so they show up in the viewer and feed the AI material
-            suggestions.
-          </p>
+          {source === "xml" && (
+            <p className="hint">
+              Either a self-contained .xml plus its referenced mesh files, or a .zip of
+              the whole scene folder (XML + meshes/ + textures/). Zipped bundles keep
+              their textures, so they show up in the viewer and feed the AI material
+              suggestions.
+            </p>
+          )}
         </div>
       )}
     </span>

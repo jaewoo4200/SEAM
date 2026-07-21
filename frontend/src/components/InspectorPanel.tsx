@@ -349,6 +349,25 @@ function DeviceOrientationEditor({ device }: { device: Device }) {
   const busy = useAppStore((s) => s.busy);
   const disabled = busy !== null;
   const [target, setTarget] = useState("");
+  // Draft strings committed on Enter/blur. Committing on every keystroke
+  // (the old pattern) saved "4" the moment the user typed it and the save's
+  // busy state stole focus, making multi-digit angles impossible to type.
+  const [drafts, setDrafts] = useState<[string, string, string]>([
+    String(device.orientation_deg[0]),
+    String(device.orientation_deg[1]),
+    String(device.orientation_deg[2]),
+  ]);
+  const orientKey = device.orientation_deg.join(",");
+  useEffect(() => {
+    setDrafts([
+      String(device.orientation_deg[0]),
+      String(device.orientation_deg[1]),
+      String(device.orientation_deg[2]),
+    ]);
+    // Re-seed when switching devices or when the orientation changes outside
+    // this editor (Aim button, undo, live sync).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [device.id, orientKey]);
 
   // Devices this one can aim at (guard against self-selection).
   const others = (scene?.devices ?? []).filter((d) => d.id !== device.id);
@@ -361,8 +380,16 @@ function DeviceOrientationEditor({ device }: { device: Device }) {
     [2, "Roll (°)"],
   ];
 
-  const setAxis = (axis: number, value: number) => {
-    if (!Number.isFinite(value)) return;
+  const commitAxis = (axis: number) => {
+    const value = Number(drafts[axis]);
+    if (!Number.isFinite(value) || drafts[axis].trim() === "") {
+      // Invalid input reverts to the stored angle.
+      const next = [...drafts] as [string, string, string];
+      next[axis] = String(device.orientation_deg[axis]);
+      setDrafts(next);
+      return;
+    }
+    if (value === device.orientation_deg[axis]) return; // no-op
     const next: Vec3 = [...device.orientation_deg];
     next[axis] = value;
     void updateDevice(device.id, { orientation_deg: next });
@@ -396,9 +423,17 @@ function DeviceOrientationEditor({ device }: { device: Device }) {
             <input
               type="number"
               step={5}
-              value={device.orientation_deg[axis]}
+              value={drafts[axis]}
               disabled={disabled}
-              onChange={(e) => setAxis(axis, Number(e.target.value))}
+              onChange={(e) => {
+                const next = [...drafts] as [string, string, string];
+                next[axis] = e.target.value;
+                setDrafts(next);
+              }}
+              onBlur={() => commitAxis(axis)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+              }}
             />
           </label>
         ))}
@@ -1039,7 +1074,10 @@ function PrimCard({ prim }: { prim: Prim }) {
   // Bulk-select groups computed from the whole scene (idea #11): jump from one
   // prim to every unassigned prim, every prim sharing this one's RF material,
   // or the whole scene — so batch material work doesn't need tree ctrl-clicks.
-  const prims = scene?.prims ?? [];
+  // Only mesh prims carry RF materials — group nodes (b01, tree_01, …) would
+  // otherwise be counted "unassigned" and pollute the bulk selection (they get
+  // skipped by Assign anyway, but the count and highlight were misleading).
+  const prims = (scene?.prims ?? []).filter((p) => p.type === "mesh_primitive");
   const unassignedIds = prims
     .filter((p) => p.rf.material_id == null || p.rf.assignment_status === "unassigned")
     .map((p) => p.id);

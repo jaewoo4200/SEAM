@@ -726,10 +726,23 @@ export const useAppStore = create<AppState>()((set, get) => {
     };
   }
 
+  /** Sync the Undo button's depth from the server's history ring. The old
+   *  client-side counter was reset by any scene reload (split, agent
+   *  segmentation), hiding the Undo button even though snapshots existed. */
+  async function syncUndoDepth(pid: string): Promise<void> {
+    try {
+      const { depth } = await api.sceneHistoryDepth(pid);
+      set({ undoDepth: Math.min(depth, 20) });
+    } catch {
+      // Best-effort: leave the current counter if the probe fails.
+    }
+  }
+
   async function refetchSceneInner(): Promise<void> {
     const pid = get().projectId;
     if (!pid) return;
-    set({ scene: normalizeScene(await api.getScene(pid)) });
+    const [scene] = await Promise.all([api.getScene(pid), syncUndoDepth(pid)]);
+    set({ scene: normalizeScene(scene) });
   }
 
   /** Beamforming is only valid for the current geometry/materials; any scene
@@ -1308,9 +1321,10 @@ export const useAppStore = create<AppState>()((set, get) => {
           scene,
           resolvedEnvironment: resolvedForOpen,
           materials,
-          // Undo is per-project and per-session: opening a project starts with
-          // nothing to undo (the backend ring may hold snapshots from a prior
-          // session, but the button reflects edits made since this open).
+          // Reset, then sync from the server-side history ring below: undo
+          // works across sessions (snapshots live on disk), so the button must
+          // reflect server truth — a client-only counter hid it after any
+          // scene reload (split) or reopen while Ctrl+Z still worked.
           undoDepth: 0,
           solveProgress: null,
           highlightedWaypoint: null,
@@ -1417,6 +1431,14 @@ export const useAppStore = create<AppState>()((set, get) => {
           .sceneBounds(projectId)
           .then((b) => {
             if (get().projectId === projectId) set({ sceneBounds: b });
+          })
+          .catch(() => undefined);
+        // Undo depth from the server-side history ring (guarded against a
+        // project switch racing the response).
+        void api
+          .sceneHistoryDepth(projectId)
+          .then(({ depth }) => {
+            if (get().projectId === projectId) set({ undoDepth: Math.min(depth, 20) });
           })
           .catch(() => undefined);
         // Switching projects must stop a running live poll from the old one,

@@ -347,11 +347,18 @@ export default function RFMaterialPanel() {
         notifyError("Not a material library file");
         return;
       }
+      if (materials.length === 0) {
+        // Import MERGES into the existing library; an empty file has nothing to
+        // add (and the backend rejects an empty list). Say so plainly instead
+        // of leaking the raw pydantic "too_short" validation error.
+        notifyError("This library file has no materials to import (import merges into the existing library).");
+        return;
+      }
       const res = await api.importMaterials(projectId, { materials: materials as RFMaterial[] });
       // Reload the project's materials via the same action edits/deletes use.
       await openProject(projectId);
       notify(
-        `Imported ${res.imported.length}, renamed ${Object.keys(res.renamed).length}, skipped ${res.skipped.length}`,
+        `Imported ${res.imported.length}, renamed ${Object.keys(res.renamed).length}, skipped ${res.skipped.length} (merged into the library)`,
       );
     } catch (err) {
       if (err instanceof ApiError) notifyError(err.message);
