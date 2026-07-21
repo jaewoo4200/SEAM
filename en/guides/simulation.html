@@ -327,6 +327,10 @@ footer{border-top:1px solid var(--line)}
         installed (the toolbar chip reads <b>Mock only</b>). The mock is deterministic
         and shape-compatible, so you can build and test full workflows on any
         laptop, then flip <b>Backend</b> to <code>sionna</code> on a real machine.</li>
+      <li><b>Mock rays are not physical.</b> The mock emits a fixed demo set (LOS + a
+        ground bounce + one wall reflection) so the UI pipeline can be exercised —
+        reflection and refraction points are <em>not</em> geometrically traced against
+        the scene. Judge ray plausibility only on the Sionna backend.</li>
       <li>Results persist per project: paths land in
         <code>results/{backend}_paths_{NNN}.json</code> under the project folder, and the
         latest of each kind reloads with the project.</li>
