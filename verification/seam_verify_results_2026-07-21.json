@@ -1,0 +1,1544 @@
+{
+  "key": "seam.verify.v1",
+  "total": 192,
+  "pass": 159,
+  "fail": 23,
+  "items": [
+    {
+      "id": "a0i0",
+      "area": "프로젝트 관리 + 씬 임포트 + 3D 뷰어",
+      "priority": "P0",
+      "feature": "프로젝트 셀렉트 전환",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a0i1",
+      "area": "프로젝트 관리 + 씬 임포트 + 3D 뷰어",
+      "priority": "P1",
+      "feature": "마지막 프로젝트 복원 (localStorage)",
+      "status": "pass",
+      "memo": "- 시크릿 모드로 Sample Demo 뜨는 것 확인"
+    },
+    {
+      "id": "a0i2",
+      "area": "프로젝트 관리 + 씬 임포트 + 3D 뷰어",
+      "priority": "P1",
+      "feature": "Rename 버튼 (인라인 이름 변경)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a0i3",
+      "area": "프로젝트 관리 + 씬 임포트 + 3D 뷰어",
+      "priority": "P1",
+      "feature": "Duplicate 버튼 (프로젝트 복제)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a0i4",
+      "area": "프로젝트 관리 + 씬 임포트 + 3D 뷰어",
+      "priority": "P0",
+      "feature": "Delete project… 확인 모달",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a0i5",
+      "area": "프로젝트 관리 + 씬 임포트 + 3D 뷰어",
+      "priority": "P2",
+      "feature": "프로젝트 생성 API (empty/demo 템플릿) + pip 첫 실행 부트스트랩",
+      "status": "pass",
+      "memo": "- :8000 되어있는 부분을 http://localhost 추가해줘야 함.\n- 윈도우 powershell에서 curl 명령어 혼동 있으므로, Invoke-RestMethod로 바꿔줘야함\nInvoke-RestMethod -Uri \"http://localhost:8000/api/projects\" -Method Post -Headers @{\"Content-Type\"=\"application/json\"} -Body '{\"template\":\"demo\",\"project_id\":\"demo2\",\"name\":\"Demo 2\"}'"
+    },
+    {
+      "id": "a0i6",
+      "area": "프로젝트 관리 + 씬 임포트 + 3D 뷰어",
+      "priority": "P0",
+      "feature": "Import scene 다이얼로그 (공통 필드/id 검증)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a0i7",
+      "area": "프로젝트 관리 + 씬 임포트 + 3D 뷰어",
+      "priority": "P0",
+      "feature": "Mitsuba XML 임포트 (백그라운드 잡 + 진행 표시)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a0i8",
+      "area": "프로젝트 관리 + 씬 임포트 + 3D 뷰어",
+      "priority": "P1",
+      "feature": ".zip 번들 임포트 (텍스처 보존)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a0i9",
+      "area": "프로젝트 관리 + 씬 임포트 + 3D 뷰어",
+      "priority": "P1",
+      "feature": "OpenStreetMap 탭 (지도 검색 + 사각형 드래그)",
+      "status": "fail",
+      "memo": "- OSM Import 할 때, 밑에 zip bundle import 할때 떠야하는 안내문인 Either a self-contained...이 뜨는 문제가 있음.\n- 화면이 작을때(축소될때 혹은 저해상도 일때), 아래 부분이 잘리는 문제 -> Scroll 기능 추가 필요해보임."
+    },
+    {
+      "id": "a0i10",
+      "area": "프로젝트 관리 + 씬 임포트 + 3D 뷰어",
+      "priority": "P1",
+      "feature": "OSM 임포트 실행 (건물 돌출 + RF 재질 프리바인딩)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a0i11",
+      "area": "프로젝트 관리 + 씬 임포트 + 3D 뷰어",
+      "priority": "P1",
+      "feature": "Env 셀렉트 (Auto/Indoor/Outdoor 프리셋)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a0i12",
+      "area": "프로젝트 관리 + 씬 임포트 + 3D 뷰어",
+      "priority": "P1",
+      "feature": "디바이스 JSON 임포트 (⤓ JSON)",
+      "status": "pass",
+      "memo": "- JSON 파일 준비 필요 -> Not completed"
+    },
+    {
+      "id": "a0i13",
+      "area": "프로젝트 관리 + 씬 임포트 + 3D 뷰어",
+      "priority": "P1",
+      "feature": "궤적 JSON 임포트 (⤓ Import JSON, orientation·지하 경고)",
+      "status": "pass",
+      "memo": "- JSON 파일 준비 필요 -> Not completed"
+    },
+    {
+      "id": "a0i14",
+      "area": "프로젝트 관리 + 씬 임포트 + 3D 뷰어",
+      "priority": "P0",
+      "feature": "뷰어 내비게이션 (orbit/pan/zoom + 단축키 legend)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a0i15",
+      "area": "프로젝트 관리 + 씬 임포트 + 3D 뷰어",
+      "priority": "P1",
+      "feature": "뷰 스냅 1/3/7 + R 리셋 + F 프레이밍",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a0i16",
+      "area": "프로젝트 관리 + 씬 임포트 + 3D 뷰어",
+      "priority": "P0",
+      "feature": "픽킹 ↔ 씬 트리 동기 선택",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a0i17",
+      "area": "프로젝트 관리 + 씬 임포트 + 3D 뷰어",
+      "priority": "P0",
+      "feature": "기즈모 이동 + Undo",
+      "status": "fail",
+      "memo": "- Ctrl + Z 는 되지만, Undo 버튼이 안보이는 문제"
+    },
+    {
+      "id": "a0i18",
+      "area": "프로젝트 관리 + 씬 임포트 + 3D 뷰어",
+      "priority": "P2",
+      "feature": "마커 스케일 + Viewport 설정 per-project 저장",
+      "status": "fail",
+      "memo": "- 마커 스케일의 경우, Lab Room에서 Lab Rx 감싸는 노란 구체가 있음(Trajectory로 추정) 이게 RX를 가리는 구조 -> 얘도 같이 조절 들어가야할 듯함\n- 뷰포트 설정에서 Reset defaults 할 때, Outdoor/Indoor에 따라서 다르게 defaults 설정을 할 필요가 있어보임"
+    },
+    {
+      "id": "a0i19",
+      "area": "프로젝트 관리 + 씬 임포트 + 3D 뷰어",
+      "priority": "P2",
+      "feature": "렌더 품질 (DPR 프리셋)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a0i20",
+      "area": "프로젝트 관리 + 씬 임포트 + 3D 뷰어",
+      "priority": "P1",
+      "feature": "뷰포트 스냅샷 PNG (+ POV 스냅샷)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a0i21",
+      "area": "프로젝트 관리 + 씬 임포트 + 3D 뷰어",
+      "priority": "P2",
+      "feature": "오프라인 Mitsuba 렌더 버튼",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a0i22",
+      "area": "프로젝트 관리 + 씬 임포트 + 3D 뷰어",
+      "priority": "P0",
+      "feature": "인스펙터 — visual vs RF 재질 나란히 + semantic tags 편집",
+      "status": "pass",
+      "memo": "- Name 필드에 이름이 같게 설정되어도 에러 없이 저장되는데, 의도한건지 버그인건지 궁금."
+    },
+    {
+      "id": "a0i23",
+      "area": "프로젝트 관리 + 씬 임포트 + 3D 뷰어",
+      "priority": "P2",
+      "feature": "씬 트리 눈 토글 (프림 숨김/표시)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a0i24",
+      "area": "프로젝트 관리 + 씬 임포트 + 3D 뷰어",
+      "priority": "P1",
+      "feature": "뷰포트 +TX/+RX 고스트 배치 (K/L)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a1i0",
+      "area": "디바이스 + 액터 + POV",
+      "priority": "P0",
+      "feature": "+TX / +RX 버튼으로 디바이스 추가",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a1i1",
+      "area": "디바이스 + 액터 + POV",
+      "priority": "P1",
+      "feature": "K/L 핫키·뷰포트 +TX/+RX 고스트 배치",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a1i2",
+      "area": "디바이스 + 액터 + POV",
+      "priority": "P0",
+      "feature": "EDIT DEVICE 위치 X/Y/Z 편집 + 기즈모 이동",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a1i3",
+      "area": "디바이스 + 액터 + POV",
+      "priority": "P1",
+      "feature": "Above surface(AGL) 표시와 높이 입력",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a1i4",
+      "area": "디바이스 + 액터 + POV",
+      "priority": "P1",
+      "feature": "Power(dBm) / Antenna pattern / Polarization 편집",
+      "status": "fail",
+      "memo": "- 실제 simulation 결과의 diff를 봐야함 -> Not completed"
+    },
+    {
+      "id": "a1i5",
+      "area": "디바이스 + 액터 + POV",
+      "priority": "P1",
+      "feature": "Array rows/cols + V/H spacing 검증",
+      "status": "fail",
+      "memo": "- 실제 simulation 결과의 diff를 봐야함 -> Not completed"
+    },
+    {
+      "id": "a1i6",
+      "area": "디바이스 + 액터 + POV",
+      "priority": "P1",
+      "feature": "Velocity → Doppler",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a1i7",
+      "area": "디바이스 + 액터 + POV",
+      "priority": "P1",
+      "feature": "ANTENNA ORIENTATION Yaw/Pitch/Roll 직접 입력",
+      "status": "fail",
+      "memo": "- Antenna orientation에 숫자 입력할 때, 숫자 하나만 입력해도 자동 update 되면서 2자리 이상 숫자 입력이 불가능한 문제 발생"
+    },
+    {
+      "id": "a1i8",
+      "area": "디바이스 + 액터 + POV",
+      "priority": "P1",
+      "feature": "Look at… + Aim (보어사이트 조준)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a1i9",
+      "area": "디바이스 + 액터 + POV",
+      "priority": "P1",
+      "feature": "디바이스 Duplicate",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a1i10",
+      "area": "디바이스 + 액터 + POV",
+      "priority": "P1",
+      "feature": "디바이스 Delete 2단계 확인",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a1i11",
+      "area": "디바이스 + 액터 + POV",
+      "priority": "P1",
+      "feature": "디바이스 라벨/색 + 씬 스케일 마커(Marker size)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a1i12",
+      "area": "디바이스 + 액터 + POV",
+      "priority": "P1",
+      "feature": "Clear all (전체 디바이스 삭제)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a1i13",
+      "area": "디바이스 + 액터 + POV",
+      "priority": "P0",
+      "feature": "액터 추가 +Car/+Human/+UAV/+Custom",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a1i14",
+      "area": "디바이스 + 액터 + POV",
+      "priority": "P0",
+      "feature": "POSE & SIZE 편집 (Z-up ENU, yaw)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a1i15",
+      "area": "디바이스 + 액터 + POV",
+      "priority": "P1",
+      "feature": "액터 RF MATERIAL 바인딩 (레이 차단/산란)",
+      "status": "fail",
+      "memo": "- assign material 이게 잘 안되는듯? glass에서는 투과해야하는데?"
+    },
+    {
+      "id": "a1i16",
+      "area": "디바이스 + 액터 + POV",
+      "priority": "P0",
+      "feature": "+ Attach RX here / + Attach TX here",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a1i17",
+      "area": "디바이스 + 액터 + POV",
+      "priority": "P0",
+      "feature": "액터 이동 시 부착 디바이스 동반 이동",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a1i18",
+      "area": "디바이스 + 액터 + POV",
+      "priority": "P1",
+      "feature": "액터 Duplicate/Delete",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a1i19",
+      "area": "디바이스 + 액터 + POV",
+      "priority": "P0",
+      "feature": "TRAJECTORY Define waypoints + 행 재정렬/삽입/삭제",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a1i20",
+      "area": "디바이스 + 액터 + POV",
+      "priority": "P1",
+      "feature": "+ Waypoint / ⌖ Pick waypoint / Record current pos",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a1i21",
+      "area": "디바이스 + 액터 + POV",
+      "priority": "P2",
+      "feature": "dt / Mode (once·loop·pingpong) + 시나리오 재생 연동",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a1i22",
+      "area": "디바이스 + 액터 + POV",
+      "priority": "P1",
+      "feature": "⚡ Simulate paths along trajectory 버튼",
+      "status": "fail",
+      "memo": "- 이거 scenario playback이랑 UE trajectory 쪽 문제 있는듯.(움직임 관련해서 뭔가 꼬여있는듯?)\n- UAV_002(rx005 attached) 선택 후, simulate paths along trajectory 누르면 그때만 rx_005 나오고, 실제로 play하면 rx_001 뜨거나 등 path simulation이 원활하지 않은 문제."
+    },
+    {
+      "id": "a1i23",
+      "area": "디바이스 + 액터 + POV",
+      "priority": "P1",
+      "feature": "UAV 절차 생성 드론 모델 + 씬 스케일 시각 확대",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a1i24",
+      "area": "디바이스 + 액터 + POV",
+      "priority": "P0",
+      "feature": "엔티티 POV 인셋 자동 열림 + 파트너 선택 + × 닫기",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a1i25",
+      "area": "디바이스 + 액터 + POV",
+      "priority": "P1",
+      "feature": "POV 소스 기체 숨김",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a1i26",
+      "area": "디바이스 + 액터 + POV",
+      "priority": "P1",
+      "feature": "POV 스냅샷 PNG 저장",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a2i0",
+      "area": "RF 재질 + 검증 + AI",
+      "priority": "P0",
+      "feature": "RF Materials 모드 진입 + 라이브러리 테이블",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a2i1",
+      "area": "RF 재질 + 검증 + AI",
+      "priority": "P0",
+      "feature": "미할당 프림 주황 글로우",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a2i2",
+      "area": "RF 재질 + 검증 + AI",
+      "priority": "P0",
+      "feature": "Ctrl-클릭 다중 선택 → Assign to selection",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a2i3",
+      "area": "RF 재질 + 검증 + AI",
+      "priority": "P1",
+      "feature": "Assign 덮어쓰기 2단계 확인 가드",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a2i4",
+      "area": "RF 재질 + 검증 + AI",
+      "priority": "P1",
+      "feature": "Unassign selection + 확정 지정 클리어 가드",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a2i5",
+      "area": "RF 재질 + 검증 + AI",
+      "priority": "P1",
+      "feature": "New custom material 생성",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a2i6",
+      "area": "RF 재질 + 검증 + AI",
+      "priority": "P1",
+      "feature": "재질 편집 저장 / Delete material",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a2i7",
+      "area": "RF 재질 + 검증 + AI",
+      "priority": "P1",
+      "feature": "Export library / Import library",
+      "status": "fail",
+      "memo": "- 기존 material 개수보다 적은 json 형태의 library를 import 하려하면 아래와 같은 에러문구 뜸.\n\n[{\"type\":\"too_short\",\"loc\":[\"body\",\"materials\"],\"msg\":\"List should have at least 1 item after validation, not 0\",\"input\":[],\"ctx\":{\"field_type\":\"List\",\"min_length\":1,\"actual_length\":0}}]"
+    },
+    {
+      "id": "a2i8",
+      "area": "RF 재질 + 검증 + AI",
+      "priority": "P1",
+      "feature": "인스펙터 Select 버튼 (All unassigned / Same material / All prims)",
+      "status": "fail",
+      "memo": "- 예를 들어서, Sample demo에서 All unassigned 누르면 이상하게 상위 directory 이름인 tree_01, b02, b01, r01 등이 같이 잡힘 -> assign to selection 누르면 skip 되긴함\n- 다른 scene들은 부모 프림이 없어서 괜찮은 듯."
+    },
+    {
+      "id": "a2i9",
+      "area": "RF 재질 + 검증 + AI",
+      "priority": "P0",
+      "feature": "Run validation + 심각도 칩 + MISSING_RF_MATERIAL 카드",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a2i10",
+      "area": "RF 재질 + 검증 + AI",
+      "priority": "P2",
+      "feature": "Explain with AI (검증 리포트 평문 설명)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a2i11",
+      "area": "RF 재질 + 검증 + AI",
+      "priority": "P0",
+      "feature": "Compile RF + Last RF compile 요약",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a2i12",
+      "area": "RF 재질 + 검증 + AI",
+      "priority": "P0",
+      "feature": "AI Assist 프로바이더 목록 + 도달성 + Model 셀렉트",
+      "status": "fail",
+      "memo": "- 프로바이더 목록이 31b로 이름이 고정되어 표시됨. AI setting 관련한 설정창 등이 있으면 좋을듯. 예를 들어서 LM studio의 port 번호를 바꾸는 등! 모델 변경은 dropdown으로 잘 표시되는듯. But, 내가 말한건 global한 로컬 AI 설정임.\n- 추가로, 31b 없는 PC에서 suggest RF materials를 아무 설정 없이 실수로 돌렸었는데, 앞서 말한 31b가 default로 되어있다보니, 돌아가면 안되거나 에러가 떠야하는데, 알아서 돌아가더니 31b로 프롬프트 v2로 돌렸다고 나오면서 결과가 나오는데 이건 거짓말인지 뭔지? "
+    },
+    {
+      "id": "a2i13",
+      "area": "RF 재질 + 검증 + AI",
+      "priority": "P0",
+      "feature": "Suggest RF materials (rule_based 제안 카드)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a2i14",
+      "area": "RF 재질 + 검증 + AI",
+      "priority": "P0",
+      "feature": "Approve/Reject/Edit → Apply decisions → Revert",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a2i15",
+      "area": "RF 재질 + 검증 + AI",
+      "priority": "P2",
+      "feature": "Attach viewport screenshot / per-prim texture crops (비전 근거)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a2i16",
+      "area": "RF 재질 + 검증 + AI",
+      "priority": "P1",
+      "feature": "Assignment rules 자연어 → Generate rules → Apply rules",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a2i17",
+      "area": "RF 재질 + 검증 + AI",
+      "priority": "P2",
+      "feature": "RF disambiguate (실측 path gain으로 후보 판별)",
+      "status": "fail",
+      "memo": "- 측정 행에서 row 입력하라고 나오는데 이게 뭘 입력해야하는건지? candidates are indistinguishable at these positions 에러 나옴."
+    },
+    {
+      "id": "a2i18",
+      "area": "RF 재질 + 검증 + AI",
+      "priority": "P2",
+      "feature": "Assignment impact (단일 재질 baseline 대비 영향)",
+      "status": "fail",
+      "memo": "- 이거 삭제해도 될듯"
+    },
+    {
+      "id": "a2i19",
+      "area": "RF 재질 + 검증 + AI",
+      "priority": "P1",
+      "feature": "SEAM-Agent 단일 실행 (트레이스/진행률/취소/증거/승인)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a2i20",
+      "area": "RF 재질 + 검증 + AI",
+      "priority": "P1",
+      "feature": "SEAM-Agent batch (multi-building) 큐/진행/취소/Review",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a2i21",
+      "area": "RF 재질 + 검증 + AI",
+      "priority": "P1",
+      "feature": "Split into connected parts (병합 메시 분할 + Undo)",
+      "status": "fail",
+      "memo": "- Split은 잘되는데, Split 이후 scene이 재로딩 되면서 undo가 안보이는 문제 발생"
+    },
+    {
+      "id": "a2i22",
+      "area": "RF 재질 + 검증 + AI",
+      "priority": "P1",
+      "feature": "Split by material — 색 휴리스틱 프리뷰→적용",
+      "status": "pass",
+      "memo": "- 근데 사실 이게 실효성 있는건지는 잘 모르겠음"
+    },
+    {
+      "id": "a2i23",
+      "area": "RF 재질 + 검증 + AI",
+      "priority": "P2",
+      "feature": "Split by material — VLM tile vote / SAM2 마스크 업로드",
+      "status": "pass",
+      "memo": "- 근데 사실 이게 실효성 있는건지는 잘 모르겠음2"
+    },
+    {
+      "id": "a3i0",
+      "area": "경로 + 라디오맵 + 빔포밍",
+      "priority": "P0",
+      "feature": "툴바 Simulate paths 버튼 (mock 기본 경로)",
+      "status": "pass",
+      "memo": "- 잘되긴 하는데 mock 결과 보면 이상한데서 반사되는데 이게 맞는지? + 굴절 이상한데서 되는 문제도 있음. 여러 actor나 UE를 다양한 위치에 배치해놓고 확인해봐야할듯"
+    },
+    {
+      "id": "a3i1",
+      "area": "경로 + 라디오맵 + 빔포밍",
+      "priority": "P0",
+      "feature": "패널 Compute paths 버튼 + 결과 오버레이 전환",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a3i2",
+      "area": "경로 + 라디오맵 + 빔포밍",
+      "priority": "P0",
+      "feature": "레이 색상 규약 + TX/RX 마커",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a3i3",
+      "area": "경로 + 라디오맵 + 빔포밍",
+      "priority": "P0",
+      "feature": "경로 테이블 → 행 클릭 상세(정점·재질 매핑)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a3i4",
+      "area": "경로 + 라디오맵 + 빔포밍",
+      "priority": "P1",
+      "feature": "경로 필터/뷰어 컨트롤 + 필터 empty state",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a3i5",
+      "area": "경로 + 라디오맵 + 빔포밍",
+      "priority": "P0",
+      "feature": "Backend 선택(auto/mock/sionna) + 툴바 헬스 칩",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a3i6",
+      "area": "경로 + 라디오맵 + 빔포밍",
+      "priority": "P0",
+      "feature": "sionna 백엔드 실 solve (paths)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a3i7",
+      "area": "경로 + 라디오맵 + 빔포밍",
+      "priority": "P1",
+      "feature": "Engine 선택 (다중 Sionna RT 버전)",
+      "status": "fail",
+      "memo": "- 1.2.2는 되긴 하는데, 1.1.0 하려고 하니까 안되었음. 추가로, engines.json을 시작시 읽어오거나 자동 update하거나 아니면 .venv_xxx 이걸 자동 scan하는 규칙이나 등등이 있으면 좋을듯? 그리고 path에만 다른 engine 적용이 된다는데 다른거는 왜 지원 안될까? 안된다면 이유는? 수정이 가능한지도 궁금."
+    },
+    {
+      "id": "a3i8",
+      "area": "경로 + 라디오맵 + 빔포밍",
+      "priority": "P0",
+      "feature": "Global 파라미터 기본값 + Paths/Radio map 동기",
+      "status": "fail",
+      "memo": "- Frequency가 40GHz까지는 path가 계산 되는데, 40.1부터 안됨"
+    },
+    {
+      "id": "a3i9",
+      "area": "경로 + 라디오맵 + 빔포밍",
+      "priority": "P1",
+      "feature": "Accuracy 프리셋(Preview/Balanced/High/Custom) + 슬라이더",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a3i10",
+      "area": "경로 + 라디오맵 + 빔포밍",
+      "priority": "P1",
+      "feature": "Preset 시나리오 드롭다운 (5종 + Custom)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a3i11",
+      "area": "경로 + 라디오맵 + 빔포밍",
+      "priority": "P1",
+      "feature": "메커니즘 체크박스 7종",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a3i12",
+      "area": "경로 + 라디오맵 + 빔포밍",
+      "priority": "P0",
+      "feature": "Paths Remove + Auto update",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a3i13",
+      "area": "경로 + 라디오맵 + 빔포밍",
+      "priority": "P0",
+      "feature": "Compute radio map + jet 히트맵 + 범례",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a3i14",
+      "area": "경로 + 라디오맵 + 빔포밍",
+      "priority": "P1",
+      "feature": "Radio map Cell size/Height/Metric 노브",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a3i15",
+      "area": "경로 + 라디오맵 + 빔포밍",
+      "priority": "P1",
+      "feature": "다중 TX SINR + serving_tx 연관",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a3i16",
+      "area": "경로 + 라디오맵 + 빔포밍",
+      "priority": "P2",
+      "feature": "라디오맵 region refinement (center_xy/size_xy, API 전용)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a3i17",
+      "area": "경로 + 라디오맵 + 빔포밍",
+      "priority": "P1",
+      "feature": "Radio map Remove/Auto update/every 주기 재솔브",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a3i18",
+      "area": "경로 + 라디오맵 + 빔포밍",
+      "priority": "P1",
+      "feature": "라디오맵 표시 설정 (Colormap/vmin/vmax)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a3i19",
+      "area": "경로 + 라디오맵 + 빔포밍",
+      "priority": "P1",
+      "feature": "Mesh radio map (표면 드레이프)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a3i20",
+      "area": "경로 + 라디오맵 + 빔포밍",
+      "priority": "P0",
+      "feature": "Beamforming 실행 + 결과 토스트/카드",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a3i21",
+      "area": "경로 + 라디오맵 + 빔포밍",
+      "priority": "P1",
+      "feature": "코드북 스윕 히트맵 + sweep start/stop/step",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a3i22",
+      "area": "경로 + 라디오맵 + 빔포밍",
+      "priority": "P1",
+      "feature": "TX-MRT / SVD 모드",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a3i23",
+      "area": "경로 + 라디오맵 + 빔포밍",
+      "priority": "P1",
+      "feature": "Beamforming 오버레이 토글 + Auto update + 씬 편집 무효화",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a3i24",
+      "area": "경로 + 라디오맵 + 빔포밍",
+      "priority": "P0",
+      "feature": "WebSocket 진행률 카드 + Cancel (cancelSolve)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a3i25",
+      "area": "경로 + 라디오맵 + 빔포밍",
+      "priority": "P0",
+      "feature": "⚠ stale 배지 (paths/radio map 결과 신선도)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a3i26",
+      "area": "경로 + 라디오맵 + 빔포밍",
+      "priority": "P2",
+      "feature": "Save as project default (Paths config 영속화)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a4i0",
+      "area": "채널 분석 + 메트릭 대시보드 + 캘리브레이션",
+      "priority": "P1",
+      "feature": "Channel analysis 패널 도킹/플로팅",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a4i1",
+      "area": "채널 분석 + 메트릭 대시보드 + 캘리브레이션",
+      "priority": "P1",
+      "feature": "TX/RX 선택 + CFR points 기본값/클램프",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a4i2",
+      "area": "채널 분석 + 메트릭 대시보드 + 캘리브레이션",
+      "priority": "P0",
+      "feature": "Analyze 버튼 — FIXED LINK 결과 라인 + 토스트",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a4i3",
+      "area": "채널 분석 + 메트릭 대시보드 + 캘리브레이션",
+      "priority": "P0",
+      "feature": "LINK BUDGET KPI 값",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a4i4",
+      "area": "채널 분석 + 메트릭 대시보드 + 캘리브레이션",
+      "priority": "P1",
+      "feature": "Live parameters 시드값 + N_RB 파생 표시",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a4i5",
+      "area": "채널 분석 + 메트릭 대시보드 + 캘리브레이션",
+      "priority": "P0",
+      "feature": "Live parameter 변경 → 디바운스 자동 재분석",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a4i6",
+      "area": "채널 분석 + 메트릭 대시보드 + 캘리브레이션",
+      "priority": "P1",
+      "feature": "TX power 편집 → 디바이스 영구 저장",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a4i7",
+      "area": "채널 분석 + 메트릭 대시보드 + 캘리브레이션",
+      "priority": "P2",
+      "feature": "Reset to config 버튼",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a4i8",
+      "area": "채널 분석 + 메트릭 대시보드 + 캘리브레이션",
+      "priority": "P1",
+      "feature": "SCS 변경 → RSRP/RSSI/RSRQ (TS 38.215)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a4i9",
+      "area": "채널 분석 + 메트릭 대시보드 + 캘리브레이션",
+      "priority": "P0",
+      "feature": "Auto update (채널) — 디바이스 이동 재분석",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a4i10",
+      "area": "채널 분석 + 메트릭 대시보드 + 캘리브레이션",
+      "priority": "P1",
+      "feature": "Clear 버튼 + ⚠ stale 배지 (auto off)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a4i11",
+      "area": "채널 분석 + 메트릭 대시보드 + 캘리브레이션",
+      "priority": "P1",
+      "feature": "CIR PDP 스템 플롯 (path_type 색)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a4i12",
+      "area": "채널 분석 + 메트릭 대시보드 + 캘리브레이션",
+      "priority": "P2",
+      "feature": "CFR MAGNITUDE 차트",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a4i13",
+      "area": "채널 분석 + 메트릭 대시보드 + 캘리브레이션",
+      "priority": "P1",
+      "feature": "Path-loss models vs RT 비교 표",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a4i14",
+      "area": "채널 분석 + 메트릭 대시보드 + 캘리브레이션",
+      "priority": "P1",
+      "feature": "Channel sweep (설정 필드 스윕)",
+      "status": "fail",
+      "memo": "- Swept 2 points over Frequency(Hz) 라고 뜨는데 plot이 안나옴. 그리고 Frequency (Hz) 자리에 입력한 parameter 값 나와야 되는거 아냐?"
+    },
+    {
+      "id": "a4i15",
+      "area": "채널 분석 + 메트릭 대시보드 + 캘리브레이션",
+      "priority": "P2",
+      "feature": "Doppler-time spectrogram (STFT jet)",
+      "status": "fail",
+      "memo": "- no ray paths for this link; spectrogram is the -300 dB floor 라고 뜨면서 spectrogram이 안나오고(파란색으로만 뜸), rx 선택기능이 있어야 하는거 아닌가 생각이 듬."
+    },
+    {
+      "id": "a4i16",
+      "area": "채널 분석 + 메트릭 대시보드 + 캘리브레이션",
+      "priority": "P1",
+      "feature": "Flight-log validation (실측 vs 예측)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a4i17",
+      "area": "채널 분석 + 메트릭 대시보드 + 캘리브레이션",
+      "priority": "P1",
+      "feature": "측정 CSV 임포트 API (GUI 없음, curl)",
+      "status": "fail",
+      "memo": "- Invoke-RestMethod -Uri \"http://localhost:8000/api/projects/sample_demo/calibrate/measurements/import-csv\" -Method Post -Body '{\"csv_text\":\"x,y,z,measured_path_gain_db\\n10,0,1.5,-80\\n12,0,1.5,-82\\nbad,row,x,y\"}' -ContentType \"application/json\" 라고 명령어 치고 텍스트 비우고 Validate 눌렀더니 아래와 같이 에러 뜸. \n\nALL 2 waypoints produced zero paths — the trajectory is almost certainly outside the scene geometry. Pick the endpoints in the viewport or use scene bounds.\n2 point(s) produced zero paths and were excluded from the stats"
+    },
+    {
+      "id": "a4i18",
+      "area": "채널 분석 + 메트릭 대시보드 + 캘리브레이션",
+      "priority": "P1",
+      "feature": "재질 파라미터 grid-fit 캘리브레이션 API",
+      "status": "fail",
+      "memo": "- 측정 CSV 필요한 issue로 인해 불가"
+    },
+    {
+      "id": "a4i19",
+      "area": "채널 분석 + 메트릭 대시보드 + 캘리브레이션",
+      "priority": "P2",
+      "feature": "RF disambiguation (측정 기반 재질 판별)",
+      "status": "pass",
+      "memo": "- 되긴함. row는 임의로 아래와 같이 넣었음.\nx,y,z,gain_db\n0 0 1.5 -80\n10 10 1.5 -80\n20 10 2 -80\n30 20 2.5 -80\n40 30 3 -80\n\n여기서 row 클릭하거나 하면 그 좌표를 scene에서 보여주는 것도 좋을듯"
+    },
+    {
+      "id": "a4i20",
+      "area": "채널 분석 + 메트릭 대시보드 + 캘리브레이션",
+      "priority": "P2",
+      "feature": "Assignment impact — NMSE/capacity 델타",
+      "status": "fail",
+      "memo": "- 이거 삭제해도 될듯"
+    },
+    {
+      "id": "a4i21",
+      "area": "채널 분석 + 메트릭 대시보드 + 캘리브레이션",
+      "priority": "P0",
+      "feature": "Metrics dashboard KPI 그리드 + persist/reload",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a4i22",
+      "area": "채널 분석 + 메트릭 대시보드 + 캘리브레이션",
+      "priority": "P1",
+      "feature": "Metrics 차트 4종 — 논문 스타일 + PNG/SVG/CSV export",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a4i23",
+      "area": "채널 분석 + 메트릭 대시보드 + 캘리브레이션",
+      "priority": "P1",
+      "feature": "Trajectory 연동 차트 (Moving UE 섹션)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a4i24",
+      "area": "채널 분석 + 메트릭 대시보드 + 캘리브레이션",
+      "priority": "P1",
+      "feature": "다중 TX 동일채널 간섭 — SINR/Interference",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a5i0",
+      "area": "궤적 + 시나리오 + 라이브 싱크",
+      "priority": "P0",
+      "feature": "⌖ Pick start → end in viewport 픽 + 점선 프리뷰",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a5i1",
+      "area": "궤적 + 시나리오 + 라이브 싱크",
+      "priority": "P2",
+      "feature": "Start at RX 시드 버튼",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a5i2",
+      "area": "궤적 + 시나리오 + 라이브 싱크",
+      "priority": "P0",
+      "feature": "Simulate trajectory 실행(직선) + 재생 자동 engage",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a5i3",
+      "area": "궤적 + 시나리오 + 라이브 싱크",
+      "priority": "P0",
+      "feature": "재생 트랜스포트 (▶/⏸, 슬라이더, ⟳, 속도)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a5i4",
+      "area": "궤적 + 시나리오 + 라이브 싱크",
+      "priority": "P1",
+      "feature": "스텝별 KPI 스트립",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a5i5",
+      "area": "궤적 + 시나리오 + 라이브 싱크",
+      "priority": "P2",
+      "feature": "다중 TX SINR + Interference KPI",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a5i6",
+      "area": "궤적 + 시나리오 + 라이브 싱크",
+      "priority": "P1",
+      "feature": "Draw route (Esc finishes) 웨이포인트 그리기 + 라우트-RX 선택",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a5i7",
+      "area": "궤적 + 시나리오 + 라이브 싱크",
+      "priority": "P1",
+      "feature": "다중 UE 재생: UE별 스크럽 + ▶ all + KPI UE 선택",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a5i8",
+      "area": "궤적 + 시나리오 + 라이브 싱크",
+      "priority": "P1",
+      "feature": "Include fixed UEs (고정 RX 동시 솔브)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a5i9",
+      "area": "궤적 + 시나리오 + 라이브 싱크",
+      "priority": "P1",
+      "feature": "⤓ Import JSON 웨이포인트 임포트 (oriented 칩, 지하 ⚠)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a5i10",
+      "area": "궤적 + 시나리오 + 라이브 싱크",
+      "priority": "P1",
+      "feature": "Follow terrain + UE height (출처 기반 기본값)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a5i11",
+      "area": "궤적 + 시나리오 + 라이브 싱크",
+      "priority": "P2",
+      "feature": "Num points / dt 입력 클램프",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a5i12",
+      "area": "궤적 + 시나리오 + 라이브 싱크",
+      "priority": "P1",
+      "feature": "결과 스트립 ✕ Remove",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a5i13",
+      "area": "궤적 + 시나리오 + 라이브 싱크",
+      "priority": "P0",
+      "feature": "재생 의미론: Simulate paths가 궤적 재생 완전 해제",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a5i14",
+      "area": "궤적 + 시나리오 + 라이브 싱크",
+      "priority": "P1",
+      "feature": "프로젝트 재오픈 시 궤적 로드-해제 상태",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a5i15",
+      "area": "궤적 + 시나리오 + 라이브 싱크",
+      "priority": "P2",
+      "feature": "Trajectory rays 수동 토글 (오버레이 행)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a5i16",
+      "area": "궤적 + 시나리오 + 라이브 싱크",
+      "priority": "P1",
+      "feature": "액터 TRAJECTORY 편집기 (waypoint 행 편집)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a5i17",
+      "area": "궤적 + 시나리오 + 라이브 싱크",
+      "priority": "P1",
+      "feature": "액터 ⚡ Simulate paths along trajectory (부착 RX 필수)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a5i18",
+      "area": "궤적 + 시나리오 + 라이브 싱크",
+      "priority": "P0",
+      "feature": "Simulate scenario 실행 + 재생",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a5i19",
+      "area": "궤적 + 시나리오 + 라이브 싱크",
+      "priority": "P1",
+      "feature": "Scenario 오버레이 토글 / Hide playback / Clear",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a5i20",
+      "area": "궤적 + 시나리오 + 라이브 싱크",
+      "priority": "P2",
+      "feature": "액터 Mode once / loop / pingpong 재생 동작",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a5i21",
+      "area": "궤적 + 시나리오 + 라이브 싱크",
+      "priority": "P0",
+      "feature": "Live sync 체크박스 (2초 폴링)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a5i22",
+      "area": "궤적 + 시나리오 + 라이브 싱크",
+      "priority": "P0",
+      "feature": "POST /live/state 주입 (persist=false 의미론)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a5i23",
+      "area": "궤적 + 시나리오 + 라이브 싱크",
+      "priority": "P2",
+      "feature": "live/state resimulate=true 링크 반환 + persist=true 영속화",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a5i24",
+      "area": "궤적 + 시나리오 + 라이브 싱크",
+      "priority": "P1",
+      "feature": "Live sync 이동 → stale 배지 + Auto update 재계산",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a5i25",
+      "area": "궤적 + 시나리오 + 라이브 싱크",
+      "priority": "P2",
+      "feature": "Metrics dashboard 궤적 시계열 차트",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a6i0",
+      "area": "ML 데이터셋 + 내보내기 + 결과 관리 + 패널 시스템",
+      "priority": "P0",
+      "feature": "Generate dataset 기본 random 데이터셋 생성",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a6i1",
+      "area": "ML 데이터셋 + 내보내기 + 결과 관리 + 패널 시스템",
+      "priority": "P1",
+      "feature": "Sampling mode 옵션과 모드별 필드 전환",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a6i2",
+      "area": "ML 데이터셋 + 내보내기 + 결과 관리 + 패널 시스템",
+      "priority": "P1",
+      "feature": "Region 자동 시드 + Fit to scene",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a6i3",
+      "area": "ML 데이터셋 + 내보내기 + 결과 관리 + 패널 시스템",
+      "priority": "P1",
+      "feature": "⌖ Pick region in viewport 2점 픽",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a6i4",
+      "area": "ML 데이터셋 + 내보내기 + 결과 관리 + 패널 시스템",
+      "priority": "P1",
+      "feature": "Actor flight path 궤적 샘플링",
+      "status": "fail",
+      "memo": "- 테스트용 PC에서는 Sample Demo scene에서 Sedan과 attached된 rx가 4번인데, dataset 뽑을 때, tx1->rx1으로 찍힘.(metadata.json에 있는거)"
+    },
+    {
+      "id": "a6i5",
+      "area": "ML 데이터셋 + 내보내기 + 결과 관리 + 패널 시스템",
+      "priority": "P1",
+      "feature": "zero-path 경고와 ⚠ N zero-path 플래그",
+      "status": "fail",
+      "memo": "- 1 zero path만 뜸."
+    },
+    {
+      "id": "a6i6",
+      "area": "ML 데이터셋 + 내보내기 + 결과 관리 + 패널 시스템",
+      "priority": "P1",
+      "feature": "npz/json 다운로드와 배열 스키마",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a6i7",
+      "area": "ML 데이터셋 + 내보내기 + 결과 관리 + 패널 시스템",
+      "priority": "P2",
+      "feature": "Include paths / Follow terrain / Seed 옵션",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a6i8",
+      "area": "ML 데이터셋 + 내보내기 + 결과 관리 + 패널 시스템",
+      "priority": "P1",
+      "feature": "데이터셋 삭제 2단계 확인(× → ✓?)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a6i9",
+      "area": "ML 데이터셋 + 내보내기 + 결과 관리 + 패널 시스템",
+      "priority": "P0",
+      "feature": "Actions ▾ → Export RFData (AODT 번들)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a6i10",
+      "area": "ML 데이터셋 + 내보내기 + 결과 관리 + 패널 시스템",
+      "priority": "P2",
+      "feature": "RFData 번들 내용 검증",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a6i11",
+      "area": "ML 데이터셋 + 내보내기 + 결과 관리 + 패널 시스템",
+      "priority": "P1",
+      "feature": "Actions ▾ → Compile RF",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a6i12",
+      "area": "ML 데이터셋 + 내보내기 + 결과 관리 + 패널 시스템",
+      "priority": "P1",
+      "feature": "Actions ▾ → Beamforming (기본 codebook sweep)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a6i13",
+      "area": "ML 데이터셋 + 내보내기 + 결과 관리 + 패널 시스템",
+      "priority": "P1",
+      "feature": "Actions ▾ → Validate",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a6i14",
+      "area": "ML 데이터셋 + 내보내기 + 결과 관리 + 패널 시스템",
+      "priority": "P2",
+      "feature": "AODT parquet 결과 임포트 (API 전용, UI 없음)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a6i15",
+      "area": "ML 데이터셋 + 내보내기 + 결과 관리 + 패널 시스템",
+      "priority": "P2",
+      "feature": "Export filtered CSV (N) 경로 테이블 내보내기",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a6i16",
+      "area": "ML 데이터셋 + 내보내기 + 결과 관리 + 패널 시스템",
+      "priority": "P0",
+      "feature": "Run history 브라우저와 Load(activate)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a6i17",
+      "area": "ML 데이터셋 + 내보내기 + 결과 관리 + 패널 시스템",
+      "priority": "P1",
+      "feature": "런 라벨 지정과 prune 보호",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a6i18",
+      "area": "ML 데이터셋 + 내보내기 + 결과 관리 + 패널 시스템",
+      "priority": "P1",
+      "feature": "Prune results (Results 상단, keep-latest-1)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a6i19",
+      "area": "ML 데이터셋 + 내보내기 + 결과 관리 + 패널 시스템",
+      "priority": "P0",
+      "feature": "스테일 배지 (⚠ stale)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a6i20",
+      "area": "ML 데이터셋 + 내보내기 + 결과 관리 + 패널 시스템",
+      "priority": "P2",
+      "feature": "결과 config snapshot / 재현성 해시",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a6i21",
+      "area": "ML 데이터셋 + 내보내기 + 결과 관리 + 패널 시스템",
+      "priority": "P0",
+      "feature": "Undo (백엔드 히스토리 링)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a6i22",
+      "area": "ML 데이터셋 + 내보내기 + 결과 관리 + 패널 시스템",
+      "priority": "P0",
+      "feature": "도킹 패널 5종 표시 규칙과 접기",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a6i23",
+      "area": "ML 데이터셋 + 내보내기 + 결과 관리 + 패널 시스템",
+      "priority": "P0",
+      "feature": "플로팅 창 드래그/리사이즈/z-order",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a6i24",
+      "area": "ML 데이터셋 + 내보내기 + 결과 관리 + 패널 시스템",
+      "priority": "P1",
+      "feature": "Panels ▾ 메뉴",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a6i25",
+      "area": "ML 데이터셋 + 내보내기 + 결과 관리 + 패널 시스템",
+      "priority": "P1",
+      "feature": "패널 레이아웃 localStorage 유지",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a6i26",
+      "area": "ML 데이터셋 + 내보내기 + 결과 관리 + 패널 시스템",
+      "priority": "P0",
+      "feature": "WYSIWYG 뷰포트 Snapshot (카메라 버튼)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a6i27",
+      "area": "ML 데이터셋 + 내보내기 + 결과 관리 + 패널 시스템",
+      "priority": "P2",
+      "feature": "오프라인 Render (필름 아이콘, Mitsuba)",
+      "status": "pass",
+      "memo": ""
+    },
+    {
+      "id": "a7i0",
+      "area": "추가 확인 — 완전성 감사에서 발굴",
+      "priority": "P1",
+      "feature": "뷰포트 라이팅/표시 설정 패널 (기어 버튼) — 조명 5종 슬라이더·배경색·Grid/Axes·Textured overlay·Zoom to cursor·Orbit around selection·Distance fog·Unlit textures + Reset defaults",
+      "status": "todo",
+      "memo": ""
+    },
+    {
+      "id": "a7i1",
+      "area": "추가 확인 — 완전성 감사에서 발굴",
+      "priority": "P2",
+      "feature": "뷰포트 수평 슬라이스 평면 — S 핫키/패널 토글 + Slice Z 슬라이더 (씬 메시만 클리핑, RT GUI parity)",
+      "status": "todo",
+      "memo": ""
+    },
+    {
+      "id": "a7i2",
+      "area": "추가 확인 — 완전성 감사에서 발굴",
+      "priority": "P2",
+      "feature": "글로벌 편집 단축키 — Ctrl/Cmd+Z 씬 undo(버튼 없음, 유일한 진입점), Delete/Backspace 선택 디바이스·액터 삭제, M 라디오맵 오버레이 토글(가드 노티스)",
+      "status": "todo",
+      "memo": ""
+    },
+    {
+      "id": "a7i3",
+      "area": "추가 확인 — 완전성 감사에서 발굴",
+      "priority": "P1",
+      "feature": "A/B 라디오맵 비교 — 저장된 두 런의 셀별 B−A 델타 히트맵 + coverage/mean 요약 + config 동일성 칩 + 현재 맵 PNG 다운로드",
+      "status": "todo",
+      "memo": ""
+    },
+    {
+      "id": "a7i4",
+      "area": "추가 확인 — 완전성 감사에서 발굴",
+      "priority": "P1",
+      "feature": "라디오맵 고도 스윕 — heights 목록 일괄 솔브 (POST /simulate/radio-map-sweep) + coverage-vs-altitude 차트 + 'h=X m' 자동 라벨 런",
+      "status": "todo",
+      "memo": ""
+    },
+    {
+      "id": "a7i5",
+      "area": "추가 확인 — 완전성 감사에서 발굴",
+      "priority": "P1",
+      "feature": "A3 핸드오버 궤적 시뮬레이션 (API 전용 handover 필드) + Metrics dashboard Handover 섹션 (serving-TX 스텝 차트 · per-TX RSS · 이벤트 마커)",
+      "status": "todo",
+      "memo": ""
+    },
+    {
+      "id": "a7i6",
+      "area": "추가 확인 — 완전성 감사에서 발굴",
+      "priority": "P2",
+      "feature": "경로 분석 차트 — delay-power 산점도(클릭 선택 동기) + AoA/AoD 극좌표 플롯 (PNG/SVG/CSV export)",
+      "status": "todo",
+      "memo": ""
+    },
+    {
+      "id": "a7i7",
+      "area": "추가 확인 — 완전성 감사에서 발굴",
+      "priority": "P1",
+      "feature": "사용자 플러그인 시스템 — plugins/<name>/plugin.py register(registry) (backend·path-loss 모델·AI provider·exporter 훅) + 고장 격리 + example_two_ray",
+      "status": "todo",
+      "memo": ""
+    },
+    {
+      "id": "a7i8",
+      "area": "추가 확인 — 완전성 감사에서 발굴",
+      "priority": "P2",
+      "feature": "프림 Name 인라인 편집 — Inspector 'Name & tags' 카드의 Name 필드 (Enter/blur 커밋, 빈 값 revert)",
+      "status": "todo",
+      "memo": ""
+    },
+    {
+      "id": "a7i9",
+      "area": "추가 확인 — 완전성 감사에서 발굴",
+      "priority": "P2",
+      "feature": "토스트/에러 배너 시멘틱 — 성공 노티스 5초 자동 소멸 vs 오류 배너 유지 + 수동 dismiss + backend unreachable 처리",
+      "status": "todo",
+      "memo": ""
+    }
+  ]
+}
