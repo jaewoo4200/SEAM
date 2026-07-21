@@ -219,22 +219,28 @@ def test_import_in_band_itu_material_not_remapped(tmp_path: Path):
 
 def test_enrich_solve_failure_appends_itu_hint():
     """Pure string helper: a stringified solve failure carrying Sionna's
-    'not defined for this frequency' error gets one actionable sentence
-    appended; unrelated failures are returned unchanged and the hint is never
-    double-appended."""
+    'not defined for this frequency' error gets THAT material's ITU-R P.2040
+    valid band appended; unrelated failures are returned unchanged and the
+    hint is never double-appended."""
     from seam_studio.services.simulation_backends.sionna_backend import (
-        _ITU_OUT_OF_BAND_HINT,
         _enrich_solve_failure,
     )
 
+    # Bare ITU name (Sionna's "ITU material '<name>'" phrasing).
     raw = (
         "sionna radio map failed: Properties of ITU material "
         "'medium_dry_ground' are not defined for this frequency; see logs"
     )
     enriched = _enrich_solve_failure(raw)
-    assert enriched.endswith(_ITU_OUT_OF_BAND_HINT)
-    assert "ground_28ghz" in enriched
-    assert "RF Materials tab" in enriched
+    assert "itu_medium_dry_ground" in enriched
+    assert "1-10 GHz" in enriched
+    assert "valid" in enriched
+
+    # bsdf-id phrasing ("itu_brick") resolves to brick's 1-40 GHz band.
+    brick = _enrich_solve_failure(
+        "solve failed: material itu_brick is not defined for this frequency"
+    )
+    assert "itu_brick" in brick and "1-40 GHz" in brick
 
     # Idempotent: already-enriched messages are not re-appended.
     assert _enrich_solve_failure(enriched) == enriched

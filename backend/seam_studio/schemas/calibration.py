@@ -133,15 +133,19 @@ class TrajectoryValidationRequest(StrictModel):
 
 
 class TrajectoryValidationPoint(StrictModel):
-    # Index into the time-ordered (and subsampled) measurement sequence, so
-    # excluded zero-path points leave visible gaps instead of shifting rows.
+    # Index into the time-ordered (and subsampled) measurement sequence.
+    # Zero-path points are INCLUDED with null predictions (path_count 0) so
+    # the report shows what failed to solve instead of silently dropping it.
     index: int
     time_s: Optional[float] = None
     position: Vec3
     measured_db: float
-    predicted_db: float
-    aligned_predicted_db: float  # predicted + level_offset_db
-    error_db: float  # aligned predicted - measured (same sign as LinkError)
+    predicted_db: Optional[float] = None
+    aligned_predicted_db: Optional[float] = None  # predicted + level_offset_db
+    # aligned predicted - measured (same sign as LinkError); None on zero paths
+    error_db: Optional[float] = None
+    # Ray paths the solver found at this position (0 = excluded from stats).
+    path_count: int = 0
 
 
 class TrajectoryValidationStats(StrictModel):

@@ -133,18 +133,35 @@ def validate_trajectory(
             f"{excluded} point(s) produced zero paths and were excluded from "
             "the stats"
         )
+    if not idx and ordered:
+        # An all-excluded run must not read as a clean pass ("Validated 0
+        # point(s); RMSE 0.00 dB" is what turned a path-dead scene into a
+        # misfiled bug during verification).
+        warnings.append(
+            "no measurement point produced any ray path — the stats are "
+            "empty, not a pass; check the per-point path counts and the "
+            "trajectory warnings above"
+        )
 
+    solved = set(idx)
     points = [
         TrajectoryValidationPoint(
             index=i,
             time_s=ordered[i].time_s,
             position=ordered[i].rx_position,
             measured_db=measured[i],
-            predicted_db=predicted[i],  # type: ignore[arg-type]
-            aligned_predicted_db=predicted[i] + stats.level_offset_db,  # type: ignore[operator]
-            error_db=(predicted[i] + stats.level_offset_db) - measured[i],  # type: ignore[operator]
+            predicted_db=predicted[i] if i in solved else None,
+            aligned_predicted_db=(
+                predicted[i] + stats.level_offset_db if i in solved else None  # type: ignore[operator]
+            ),
+            error_db=(
+                (predicted[i] + stats.level_offset_db) - measured[i]  # type: ignore[operator]
+                if i in solved
+                else None
+            ),
+            path_count=result.samples[i].path_count if i < len(result.samples) else 0,
         )
-        for i in idx
+        for i in range(len(ordered))
     ]
     return TrajectoryValidationReport(
         tx_id=tx.id,

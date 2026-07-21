@@ -265,16 +265,24 @@ function geomFor(
   let xMin = Infinity, xMax = -Infinity, yMin = Infinity, yMax = -Infinity;
   for (const s of series) {
     for (let i = 0; i < s.x.length; i++) {
+      // The x-domain comes from EVERY sample: gating it on y-validity made an
+      // all-null metric column render generic 0..1 axis ticks instead of the
+      // real swept values (channel-sweep blank-chart bug).
+      if (Number.isFinite(s.x[i])) {
+        xMin = Math.min(xMin, s.x[i]);
+        xMax = Math.max(xMax, s.x[i]);
+      }
       const y = s.y[i];
       if (y === null || !Number.isFinite(y)) continue;
-      xMin = Math.min(xMin, s.x[i]);
-      xMax = Math.max(xMax, s.x[i]);
       yMin = Math.min(yMin, y);
       yMax = Math.max(yMax, y);
     }
   }
   if (!Number.isFinite(xMin)) {
-    xMin = 0; xMax = 1; yMin = 0; yMax = 1;
+    xMin = 0; xMax = 1;
+  }
+  if (!Number.isFinite(yMin)) {
+    yMin = 0; yMax = 1;
   }
   const ySpan = (yMax - yMin) || 1;
   return {

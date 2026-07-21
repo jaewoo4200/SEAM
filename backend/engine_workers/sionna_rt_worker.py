@@ -40,7 +40,9 @@ import sys
 import traceback
 
 _NO_OBJECT = 0xFFFFFFFF
-_INTERACTION_TYPES = {1: "reflection", 2: "scattering", 3: "transmission", 4: "diffraction"}
+# InteractionType is a bit-flag enum (sionna-rt >= 1.x, verified 2.0.1):
+# SPECULAR=1, DIFFUSE=2, REFRACTION=4, DIFFRACTION=8.
+_INTERACTION_TYPES = {1: "reflection", 2: "scattering", 4: "transmission", 8: "diffraction"}
 _VALID_PATTERNS = ("iso", "dipole", "hw_dipole", "tr38901")
 _VALID_POLARIZATIONS = ("V", "H", "VH", "cross")
 
@@ -217,6 +219,12 @@ def run(job: dict) -> dict:
         return np.asarray(x.numpy() if hasattr(x, "numpy") else x)
 
     tau = to_np(solved.tau)
+    if tau.ndim == 5:
+        # synthetic_array=False keeps per-antenna delays
+        # [num_rx, rx_ant, num_tx, tx_ant, paths]; take the reference element
+        # (port 0/0) like the coefficient reduction below. Without this,
+        # float(tau[r, t, p]) below raises on the 2-D slice.
+        tau = tau[:, 0, :, 0, :]
     a_raw = solved.a
     if isinstance(a_raw, (tuple, list)) and len(a_raw) == 2:
         a = to_np(a_raw[0]) + 1j * to_np(a_raw[1])
@@ -239,6 +247,8 @@ def run(job: dict) -> dict:
 
     vertices = to_np(solved.vertices) if hasattr(solved, "vertices") else None
     valid = to_np(solved.valid) if hasattr(solved, "valid") else None
+    if valid is not None and valid.ndim == 5:
+        valid = valid[:, 0, :, 0, :]
     objects = to_np(solved.objects) if hasattr(solved, "objects") else None
     itypes = to_np(solved.interactions) if hasattr(solved, "interactions") else None
 

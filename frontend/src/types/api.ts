@@ -1504,9 +1504,12 @@ export interface TrajectoryValidationPoint {
   time_s: number | null;
   position: number[];
   measured_db: number;
-  predicted_db: number;
-  aligned_predicted_db: number;
-  error_db: number;
+  // Null when the point produced zero ray paths (excluded from the stats but
+  // now INCLUDED in points[] so failures are visible).
+  predicted_db: number | null;
+  aligned_predicted_db: number | null;
+  error_db: number | null;
+  path_count: number;
 }
 
 export interface TrajectoryValidationStats {

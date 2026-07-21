@@ -251,9 +251,14 @@ version into a separate venv and register it in the root `engines.json`, and it 
 **1) Create a venv + install the desired version (Windows example, 1.2.2):**
 
 ```powershell
-python -m venv backend\.venv-sionna-rt-122
+py -3.12 -m venv backend\.venv-sionna-rt-122
 backend\.venv-sionna-rt-122\Scripts\python.exe -m pip install "sionna-rt==1.2.2"
 ```
+
+> **Pin the venv's Python.** sionna-rt 1.x pins mitsuba/drjit wheels that stop at
+> Python 3.13 — on Python 3.14 `pip install` *succeeds* but `import sionna.rt`
+> fails, and the engine shows as unavailable. Python 3.12 works for every
+> 1.x/2.x release.
 
 **2) Add an entry to the root `engines.json`** (skip if it already exists):
 

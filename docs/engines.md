@@ -42,12 +42,22 @@ it is respected as-is.
 
 ## How to add an engine
 
-1. Create a venv + install the desired sionna-rt:
+1. Create a venv + install the desired sionna-rt.
+   **Pin the venv's Python version to one the target sionna-rt supports** —
+   sionna-rt ≤ 1.1 pins mitsuba/drjit wheels that stop at Python 3.13, so on
+   Python 3.14 `pip install` *succeeds* but `import sionna.rt` fails (the
+   engine then shows as unavailable with the probe error). Python 3.12 works
+   for every 1.x/2.x release:
 
    ```powershell
-   python -m venv backend\.venv-sionna-rt-110
+   py -3.12 -m venv backend\.venv-sionna-rt-110
    backend\.venv-sionna-rt-110\Scripts\pip install "sionna-rt==1.1.0"
    ```
+
+   | sionna-rt | Python |
+   |---|---|
+   | 2.x (≥ 2.0) | 3.10 – 3.14 |
+   | 1.x (≤ 1.2) | 3.10 – 3.13 (mitsuba 3.6.x wheels have no cp314 build) |
 
 2. Add an entry to the repo-root `engines.json`:
 
@@ -61,8 +71,11 @@ it is respected as-is.
    In the UI it appears in Results mode → Global → the **Engine** select.
 
 Availability is confirmed by actually running `import sionna.rt` in the target venv
-(a cold import can take tens of seconds → cached per process). Engines that are not
-installed are shown as disabled in the select.
+(a cold import can take tens of seconds → successful probes are cached per process;
+failed probes are re-tried on the next listing, so fixing the venv and calling
+`GET /api/engines?refresh=true` — or just reopening the Engine select — picks it up).
+Engines that are not installed are shown as disabled in the select, with the probe
+error (including the venv's Python version) as the tooltip/detail.
 
 ## Support scope
 

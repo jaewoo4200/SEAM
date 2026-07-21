@@ -502,7 +502,12 @@ export function TrajectorySection() {
   const ueIds = trajectoryUeIds(trajectory);
   const trajUeFrames = useAppStore((s) => s.trajUeFrames);
   const [kpiUe, setKpiUe] = useState<string>("");
-  const kpiUeId = kpiUe || ueIds[0] || "";
+  // The picked UE can go stale: this panel stays mounted across runs, so a
+  // KPI choice from a previous trajectory (e.g. rx_001) survived into an
+  // actor run that only routed rx_005 — the strip then showed the old id
+  // with no samples. Fall back to the result's first UE when the pick no
+  // longer exists in THIS result.
+  const kpiUeId = (kpiUe && ueIds.includes(kpiUe) ? kpiUe : ueIds[0]) || "";
   const kpiSamples = samplesForUe(trajectory, kpiUeId);
   const kpiFrame = Math.max(
     0,

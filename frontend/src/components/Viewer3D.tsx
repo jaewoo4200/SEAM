@@ -19,6 +19,7 @@ import MeshRadioMapOverlay from "./MeshRadioMapOverlay";
 import { captureAgentViews } from "./AgentCapture";
 import { segmentationClassColor } from "../types/api";
 import type {
+  Actor,
   Prim,
   RadioMapResultSet,
   RayPath,
@@ -627,13 +628,45 @@ function Actors({ frameStates }: { frameStates?: Map<string, { position: Vec3; o
   const highlightedWaypoint = useAppStore((s) => s.highlightedWaypoint);
   const env = useAppStore((s) => s.resolvedEnvironment);
   const markerScale = useAppStore((s) => s.viewport.markerScale);
+  // Trajectory playback: an actor whose ATTACHED device is a routed UE flies
+  // along with the moving marker instead of hovering at its authored pose —
+  // "the drone stayed put while its RX flew away" read as broken playback.
+  const trajectory = useAppStore((s) => s.trajectory);
+  const trajFrame = useAppStore((s) => s.trajFrame);
+  const trajUeFrames = useAppStore((s) => s.trajUeFrames);
+  const trajPlaying = useAppStore((s) => s.trajPlaying);
+  const showTrajectoryRays = useAppStore((s) => s.showTrajectoryRays);
   if (!scene) return null;
   const wpRadius = deviceMarkerRadius(scene, env, markerScale) * 0.4;
+  // Same engagement rule as TrajectoryOverlay (no marker at stale positions).
+  const trajEngaged =
+    showTrajectoryRays ||
+    trajPlaying ||
+    trajFrame > 0 ||
+    Object.keys(trajUeFrames).length > 0;
+  const routedUes = trajEngaged ? trajectoryUeIds(trajectory) : [];
+  /** Actor pose override while its attached UE is being played back: the
+   *  sample is the ANTENNA position, so keep the stored antenna-to-actor
+   *  offset (mount height) when placing the airframe. */
+  const trajState = (a: Actor): { position: Vec3; orientation_deg?: Vec3 } | null => {
+    if (routedUes.length === 0) return null;
+    const ueId = a.attached_device_ids.find((id) => routedUes.includes(id));
+    if (!ueId) return null;
+    const samples = samplesForUe(trajectory, ueId);
+    if (samples.length === 0) return null;
+    const f = Math.max(0, Math.min(samples.length - 1, trajUeFrames[ueId] ?? trajFrame));
+    const p = samples[f].position;
+    const dev = scene.devices.find((d) => d.id === ueId);
+    const off: Vec3 = dev
+      ? [a.position[0] - dev.position[0], a.position[1] - dev.position[1], a.position[2] - dev.position[2]]
+      : [0, 0, 0];
+    return { position: [p[0] + off[0], p[1] + off[1], p[2] + off[2]] };
+  };
 
   return (
     <group>
       {scene.actors.map((a) => {
-        const state = frameStates?.get(a.id);
+        const state = frameStates?.get(a.id) ?? trajState(a);
         const position = state?.position ?? a.position;
         // orientation_deg is [yaw, pitch, roll] - yaw is index 0.
         const yawDeg = (state?.orientation_deg ?? a.orientation_deg)[0];
@@ -695,7 +728,9 @@ function Actors({ frameStates }: { frameStates?: Map<string, { position: Vec3; o
           </group>
         );
         const actorNode =
-          selected && !frameStates ? (
+          // No gizmo while ANY playback override drives the pose — committing
+          // the transient flight position into the scene would corrupt it.
+          selected && !state ? (
             <GizmoWrapped
               key={a.id}
               position={position}

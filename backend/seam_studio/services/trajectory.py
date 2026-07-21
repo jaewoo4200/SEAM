@@ -638,8 +638,13 @@ def run_trajectory(
                 dev.velocity_m_s = ue_velocity
         step_cfg = config.model_copy(update={"rx_ids": [ue_id]})
         result = backend.simulate_paths(project_dir, step_scene, library, step_cfg)
-        if i == 0:
-            warnings.extend(result.warnings)
+        # Deduplicated across ALL steps: the old first-step-only gate silently
+        # dropped mid-run solver failures (graceful degradation turns any solve
+        # exception into paths=[] + a warning), making them indistinguishable
+        # from geometric zero-path steps.
+        for w in result.warnings:
+            if w not in warnings:
+                warnings.append(w)
         step_serving = serving_tx
         if tracker is not None and txs:
             per_tx = _per_tx_rss_dbm(result.paths, None, tx_id_list)
@@ -668,10 +673,22 @@ def run_trajectory(
     # run with NaN/0 samples; make that loud (mirrors the dataset guard).
     zero_count = sum(1 for s in samples if s.path_count == 0)
     if zero_count == len(samples) and samples:
+        # Enumerate the real causes with the solve context instead of the old
+        # single "outside the scene geometry" claim — occlusion, an enclosed
+        # TX, disabled mechanisms or per-step solver failures produce the very
+        # same all-zero outcome (verification misattributed one such state).
+        tx_desc = (
+            f"TX '{serving_tx.id}' at {[round(c, 1) for c in serving_tx.position]}"
+            if serving_tx
+            else "no TX"
+        )
         warnings.append(
-            f"ALL {len(samples)} waypoints produced zero paths — the trajectory "
-            "is almost certainly outside the scene geometry. Pick the endpoints "
-            "in the viewport or use scene bounds."
+            f"ALL {len(samples)} waypoints produced zero paths from {tx_desc} "
+            f"(backend {backend.name}, los={config.los}, "
+            f"reflection={config.reflection}, max_depth={config.max_depth}) — "
+            "the waypoints may be outside the scene or fully occluded, the TX "
+            "may be blocked/enclosed, or every per-step solve may have failed "
+            "(see the other warnings)."
         )
     elif zero_count > len(samples) / 2:
         warnings.append(

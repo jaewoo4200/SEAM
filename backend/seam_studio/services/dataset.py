@@ -223,6 +223,32 @@ def generate_dataset(
     if tx is None:
         raise ValueError("scene has no transmitter")
     rx_proto = next((d for d in rxs if d.id == request.rx_id), rxs[0] if rxs else None)
+    # Actor-path sampling: unless the request pins an RX, the UE identity and
+    # antenna come from the RX RIDING that actor — falling back to the scene's
+    # first RX recorded tx_001->rx_001 in metadata while rx_004 flew the path.
+    sampling_actor = (
+        next((a for a in scene.actors if a.id == request.sampling.actor_id), None)
+        if request.sampling.actor_id
+        else None
+    )
+    actor_rx: Device | None = None
+    if sampling_actor is not None and request.rx_id is None:
+        actor_rx = next(
+            (
+                d
+                for aid in sampling_actor.attached_device_ids
+                for d in rxs
+                if d.id == aid
+            ),
+            None,
+        )
+        if actor_rx is not None:
+            rx_proto = actor_rx
+        else:
+            warnings.append(
+                f"actor '{sampling_actor.id}' has no attached RX; the dataset UE "
+                f"is cloned from '{rx_proto.id if rx_proto else 'a default antenna'}'"
+            )
     # Each dataset is ONE UE's sequence: a single synthetic receiver
     # ("ue_dataset") swept over positions_m. The dataset sampler is single-UE
     # by construction — it does not consume multi-UE TrajectoryResultSets — so
@@ -243,6 +269,15 @@ def generate_dataset(
     positions, sample_dt = _sample_positions(
         request.sampling, scene, warnings, project_dir
     )
+    # Actor waypoints are ground-contact base positions; the riding RX sits at
+    # its authored mount offset from the actor (scenario.py convention). Only
+    # the attached-RX actor case shifts — every other sampling mode (and any
+    # explicit rx_id request) stays byte-identical.
+    if actor_rx is not None and sampling_actor is not None:
+        mount = [
+            actor_rx.position[i] - sampling_actor.position[i] for i in range(3)
+        ]
+        positions = positions + np.asarray(mount, dtype=np.float64)
     n = len(positions)
     # Per-sample UE velocity [m/s]: finite difference of consecutive
     # trajectory samples over the sample step (forward; backward at the last
@@ -467,7 +502,11 @@ def list_datasets(project_dir: Path) -> list[DatasetInfo]:
             size_bytes=sum((d / f).stat().st_size for f in files),
             metadata={"duration_s": meta.get("duration_s"),
                       "backend": meta.get("backend"),
-                      "engine": meta.get("engine")},
+                      "engine": meta.get("engine"),
+                      # The zero-path flag must survive a reload: dropping it
+                      # here meant only the freshly generated (in-session)
+                      # entry could ever show the warning badge.
+                      "num_zero_path_samples": meta.get("num_zero_path_samples")},
         ))
     return out
 

@@ -81,19 +81,43 @@ def _probe(python: Path, refresh: bool) -> tuple[bool, Optional[str], str]:
         result = (False, None, f"interpreter not found: {python}")
     else:
         try:
+            # The interpreter version rides along: sionna-rt <= 1.1 pins
+            # mitsuba/drjit wheels that stop at cp313, so `pip install`
+            # SUCCEEDS on Python 3.14 but the import breaks — the version in
+            # the failure detail is what makes that self-diagnosing.
             proc = subprocess.run(
                 [str(python), "-c",
-                 "import sionna.rt as rt; print(getattr(rt, '__version__', 'unknown'))"],
+                 "import sys; import sionna.rt as rt; "
+                 "print(getattr(rt, '__version__', 'unknown')); "
+                 "print('py%d.%d' % sys.version_info[:2])"],
                 capture_output=True, text=True, timeout=PROBE_TIMEOUT_S,
             )
-            if proc.returncode == 0 and proc.stdout.strip():
-                result = (True, proc.stdout.strip().splitlines()[-1], "")
+            lines = proc.stdout.strip().splitlines()
+            if proc.returncode == 0 and lines:
+                result = (True, lines[0], "")
             else:
+                pyv = ""
+                try:
+                    vp = subprocess.run(
+                        [str(python), "-c", "import sys; print('%d.%d' % sys.version_info[:2])"],
+                        capture_output=True, text=True, timeout=10,
+                    )
+                    pyv = f" (Python {vp.stdout.strip()})" if vp.returncode == 0 else ""
+                except (OSError, subprocess.TimeoutExpired):
+                    pass
                 tail = (proc.stderr or "").strip().splitlines()[-3:]
-                result = (False, None, "probe failed: " + " | ".join(tail))
+                result = (
+                    False,
+                    None,
+                    "probe failed" + pyv + ": " + " | ".join(tail)
+                    + " — fix the venv, then GET /api/engines?refresh=true",
+                )
         except (OSError, subprocess.TimeoutExpired) as exc:
             result = (False, None, f"probe error: {exc}")
-    _probe_cache[key] = result
+    # Only successes are cached: a failed probe would otherwise stick for the
+    # process lifetime even after the user rebuilds the venv.
+    if result[0]:
+        _probe_cache[key] = result
     return result
 
 

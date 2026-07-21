@@ -375,6 +375,10 @@ function ChannelSweepSection({
     setLoading(true);
     try {
       const res = await api.analyzeChannelSweep(projectId, {
+        // Live config, exactly like the Channel analysis above: without it the
+        // sweep solved the SAVED project config, which can be path-dead while
+        // the analysis right next to it shows paths.
+        config: useAppStore.getState().pathsConfig,
         sweep_field: field,
         sweep_values: vals,
         tx_id: txId || undefined,
@@ -444,14 +448,23 @@ function ChannelSweepSection({
               ))}
             </div>
           )}
-          <LineChart
-            title={`${metricLabel} vs ${fieldLabel}`}
-            name={`channel_sweep_${field}_${metric}`}
-            xLabel={fieldLabel}
-            yLabel={metricLabel}
-            series={series}
-            legend={false}
-          />
+          {series[0]?.y.every((v) => v == null || !Number.isFinite(v)) ? (
+            <p className="hint">
+              No {metricLabel} data for this link at any swept value — the solver
+              found no ray paths, or the metric is undefined here (K-factor needs
+              both a LoS and an NLoS path). Check TX/RX placement and the enabled
+              mechanisms.
+            </p>
+          ) : (
+            <LineChart
+              title={`${metricLabel} vs ${fieldLabel}`}
+              name={`channel_sweep_${field}_${metric}`}
+              xLabel={fieldLabel}
+              yLabel={metricLabel}
+              series={series}
+              legend={false}
+            />
+          )}
         </>
       )}
     </Section>
@@ -485,6 +498,10 @@ function SpectrogramSection({
     setLoading(true);
     try {
       const res = await api.analyzeSpectrogram(projectId, {
+        // Live config (like Analyze above): without it this section solved the
+        // SAVED project config and could show "no ray paths" for a link the
+        // analysis right above renders fine.
+        config: useAppStore.getState().pathsConfig,
         tx_id: txId || undefined,
         rx_id: rxId || undefined,
         duration_s: durationS,
@@ -492,7 +509,9 @@ function SpectrogramSection({
         window: windowLen,
       });
       setResult(res);
-      notify(`Spectrogram: ${res.times_s.length} frame(s), ${res.num_paths} path(s).`);
+      notify(
+        `Spectrogram ${res.tx_id} → ${res.rx_id}: ${res.times_s.length} frame(s), ${res.num_paths} path(s).`,
+      );
     } catch (err) {
       notifyError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -607,7 +626,9 @@ function SpectrogramSection({
       {result && (
         <>
           <div className="results-meta">
-            backend <span className="mono">{result.backend}</span> · {result.num_paths} path(s) ·{" "}
+            <span className="mono">{result.tx_id}</span> →{" "}
+            <span className="mono">{result.rx_id}</span> · backend{" "}
+            <span className="mono">{result.backend}</span> · {result.num_paths} path(s) ·{" "}
             {result.times_s.length}×{result.doppler_hz.length} (time×Doppler)
           </div>
           {result.warnings.length > 0 && (
@@ -723,7 +744,16 @@ function FlightLogValidationSection({ txId, disabled }: { txId: string; disabled
         measurements: measurements ?? null,
       });
       setReport(rep);
-      notify(`Validated ${rep.stats.n} point(s); RMSE ${rep.stats.rmse_db.toFixed(2)} dB.`);
+      if (rep.stats.n === 0) {
+        // "Validated 0 point(s); RMSE 0.00 dB" read as a clean pass while
+        // every point had failed to solve — say what actually happened.
+        notifyError(
+          "No measurement point produced any ray path — nothing was validated. " +
+            "See the warnings for the solve context.",
+        );
+      } else {
+        notify(`Validated ${rep.stats.n} point(s); RMSE ${rep.stats.rmse_db.toFixed(2)} dB.`);
+      }
     } catch (err) {
       // 400 = no measurements supplied and none stored; surface backend detail.
       notifyError(err instanceof Error ? err.message : String(err));

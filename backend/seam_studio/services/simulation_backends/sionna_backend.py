@@ -14,7 +14,9 @@ from the "radio-material" bsdf plugin the compiler emits.
 
 import json
 import math
+import re
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Optional
 
 from seam_studio.schemas.devices import Antenna, Device
@@ -42,10 +44,38 @@ _NO_OBJECT = 0xFFFFFFFF
 # Substring Sionna RT raises when an ITU material is evaluated outside its
 # ITU-R P.2040 validity band (e.g. the ground family above ~10 GHz at 28 GHz).
 _ITU_OUT_OF_BAND_MARKER = "not defined for this frequency"
-_ITU_OUT_OF_BAND_HINT = (
-    "assign the 28 GHz-safe 'ground_28ghz' (RF Materials tab) or lower the "
-    "frequency into the material's ITU band"
-)
+
+# ITU-R P.2040 validity bands in GHz per Sionna ITU material (inclusive), as
+# hard-coded by sionna-rt 2.0.1 (sionna/rt/radio_materials/itu.py). Mirrored
+# here so the preflight check also runs on the mock/no-sionna path. Outside
+# these bands Sionna raises at solve time and the solve degrades to 0 paths —
+# the 40.0->40.1 GHz "paths stop working" report was brick/plywood's 40 GHz
+# upper bound.
+_ITU_VALIDITY_GHZ: dict[str, tuple[tuple[float, float], ...]] = {
+    "concrete": ((1, 100),),
+    "brick": ((1, 40),),
+    "plasterboard": ((1, 100),),
+    "wood": ((0.001, 100),),
+    "glass": ((0.1, 100), (220, 450)),
+    "ceiling_board": ((1, 100), (220, 450)),
+    "chipboard": ((1, 100),),
+    "plywood": ((1, 40),),
+    "marble": ((1, 60),),
+    "floorboard": ((50, 100),),
+    "metal": ((1, 100),),
+    "very_dry_ground": ((1, 10),),
+    "medium_dry_ground": ((1, 10),),
+    "wet_ground": ((1, 10),),
+}
+
+
+def _itu_bands_for(itu_name: str) -> tuple[tuple[float, float], ...] | None:
+    """Validity bands for a Sionna ITU material name like 'itu_brick'."""
+    return _ITU_VALIDITY_GHZ.get(itu_name.removeprefix("itu_"))
+
+
+def _fmt_bands(bands: tuple[tuple[float, float], ...]) -> str:
+    return " and ".join(f"{lo:g}-{hi:g} GHz" for lo, hi in bands)
 
 
 # ------------------------------------------------- Dr.Jit/Mitsuba compute variant
@@ -140,13 +170,34 @@ def _enrich_solve_failure(message: str) -> str:
     """Append an actionable ITU-out-of-band fix to a stringified solve failure.
 
     Pure string helper (no Sionna needed): when a graceful-degradation warning
-    carries Sionna's "not defined for this frequency" error - an ITU material
-    used above its ITU-R P.2040 band, e.g. the ground family at 28 GHz - add
-    one sentence telling the user how to fix it. Returns the message unchanged
-    otherwise, and never double-appends if the hint is already present."""
-    if _ITU_OUT_OF_BAND_MARKER in message and _ITU_OUT_OF_BAND_HINT not in message:
-        return f"{message}; {_ITU_OUT_OF_BAND_HINT}"
-    return message
+    carries Sionna's "not defined for this frequency" error — an ITU material
+    used outside its ITU-R P.2040 band — name THAT material's valid band
+    instead of the old one-size-fits-all ground_28ghz hint (which was wrong
+    for e.g. brick/plywood failing above 40 GHz). Returns the message
+    unchanged otherwise, and never double-appends."""
+    if _ITU_OUT_OF_BAND_MARKER not in message or "only valid at" in message or (
+        "valid band" in message
+    ):
+        return message
+    # Sionna names the material either as the bsdf id ("itu_brick") or as the
+    # bare ITU name ("ITU material 'medium_dry_ground'"); accept both by
+    # checking every quoted/prefixed candidate against the validity table.
+    candidates = re.findall(r"itu[_-]([a-z_]+)", message) + re.findall(
+        r"'([a-z_]+)'", message
+    )
+    name = next((c for c in candidates if _itu_bands_for(c)), None)
+    bands = _itu_bands_for(name) if name else None
+    if bands:
+        hint = (
+            f"'itu_{name}' is only valid at {_fmt_bands(bands)} — move the "
+            "frequency into that band, or assign an in-band ITU/constant material"
+        )
+    else:
+        hint = (
+            "an ITU material is outside its ITU-R P.2040 valid band at this "
+            "frequency — check the solve warnings for the material and band"
+        )
+    return f"{message}; {hint}"
 
 
 def _steering_from_positions(y_norm, angle_deg: float, np):
@@ -200,7 +251,11 @@ def _codebook_sweep(base, H, h00: float, request, np, tx_y_norm, rx_y_norm) -> N
 # Sionna RT interaction-type codes -> our schema interaction type. Code 0 is
 # "none"; the rest are mapped defensively (unknown codes fall back to
 # reflection) so a version bump cannot crash conversion.
-_INTERACTION_TYPES = {1: "reflection", 2: "scattering", 3: "transmission", 4: "diffraction"}
+# sionna.rt.constants.InteractionType is a BIT-FLAG enum (verified 2.0.1):
+# SPECULAR=1, DIFFUSE=2, REFRACTION=4, DIFFRACTION=8. The old {3: transmission,
+# 4: diffraction} table mislabeled every glass-penetration interaction as
+# "diffraction" (QA a1i15 — transmission looked like it never happened).
+_INTERACTION_TYPES = {1: "reflection", 2: "scattering", 4: "transmission", 8: "diffraction"}
 
 # sionna.rt.PlanarArray patterns/polarizations we validate against (verified via
 # the antenna_pattern / polarization registries in sionna-rt 2.0.1). Unknown
@@ -334,6 +389,32 @@ def _actor_object_key(rt_scene, actor_id: str) -> Optional[str]:
         if candidate in objs:
             return candidate
     return None
+
+
+def _baked_actor_poses(project_dir: Path) -> dict:
+    """Actor poses the RF meshes were baked at, from the compile manifest.
+
+    Returns actor id -> (position, orientation_deg). Empty on a manifest that
+    predates the baked-pose fields (older compiles) or cannot be read.
+    """
+    from seam_studio.services.rf_compiler import MANIFEST_REL
+
+    try:
+        manifest = json.loads(
+            (project_dir / MANIFEST_REL).read_text(encoding="utf-8")
+        )
+    except (OSError, ValueError):
+        return {}
+    poses = {}
+    for entry in manifest.get("actors", []):
+        pos = entry.get("baked_position")
+        if pos is None:
+            continue
+        poses[entry["actor_id"]] = (
+            [float(v) for v in pos],
+            [float(v) for v in entry.get("baked_orientation_deg") or (0.0, 0.0, 0.0)],
+        )
+    return poses
 
 
 def apply_actor_states(
@@ -574,12 +655,30 @@ class SionnaBackend(RayTracingBackend):
 
         if actor_states:
             # Actor states mutate the in-process cached scene; the subprocess
-            # worker loads the XML fresh, where actors sit at authored poses.
+            # worker loads the XML fresh, where actors sit at baked poses.
             warnings.append(
                 f"engine '{engine.id}': per-frame actor states are not applied "
-                "(actors solve at authored poses); use the builtin engine for "
+                "(actors solve at baked poses); use the builtin engine for "
                 "scenario playback"
             )
+        else:
+            baked_poses = _baked_actor_poses(project_dir)
+            drifted = [
+                a.id
+                for a in scene.actors
+                if a.id in baked_poses
+                and (
+                    [float(v) for v in a.position] != baked_poses[a.id][0]
+                    or [float(v) for v in a.orientation_deg] != baked_poses[a.id][1]
+                )
+            ]
+            if drifted:
+                warnings.append(
+                    f"engine '{engine.id}': actor(s) {', '.join(drifted)} moved "
+                    "since the last RF compile; the subprocess worker solves "
+                    "them at the baked pose. Recompile the RF projection or "
+                    "use the builtin engine for up-to-date actor placement"
+                )
 
         txs = [d for d in scene.devices
                if d.kind == "tx" and (config.tx_ids is None or d.id in config.tx_ids)]
@@ -742,17 +841,46 @@ class SionnaBackend(RayTracingBackend):
 
         self._apply_custom_materials(project_dir, rt_scene, warnings)
 
-        # Per-frame actor movement: move each actor's SceneObject to its state
-        # for this frame before solving (scenario / live-sync flows). The scene
-        # is cached across frames, so apply_actor_states measures deltas from
-        # the captured authored pose to keep repeated calls correct.
-        if actor_states:
-            base_actors = {a.id: a for a in scene.actors}
+        # Actor placement: the actor mesh is baked into the XML at the pose it
+        # had at COMPILE time, and the fingerprint deliberately excludes actor
+        # pose (so editor moves don't force recompiles). Deltas must therefore
+        # be measured from the manifest's baked pose, not the (possibly since
+        # moved) authored pose — and every solve repositions every baked actor
+        # to its current pose, so editor drags and live-overlay moves reach the
+        # ray tracer instead of silently solving against stale geometry.
+        baked_poses = _baked_actor_poses(project_dir)
+        base_actors = {}
+        for a in scene.actors:
+            bp = baked_poses.get(a.id)
+            base_actors[a.id] = (
+                a.model_copy(
+                    update={"position": list(bp[0]), "orientation_deg": list(bp[1])}
+                )
+                if bp
+                else a
+            )
+        states = list(actor_states) if actor_states else []
+        explicit = {s.id for s in states}
+        for a in scene.actors:
+            if a.id in explicit or a.id not in baked_poses:
+                continue
+            pos, orient = baked_poses[a.id]
+            if [float(v) for v in a.position] != pos or [
+                float(v) for v in a.orientation_deg
+            ] != orient:
+                states.append(
+                    SimpleNamespace(
+                        id=a.id,
+                        position=list(a.position),
+                        orientation_deg=list(a.orientation_deg),
+                    )
+                )
+        if states:
             if actor_velocities:
                 any_velocity = True
             warnings.extend(
                 apply_actor_states(
-                    rt_scene, actor_states, base_actors, actor_velocities
+                    rt_scene, states, base_actors, actor_velocities
                 )
             )
 
@@ -948,26 +1076,39 @@ class SionnaBackend(RayTracingBackend):
     def _frequency_warnings(
         scene: Scene, library: RFMaterialLibrary, config: SimulationConfig
     ) -> list[str]:
-        """ITU ground models (very_dry/medium_dry/wet) are only defined up to
-        ~10 GHz. Above that, warn and point at the constant ground material."""
-        if config.frequency_hz <= 10e9:
-            return []
-        flagged: set[str] = set()
+        """Preflight every assigned ITU material against its ITU-R P.2040
+        validity band(s). Out of band, Sionna raises at solve time and the run
+        degrades to zero paths — name the material, its band and the affected
+        prims so the user knows exactly what to change. Constant materials are
+        frequency-independent and never flagged."""
+        f_ghz = config.frequency_hz / 1e9
+        offenders: dict[str, list[str]] = {}
         for prim in scene.prims:
             mat = library.get(prim.rf.material_id) if prim.rf.material_id else None
-            if (
-                mat
-                and mat.model == "itu_frequency_dependent"
-                and mat.category == "ground"
-            ):
-                flagged.add(mat.id)
-        if not flagged:
-            return []
-        return [
-            f"frequency {config.frequency_hz/1e9:.1f} GHz exceeds ~10 GHz: ITU "
-            f"ground material(s) {sorted(flagged)} are outside their valid band; "
-            "consider the 'ground_28ghz' constant material for mmWave scenes"
-        ]
+            if not (mat and mat.model == "itu_frequency_dependent" and mat.itu_name):
+                continue
+            bands = _itu_bands_for(mat.itu_name)
+            if bands is None:
+                continue
+            if not any(lo <= f_ghz <= hi for lo, hi in bands):
+                offenders.setdefault(mat.id, []).append(prim.id)
+        out: list[str] = []
+        for mat_id, prim_ids in sorted(offenders.items()):
+            mat = library.get(mat_id)
+            bands = _itu_bands_for(mat.itu_name) if mat and mat.itu_name else None
+            hint = (
+                "assign the 28 GHz-safe 'ground_28ghz' constant material"
+                if mat and mat.category == "ground" and f_ghz > 10
+                else "switch to an in-band ITU material or a constant material"
+            )
+            out.append(
+                f"'{mat_id}' (ITU model, valid {_fmt_bands(bands) if bands else '?'}) "
+                f"is out of band at {f_ghz:g} GHz on {len(prim_ids)} prim(s) "
+                f"({', '.join(prim_ids[:4])}{'…' if len(prim_ids) > 4 else ''}); "
+                f"{hint}, or move the frequency into the valid band — "
+                "out-of-band ITU materials make Sionna solves fail (0 paths)"
+            )
+        return out
 
     @staticmethod
     def _apply_custom_materials(project_dir: Path, rt_scene, warnings: list[str]) -> None:
@@ -1063,6 +1204,11 @@ class SionnaBackend(RayTracingBackend):
             return np.asarray(x.numpy() if hasattr(x, "numpy") else x)
 
         tau = to_np(solved.tau)
+        if tau.ndim == 5:
+            # synthetic_array=False keeps per-antenna delays; reduce to the
+            # reference element (port 0/0) like the coefficient reduction
+            # below, or float(tau[r, t, p]) raises on the 2-D slice.
+            tau = tau[:, 0, :, 0, :]
         # doppler is [num_rx, num_tx, num_paths] for synthetic arrays; for
         # non-synthetic it carries antenna axes we reduce over below. Best-effort:
         # a Paths without .doppler yields None (no Doppler surfaced).
@@ -1105,6 +1251,8 @@ class SionnaBackend(RayTracingBackend):
 
         vertices = to_np(solved.vertices) if hasattr(solved, "vertices") else None
         valid = to_np(solved.valid) if hasattr(solved, "valid") else None
+        if valid is not None and valid.ndim == 5:
+            valid = valid[:, 0, :, 0, :]
         objects = to_np(solved.objects) if hasattr(solved, "objects") else None
         itypes = to_np(solved.interactions) if hasattr(solved, "interactions") else None
 

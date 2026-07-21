@@ -643,6 +643,12 @@ def analyze_channel(
         }
     # Defensive: the backend may (in multi-tx scenes) return extra links.
     paths = [p for p in result.paths if p.tx_id == tx.id and p.rx_id == rx.id]
+    if not paths:
+        # Without this, an all-null KPI response (and a blank sweep chart)
+        # carried no explanation at all.
+        warnings.append(
+            f"no ray paths for link {tx.id} -> {rx.id}; all link KPIs are null"
+        )
     # Per-path Doppler for exactly this link, aligned to ``paths`` order.
     link_doppler: Optional[list[float]] = (
         [doppler_by_path_id[p.path_id] for p in paths]
@@ -953,8 +959,19 @@ def analyze_spectrogram(
         amps = np.asarray(_path_amplitudes(paths), dtype=complex)
         fds = np.asarray(doppler, dtype=float)
         h = (amps[:, None] * np.exp(2j * np.pi * fds[:, None] * t[None, :])).sum(axis=0)
+        if max_abs_dop == 0.0:
+            # Paths exist but nothing moves: energy sits entirely in the 0 Hz
+            # bin, which read as "the spectrogram is broken" in verification.
+            warnings.append(
+                "all TX/RX/actor velocities are zero — a static scene has no "
+                "Doppler (energy only at 0 Hz); set velocity_m_s on a device "
+                "to see shifts"
+            )
     else:
-        warnings.append("no ray paths for this link; spectrogram is the -300 dB floor")
+        warnings.append(
+            f"no ray paths for link {tx.id} -> {rx.id}; spectrogram is the "
+            "-300 dB floor"
+        )
         h = np.zeros(n, dtype=complex)
 
     # Hann-windowed STFT, fftshifted so the Doppler axis ascends through 0 Hz

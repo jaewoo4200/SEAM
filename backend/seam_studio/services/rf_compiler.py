@@ -50,7 +50,8 @@ def rf_fingerprint(scene: Scene, library: RFMaterialLibrary) -> str:
 
     Deliberately EXCLUDES device placement (devices are added at solve time,
     never baked into the XML) and actor pose (scenario/live flows move the
-    cached Sionna actor objects per frame without recompiling).
+    cached Sionna actor objects per frame without recompiling; plain solves
+    reposition actors from the manifest's baked_position at solve time).
     """
     import hashlib
 
@@ -780,8 +781,10 @@ def _manifest(
     # actor material's constant parameters so _apply_custom_materials can
     # re-sync them (their bsdf may be shared with a static group or unique).
     actors = []
+    scene_actor_by_id = {a.id: a for a in scene.actors}
     for actor in actor_exports:
         material = library.get(actor.rf_material_id)
+        scene_actor = scene_actor_by_id.get(actor.actor_id)
         actors.append(
             {
                 "actor_id": actor.actor_id,
@@ -789,6 +792,17 @@ def _manifest(
                 "rf_material_id": actor.rf_material_id,
                 "itu_name": material.itu_name if material else None,
                 "custom_material": _custom_material(material),
+                # Pose the mesh was BAKED at. The fingerprint excludes actor
+                # pose (editor moves must not force recompiles), so solve-time
+                # repositioning measures its delta from this recorded pose.
+                "baked_position": (
+                    [float(v) for v in scene_actor.position] if scene_actor else None
+                ),
+                "baked_orientation_deg": (
+                    [float(v) for v in scene_actor.orientation_deg]
+                    if scene_actor
+                    else None
+                ),
             }
         )
     return {
