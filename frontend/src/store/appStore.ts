@@ -1027,6 +1027,11 @@ export const useAppStore = create<AppState>()((set, get) => {
   let agentPollTimer: ReturnType<typeof setTimeout> | null = null;
   // Periodic radio-map refresh timer (dynamic scenes / live sensing feeds).
   let rmIntervalTimer: ReturnType<typeof setInterval> | null = null;
+  // AI provider status refresh: the header chip must notice a local LLM
+  // (LM Studio / Ollama) starting or stopping AFTER the project was opened.
+  // 45s rides the server-side 30s probe cache, so offline machines pay at
+  // most one ~3s probe per cycle server-side and nothing in the UI blocks.
+  let aiStatusTimer: ReturnType<typeof setInterval> | null = null;
 
   function stopAgentPoll(): void {
     if (agentPollTimer) {
@@ -1458,6 +1463,19 @@ export const useAppStore = create<AppState>()((set, get) => {
         } catch {
           set({ aiStatuses: get().health?.ai_providers ?? [] });
         }
+        // Keep them fresh so the header chip reflects a local LLM starting or
+        // stopping mid-session (silent refresh; failures keep the last list).
+        if (aiStatusTimer) clearInterval(aiStatusTimer);
+        aiStatusTimer = setInterval(() => {
+          const pid = get().projectId;
+          if (!pid) return;
+          api
+            .aiStatus(pid)
+            .then((statuses) => {
+              if (get().projectId === pid) set({ aiStatuses: statuses });
+            })
+            .catch(() => undefined);
+        }, 45_000);
         // Latest stored results; a project without results 404s - that is fine.
         try {
           set({ pathResults: await api.getPathResults(projectId) });

@@ -39,6 +39,7 @@ export default function Toolbar() {
   const setEnvironment = useAppStore((s) => s.setEnvironment);
   const health = useAppStore((s) => s.health);
   const aiStatuses = useAppStore((s) => s.aiStatuses);
+  const aiProvider = useAppStore((s) => s.aiProvider);
   const busy = useAppStore((s) => s.busy);
   const runValidation = useAppStore((s) => s.runValidation);
   const compileRF = useAppStore((s) => s.compileRF);
@@ -55,7 +56,14 @@ export default function Toolbar() {
   const sionnaAvailable =
     health?.backends.some((b) => b.name === "sionna" && b.available) ?? false;
   const providers = aiStatuses.length > 0 ? aiStatuses : (health?.ai_providers ?? []);
-  const activeProvider = providers.find((p) => p.available);
+  // The status list is ordered by the backend's auto-selection chain, so the
+  // first available entry is what a non-forced AI action would use. A provider
+  // the user forced in the AI panel wins when it is actually reachable.
+  const forcedProvider = aiProvider
+    ? providers.find((p) => p.name === aiProvider && p.available)
+    : undefined;
+  const activeProvider = forcedProvider ?? providers.find((p) => p.available);
+  const aiOff = !activeProvider || activeProvider.name === "disabled";
 
   const environment: Environment = scene?.environment ?? "auto";
   const disabled = !projectId || busy !== null;
@@ -147,12 +155,20 @@ export default function Toolbar() {
         />
         {sionnaAvailable ? "Sionna" : "Mock only"}
       </span>
-      <span className="health-chip" title="AI suggestion provider">
+      <span
+        className="health-chip"
+        title={
+          aiOff
+            ? "AI assistance is off"
+            : `AI suggestion provider: ${activeProvider!.name}` +
+              (activeProvider!.model ? ` (${activeProvider.model})` : "")
+        }
+      >
         <span
           className="dot"
-          style={{ background: activeProvider ? "var(--ok)" : "var(--off)" }}
+          style={{ background: aiOff ? "var(--off)" : "var(--ok)" }}
         />
-        {activeProvider ? activeProvider.name : "AI off"}
+        {aiOff ? "AI off" : activeProvider!.name}
       </span>
 
       <span className="toolbar-actions">

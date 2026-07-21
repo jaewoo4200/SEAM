@@ -1298,19 +1298,32 @@ def parse_ai_response(
 
 
 def get_provider_statuses() -> list[AIProviderStatus]:
-    """Availability of every provider. Never raises (health endpoint)."""
+    """Availability of every provider, in AUTO-SELECTION order. Never raises.
+
+    The list order mirrors _select_provider's chain (disabled -> local_openai
+    -> ollama_text -> rule_based), so the FIRST available entry is the
+    provider a non-forced AI action would actually use. The header status
+    chip and the AI panel's provider list both rely on that; rule_based
+    always-available at the front would make the chip lie whenever a local
+    LLM is up (QA follow-up).
+    """
     statuses: list[AIProviderStatus] = []
-    statuses.append(
-        AIProviderStatus(
-            name="rule_based",
-            available=True,
-            model=None,
-            detail="keyword rules; always available",
-        )
-    )
     try:
         settings = get_settings().ai
         off = settings.enabled == "off"
+        statuses.append(
+            AIProviderStatus(
+                name="disabled",
+                available=off,
+                model=None,
+                detail=(
+                    "AI assistance disabled (SEAM_AI_ENABLED=off; legacy alias: "
+                    "SIONNATWIN_AI_ENABLED)"
+                    if off
+                    else "inactive (AI assistance is enabled)"
+                ),
+            )
+        )
         if off:
             statuses.append(
                 AIProviderStatus(
@@ -1359,19 +1372,6 @@ def get_provider_statuses() -> list[AIProviderStatus]:
                     ),
                 )
             )
-        statuses.append(
-            AIProviderStatus(
-                name="disabled",
-                available=off,
-                model=None,
-                detail=(
-                    "AI assistance disabled (SEAM_AI_ENABLED=off; legacy alias: "
-                    "SIONNATWIN_AI_ENABLED)"
-                    if off
-                    else "inactive (AI assistance is enabled)"
-                ),
-            )
-        )
     except Exception as exc:  # settings/probe must never break /health
         statuses.append(
             AIProviderStatus(
@@ -1381,6 +1381,14 @@ def get_provider_statuses() -> list[AIProviderStatus]:
                 detail=f"status probe failed: {exc}",
             )
         )
+    statuses.append(
+        AIProviderStatus(
+            name="rule_based",
+            available=True,
+            model=None,
+            detail="keyword rules; always available",
+        )
+    )
     return statuses
 
 
