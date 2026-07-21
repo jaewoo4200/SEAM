@@ -12,8 +12,9 @@ engines.json at the repo root:
 Relative python paths resolve against the repo root, so the manifest is
 portable across checkouts. Availability is probed by importing sionna.rt in
 the target venv (cached per process; refresh=True re-probes). Jobs run through
-engine_workers/sionna_rt_worker.py with a file-based JSON protocol - see the
-worker docstring. Rationale for version switching: docs/sionna_versions.md.
+seam_studio/engine_workers/sionna_rt_worker.py (packaged; a copy in the
+override dir wins) with a file-based JSON protocol - see the worker
+docstring. Rationale for version switching: docs/sionna_versions.md.
 """
 
 from __future__ import annotations
@@ -32,11 +33,15 @@ from ..schemas.engines import EngineInfo
 # engines.json simply means "builtin engine only".
 _ANCHOR = REPO_ROOT if REPO_ROOT is not None else SEAM_HOME
 ENGINES_FILE = _ANCHOR / "engines.json"
+# User-override location for custom/patched workers; the canonical workers
+# ship inside the package (seam_studio/engine_workers) so pip installs have
+# them too. run_paths_job checks the override dir first, then the package.
 WORKERS_DIR = (
     REPO_ROOT / "backend" / "engine_workers"
     if REPO_ROOT is not None
     else SEAM_HOME / "engine_workers"
 )
+PACKAGED_WORKERS_DIR = Path(__file__).resolve().parents[1] / "engine_workers"
 
 # Importing sionna.rt loads mitsuba/drjit; cold imports take tens of seconds.
 PROBE_TIMEOUT_S = 120
@@ -165,6 +170,8 @@ def run_paths_job(engine: EngineInfo, job: dict, timeout_s: int = JOB_TIMEOUT_S)
     if engine.kind != "subprocess" or not engine.python:
         raise EngineError(f"engine '{engine.id}' is not a subprocess engine")
     worker = WORKERS_DIR / f"{engine.adapter}_worker.py"
+    if not worker.is_file():
+        worker = PACKAGED_WORKERS_DIR / f"{engine.adapter}_worker.py"
     if not worker.is_file():
         raise EngineError(f"no worker for adapter '{engine.adapter}' ({worker})")
 

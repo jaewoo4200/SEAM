@@ -387,7 +387,21 @@ footer{margin-top:40px;border-top:1px solid var(--line)}
 <section id="quickstart" style="padding-top:0">
   <div class="wrap">
     <h2>Quickstart</h2>
-    <h3 class="sec">세 줄이면 켜집니다</h3>
+    <h3 class="sec">실행만 해보고 싶다면 — pip</h3>
+    <div class="qs-grid">
+      <div>
+        <div class="qs-os">모든 OS · Node.js·체크아웃 불필요</div>
+<pre>pip install seam-studio
+seam-studio   <span class="c"># http://127.0.0.1:8000 서빙 + 브라우저 오픈</span></pre>
+      </div>
+      <div>
+        <div class="qs-os">포함되는 것</div>
+<pre><span class="c"># 휠에 빌드된 UI 포함 — Node.js 필요 없음
+# sionna-rt 레이트레이싱이 기본 의존성으로 설치됨
+# 첫 실행 시 ~/.seam/projects에 Sample Demo 생성</span></pre>
+      </div>
+    </div>
+    <h3 class="sec">개발하거나 리포 예제를 쓰려면 — 소스</h3>
     <div class="qs-grid">
       <div>
         <div class="qs-os">Windows · PowerShell</div>
@@ -403,10 +417,10 @@ bash scripts/install.sh
 bash scripts/start.sh   <span class="c"># → http://localhost:5173</span></pre>
       </div>
     </div>
-    <p class="qs-note"><b>사전 요구사항:</b> Python 3.11/3.12/3.14(3.13은 미검증) · Node.js 20+가 PATH에 있으면 됩니다
-      (Windows: <span class="mono">winget install OpenJS.NodeJS.LTS</span> 후 새 터미널).
-      나머지는 설치 스크립트가 전부 준비합니다 — 실제 레이트레이싱 엔진 <span class="mono">sionna-rt</span>도
-      이제 기본 의존성으로 함께 설치되며, Sionna를 불러올 수 없는 환경에서는 내장 Mock 백엔드로 자동 강등됩니다.
+    <p class="qs-note"><b>사전 요구사항:</b> Python 3.11/3.12/3.14(3.13은 미검증). 소스 경로는 Node.js 20+도
+      PATH에 있어야 합니다 (Windows: <span class="mono">winget install OpenJS.NodeJS.LTS</span> 후 새 터미널).
+      나머지는 알아서 준비됩니다 — 실제 레이트레이싱 엔진 <span class="mono">sionna-rt</span>도
+      기본 의존성으로 함께 설치되며, Sionna를 불러올 수 없는 환경에서는 내장 Mock 백엔드로 자동 강등됩니다.
       NVIDIA GPU·로컬 LLM(LM Studio/Ollama)은 선택 업그레이드입니다. 자세한 내용은
       <a href="https://github.com/jaewoo4200/SEAM/blob/master/INSTALL.ko.md">INSTALL.md</a> ·
       <a href="https://github.com/jaewoo4200/SEAM/blob/master/TUTORIAL.ko.md">TUTORIAL.md</a> ·

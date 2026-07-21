@@ -392,7 +392,21 @@ footer{margin-top:40px;border-top:1px solid var(--line)}
 <section id="quickstart" style="padding-top:0">
   <div class="wrap">
     <h2>Quickstart</h2>
-    <h3 class="sec">Up in three lines</h3>
+    <h3 class="sec">Just want to run it? — pip</h3>
+    <div class="qs-grid">
+      <div>
+        <div class="qs-os">Any OS · no Node.js, no checkout</div>
+<pre>pip install seam-studio
+seam-studio   <span class="c"># serves + opens http://127.0.0.1:8000</span></pre>
+      </div>
+      <div>
+        <div class="qs-os">What you get</div>
+<pre><span class="c"># pre-built UI bundled in the wheel — Node.js not needed
+# sionna-rt ray tracing installs as a base dependency
+# first run seeds a Sample Demo project in ~/.seam/projects</span></pre>
+      </div>
+    </div>
+    <h3 class="sec">Developing or using the repo examples? — from source</h3>
     <div class="qs-grid">
       <div>
         <div class="qs-os">Windows · PowerShell</div>
@@ -408,10 +422,11 @@ bash scripts/install.sh
 bash scripts/start.sh   <span class="c"># → http://localhost:5173</span></pre>
       </div>
     </div>
-    <p class="qs-note"><b>Prerequisites:</b> Python 3.11/3.12/3.14 (3.13 untested) · Node.js 20+ on your PATH
+    <p class="qs-note"><b>Prerequisites:</b> Python 3.11/3.12/3.14 (3.13 untested); the source route also
+      needs Node.js 20+ on your PATH
       (Windows: <span class="mono">winget install OpenJS.NodeJS.LTS</span>, then open a new terminal).
-      The install script sets up everything else, including the real <span class="mono">sionna-rt</span>
-      ray-tracing engine — it is a base dependency now, and the app falls back to the bundled Mock backend
+      Everything else is handled for you, including the real <span class="mono">sionna-rt</span>
+      ray-tracing engine — it is a base dependency, and the app falls back to the bundled Mock backend
       whenever Sionna cannot load. An NVIDIA GPU and a local LLM (LM Studio/Ollama) are optional upgrades. See
       <a href="https://github.com/jaewoo4200/SEAM/blob/master/INSTALL.md">INSTALL.md</a> ·
       <a href="https://github.com/jaewoo4200/SEAM/blob/master/TUTORIAL.md">TUTORIAL.md</a> ·

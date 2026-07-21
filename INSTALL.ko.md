@@ -7,7 +7,8 @@ SEAM Studio는 **로컬 우선(local-first)** 워크벤치입니다. GPU도, Sio
 기본 **Mock 백엔드는 CPU만으로 항상 동작**합니다. 먼저 기본 설치로 앱을 띄우고,
 필요할 때 실제 Sionna RT 엔진과 로컬 LLM을 붙이면 됩니다.
 
-- 최단 경로만 원한다면 → [빠른 설치 (한 줄)](#빠른-설치-한-줄)
+- 그냥 실행만 하고 싶다면 → [경로 A — pip 설치](#경로-a--pip-install-seam-studio-소스-체크아웃-불필요)
+- 개발하거나 리포 예제를 쓰려면 → [경로 B — 소스 빠른 설치](#경로-b--소스-빠른-설치-한-줄)
 - 첫 15분 사용법은 → [TUTORIAL.md](TUTORIAL.ko.md)
 - 프로젝트 소개/구조는 → [README.md](README.ko.md)
 
@@ -31,7 +32,7 @@ SEAM Studio는 **로컬 우선(local-first)** 워크벤치입니다. GPU도, Sio
 
 | 항목 | 무엇 | 언제 필요 |
 |---|---|---|
-| **`sionna-rt` 패키지** | 실제 레이 트레이싱 엔진 (Mitsuba 3 / Dr.Jit 포함, 수백 MB) | 실측급 물리 결과가 필요할 때. **기본 설치에 포함되지 않음** — `pip install -e "backend[sionna]"`로 **별도 설치**. 검증 버전 `sionna-rt 2.0.x`. → [아래 섹션](#선택-실제-sionna-rt-엔진-설치) |
+| **`sionna-rt` 패키지** | 실제 레이 트레이싱 엔진 (Mitsuba 3 / Dr.Jit 포함, 수백 MB) | **자동 설치됨** — 소스 설치와 pip 패키지 모두의 기본 의존성 (과거의 `backend[sionna]` extra는 호환용 no-op으로 유지). 검증 버전 `sionna-rt 2.0.x`. → [아래 섹션](#선택-실제-sionna-rt-엔진-설치) |
 | **NVIDIA GPU + 드라이버** | `sionna-rt`의 CUDA(Dr.Jit) 가속 | *패키지 설치 위에 얹는* 추가 레이어. 없으면 Sionna는 CPU/LLVM으로 동작(정상, 다만 느림). macOS는 Metal/MPS 백엔드가 없어 **항상 CPU/LLVM** |
 | **로컬 LLM 서버** | LM Studio(`:1234`) 또는 Ollama(`:11434`) + (VLM) 모델 | AI 재질 어시스트 / SEAM-Agent용. 없으면 규칙 기반으로 폴백. → [로컬 LLM 설정](#선택-로컬-llmvlm--ai-재질-제안) |
 
@@ -52,7 +53,35 @@ SEAM Studio는 **로컬 우선(local-first)** 워크벤치입니다. GPU도, Sio
 
 ---
 
-## 빠른 설치 (한 줄)
+## 경로 A — `pip install seam-studio` (소스 체크아웃 불필요)
+
+앱을 **실행만** 하려는 경우의 최단 경로입니다. 리포 클론도, **Node.js도 필요
+없습니다** (휠에 빌드된 UI가 들어 있고, Sionna RT는 기본 의존성으로 함께
+설치됩니다).
+
+```powershell
+py -3.12 -m venv seam-env            # macOS/Linux: python3.12 -m venv seam-env
+seam-env\Scripts\pip install seam-studio
+seam-env\Scripts\seam-studio         # http://127.0.0.1:8000 서빙 + 브라우저 오픈
+```
+
+첫 실행 시 `~/.seam/projects/`를 만들고 **Sample Demo** 프로젝트를 생성한 뒤
+브라우저를 엽니다. 유용한 플래그: `--port N`, `--project-root DIR`,
+`--no-browser`.
+
+소스 체크아웃 경로(아래 경로 B)와의 차이:
+
+- 사전 생성 데모는 Sample Demo뿐 — Lab Room / FTC Outdoor 예제는 리포
+  체크아웃에만 들어 있습니다.
+- 모든 것이 리포 대신 `~/.seam/`에 앵커됩니다: 프로젝트는
+  `~/.seam/projects/`, (선택) 멀티 엔진 레지스트리는 `~/.seam/engines.json`
+  (엔진 venv는 동일하게 동작하고 워커 스크립트는 패키지에 번들됨).
+- UI는 백엔드가 한 포트에서 함께 서빙합니다(별도 Vite 서버 없음). 프론트엔드
+  수정은 소스 경로가 필요합니다.
+
+업그레이드는 `pip install -U seam-studio`.
+
+## 경로 B — 소스 빠른 설치 (한 줄)
 
 리포지토리 루트에서 실행합니다. venv 생성 → 백엔드/프론트엔드 설치 → 데모
 프로젝트 생성까지 한 번에 처리하며, **여러 번 실행해도 안전(idempotent)**합니다.

@@ -31,9 +31,25 @@ jobs:
           python scripts/build_wheel.py --skip-frontend
 
       - name: Smoke-check the wheel
+        # The SPA bundle is gitignored and only enters the wheel via
+        # scripts/build_wheel.py — a wheel built any other way imports fine
+        # but serves an API-only app, so the SPA presence must be a HARD gate.
         run: |
           pip install backend/dist/*.whl
-          python -c "from seam_studio.main import app; from seam_studio.core import paths; assert (paths.FRONTEND_DIST / 'index.html').is_file() or True; print('wheel imports OK')"
+          python - <<'EOF'
+          from seam_studio.main import app  # noqa: F401 - import must succeed
+          from seam_studio.core import paths
+
+          index = paths.FRONTEND_DIST / "index.html"
+          assert index.is_file(), f"SPA bundle missing from wheel: {index}"
+          # Vite emits index.html + a JS chunk + a CSS file (3 files today);
+          # anything below that means the assets/ dir did not make it in.
+          n_static = sum(1 for p in paths.FRONTEND_DIST.rglob("*") if p.is_file())
+          assert n_static >= 3, f"suspiciously small SPA bundle ({n_static} files)"
+          js = list((paths.FRONTEND_DIST / "assets").glob("*.js"))
+          assert js, "SPA assets/*.js missing from wheel"
+          print(f"wheel imports OK; SPA bundle present ({n_static} files)")
+          EOF
           seam-studio --help
 
       - name: Publish to PyPI

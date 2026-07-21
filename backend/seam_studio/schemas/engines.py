@@ -20,7 +20,7 @@ class EngineInfo(StrictModel):
     label: str
     kind: Literal["builtin", "subprocess"] = "subprocess"
     # Worker adapter. "sionna_rt" drives any standalone sionna-rt 1.x/2.x venv
-    # through engine_workers/sionna_rt_worker.py; legacy TF-era (sionna<=0.19)
+    # through seam_studio/engine_workers/sionna_rt_worker.py; legacy TF-era (sionna<=0.19)
     # adapters are a documented roadmap item.
     adapter: Literal["builtin", "sionna_rt"] = "sionna_rt"
     # Interpreter of the engine venv (subprocess engines only).

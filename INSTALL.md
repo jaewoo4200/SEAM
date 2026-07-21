@@ -8,7 +8,8 @@ upgrades, and the default **Mock backend always runs on CPU alone**. Start by br
 up the app with the basic install, and attach the real Sionna RT engine and a local LLM
 when you need them.
 
-- If you only want the shortest path → [Quick Install (one line)](#quick-install-one-line)
+- Just want to run it → [Route A — pip install](#route-a--pip-install-seam-studio-no-source-checkout)
+- Developing / using the repo examples → [Route B — Quick Install from source](#route-b--quick-install-from-source-one-line)
 - For the first-15-minutes usage → [TUTORIAL.md](TUTORIAL.md)
 - For the project intro/structure → [README.md](README.md)
 
@@ -32,7 +33,7 @@ when you need them.
 
 | Item | What | When needed |
 |---|---|---|
-| **`sionna-rt` package** | The real ray tracing engine (includes Mitsuba 3 / Dr.Jit, several hundred MB) | When you need measurement-grade physics results. **Not included in the basic install** — install **separately** with `pip install -e "backend[sionna]"`. Verified version `sionna-rt 2.0.x`. → [section below](#optional-install-the-real-sionna-rt-engine) |
+| **`sionna-rt` package** | The real ray tracing engine (includes Mitsuba 3 / Dr.Jit, several hundred MB) | **Installed automatically** — it is a base dependency of both the source install and the pip package (the old `backend[sionna]` extra remains as a no-op alias). Verified version `sionna-rt 2.0.x`. → [section below](#optional-install-the-real-sionna-rt-engine) |
 | **NVIDIA GPU + driver** | CUDA (Dr.Jit) acceleration for `sionna-rt` | An additional layer *on top of the package install*. Without it Sionna runs on CPU/LLVM (works fine, just slower). macOS has no Metal/MPS backend, so it is **always CPU/LLVM** |
 | **Local LLM server** | LM Studio (`:1234`) or Ollama (`:11434`) + a (VLM) model | For AI material assist / SEAM-Agent. Falls back to rule-based without it. → [Local LLM setup](#optional-local-llmvlm--ai-material-suggestions) |
 
@@ -54,7 +55,36 @@ when you need them.
 
 ---
 
-## Quick Install (one line)
+## Route A — `pip install seam-studio` (no source checkout)
+
+The shortest path if you just want to **run** the app: no repo clone and **no
+Node.js** (the wheel ships a pre-built UI, and Sionna RT installs as a base
+dependency).
+
+```powershell
+py -3.12 -m venv seam-env            # macOS/Linux: python3.12 -m venv seam-env
+seam-env\Scripts\pip install seam-studio
+seam-env\Scripts\seam-studio         # serves + opens http://127.0.0.1:8000
+```
+
+The first run creates `~/.seam/projects/` and seeds the **Sample Demo**
+project, then opens the browser. Useful flags: `--port N`, `--project-root DIR`,
+`--no-browser`.
+
+Differences vs the source-checkout route (Route B below):
+
+- Only the generated Sample Demo is preseeded — the Lab Room / FTC Outdoor
+  examples ship with the repo checkout, not the wheel.
+- Everything anchors to `~/.seam/` instead of the repo: projects in
+  `~/.seam/projects/`, the optional multi-engine registry at
+  `~/.seam/engines.json` (engine venvs work the same; the worker script is
+  bundled in the package).
+- The UI is served by the backend on one port (no separate Vite dev server),
+  and modifying the frontend requires the source route.
+
+Upgrade with `pip install -U seam-studio`.
+
+## Route B — Quick Install from source (one line)
 
 Run from the repository root. It handles venv creation → backend/frontend install → demo
 project creation all at once, and is **safe to run multiple times (idempotent)**.

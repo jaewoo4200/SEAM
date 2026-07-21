@@ -12,7 +12,9 @@ For per-version differences in features, materials, and physics models, and for
 - **builtin** — Calls sionna-rt installed in the backend venv (`backend/.venv`)
   directly, in-process (default, fastest — shares the scene cache).
 - **subprocess engine** — A different sionna-rt version installed in a separate venv.
-  `backend/engine_workers/sionna_rt_worker.py` runs under that venv's interpreter
+  `seam_studio/engine_workers/sionna_rt_worker.py` (shipped in the package;
+  a copy in `backend/engine_workers/` or `~/.seam/engine_workers/` overrides it)
+  runs under that venv's interpreter
   and returns path results over a file-based JSON protocol (job.json → out.json).
   The PathSolver call is assembled via **signature filtering**, so mechanism
   flags not present in a version are ignored with a warning (it does not crash).
