@@ -275,6 +275,12 @@ backend/.venv/bin/python -m pip install --force-reinstall "sionna-rt>=2.0"
 >   always runs on **CPU/LLVM**. It works fine but is **slower** than a GPU.
 >   If it cannot find CUDA, the app automatically falls back to LLVM and leaves one line in the result
 >   warnings: "CUDA unavailable — using LLVM (CPU) ray tracing …" (harmless).
+>   **One-time macOS prerequisite**: the macOS drjit wheels do NOT bundle the LLVM shared
+>   library, so a solve can fail with *"the LLVM backend is inactive because the LLVM shared
+>   library (libLLVM.dylib) could not be found"*. Point `DRJIT_LIBLLVM_PATH` at a libLLVM:
+>   Xcode CLT ships one at `/Library/Developer/CommandLineTools/usr/lib/libLLVM.dylib`;
+>   otherwise `brew install llvm` and use `"$(brew --prefix llvm)/lib/libLLVM.dylib"`.
+>   Export it (e.g. in `~/.zshrc`) before running `seam-studio`.
 
 ---
 
@@ -383,6 +389,7 @@ cd frontend && npm run build
 | **PowerShell: "running scripts is disabled"** (npm/script execution policy error) | This is due to the execution policy. Prefix the command with `powershell -ExecutionPolicy Bypass -File ...`, or run `Set-ExecutionPolicy -Scope Process Bypass` for the current session only. |
 | **GPU not detected / no CUDA** | This is normal. The app automatically runs on the **Mock backend**. To use real Sionna you need an NVIDIA driver+CUDA (or Sionna's LLVM CPU backend). |
 | **`LLVM ... ` warning log** | Harmless. It is an informational warning emitted when Sionna's Dr.Jit initializes the CPU (LLVM) backend, and does not affect operation. |
+| **macOS: solve fails with "the LLVM backend is inactive … libLLVM.dylib could not be found"** | The macOS drjit wheels do not bundle LLVM. Set `DRJIT_LIBLLVM_PATH` to a libLLVM before launching: Xcode CLT ships `/Library/Developer/CommandLineTools/usr/lib/libLLVM.dylib`; otherwise `brew install llvm` and use `"$(brew --prefix llvm)/lib/libLLVM.dylib"`. |
 | **Status chip shows "Mock only"** | The `sionna-rt` import failed (broken/partial install — reinstall with `pip install --force-reinstall "sionna-rt>=2.0"` in the backend venv) or Sionna disabled itself because there is no CUDA/LLVM backend. The entire workflow remains usable with Mock. |
 | **Status chip shows "AI off"** | Not connected to an AI server (Ollama/LM Studio). Rule-based suggestions still work. To turn on a local LLM see [Local LLM/VLM](#optional-local-llmvlm--ai-material-suggestions) above. |
 | **Project list is empty** | The 3 demos are **included by default** in the repo, so they usually appear right away. The backend searches two locations in order — first the repo root's `projects/` (root #1, where projects imported from the UI are saved; may be empty or absent in a fresh clone), then `examples/demo_project/` which has the committed demos. If it is empty, the backend did not find these two — check that you ran the server from the repo root and did not override `SEAM_PROJECT_ROOTS` (legacy `SIONNATWIN_PROJECT_ROOTS`) in a way that hides the default roots. The [3. (Optional) Regenerate the demo projects](#3-optional-regenerate-the-demo-projects) scripts are only needed to *regenerate* the demos. |
