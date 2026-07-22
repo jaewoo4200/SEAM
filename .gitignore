@@ -39,6 +39,13 @@ examples/**/visual/overlay.glb
 examples/**/visual/scene.pre-split-*.glb
 projects/
 
+# Paper drafts and paper-writing working notes (unpublished research material;
+# must never ship with the open-source repo).
+paper/
+SEAM_Agent_Paper_Writing_Guide.md
+codex-verification.md
+SEAM_Code_Review_Fix_Request_for_Claude.md
+
 # Reference scene bundle (large binary assets; download separately -
 # see INSTALL.md). The old personal-named dir is ignored too.
 reference-bundle/
