@@ -104,7 +104,7 @@ def test_bounds_devices_only_when_no_mesh(tmp_path: Path):
 @pytest.fixture()
 def api_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """TestClient over the scene router with a fresh tmp project root."""
-    monkeypatch.setenv("SIONNATWIN_PROJECT_ROOTS", str(tmp_path))
+    monkeypatch.setenv("SEAM_PROJECT_ROOTS", str(tmp_path))
     get_settings.cache_clear()
     deps.get_store.cache_clear()
     app = FastAPI()

@@ -345,6 +345,46 @@ function GLBScene({ url }: { url: string }) {
     };
   }, [gltf, findPrim, mode, selection, materials, validation, showSlice, sliceZ, hiddenPrims, unlitTextures]);
 
+  // Apply each prim's authored transform to its GLB node so the viewer stays
+  // consistent with the RF compiler, which bakes the same TRS into the
+  // projection. GLB nodes carry world-baked vertices with identity node
+  // transforms, so a local TRS here equals the compiler's world-space matrix.
+  // Face-group prims are skipped: several of them share one GLB node, so a
+  // per-prim transform is not representable (the validator warns instead).
+  useEffect(() => {
+    const touched: THREE.Object3D[] = [];
+    for (const prim of scene?.prims ?? []) {
+      if (!prim.mesh_ref || prim.mesh_ref.face_group != null) continue;
+      const t = prim.transform;
+      const identity =
+        t.translation.every((v) => v === 0) &&
+        t.rotation_quat_xyzw[0] === 0 &&
+        t.rotation_quat_xyzw[1] === 0 &&
+        t.rotation_quat_xyzw[2] === 0 &&
+        t.rotation_quat_xyzw[3] === 1 &&
+        t.scale.every((v) => v === 1);
+      if (identity) continue;
+      const node = gltf.scene.getObjectByName(prim.mesh_ref.mesh_name);
+      if (!node) continue;
+      node.position.set(t.translation[0], t.translation[1], t.translation[2]);
+      node.quaternion.set(
+        t.rotation_quat_xyzw[0],
+        t.rotation_quat_xyzw[1],
+        t.rotation_quat_xyzw[2],
+        t.rotation_quat_xyzw[3],
+      );
+      node.scale.set(t.scale[0], t.scale[1], t.scale[2]);
+      touched.push(node);
+    }
+    return () => {
+      for (const node of touched) {
+        node.position.set(0, 0, 0);
+        node.quaternion.set(0, 0, 0, 1);
+        node.scale.set(1, 1, 1);
+      }
+    };
+  }, [gltf, scene]);
+
   return (
     <primitive
       object={gltf.scene}
@@ -2199,12 +2239,15 @@ function PickController() {
 
   // Dot size scales with the scene (a fixed 0.45 m sphere vanishes on a
   // city-scale terrain); clamped so indoor rooms are not drowned either.
+  // The indoor floor is smaller than the outdoor one — a 0.35 m dot wraps a
+  // room-scale device marker (QA a0i18).
   const bounds = useAppStore((s) => s.sceneBounds);
+  const pickEnv = useAppStore((s) => s.resolvedEnvironment);
   if (!pick) return null;
   const extent = bounds
     ? Math.max(bounds.max[0] - bounds.min[0], bounds.max[1] - bounds.min[1])
     : 40;
-  const dotR = Math.min(3.0, Math.max(0.35, extent * 0.006));
+  const dotR = Math.min(3.0, Math.max(pickEnv === "indoor" ? 0.12 : 0.35, extent * 0.006));
   // Dots render at surface + heightOffset (the actual committed height): on
   // bumpy terrain a surface-level dot half-buries, and the offset dot honestly
   // previews where the UE will fly. A thin stem ties it back to the ground
@@ -2260,6 +2303,14 @@ function TrajPreviewLine() {
   const seg = useAppStore((s) => s.trajPreview);
   const picking = useAppStore((s) => s.pick !== null);
   const three = useThree((s) => s.scene);
+  const scene = useAppStore((s) => s.scene);
+  const env = useAppStore((s) => s.resolvedEnvironment);
+  const markerScale = useAppStore((s) => s.viewport.markerScale);
+  // Waypoint dots follow the device-marker sizing (same 0.4 factor as actor
+  // waypoints) so an indoor scene's preview sphere no longer swallows the RX
+  // marker it starts on (QA a0i18). NOT in the drape memo deps — a marker
+  // slider drag must not re-raycast the drape.
+  const wpR = scene ? deviceMarkerRadius(scene, env, markerScale) * 0.4 : 0.35;
 
   // Recompute only when the waypoints change (NOT per-frame): a raycast per
   // densified sample is cheap once but must not run every render.
@@ -2334,7 +2385,7 @@ function TrajPreviewLine() {
       {/* Markers only at the ORIGINAL waypoints (not the interpolated samples). */}
       {(seg ?? []).map((p, i) => (
         <mesh key={i} position={p} renderOrder={998}>
-          <sphereGeometry args={[0.35, 16, 10]} />
+          <sphereGeometry args={[wpR, 16, 10]} />
           <meshBasicMaterial color={PICK_COLOR} transparent opacity={0.7} depthTest={false} />
         </mesh>
       ))}

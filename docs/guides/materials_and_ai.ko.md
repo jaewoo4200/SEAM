@@ -149,7 +149,13 @@ contains 'wall'", "visual material name contains 'concrete'"), 대안 칩.
 뿐이라 적용 전에는 씬에 아무 일도 일어나지 않고, 적용 후에는
 **↩ Revert** 로 이전 바인딩을 되돌릴 수 있습니다. 카드에는 실측 path
 gain으로 후보 재질을 판별하는 **RF disambiguate** 접이식 섹션도
-있습니다 — 자세한 계약은
+있습니다. **후보 2개 이상**(후보 셀렉트로 추가)과 **측정 행** 몇 개가
+필요한데, 각 행은 실제 측정 1건입니다: 측정한 RX 위치(x/y/z, 미터,
+Z-up)와 그 지점에서 측정한 path gain(dB). 프림 가까이의 점 2–5개를
+쓰세요. "candidates are indistinguishable at these positions"가 나오면
+오류가 아니라 정직한 무승부입니다 — 측정점을 프림 가까이로 옮기세요.
+또한 **mock 백엔드는 ITU 재질을 절대 구분하지 못하므로** 실제 판별에는
+시뮬레이션 config를 Sionna 백엔드로 바꿔야 합니다. 자세한 계약은
 [../ai_assistant.ko.md](../ai_assistant.ko.md)를 보세요.
 
 ### 자연어 지정 규칙

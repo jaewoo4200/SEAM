@@ -148,8 +148,16 @@ bullets ("prim name contains 'wall'", "visual material name contains
 **Apply decisions (N)**. Suggestions are evidence only; nothing touches the
 scene until you apply, and **↩ Revert** restores the previous bindings after
 an apply. Cards also carry an **RF disambiguate** fold-out that ranks
-candidate materials against measured path gains — see
-[../ai_assistant.md](../ai_assistant.md) for the full contract.
+candidate materials against measured path gains. It needs at least **two
+candidates** (add one via the candidate select) and a few **measurement
+rows** — each row is one real measurement: the RX position (x/y/z in meters,
+Z-up) where you measured and the path gain in dB you measured there; use 2–5
+points near the prim. A "candidates are indistinguishable at these
+positions" result is the honest no-winner answer, not an error — move the
+points closer to the prim, and note the **mock backend can never separate
+ITU materials** (switch the simulation config to Sionna for real
+disambiguation). See [../ai_assistant.md](../ai_assistant.md) for the full
+contract.
 
 ### Natural-language assignment rules
 

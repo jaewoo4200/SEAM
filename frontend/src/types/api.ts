@@ -825,6 +825,10 @@ export interface AIModelInfo {
   id: string;
   label: string;
   is_default: boolean;
+  // False when the configured default was injected into the list but a
+  // reachable server's discovery did not include it (picking it will likely
+  // make the server substitute a loaded model).
+  is_available?: boolean;
 }
 
 /** Models available for a single provider ("local_openai", "ollama_text"),

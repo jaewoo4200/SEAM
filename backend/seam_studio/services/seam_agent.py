@@ -401,7 +401,23 @@ def _vlm_chat(
         timeout=settings.vision_timeout_s,
     )
     resp.raise_for_status()
-    msg = resp.json()["choices"][0]["message"]
+    payload = resp.json()
+    served = payload.get("model")
+    requested = model or settings.openai_model
+    if isinstance(served, str) and served:
+        from seam_studio.services.ai_provider import _model_mismatch
+
+        if _model_mismatch(requested, served):
+            # Server substituted a different loaded model; keep going (the
+            # answer may still be usable) but leave an audit trail.
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "VLM server answered with model %r, not the requested %r",
+                served,
+                requested,
+            )
+    msg = payload["choices"][0]["message"]
     return msg.get("content") or msg.get("reasoning_content") or ""
 
 

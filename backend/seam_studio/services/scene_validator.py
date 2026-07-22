@@ -230,6 +230,12 @@ def _mismatch_issue(prim: Prim, library: RFMaterialLibrary) -> Optional[Validati
     )
 
 
+def _is_identity_prim_transform(prim: Prim) -> bool:
+    from seam_studio.services.rf_compiler import _is_identity_transform
+
+    return _is_identity_transform(prim.transform)
+
+
 def _geometry_issues(scene: Scene, project_dir: Optional[Path]) -> list[ValidationIssue]:
     """Best-effort geometry sanity checks against the loaded visual asset.
 
@@ -388,6 +394,28 @@ def validate_scene(
                     "error",
                     "MISSING_MESH_REF",
                     f"mesh_primitive prim {prim.id!r} has no mesh_ref",
+                    prim_id=prim.id,
+                )
+            )
+
+        # Face-group prims share one GLB node, so the viewer cannot display a
+        # per-prim transform there — the RF compiler still bakes it, leaving
+        # screen and RF geometry divergent. Surface that explicitly.
+        if (
+            prim.mesh_ref is not None
+            and prim.mesh_ref.face_group is not None
+            and not _is_identity_prim_transform(prim)
+        ):
+            issues.append(
+                _issue(
+                    "warning",
+                    "PRIM_TRANSFORM_FACE_GROUP",
+                    (
+                        f"prim {prim.id!r} is a face-group split with a "
+                        "non-identity transform: the RF projection bakes the "
+                        "transform but the viewer cannot display it for a "
+                        "shared GLB node — screen and RF geometry will differ"
+                    ),
                     prim_id=prim.id,
                 )
             )

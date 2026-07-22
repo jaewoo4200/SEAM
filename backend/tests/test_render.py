@@ -48,7 +48,7 @@ def render_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     root.mkdir()
     shutil.copytree(DEMO_SRC, root / "sample_demo.seam")
 
-    monkeypatch.setenv("SIONNATWIN_PROJECT_ROOTS", str(root))
+    monkeypatch.setenv("SEAM_PROJECT_ROOTS", str(root))
     config.get_settings.cache_clear()
     deps.get_store.cache_clear()
 

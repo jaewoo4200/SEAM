@@ -243,7 +243,23 @@ def build_vlm_tile_vote_mask(
                     timeout=settings.vision_timeout_s,
                 )
                 resp.raise_for_status()
-                content = resp.json()["choices"][0]["message"].get("content") or ""
+                payload = resp.json()
+                served = payload.get("model")
+                if not records and isinstance(served, str) and served:
+                    # Once per run: audit-trail a server-side model substitution.
+                    from seam_studio.services.ai_provider import _model_mismatch
+
+                    requested = model or settings.openai_model
+                    if _model_mismatch(requested, served):
+                        import logging
+
+                        logging.getLogger(__name__).warning(
+                            "VLM server answered with model %r, not the "
+                            "requested %r",
+                            served,
+                            requested,
+                        )
+                content = payload["choices"][0]["message"].get("content") or ""
                 m = _VLM_WORD_RE.search(content)
                 if m:
                     name = m.group(1).lower()

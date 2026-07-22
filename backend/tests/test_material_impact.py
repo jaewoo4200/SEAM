@@ -194,7 +194,7 @@ def test_material_impact_unknown_rx_raises(tmp_path: Path):
 
 @pytest.fixture()
 def api_client(tmp_path, monkeypatch):
-    monkeypatch.setenv("SIONNATWIN_PROJECT_ROOTS", str(tmp_path))
+    monkeypatch.setenv("SEAM_PROJECT_ROOTS", str(tmp_path))
     get_settings.cache_clear()
     deps.get_store.cache_clear()
     store = deps.get_store()

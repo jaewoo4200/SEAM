@@ -72,7 +72,7 @@ def test_mock_beamforming_stub_scales_with_array(tmp_path: Path):
 @pytest.fixture()
 def bf_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """TestClient over the simulate router with one project holding _scene()."""
-    monkeypatch.setenv("SIONNATWIN_PROJECT_ROOTS", str(tmp_path))
+    monkeypatch.setenv("SEAM_PROJECT_ROOTS", str(tmp_path))
     get_settings.cache_clear()
     deps.get_store.cache_clear()
     store = deps.get_store()

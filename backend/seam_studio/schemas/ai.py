@@ -108,6 +108,10 @@ class AIModelInfo(StrictModel):
     id: str
     label: str
     is_default: bool
+    # False when the id was injected (the configured default) but discovery on
+    # a REACHABLE server did not list it — picking it will likely make the
+    # server substitute a loaded model.
+    is_available: bool = True
 
 
 class ProviderModels(StrictModel):

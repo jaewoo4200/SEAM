@@ -42,8 +42,9 @@ FACE_GROUP_MAP_REL = "mapping/face_group_map.json"
 def rf_fingerprint(scene: Scene, library: RFMaterialLibrary) -> str:
     """Content hash of everything that shapes the compiled RF projection.
 
-    Covers mesh-prim material bindings (incl. per-prim overrides and face
-    groups) and the RF parameters of every referenced material, plus actor
+    Covers mesh-prim material bindings (incl. per-prim overrides, face groups,
+    and non-identity prim transforms — those are baked into the compiled
+    meshes) and the RF parameters of every referenced material, plus actor
     material/shape. Cheap to compute (no mesh loading), so backends can detect
     a stale rf/generated_scene.xml before solving - editing a material in the
     UI otherwise never reaches Sionna, which reads the on-disk projection.
@@ -62,18 +63,25 @@ def rf_fingerprint(scene: Scene, library: RFMaterialLibrary) -> str:
             continue
         if prim.rf.material_id:
             used.add(prim.rf.material_id)
-        prim_rows.append(
-            [
-                prim.id,
-                prim.mesh_ref.asset_uri,
-                prim.mesh_ref.mesh_name,
-                prim.mesh_ref.face_group or "",
-                prim.rf.material_id or "",
-                prim.rf.thickness_m,
-                prim.rf.scattering_coefficient,
-                prim.rf.xpd_coefficient,
-            ]
-        )
+        row = [
+            prim.id,
+            prim.mesh_ref.asset_uri,
+            prim.mesh_ref.mesh_name,
+            prim.mesh_ref.face_group or "",
+            prim.rf.material_id or "",
+            prim.rf.thickness_m,
+            prim.rf.scattering_coefficient,
+            prim.rf.xpd_coefficient,
+        ]
+        # Transforms are baked into the compiled meshes, so an edit must force
+        # a recompile. Appended ONLY when non-identity so every existing
+        # project's fingerprint stays byte-identical (no fleet-wide recompile).
+        if not _is_identity_transform(prim.transform):
+            t = prim.transform
+            row.append(
+                [list(t.translation), list(t.rotation_quat_xyzw), list(t.scale)]
+            )
+        prim_rows.append(row)
     actor_rows = []
     for actor in scene.actors:
         if actor.rf_material_id:
@@ -282,6 +290,35 @@ def _override_plan(
     return f"{rf.material_id}__ovr_{digest}", honored
 
 
+def _is_identity_transform(t) -> bool:
+    """True when a Prim.transform is the identity (the universal convention:
+    world coordinates are baked into the GLB vertex data)."""
+    eps = 1e-12
+    return (
+        all(abs(v) < eps for v in t.translation)
+        and all(abs(v) < eps for v in t.rotation_quat_xyzw[:3])
+        and abs(t.rotation_quat_xyzw[3] - 1.0) < eps
+        and all(abs(v - 1.0) < eps for v in t.scale)
+    )
+
+
+def _transform_matrix(t) -> Optional["object"]:
+    """4x4 world matrix for a non-identity Prim.transform, else None.
+
+    Schema stores the quaternion as xyzw; trimesh's quaternion_matrix expects
+    wxyz — reorder explicitly.
+    """
+    if _is_identity_transform(t):
+        return None
+    import numpy as np
+
+    x, y, z, w = (float(v) for v in t.rotation_quat_xyzw)
+    m = trimesh.transformations.quaternion_matrix([w, x, y, z])
+    m[:3, :3] = m[:3, :3] @ np.diag([float(v) for v in t.scale])
+    m[:3, 3] = [float(v) for v in t.translation]
+    return m
+
+
 def _extract_grouped_meshes(
     project_dir: Path,
     candidates: list[Prim],
@@ -332,6 +369,14 @@ def _extract_grouped_meshes(
                 f"in {prim.mesh_ref.asset_uri}; skipped"
             )
             continue
+        # Bake the prim's authored transform into the RF geometry. Identity is
+        # the universal convention (world coords live in the GLB vertices),
+        # but a scene written via the API may move a prim — the viewer applies
+        # the same TRS, so the compiled projection must too. extract_* returns
+        # fresh meshes, so applying in place is safe.
+        matrix = _transform_matrix(prim.transform)
+        if matrix is not None:
+            mesh.apply_transform(matrix)
         group_id, overrides = _override_plan(
             prim, library.get(prim.rf.material_id), warnings
         )

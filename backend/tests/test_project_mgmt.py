@@ -23,7 +23,7 @@ MOCK_REQ = {"config": {"backend": "mock"}}
 @pytest.fixture()
 def api_client(tmp_path, monkeypatch):
     """TestClient over a temp project root holding one ready-to-simulate project."""
-    monkeypatch.setenv("SIONNATWIN_PROJECT_ROOTS", str(tmp_path))
+    monkeypatch.setenv("SEAM_PROJECT_ROOTS", str(tmp_path))
 
     from seam_studio.api.deps import get_store
     from seam_studio.core.config import get_settings

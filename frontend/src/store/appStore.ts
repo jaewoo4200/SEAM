@@ -1415,17 +1415,16 @@ export const useAppStore = create<AppState>()((set, get) => {
           pickPoints: [],
           sceneBounds: null,
           // Viewport lighting/helpers are per-project (localStorage-backed).
-          // First open (nothing persisted): the slice height defaults to a
-          // human-height cut indoors instead of the outdoor 2 m, and
-          // photo-textured imports open with unlit textures - lit shading
-          // makes real aerial/photogrammetry imagery read dark and patchy.
+          // First open (nothing persisted): env/texture-aware defaults — the
+          // same helper "Reset defaults" uses, so open and Reset agree.
           viewport: (() => {
             const vp = loadViewportSettings(projectId);
             if (!hasViewportSettings(projectId)) {
-              if (resolvedForOpen === "indoor") vp.sliceZ = 1.2;
-              if (scene.prims.some((p) => p.visual?.base_color_texture)) {
-                vp.unlitTextures = true;
-              }
+              const envDefaults = defaultViewportSettings(resolvedForOpen, {
+                textured: scene.prims.some((p) => p.visual?.base_color_texture),
+              });
+              vp.sliceZ = envDefaults.sliceZ;
+              vp.unlitTextures = envDefaults.unlitTextures;
             }
             return vp;
           })(),
@@ -2144,6 +2143,18 @@ export const useAppStore = create<AppState>()((set, get) => {
           attach_texture_crops: sendTextureCrops,
         });
         set({ suggestions: resp, decisions: {} });
+        // Trust warnings must be visible without scrolling the AI panel:
+        // a forced provider that silently fell back, or a server that
+        // answered with a different model, is not a footnote (QA a2i12).
+        const fallback = resp.warnings.find((w) => w.includes("fell back to rule_based"));
+        const substituted = resp.warnings.find(
+          (w) => w.includes("answered with model") || w.includes("not among LM Studio"),
+        );
+        if (fallback) {
+          get().notifyError(fallback);
+        } else if (substituted) {
+          get().notify(substituted);
+        }
       });
     },
 
@@ -2748,7 +2759,13 @@ export const useAppStore = create<AppState>()((set, get) => {
     },
 
     resetViewport: () => {
-      const next = defaultViewportSettings();
+      // Reset to the SAME env/texture-aware defaults a first open would get —
+      // an indoor project must not regress to the outdoor 2 m slice, and a
+      // photo-textured import must keep unlit textures on (QA a0i18).
+      const next = defaultViewportSettings(get().resolvedEnvironment, {
+        textured:
+          get().scene?.prims.some((p) => p.visual?.base_color_texture) ?? false,
+      });
       set({ viewport: next });
       const pid = get().projectId;
       if (pid) saveViewportSettings(pid, next);

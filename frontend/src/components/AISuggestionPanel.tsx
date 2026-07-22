@@ -136,12 +136,18 @@ function DisambiguateForm({ suggestion }: { suggestion: MaterialSuggestion }) {
           alternatives).
         </div>
       )}
+      <div className="hint">
+        Each row is one real measurement: the RX position (x/y/z in meters,
+        Z-up) where you measured, and the path gain in dB you measured there.
+        Use 2–5 points near this prim — points far away cannot separate the
+        candidates.
+      </div>
       <table className="meas-table">
         <thead>
           <tr>
-            <th>x</th>
-            <th>y</th>
-            <th>z</th>
+            <th>x (m)</th>
+            <th>y (m)</th>
+            <th>z (m)</th>
             <th>gain dB</th>
             <th />
           </tr>
@@ -177,7 +183,7 @@ function DisambiguateForm({ suggestion }: { suggestion: MaterialSuggestion }) {
       </table>
       <div className="disambig-actions">
         <button disabled={rows.length >= 5} onClick={addRow}>
-          + row
+          + measurement
         </button>
         <button
           className="primary"
@@ -228,6 +234,17 @@ function DisambiguateForm({ suggestion }: { suggestion: MaterialSuggestion }) {
                 <li key={i}>{w}</li>
               ))}
             </ul>
+          )}
+          {!report.best_material_id && report.candidates.length >= 2 && (
+            <div className="hint">
+              No winner: the candidates predict the same gain at these RX
+              positions — that is the honest answer, not an error. Move the
+              measurement points closer to the prim so its material matters.
+              {report.backend === "mock" &&
+                " The mock backend cannot separate ITU materials at all — " +
+                  "switch the simulation config to the Sionna backend for " +
+                  "real disambiguation."}
+            </div>
           )}
           {report.best_material_id && (
             <button className="primary" onClick={useBest}>
@@ -763,6 +780,7 @@ function ModelPicker() {
           <option key={m.id} value={m.id}>
             {m.label}
             {m.is_default ? " · default" : ""}
+            {m.is_available === false ? " · not loaded" : ""}
           </option>
         ))}
       </select>

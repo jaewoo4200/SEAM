@@ -274,13 +274,12 @@ class MockBackend(RayTracingBackend):
     ) -> Optional[list[float]]:
         """Horizontal anchor for the fake wall bounce.
 
-        Scenes with baked geometry keep prim transforms at identity, so the
-        translation is only trusted when non-zero; otherwise fall back to the
-        mesh bbox center when the visual asset is loadable.
+        The RF compiler bakes prim.transform ON TOP of the GLB-baked world
+        coordinates, so the anchor is bbox center + translation (a delta),
+        matching the real backend's view of the geometry. Identity transforms
+        (the universal convention) leave the bbox center untouched.
         """
         t = prim.transform.translation
-        if abs(t[0]) > 1e-9 or abs(t[1]) > 1e-9:
-            return [t[0], t[1]]
         if prim.mesh_ref is not None:
             try:
                 from seam_studio.services import mesh_tools
@@ -292,9 +291,11 @@ class MockBackend(RayTracingBackend):
                     mesh = mesh_tools.extract_prim_mesh(tm_scene, prim.mesh_ref)
                     if mesh is not None:
                         center = mesh.bounds.mean(axis=0)
-                        return [float(center[0]), float(center[1])]
+                        return [float(center[0] + t[0]), float(center[1] + t[1])]
             except Exception:
                 pass  # anchor is cosmetic; never fail a mock simulation over it
+        if abs(t[0]) > 1e-9 or abs(t[1]) > 1e-9:
+            return [t[0], t[1]]
         return None
 
     def _wall_bounce_path(

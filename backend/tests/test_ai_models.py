@@ -204,7 +204,7 @@ def _make_app() -> FastAPI:
 
 @pytest.fixture()
 def client(tmp_path, monkeypatch, scene):
-    monkeypatch.setenv("SIONNATWIN_PROJECT_ROOTS", str(tmp_path))
+    monkeypatch.setenv("SEAM_PROJECT_ROOTS", str(tmp_path))
     get_settings.cache_clear()
     deps.get_store.cache_clear()
     store = deps.get_store()
@@ -338,7 +338,7 @@ def test_suggest_materials_threads_model_and_records_source(
 ):
     # End-to-end through suggest_materials + the API: model override honored and
     # logged as model_source="user".
-    monkeypatch.setenv("SIONNATWIN_PROJECT_ROOTS", str(tmp_path))
+    monkeypatch.setenv("SEAM_PROJECT_ROOTS", str(tmp_path))
     get_settings.cache_clear()
     deps.get_store.cache_clear()
     store = deps.get_store()

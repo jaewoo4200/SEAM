@@ -209,7 +209,7 @@ def _scene() -> Scene:
 
 @pytest.fixture()
 def api_client(tmp_path, monkeypatch):
-    monkeypatch.setenv("SIONNATWIN_PROJECT_ROOTS", str(tmp_path))
+    monkeypatch.setenv("SEAM_PROJECT_ROOTS", str(tmp_path))
     get_settings.cache_clear()
     deps.get_store.cache_clear()
     store = deps.get_store()
@@ -390,7 +390,7 @@ def _two_tx_scene() -> Scene:
 
 @pytest.fixture()
 def api_client_2tx(tmp_path, monkeypatch):
-    monkeypatch.setenv("SIONNATWIN_PROJECT_ROOTS", str(tmp_path))
+    monkeypatch.setenv("SEAM_PROJECT_ROOTS", str(tmp_path))
     get_settings.cache_clear()
     deps.get_store.cache_clear()
     store = deps.get_store()

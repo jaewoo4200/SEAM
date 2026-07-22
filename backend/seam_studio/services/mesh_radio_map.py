@@ -48,6 +48,14 @@ def _sample_surface(project_dir: Path, scene: Scene, prim, budget: int, warnings
     if mesh is None or len(mesh.faces) == 0:
         warnings.append(f"{prim.id}: mesh empty; skipped")
         return None
+    # Probe surfaces must track the RF geometry: the compiler bakes any
+    # non-identity prim transform into the projection, so sample the same
+    # transformed surface here.
+    from seam_studio.services.rf_compiler import _transform_matrix
+
+    matrix = _transform_matrix(prim.transform)
+    if matrix is not None:
+        mesh.apply_transform(matrix)
     centers = mesh.triangles_center
     normals = mesh.face_normals
     stride = 1

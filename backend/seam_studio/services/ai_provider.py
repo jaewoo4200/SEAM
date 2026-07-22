@@ -611,6 +611,26 @@ def _probe_openai(base_url: str) -> tuple[bool, str]:
 _model_cache: dict[str, tuple[float, list[str]]] = {}
 
 
+def _model_mismatch(requested: str, served: str) -> bool:
+    """True when the server's echoed model is a DIFFERENT model.
+
+    Ids are compared leniently: LM Studio may echo a path-like or shortened
+    variant of the same model ("gemma-4-31b" vs "google/gemma-4-31b"), which
+    must not raise a scary warning. Only a genuinely different id counts.
+    """
+    a = requested.strip().casefold()
+    b = served.strip().casefold()
+    if not a or not b or a == b:
+        return False
+    a_tail = a.rsplit("/", 1)[-1]
+    b_tail = b.rsplit("/", 1)[-1]
+    return not (
+        a_tail == b_tail
+        or a_tail.startswith(b_tail)
+        or b_tail.startswith(a_tail)
+    )
+
+
 def list_openai_models(base_url: str) -> list[str]:
     """Model ids served by an OpenAI-compatible server (LM Studio), or [].
 
@@ -946,14 +966,25 @@ class LocalOpenAIProvider(MaterialSuggestionProvider):
         # fall back to the default and warn (only when the list is non-empty, so
         # an unreachable/empty discovery never blocks a valid request).
         effective_model = model or settings.openai_model
+        available = list_openai_models(settings.openai_url)
         if model is not None:
-            available = list_openai_models(settings.openai_url)
             if available and model not in available:
                 effective_model = settings.openai_model
                 warnings.append(
                     f"requested model '{model}' is not loaded; "
                     f"used default '{settings.openai_model}'"
                 )
+        # The DEFAULT model gets the same honesty check (empty discovery =
+        # unknown, allow): a fresh PC with SOME model loaded in LM Studio
+        # would otherwise fire a request for the configured default and the
+        # server silently answers with whatever is loaded (QA a2i12).
+        if available and effective_model not in available:
+            warnings.append(
+                f"model '{effective_model}' is not among LM Studio's loaded "
+                f"models ({', '.join(available[:3])}"
+                f"{', …' if len(available) > 3 else ''}); the server may "
+                "substitute a loaded model"
+            )
         evidence_list: list[dict] = []
         for prim_id in prim_ids:
             prim = scene.prim_by_id(prim_id)
@@ -981,7 +1012,7 @@ class LocalOpenAIProvider(MaterialSuggestionProvider):
 
             has_image = bool(image_urls)
             try:
-                raw_text = self._call(
+                raw_text, served_model = self._call(
                     evidence_list,
                     library,
                     settings,
@@ -999,16 +1030,28 @@ class LocalOpenAIProvider(MaterialSuggestionProvider):
                         f"vision input rejected by {effective_model}; "
                         "used text only"
                     )
-                    raw_text = self._call(
+                    raw_text, served_model = self._call(
                         evidence_list, library, settings, [], model=effective_model
                     )
                 else:
                     raise
+            # Trust but verify: OpenAI-compatible servers echo the model that
+            # ACTUALLY answered. LM Studio substitutes a loaded model when the
+            # requested id is absent — report the served model, never the
+            # requested one, so results/provenance stay honest (QA a2i12).
+            reported_model = effective_model
+            if served_model and _model_mismatch(effective_model, served_model):
+                warnings.append(
+                    f"AI server answered with model '{served_model}', not the "
+                    f"requested '{effective_model}' — the requested model is "
+                    "likely not loaded in LM Studio"
+                )
+                reported_model = served_model
             suggestions, parse_warnings = parse_ai_response(raw_text, scene, library)
             return MaterialSuggestionResponse(
                 suggestions=suggestions,
                 provider=self.name,
-                model=effective_model,
+                model=reported_model,
                 prompt_version=PROMPT_VERSION,
                 warnings=warnings + parse_warnings,
             )
@@ -1030,13 +1073,15 @@ class LocalOpenAIProvider(MaterialSuggestionProvider):
         num_views: int = 0,
         crop_prim_ids: list[str] | None = None,
         model: str | None = None,
-    ) -> str:
-        """One chat-completions round-trip; returns the raw answer text.
+    ) -> tuple[str, Optional[str]]:
+        """One chat-completions round-trip; returns (answer text, served model).
 
         ``model`` is the effective model for the request body; None keeps the
-        settings default. Raises on transport/HTTP errors so the caller can
-        distinguish a vision-rejection (retry without image) from other
-        failures (fall back to rules)."""
+        settings default. The second element is the payload's ``model`` echo —
+        the model that actually answered (None on servers that omit it).
+        Raises on transport/HTTP errors so the caller can distinguish a
+        vision-rejection (retry without image) from other failures (fall back
+        to rules)."""
         import httpx  # lazy: never required at import time
 
         messages = OllamaTextProvider._build_messages(
@@ -1071,7 +1116,12 @@ class LocalOpenAIProvider(MaterialSuggestionProvider):
             timeout=settings.vision_timeout_s if image_urls else settings.timeout_s,
         )
         response.raise_for_status()
-        return LocalOpenAIProvider._extract_content(response.json())
+        payload = response.json()
+        served = payload.get("model") if isinstance(payload, dict) else None
+        return (
+            LocalOpenAIProvider._extract_content(payload),
+            served if isinstance(served, str) and served else None,
+        )
 
     @staticmethod
     def _extract_content(payload: object) -> str:
@@ -1373,14 +1423,17 @@ def get_provider_statuses() -> list[AIProviderStatus]:
                 )
             )
     except Exception as exc:  # settings/probe must never break /health
-        statuses.append(
-            AIProviderStatus(
-                name="ollama_text",
-                available=False,
-                model=None,
-                detail=f"status probe failed: {exc}",
+        # Keep the full provider roster even when settings are unreadable, so
+        # the AI panel's radio list and a forced selection still render.
+        for name in ("disabled", "local_openai", "ollama_text"):
+            statuses.append(
+                AIProviderStatus(
+                    name=name,
+                    available=False,
+                    model=None,
+                    detail=f"status probe failed: {exc}",
+                )
             )
-        )
     statuses.append(
         AIProviderStatus(
             name="rule_based",
@@ -1407,10 +1460,21 @@ def _provider_models_entry(
     ``is_default`` marks the settings default; ``label`` is the bare model id.
     """
     ids: list[str] = list(discovered)
-    if default_model and default_model not in ids:
+    injected_default = bool(default_model) and default_model not in ids
+    if injected_default:
         ids.insert(0, default_model)
+    # The injected default is marked unavailable ONLY when the server is
+    # reachable and listed models without it — on an unreachable server the
+    # discovery list is empty and nothing is known either way.
     models = [
-        AIModelInfo(id=mid, label=mid, is_default=(mid == default_model))
+        AIModelInfo(
+            id=mid,
+            label=mid,
+            is_default=(mid == default_model),
+            is_available=not (
+                injected_default and mid == default_model and bool(discovered)
+            ),
+        )
         for mid in ids
     ]
     return ProviderModels(
@@ -1662,12 +1726,14 @@ def _call_text_llm(
     system: str,
     user: str,
     force_json: bool = False,
-) -> str:
-    """One text-only round-trip to ``provider_name``; returns the raw answer.
+) -> tuple[str, Optional[str]]:
+    """One text-only round-trip; returns (raw answer, served model echo).
 
     Raises on transport/HTTP errors so the caller can decide how to degrade.
     ``force_json`` asks the server for a JSON object (honored by Ollama's
     ``format`` field; OpenAI-compatible servers get a response_format hint).
+    The served-model echo lets callers detect LM Studio substituting a
+    different loaded model (None when the server omits it).
     """
     import httpx  # lazy: never required at import time
 
@@ -1702,7 +1768,12 @@ def _call_text_llm(
                 timeout=settings.timeout_s,
             )
         response.raise_for_status()
-        return LocalOpenAIProvider._extract_content(response.json())
+        payload = response.json()
+        served = payload.get("model") if isinstance(payload, dict) else None
+        return (
+            LocalOpenAIProvider._extract_content(payload),
+            served if isinstance(served, str) and served else None,
+        )
     # ollama_text
     body = {
         "model": model,
@@ -1720,8 +1791,12 @@ def _call_text_llm(
     response.raise_for_status()
     payload = response.json()
     if isinstance(payload, dict):
-        return (payload.get("message") or {}).get("content") or ""
-    return ""
+        served = payload.get("model")
+        return (
+            (payload.get("message") or {}).get("content") or "",
+            served if isinstance(served, str) and served else None,
+        )
+    return "", None
 
 
 # Few-shot examples in the SEAM spec style: a natural-language instruction and
@@ -1877,12 +1952,19 @@ def _resolve_text_model(
     default_model = (
         settings.openai_model if provider_name == "local_openai" else settings.text_model
     )
-    if model is None:
-        return default_model, []
     if provider_name == "local_openai":
         available = list_openai_models(settings.openai_url)
     else:
         available = list_ollama_models(settings.base_url)
+    if model is None:
+        # The default is not exempt from honesty: warn when discovery shows
+        # it is not actually loaded (empty discovery = unknown, allow).
+        if available and default_model not in available:
+            return default_model, [
+                f"model '{default_model}' is not among the server's loaded "
+                "models; it may substitute a loaded model"
+            ]
+        return default_model, []
     if available and model not in available:
         return default_model, [
             f"requested model '{model}' is not loaded; used default '{default_model}'"
@@ -1910,11 +1992,18 @@ def generate_assignment_rules(
     provider_name, _ = _select_text_provider(provider)
     effective_model, model_warnings = _resolve_text_model(provider_name, model)
     system, user = _build_rule_generation_messages(instruction, library)
-    raw_text = _call_text_llm(
+    raw_text, served_model = _call_text_llm(
         provider_name, effective_model, system, user, force_json=True
     )
+    reported_model = effective_model
+    if served_model and _model_mismatch(effective_model, served_model):
+        model_warnings = model_warnings + [
+            f"AI server answered with model '{served_model}', not the "
+            f"requested '{effective_model}'"
+        ]
+        reported_model = served_model
     rules, warnings = parse_rules_response(raw_text, library)
-    return rules, provider_name, effective_model, model_warnings + warnings
+    return rules, provider_name, reported_model, model_warnings + warnings
 
 
 def _rule_matches_prim(rule: AssignmentRule, prim: Prim) -> Optional[str]:
@@ -2037,5 +2126,13 @@ def explain_validation_warnings(
     """
     provider_name, model = _select_text_provider()
     system, user = _build_explain_messages(issues, library)
-    explanation = _call_text_llm(provider_name, model, system, user)
-    return explanation.strip(), provider_name, model, []
+    explanation, served_model = _call_text_llm(provider_name, model, system, user)
+    warnings: list[str] = []
+    reported_model = model
+    if served_model and model and _model_mismatch(model, served_model):
+        warnings.append(
+            f"AI server answered with model '{served_model}', not the "
+            f"requested '{model}'"
+        )
+        reported_model = served_model
+    return explanation.strip(), provider_name, reported_model, warnings

@@ -228,7 +228,7 @@ def test_ollama_provider_falls_back_to_rules_on_connect_error(
 
 
 def test_get_provider_statuses_never_raises_with_unreachable_ollama(monkeypatch):
-    monkeypatch.setenv("SIONNATWIN_OLLAMA_URL", "http://127.0.0.1:9")
+    monkeypatch.setenv("SEAM_OLLAMA_URL", "http://127.0.0.1:9")
     get_settings.cache_clear()
 
     def _raise(*args, **kwargs):
@@ -381,8 +381,8 @@ def test_local_openai_connect_error_falls_back_to_rules(scene, library, monkeypa
 
 
 def test_get_provider_statuses_includes_local_openai(monkeypatch):
-    monkeypatch.setenv("SIONNATWIN_OPENAI_URL", "http://127.0.0.1:9/v1")
-    monkeypatch.setenv("SIONNATWIN_OPENAI_MODEL", "google/gemma-4-31b")
+    monkeypatch.setenv("SEAM_OPENAI_URL", "http://127.0.0.1:9/v1")
+    monkeypatch.setenv("SEAM_OPENAI_MODEL", "google/gemma-4-31b")
     get_settings.cache_clear()
 
     def _raise(*args, **kwargs):
@@ -425,7 +425,7 @@ def _make_app() -> FastAPI:
 
 @pytest.fixture()
 def client(tmp_path, monkeypatch, scene):
-    monkeypatch.setenv("SIONNATWIN_PROJECT_ROOTS", str(tmp_path))
+    monkeypatch.setenv("SEAM_PROJECT_ROOTS", str(tmp_path))
     get_settings.cache_clear()
     deps.get_store.cache_clear()
     store = deps.get_store()

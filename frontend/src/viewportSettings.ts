@@ -85,7 +85,15 @@ export const DIRECTIONAL_RADIUS_M = 60;
  * az=-34, el=54 so the sliders land on sensible integers while keeping the
  * light in essentially the same place.
  */
-export function defaultViewportSettings(): ViewportSettings {
+export function defaultViewportSettings(
+  env?: "indoor" | "outdoor",
+  opts?: { textured?: boolean },
+): ViewportSettings {
+  // Zero-arg calls keep the historical (outdoor-shaped) values — they are the
+  // normalization fallback for persisted settings and must stay stable. The
+  // env/textured variants make "Reset defaults" agree with first-open
+  // defaults: indoor scenes slice at desk height, photo-textured imports
+  // keep unlit textures on (QA a0i18).
   return {
     ambientIntensity: 0.75,
     hemisphereIntensity: 0.5,
@@ -98,7 +106,7 @@ export function defaultViewportSettings(): ViewportSettings {
     showAxes: true,
     showOverlay: true,
     showSlice: false,
-    sliceZ: 2.0,
+    sliceZ: env === "indoor" ? 1.2 : 2.0,
     markerScale: 2.0,
     rmColormap: "jet",
     rmVmin: null,
@@ -107,7 +115,7 @@ export function defaultViewportSettings(): ViewportSettings {
     zoomToCursor: true,
     orbitSelection: false,
     fogEnabled: false,
-    unlitTextures: false,
+    unlitTextures: !!opts?.textured,
   };
 }
 
