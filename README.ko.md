@@ -37,7 +37,7 @@ Unified RF-Visual Scene Graph          (scene.seam.json - source of truth; legac
 > Node.js도 필요 없습니다(휠에 빌드된 UI가 들어 있고, 실제 `sionna-rt` 엔진도 함께
 > 설치됨). 상세: [INSTALL.md → 경로 A](INSTALL.ko.md#경로-a--pip-install-seam-studio-소스-체크아웃-불필요).
 >
-> **사전 요구사항(소스 경로):** **Python 3.11/3.12/3.14**와 **Node.js 20+**가
+> **사전 요구사항(소스 경로):** **Python 3.11–3.14**와 **Node.js 20+**가
 > PATH에 있어야 합니다. 그 외엔 아무것도 필요 없습니다 — `sionna-rt`는 기본
 > 의존성으로 설치되고, GPU·로컬 LLM은 그 위에 얹는 선택 업그레이드입니다.
 > 전체 목록은 [INSTALL.md 사전 요구사항](INSTALL.ko.md#사전-요구사항-prerequisites) 참조.

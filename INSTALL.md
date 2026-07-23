@@ -21,7 +21,7 @@ when you need them.
 
 | Item | Required version | Notes |
 |---|---|---|
-| Python | **3.11 / 3.12 / 3.14** | Backend (FastAPI). Check with `python --version`. 3.11 is exercised by CI on Linux, 3.12 is the everyday dev interpreter, and 3.14 passed a clean-venv install + `sionna.rt` load on Windows (2026-07-15). **3.13 is untested** but its Mitsuba/Dr.Jit wheels exist, so it is expected to work |
+| Python | **3.11 – 3.14** | Backend (FastAPI). Check with `python --version`. 3.11 is exercised by CI on Linux, 3.12 is the everyday dev interpreter, 3.13 passed a clean-venv `pip install seam-studio` on macOS (2026-07-23), and 3.14 passed a clean-venv install + `sionna.rt` load on Windows (2026-07-15) |
 | Node.js | **20 or higher** (18+ generally works too) | Frontend (Vite). Check with `node --version`. Not preinstalled on most machines — Windows: `winget install OpenJS.NodeJS.LTS`, macOS: `brew install node@20`, Ubuntu: NodeSource 20.x. Open a **new** terminal after installing. Only needed for this source-checkout route; the pip package ships a pre-built frontend and needs no Node |
 | OS | Windows 10/11, Linux, macOS | Scripts are provided for both Windows (PowerShell) and Unix (bash) |
 
@@ -407,4 +407,4 @@ cd frontend && npm run build
 - Architecture / scene format: [docs/architecture.md](docs/architecture.md),
   [docs/scene_format.md](docs/scene_format.md)
 
-> Verified interpreters: Python 3.11 (CI, Linux) / 3.12 (dev, Windows) / 3.14 (clean-venv install check, Windows); 3.13 untested. Node 20+.
+> Verified interpreters: Python 3.11 (CI, Linux) / 3.12 (dev, Windows) / 3.13 (clean-venv pip install, macOS) / 3.14 (clean-venv install check, Windows). Node 20+.
