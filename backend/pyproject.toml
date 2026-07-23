@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 # The pip-installable app: `pip install seam-studio` → `seam-studio` serves
 # the backend + the bundled frontend. ("seam" itself is taken on PyPI.)
 name = "seam-studio"
-version = "0.1.0"
+version = "0.1.1"
 description = "SEAM Studio - unified RF-visual scene authoring, RF material assignment, and Sionna RT digital-twin simulation workbench"
 readme = "README.md"
 requires-python = ">=3.11"
