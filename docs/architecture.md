@@ -215,8 +215,9 @@ capability-aware UIs. `capabilities` is a stable, additive feature map
 JSON frames as work runs: a one-shot `{type: "connected"}` hello, then
 `compile_started` / `compile_finished`, `simulation_started` /
 `simulation_finished` (the finished frames carry `kind`, `result_id`,
-`backend`). The frontend uses these to show live compile/solve progress without
-polling.
+`backend`; beamforming — the one solve that stores no result set — omits
+`result_id`). The frontend uses these to show live compile/solve progress
+without polling.
 
 ### AODT import
 

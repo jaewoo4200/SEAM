@@ -116,6 +116,28 @@ def test_events_websocket_streams_simulation_events(api_client):
         assert "simulation_finished" in types
 
 
+def test_events_websocket_streams_beamforming_events(api_client):
+    """Beamforming — the one solve that persists nothing — must still stream
+    started/finished (it used to bypass the solve guard entirely, leaving the
+    client with zero feedback; macOS QA 2026-07-23)."""
+    api_client.post(
+        "/api/projects", json={"name": "WS BF", "project_id": "ws_bf"}
+    )
+    with api_client.websocket_connect("/ws/projects/ws_bf/events") as ws:
+        assert ws.receive_json()["type"] == "connected"
+        resp = api_client.post(
+            "/api/projects/ws_bf/simulate/beamforming",
+            json={"config": {"backend": "mock"}},
+        )
+        assert resp.status_code == 200, resp.text
+        frames = [ws.receive_json() for _ in range(2)]
+        assert [f["type"] for f in frames] == [
+            "simulation_started",
+            "simulation_finished",
+        ]
+        assert all(f["kind"] == "beamforming" for f in frames)
+
+
 # ----------------------------------------------------------- AODT import
 
 

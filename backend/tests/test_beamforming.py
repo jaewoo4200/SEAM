@@ -128,6 +128,63 @@ def test_beamforming_route_unknown_ids_400(bf_client):
     assert resp.status_code == 400
 
 
+# --------------------------------------------- solve-guard events (macOS QA)
+
+
+@pytest.fixture()
+def event_log(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
+    """Record every publish_event payload (the guard and the beamforming route
+    both import it lazily, so patching the module attribute intercepts all)."""
+    events: list[dict] = []
+    monkeypatch.setattr(
+        "seam_studio.services.events.publish_event",
+        lambda project_id, evt: events.append(evt),
+    )
+    return events
+
+
+def test_beamforming_route_publishes_solve_events(bf_client, event_log):
+    # Beamforming was the only solve endpoint outside _solve_guard, so the UI
+    # had no started/finished feedback at all (macOS diagnosis 2026-07-23).
+    resp = bf_client.post(
+        "/api/projects/bf_test/simulate/beamforming",
+        json={"config": {"backend": "mock"}},
+    )
+    assert resp.status_code == 200, resp.text
+    assert [e["type"] for e in event_log] == [
+        "simulation_started",
+        "simulation_finished",
+    ]
+    assert all(e["kind"] == "beamforming" for e in event_log)
+    assert event_log[1]["backend"] == "mock"
+
+
+def test_beamforming_validation_error_emits_no_events(bf_client, event_log):
+    # 400s reject before the guard: a started event with no terminal event
+    # would stick the client's progress card forever.
+    resp = bf_client.post(
+        "/api/projects/bf_test/simulate/beamforming",
+        json={"config": {"backend": "mock"}, "tx_id": "ghost_tx"},
+    )
+    assert resp.status_code == 400
+    assert event_log == []
+
+
+def test_solve_guard_emits_failed_on_http_exception(event_log):
+    # Guard contract: ALWAYS a terminal event. A mid-solve HTTPException (e.g.
+    # resolve_backend 409) used to leave started dangling.
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException):
+        with simulate_api._solve_guard("bf_test", "paths"):
+            raise HTTPException(status_code=409, detail="backend unavailable")
+    assert [e["type"] for e in event_log] == [
+        "simulation_started",
+        "simulation_failed",
+    ]
+    assert event_log[1]["error"] == "backend unavailable"
+
+
 @pytest.mark.skipif(not sionna_available(), reason="sionna-rt not installed")
 def test_sionna_beamforming_real_gain(tmp_path: Path):
     proj = tmp_path / "bf.sionnatwin"

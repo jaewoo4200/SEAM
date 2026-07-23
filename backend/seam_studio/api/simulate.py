@@ -82,7 +82,17 @@ def _solve_guard(project_id: str, kind: str) -> Iterator[None]:
                     {"type": "simulation_failed", "kind": kind, "cancelled": True},
                 )
                 raise HTTPException(status_code=409, detail="solve cancelled") from exc
-            except HTTPException:
+            except HTTPException as exc:
+                # A mid-solve 404/409 must still emit the terminal event, or
+                # the client's progress card (armed by started above) sticks.
+                publish_event(
+                    project_id,
+                    {
+                        "type": "simulation_failed",
+                        "kind": kind,
+                        "error": str(exc.detail),
+                    },
+                )
                 raise
             except Exception as exc:
                 publish_event(
@@ -552,7 +562,27 @@ def simulate_beamforming(
     except BackendUnavailableError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     project_dir = store.resolve(project_id)
-    return backend.simulate_beamforming(project_dir, scene, library, config, request)
+    # Validation stays outside the guard so a 400/409 never announces a solve.
+    # The guard matters beyond UX here: the backend swaps devices on the shared
+    # cached rt_scene, so an unguarded beamforming racing another solve on the
+    # same project could silently corrupt both results.
+    with _solve_guard(project_id, "beamforming"):
+        result = backend.simulate_beamforming(
+            project_dir, scene, library, config, request
+        )
+        # Beamforming is the one solve that does not persist a result set, so
+        # the finished event (elsewhere published by _persist_result) is manual.
+        from seam_studio.services.events import publish_event
+
+        publish_event(
+            project_id,
+            {
+                "type": "simulation_finished",
+                "kind": "beamforming",
+                "backend": backend.name,
+            },
+        )
+        return result
 
 
 @router.post("/projects/{project_id}/simulate/cancel")

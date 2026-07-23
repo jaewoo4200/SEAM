@@ -209,8 +209,9 @@ GET /api/projects/{id}/results/paths         latest = last ref of that kind
 JSON 프레임을 스트리밍합니다. 일회성 `{type: "connected"}` 인사에 이어
 `compile_started` / `compile_finished`, `simulation_started` /
 `simulation_finished`가 오고, finished 프레임에는 `kind`, `result_id`,
-`backend`가 담깁니다. 프런트엔드는 이를 이용해 폴링 없이 컴파일·솔브 진행 상황을
-실시간으로 보여줍니다.
+`backend`가 담깁니다(결과 세트를 저장하지 않는 유일한 솔브인 빔포밍은
+`result_id` 없이 옵니다). 프런트엔드는 이를 이용해 폴링 없이 컴파일·솔브 진행
+상황을 실시간으로 보여줍니다.
 
 ### AODT 임포트
 

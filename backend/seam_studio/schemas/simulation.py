@@ -97,7 +97,9 @@ class BeamformingRequest(StrictModel):
     - codebook_sweep: hardware-style beam training - a DFT codebook of azimuth
       beams is scanned on BOTH ends (default -60..60 deg, 5 deg step =>
       25x25 = 625 beam pairs, the ICC'26 paper setup) and the strongest pair
-      is selected. This is what real mmWave systems do.
+      is selected. This is what real mmWave systems do. The sweep costs ONE
+      ray-tracing solve: every pair is a NumPy product on the resulting channel
+      matrix H, so the pair count does not multiply solve time.
     - tx_mrt: transmit maximum-ratio combining toward the first RX antenna
       (full CSI at TX only).
     - svd: both-ends SVD precoding (full-CSI upper bound, not implementable

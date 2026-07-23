@@ -257,6 +257,7 @@ function solveProgressLabel(kind: string): string {
     radio_map_sweep: "Altitude sweep",
     scenario: "Simulating scenario",
     paths: "Simulating paths",
+    beamforming: "Computing beamforming",
   };
   return map[kind] ?? "Solving";
 }
