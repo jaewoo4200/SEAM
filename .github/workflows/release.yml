@@ -52,8 +52,19 @@ jobs:
           EOF
           seam-studio --help
 
+      - name: Verify wheel version matches the tag
+        # skip-existing below makes duplicate tag-event deliveries green, but
+        # it would also silently "succeed" if the tag were pushed without
+        # bumping pyproject (stale wheel already on PyPI). Pin the two together.
+        run: |
+          ls "backend/dist/seam_studio-${GITHUB_REF_NAME#v}-py3-none-any.whl"
+
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           password: ${{ secrets.PYPI_API_TOKEN }}
           packages-dir: backend/dist
+          # GitHub delivered the v0.1.1 tag event twice (8 min apart); the
+          # loser's re-upload 400s on PyPI. Duplicates are a no-op, not a
+          # failure — the version gate above keeps this from hiding real skips.
+          skip-existing: true
