@@ -42,6 +42,10 @@ projects/
 # Paper drafts and paper-writing working notes (unpublished research material;
 # must never ship with the open-source repo).
 paper/
+# Paper experiment harness + its rendered views / ground-truth assets
+# (unpublished research tooling; paths documented in paper/experiment_plan.md).
+scripts/exp/
+paper_assets/
 SEAM_Agent_Paper_Writing_Guide.md
 codex-verification.md
 SEAM_Code_Review_Fix_Request_for_Claude.md
