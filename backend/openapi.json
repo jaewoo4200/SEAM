@@ -9,6 +9,11 @@
             "title": "Id",
             "type": "string"
           },
+          "is_available": {
+            "default": true,
+            "title": "Is Available",
+            "type": "boolean"
+          },
           "is_default": {
             "title": "Is Default",
             "type": "boolean"
@@ -85,9 +90,93 @@
         "title": "AIProviderStatus",
         "type": "object"
       },
+      "AISettingsResponse": {
+        "additionalProperties": false,
+        "description": "GET/PUT /api/settings/ai — the effective local-AI endpoints/models.\n\nValues are what get_settings() actually resolved (overlay > env >\ndefault), already trailing-slash normalized.",
+        "properties": {
+          "env_fields": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Env Fields",
+            "type": "array"
+          },
+          "ollama_url": {
+            "title": "Ollama Url",
+            "type": "string"
+          },
+          "openai_model": {
+            "title": "Openai Model",
+            "type": "string"
+          },
+          "openai_url": {
+            "title": "Openai Url",
+            "type": "string"
+          },
+          "overlay_fields": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Overlay Fields",
+            "type": "array"
+          },
+          "overlay_path": {
+            "title": "Overlay Path",
+            "type": "string"
+          },
+          "text_model": {
+            "title": "Text Model",
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "ollama_url",
+          "text_model",
+          "openai_url",
+          "openai_model",
+          "overlay_path"
+        ],
+        "title": "AISettingsResponse",
+        "type": "object"
+      },
+      "AISettingsUpdate": {
+        "additionalProperties": false,
+        "description": "PUT /api/settings/ai — a FULL replacement of the AI overlay block.\n\nEvery field is sent every time; an empty/whitespace value CLEARS that\nfield's overlay entry so it falls back to env/default. Full replacement\n(rather than a patch) keeps \"omitted\" and \"cleared\" from being\nindistinguishable under StrictModel defaults.",
+        "properties": {
+          "ollama_url": {
+            "default": "",
+            "title": "Ollama Url",
+            "type": "string"
+          },
+          "openai_model": {
+            "default": "",
+            "title": "Openai Model",
+            "type": "string"
+          },
+          "openai_url": {
+            "default": "",
+            "title": "Openai Url",
+            "type": "string"
+          },
+          "text_model": {
+            "default": "",
+            "title": "Text Model",
+            "type": "string"
+          }
+        },
+        "title": "AISettingsUpdate",
+        "type": "object"
+      },
       "Actor": {
         "additionalProperties": false,
-        "description": "Movable RF-relevant object (car, human, custom scatterer).\n\nCompiled as its OWN Sionna shape (never merged into material groups) so\nthe backend can move it per frame and re-solve; may carry devices (V2X).",
+        "description": "Movable RF-relevant object (car, human, UAV, custom scatterer).\n\nCompiled as its OWN Sionna shape (never merged into material groups) so\nthe backend can move it per frame and re-solve; may carry devices (V2X).",
         "properties": {
           "attached_device_ids": {
             "items": {
@@ -118,7 +207,8 @@
             "enum": [
               "car",
               "human",
-              "custom"
+              "custom",
+              "uav"
             ],
             "title": "Kind",
             "type": "string"
@@ -1146,7 +1236,7 @@
       },
       "BeamformingRequest": {
         "additionalProperties": false,
-        "description": "Body for POST /simulate/beamforming.\n\nModes (explicitly defined):\n- codebook_sweep: hardware-style beam training - a DFT codebook of azimuth\n  beams is scanned on BOTH ends (default -60..60 deg, 5 deg step =>\n  25x25 = 625 beam pairs, the ICC'26 paper setup) and the strongest pair\n  is selected. This is what real mmWave systems do.\n- tx_mrt: transmit maximum-ratio combining toward the first RX antenna\n  (full CSI at TX only).\n- svd: both-ends SVD precoding (full-CSI upper bound, not implementable\n  by beam-sweep hardware).",
+        "description": "Body for POST /simulate/beamforming.\n\nModes (explicitly defined):\n- codebook_sweep: hardware-style beam training - a DFT codebook of azimuth\n  beams is scanned on BOTH ends (default -60..60 deg, 5 deg step =>\n  25x25 = 625 beam pairs, the ICC'26 paper setup) and the strongest pair\n  is selected. This is what real mmWave systems do. The sweep costs ONE\n  ray-tracing solve: every pair is a NumPy product on the resulting channel\n  matrix H, so the pair count does not multiply solve time.\n- tx_mrt: transmit maximum-ratio combining toward the first RX antenna\n  (full CSI at TX only).\n- svd: both-ends SVD precoding (full-CSI upper bound, not implementable\n  by beam-sweep hardware).",
         "properties": {
           "config": {
             "anyOf": [
@@ -1462,6 +1552,45 @@
         "title": "Body_import_project_api_projects_import_post",
         "type": "object"
       },
+      "Body_start_project_import_api_projects_import_start_post": {
+        "properties": {
+          "environment": {
+            "default": "auto",
+            "title": "Environment",
+            "type": "string"
+          },
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "description": "Mitsuba/Sionna scene .xml or bundle .zip",
+            "title": "File",
+            "type": "string"
+          },
+          "meshes": {
+            "default": [],
+            "items": {
+              "contentMediaType": "application/octet-stream",
+              "type": "string"
+            },
+            "title": "Meshes",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file",
+          "project_id",
+          "name"
+        ],
+        "title": "Body_start_project_import_api_projects_import_start_post",
+        "type": "object"
+      },
       "Body_upload_mask_api_projects__project_id__segmentation_upload_mask_post": {
         "properties": {
           "file": {
@@ -1715,6 +1844,11 @@
             "title": "Num Time Steps",
             "type": "integer"
           },
+          "persist": {
+            "default": false,
+            "title": "Persist",
+            "type": "boolean"
+          },
           "rx_id": {
             "anyOf": [
               {
@@ -1827,6 +1961,17 @@
             ],
             "title": "Coherence Time Ms"
           },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
           "distance_3d_m": {
             "title": "Distance 3D M",
             "type": "number"
@@ -1933,6 +2078,11 @@
             },
             "title": "Pl Models",
             "type": "array"
+          },
+          "result_id": {
+            "default": "unsaved",
+            "title": "Result Id",
+            "type": "string"
           },
           "rms_delay_spread_ns": {
             "anyOf": [
@@ -2063,6 +2213,247 @@
           "distance_3d_m"
         ],
         "title": "ChannelAnalysisResult",
+        "type": "object"
+      },
+      "ChannelSweepPoint": {
+        "additionalProperties": false,
+        "description": "One sweep row: the swept value plus the scalar KPIs of that analysis.\nAll KPIs inherit the null-ness of ChannelAnalysisResult (e.g. no LoS path\n-> k_factor_db is None).",
+        "properties": {
+          "k_factor_db": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "K Factor Db"
+          },
+          "path_loss_db": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path Loss Db"
+          },
+          "rms_delay_spread_ns": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rms Delay Spread Ns"
+          },
+          "rss_dbm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rss Dbm"
+          },
+          "sinr_db": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sinr Db"
+          },
+          "snr_db": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snr Db"
+          },
+          "value": {
+            "title": "Value",
+            "type": "number"
+          }
+        },
+        "required": [
+          "value"
+        ],
+        "title": "ChannelSweepPoint",
+        "type": "object"
+      },
+      "ChannelSweepRequest": {
+        "additionalProperties": false,
+        "description": "Body for POST /analyze/channel-sweep: the normal single-link selection\nplus the field to sweep and the values to evaluate it at. Nothing is\npersisted; each point is an independent on-demand analysis.",
+        "properties": {
+          "config": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SimulationConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "config_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Config Id"
+          },
+          "num_cfr_points": {
+            "default": 128,
+            "maximum": 4096.0,
+            "minimum": 8.0,
+            "title": "Num Cfr Points",
+            "type": "integer"
+          },
+          "num_time_steps": {
+            "default": 1,
+            "maximum": 64.0,
+            "minimum": 1.0,
+            "title": "Num Time Steps",
+            "type": "integer"
+          },
+          "persist": {
+            "default": false,
+            "title": "Persist",
+            "type": "boolean"
+          },
+          "rx_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rx Id"
+          },
+          "sampling_frequency_hz": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sampling Frequency Hz"
+          },
+          "subcarrier_spacing_khz": {
+            "default": 30.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Subcarrier Spacing Khz",
+            "type": "number"
+          },
+          "sweep_field": {
+            "enum": [
+              "frequency_hz",
+              "tx_power_dbm",
+              "bandwidth_hz",
+              "noise_figure_db"
+            ],
+            "title": "Sweep Field",
+            "type": "string"
+          },
+          "sweep_values": {
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 50,
+            "minItems": 2,
+            "title": "Sweep Values",
+            "type": "array"
+          },
+          "tx_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tx Id"
+          }
+        },
+        "required": [
+          "sweep_field",
+          "sweep_values"
+        ],
+        "title": "ChannelSweepRequest",
+        "type": "object"
+      },
+      "ChannelSweepResult": {
+        "additionalProperties": false,
+        "properties": {
+          "backend": {
+            "title": "Backend",
+            "type": "string"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/ChannelSweepPoint"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "rx_id": {
+            "title": "Rx Id",
+            "type": "string"
+          },
+          "sweep_field": {
+            "enum": [
+              "frequency_hz",
+              "tx_power_dbm",
+              "bandwidth_hz",
+              "noise_figure_db"
+            ],
+            "title": "Sweep Field",
+            "type": "string"
+          },
+          "tx_id": {
+            "title": "Tx Id",
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "tx_id",
+          "rx_id",
+          "backend",
+          "sweep_field"
+        ],
+        "title": "ChannelSweepResult",
         "type": "object"
       },
       "CirTap": {
@@ -2407,6 +2798,23 @@
       "DatasetSampling": {
         "additionalProperties": false,
         "properties": {
+          "actor_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Id"
+          },
+          "dt_s": {
+            "default": 0.1,
+            "exclusiveMinimum": 0.0,
+            "title": "Dt S",
+            "type": "number"
+          },
           "end_m": {
             "anyOf": [
               {
@@ -2509,6 +2917,26 @@
               }
             ],
             "title": "Start M"
+          },
+          "waypoints": {
+            "anyOf": [
+              {
+                "items": {
+                  "items": {
+                    "type": "number"
+                  },
+                  "maxItems": 3,
+                  "minItems": 3,
+                  "type": "array"
+                },
+                "minItems": 2,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Waypoints"
           }
         },
         "title": "DatasetSampling",
@@ -2987,6 +3415,28 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "HandoverConfig": {
+        "additionalProperties": false,
+        "description": "Per-step serving-TX re-selection along a trajectory (3GPP A3-style).\n\nA candidate TX must beat the current serving RSS by ``hysteresis_db`` for\n``time_to_trigger_steps`` consecutive steps before the UE hands over; the\ntrigger step's metrics already use the new serving cell.",
+        "properties": {
+          "hysteresis_db": {
+            "default": 3.0,
+            "maximum": 30.0,
+            "minimum": 0.0,
+            "title": "Hysteresis Db",
+            "type": "number"
+          },
+          "time_to_trigger_steps": {
+            "default": 1,
+            "maximum": 20.0,
+            "minimum": 1.0,
+            "title": "Time To Trigger Steps",
+            "type": "integer"
+          }
+        },
+        "title": "HandoverConfig",
+        "type": "object"
+      },
       "HealthBackendStatus": {
         "additionalProperties": false,
         "properties": {
@@ -3308,6 +3758,90 @@
           }
         },
         "title": "ImportDevice",
+        "type": "object"
+      },
+      "ImportJobStarted": {
+        "additionalProperties": false,
+        "description": "202 response of POST /projects/import/start.",
+        "properties": {
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id"
+        ],
+        "title": "ImportJobStarted",
+        "type": "object"
+      },
+      "ImportJobStatus": {
+        "additionalProperties": false,
+        "description": "Polling snapshot of a background import job.\n\n``project``/``warnings`` are populated once ``status == \"done\"``;\n``error`` once ``status == \"error\"`` (same message the sync endpoint's\nHTTPException would have carried).",
+        "properties": {
+          "done": {
+            "title": "Done",
+            "type": "integer"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "phase": {
+            "title": "Phase",
+            "type": "string"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProjectInfo"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "enum": [
+              "running",
+              "done",
+              "error"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "warnings": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "job_id",
+          "status",
+          "phase",
+          "done",
+          "total"
+        ],
+        "title": "ImportJobStatus",
         "type": "object"
       },
       "ImportOSMRequest": {
@@ -3932,6 +4466,53 @@
         "title": "MaterialImpactRequest",
         "type": "object"
       },
+      "MaterialImportRequest": {
+        "additionalProperties": false,
+        "description": "A material pack, as produced by the export endpoint.\n\nDefined here (not in schemas/materials.py) so the export/import flow is\nfully contained in this router.",
+        "properties": {
+          "materials": {
+            "items": {
+              "$ref": "#/components/schemas/RFMaterial"
+            },
+            "minItems": 1,
+            "title": "Materials",
+            "type": "array"
+          }
+        },
+        "required": [
+          "materials"
+        ],
+        "title": "MaterialImportRequest",
+        "type": "object"
+      },
+      "MaterialImportResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "imported": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Imported",
+            "type": "array"
+          },
+          "renamed": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Renamed",
+            "type": "object"
+          },
+          "skipped": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Skipped",
+            "type": "array"
+          }
+        },
+        "title": "MaterialImportResponse",
+        "type": "object"
+      },
       "MaterialSuggestion": {
         "additionalProperties": false,
         "properties": {
@@ -4118,6 +4699,17 @@
             "minItems": 3,
             "title": "Rx Position",
             "type": "array"
+          },
+          "time_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time S"
           },
           "tx_id": {
             "anyOf": [
@@ -4826,8 +5418,11 @@
             "title": "Project Id"
           },
           "template": {
-            "const": "empty",
             "default": "empty",
+            "enum": [
+              "empty",
+              "demo"
+            ],
             "title": "Template",
             "type": "string"
           }
@@ -4836,6 +5431,37 @@
           "name"
         ],
         "title": "ProjectCreateRequest",
+        "type": "object"
+      },
+      "ProjectDuplicateRequest": {
+        "additionalProperties": false,
+        "description": "Body for POST /projects/{id}/duplicate. Both fields optional.\n\nDefined here rather than in app.schemas.projects because the model is\npurely a transport detail of this route (nothing else consumes it).",
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "new_id": {
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9_\\-]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Id"
+          }
+        },
+        "title": "ProjectDuplicateRequest",
         "type": "object"
       },
       "ProjectInfo": {
@@ -4893,6 +5519,22 @@
           "path"
         ],
         "title": "ProjectInfo",
+        "type": "object"
+      },
+      "ProjectRenameRequest": {
+        "additionalProperties": false,
+        "description": "Body for PATCH /projects/{id}.",
+        "properties": {
+          "name": {
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "ProjectRenameRequest",
         "type": "object"
       },
       "ProviderModels": {
@@ -5465,6 +6107,58 @@
         "title": "RadioMapResultSet",
         "type": "object"
       },
+      "RadioMapSweepRequest": {
+        "additionalProperties": false,
+        "description": "Coverage-vs-altitude: one planar radio map per requested height.",
+        "properties": {
+          "config": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SimulationConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "config_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Config Id"
+          },
+          "heights_m": {
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 12,
+            "minItems": 1,
+            "title": "Heights M",
+            "type": "array"
+          },
+          "threshold_db": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Threshold Db"
+          }
+        },
+        "required": [
+          "heights_m"
+        ],
+        "title": "RadioMapSweepRequest",
+        "type": "object"
+      },
       "RayPath": {
         "additionalProperties": false,
         "properties": {
@@ -5635,6 +6329,25 @@
         "title": "RenderRequest",
         "type": "object"
       },
+      "ResultLabelRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          }
+        },
+        "title": "ResultLabelRequest",
+        "type": "object"
+      },
       "ResultSetRef": {
         "additionalProperties": false,
         "description": "Pointer from the scene to a stored result artifact.",
@@ -5660,10 +6373,22 @@
               "radio_map",
               "mesh_radio_map",
               "trajectory",
-              "scenario"
+              "scenario",
+              "channel"
             ],
             "title": "Kind",
             "type": "string"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
           },
           "result_id": {
             "title": "Result Id",
@@ -5672,6 +6397,17 @@
           "simulation_config_id": {
             "title": "Simulation Config Id",
             "type": "string"
+          },
+          "size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size Bytes"
           },
           "uri": {
             "title": "Uri",
@@ -5707,7 +6443,8 @@
                     "radio_map",
                     "mesh_radio_map",
                     "trajectory",
-                    "scenario"
+                    "scenario",
+                    "channel"
                   ],
                   "type": "string"
                 },
@@ -6006,6 +6743,17 @@
             "title": "Result Sets",
             "type": "array"
           },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
           "scene_id": {
             "title": "Scene Id",
             "type": "string"
@@ -6098,6 +6846,72 @@
           "max"
         ],
         "title": "SceneBounds",
+        "type": "object"
+      },
+      "SceneImportResult": {
+        "additionalProperties": false,
+        "description": "Imported project plus any non-fatal import warnings.\n\nWarnings (skipped meshes, out-of-band material remaps, degenerate faces)\nused to be written only to provenance.json where they were easy to miss —\na scene could import \"successfully\" with buildings silently dropped. The UI\nsurfaces this list as a toast right after import.",
+        "properties": {
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "modified_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Modified At"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "scene_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scene Id"
+          },
+          "warnings": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "project_id",
+          "name",
+          "path"
+        ],
+        "title": "SceneImportResult",
         "type": "object"
       },
       "SegmentationApplyRequest": {
@@ -6565,6 +7379,176 @@
         "title": "SimulationConfig",
         "type": "object"
       },
+      "SpectrogramRequest": {
+        "additionalProperties": false,
+        "description": "Body for POST /analyze/spectrogram: Doppler-time spectrogram of the\ncoherent channel h(t) (ISAC sensing readout). Deliberately its own schema:\nthe spectrogram needs thousands of time samples, far beyond the 64-step cap\nthe normal analysis keeps for its inline envelope.",
+        "properties": {
+          "config": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SimulationConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "config_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Config Id"
+          },
+          "duration_s": {
+            "default": 1.0,
+            "exclusiveMinimum": 0.0,
+            "maximum": 10.0,
+            "title": "Duration S",
+            "type": "number"
+          },
+          "hop": {
+            "anyOf": [
+              {
+                "maximum": 512.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Hop"
+          },
+          "rx_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rx Id"
+          },
+          "sampling_frequency_hz": {
+            "default": 500.0,
+            "exclusiveMinimum": 0.0,
+            "maximum": 4000.0,
+            "title": "Sampling Frequency Hz",
+            "type": "number"
+          },
+          "tx_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tx Id"
+          },
+          "window": {
+            "default": 128,
+            "maximum": 512.0,
+            "minimum": 8.0,
+            "title": "Window",
+            "type": "integer"
+          }
+        },
+        "title": "SpectrogramRequest",
+        "type": "object"
+      },
+      "SpectrogramResult": {
+        "additionalProperties": false,
+        "properties": {
+          "backend": {
+            "title": "Backend",
+            "type": "string"
+          },
+          "doppler_hz": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Doppler Hz",
+            "type": "array"
+          },
+          "frequency_hz": {
+            "title": "Frequency Hz",
+            "type": "number"
+          },
+          "hop": {
+            "title": "Hop",
+            "type": "integer"
+          },
+          "magnitude_db": {
+            "items": {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "title": "Magnitude Db",
+            "type": "array"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "num_paths": {
+            "default": 0,
+            "title": "Num Paths",
+            "type": "integer"
+          },
+          "rx_id": {
+            "title": "Rx Id",
+            "type": "string"
+          },
+          "sampling_frequency_hz": {
+            "title": "Sampling Frequency Hz",
+            "type": "number"
+          },
+          "times_s": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Times S",
+            "type": "array"
+          },
+          "tx_id": {
+            "title": "Tx Id",
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          },
+          "window": {
+            "title": "Window",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "tx_id",
+          "rx_id",
+          "backend",
+          "frequency_hz",
+          "sampling_frequency_hz",
+          "window",
+          "hop"
+        ],
+        "title": "SpectrogramResult",
+        "type": "object"
+      },
       "SplitPartsRequest": {
         "additionalProperties": false,
         "description": "Split a merged multi-building mesh into its connected components.\n\nParts below ``min_faces`` (and beyond the ``max_parts`` largest) pool into\none ``rest`` sub-mesh. New prims inherit the source prim's RF binding and\ntexture verbatim; undo works via the returned batch_id like any split.",
@@ -7000,6 +7984,17 @@
             ],
             "title": "Rss Dbm"
           },
+          "serving_tx_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Serving Tx Id"
+          },
           "sinr_db": {
             "anyOf": [
               {
@@ -7100,6 +8095,16 @@
             "title": "Follow Terrain",
             "type": "boolean"
           },
+          "handover": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HandoverConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "include_paths": {
             "default": false,
             "title": "Include Paths",
@@ -7186,6 +8191,211 @@
           }
         },
         "title": "TrajectorySimulateRequest",
+        "type": "object"
+      },
+      "TrajectoryValidationPoint": {
+        "additionalProperties": false,
+        "properties": {
+          "aligned_predicted_db": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Aligned Predicted Db"
+          },
+          "error_db": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Db"
+          },
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "measured_db": {
+            "title": "Measured Db",
+            "type": "number"
+          },
+          "path_count": {
+            "default": 0,
+            "title": "Path Count",
+            "type": "integer"
+          },
+          "position": {
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "title": "Position",
+            "type": "array"
+          },
+          "predicted_db": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Predicted Db"
+          },
+          "time_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time S"
+          }
+        },
+        "required": [
+          "index",
+          "position",
+          "measured_db"
+        ],
+        "title": "TrajectoryValidationPoint",
+        "type": "object"
+      },
+      "TrajectoryValidationReport": {
+        "additionalProperties": false,
+        "properties": {
+          "backend": {
+            "default": "",
+            "title": "Backend",
+            "type": "string"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/TrajectoryValidationPoint"
+            },
+            "title": "Points",
+            "type": "array"
+          },
+          "stats": {
+            "$ref": "#/components/schemas/TrajectoryValidationStats"
+          },
+          "tx_id": {
+            "title": "Tx Id",
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "tx_id",
+          "stats"
+        ],
+        "title": "TrajectoryValidationReport",
+        "type": "object"
+      },
+      "TrajectoryValidationRequest": {
+        "additionalProperties": false,
+        "description": "Body for POST /calibrate/validate-trajectory.\n\nReplay a measurement log's RX positions through the trajectory solver and\nscore measured vs predicted path gain per point with the same level-offset\nalignment the material calibration uses (measured-vs-predicted along the\nflight/drive log — the measurement round-trip check).",
+        "properties": {
+          "config": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SimulationConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "config_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Config Id"
+          },
+          "max_points": {
+            "default": 200,
+            "minimum": 1.0,
+            "title": "Max Points",
+            "type": "integer"
+          },
+          "measurements": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/MeasurementSample"
+                },
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measurements"
+          },
+          "tx_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tx Id"
+          }
+        },
+        "title": "TrajectoryValidationRequest",
+        "type": "object"
+      },
+      "TrajectoryValidationStats": {
+        "additionalProperties": false,
+        "properties": {
+          "level_offset_db": {
+            "title": "Level Offset Db",
+            "type": "number"
+          },
+          "mean_abs_error_db": {
+            "title": "Mean Abs Error Db",
+            "type": "number"
+          },
+          "n": {
+            "title": "N",
+            "type": "integer"
+          },
+          "rmse_db": {
+            "title": "Rmse Db",
+            "type": "number"
+          }
+        },
+        "required": [
+          "level_offset_db",
+          "rmse_db",
+          "mean_abs_error_db",
+          "n"
+        ],
+        "title": "TrajectoryValidationStats",
         "type": "object"
       },
       "Transform": {
@@ -7488,7 +8698,7 @@
   "info": {
     "description": "Unified RF-visual scene authoring, RF material assignment, Sionna RT projection compilation, and simulation result APIs.",
     "title": "SEAM Studio",
-    "version": "0.1.0"
+    "version": "0.1.1"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -7631,7 +8841,7 @@
         ]
       },
       "post": {
-        "description": "Create a new project folder under the first configured project root.\n\n``template`` is accepted for forward compatibility, but only \"empty\" is\nmaterialized today: \"demo\" also yields an empty project (the demo content\ngenerator lives in examples/scripts and is not wired into the API yet).",
+        "description": "Create a new project folder under the first configured project root.\n\n``template=\"demo\"`` generates the Sample Demo content (toy urban scene\nGLB, TX/RX pair, car + pedestrian actors) programmatically — this is how\na pip install gets its first project without shipping binary assets.",
         "operationId": "create_project_api_projects_post",
         "requestBody": {
           "content": {
@@ -7689,7 +8899,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProjectInfo"
+                  "$ref": "#/components/schemas/SceneImportResult"
                 }
               }
             },
@@ -7748,6 +8958,91 @@
           }
         },
         "summary": "Import Osm",
+        "tags": [
+          "projects"
+        ]
+      }
+    },
+    "/api/projects/import/jobs/{job_id}": {
+      "get": {
+        "description": "Poll a background import job started by POST /projects/import/start.",
+        "operationId": "get_import_job_status_api_projects_import_jobs__job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportJobStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Import Job Status",
+        "tags": [
+          "projects"
+        ]
+      }
+    },
+    "/api/projects/import/start": {
+      "post": {
+        "description": "Kick off a background import; poll GET /projects/import/jobs/{job_id}.\n\nSame multipart contract as POST /projects/import, but returns 202 with a\njob id immediately so the UI can show phase/progress instead of a frozen\nbutton during a minutes-long campus bundle import. Validation and the\nduplicate-id check run BEFORE the job is registered, so obvious mistakes\nstill fail fast with the familiar 400/409 instead of a doomed job.",
+        "operationId": "start_project_import_api_projects_import_start_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_start_project_import_api_projects_import_start_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportJobStarted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Project Import",
         "tags": [
           "projects"
         ]
@@ -7833,6 +9128,57 @@
           }
         },
         "summary": "Get Project",
+        "tags": [
+          "projects"
+        ]
+      },
+      "patch": {
+        "description": "Rename a project's scene (display name only - the folder/id is stable).",
+        "operationId": "rename_project_api_projects__project_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectRenameRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectInfo"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rename Project",
         "tags": [
           "projects"
         ]
@@ -8451,6 +9797,59 @@
         ]
       }
     },
+    "/api/projects/{project_id}/analyze/channel-sweep": {
+      "post": {
+        "description": "Link parameter sweep: the single-link analysis re-run per sweep value\nwith the swept field patched (nothing persisted).",
+        "operationId": "analyze_channel_sweep_api_projects__project_id__analyze_channel_sweep_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChannelSweepRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelSweepResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Analyze Channel Sweep",
+        "tags": [
+          "channel"
+        ]
+      }
+    },
     "/api/projects/{project_id}/analyze/material-impact": {
       "post": {
         "description": "Material-aware vs single-material-baseline CFR comparison (NMSE,\ncosine similarity, dRSS, capacity proxy) - the KICS 2026 evaluation.",
@@ -8499,6 +9898,66 @@
           }
         },
         "summary": "Analyze Material Impact",
+        "tags": [
+          "channel"
+        ]
+      }
+    },
+    "/api/projects/{project_id}/analyze/spectrogram": {
+      "post": {
+        "description": "Doppler-time spectrogram of the coherent channel h(t) (ISAC sensing\nreadout): STFT over the per-path Doppler superposition of one link.",
+        "operationId": "analyze_spectrogram_api_projects__project_id__analyze_spectrogram_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/SpectrogramRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Request"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpectrogramResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Analyze Spectrogram",
         "tags": [
           "channel"
         ]
@@ -8754,6 +10213,66 @@
         ]
       }
     },
+    "/api/projects/{project_id}/calibrate/validate-trajectory": {
+      "post": {
+        "description": "Measured-vs-predicted path gain along the flight/drive log.\n\nThe measurement points (inline, or the project's stored import when the\nbody carries none) are time-ordered and their RX positions replayed as the\nwaypoints of the trajectory solver; per-point predictions are then aligned\nto the measurements with the calibration module's level-offset math and\nscored (RMSE/MAE). Computed on demand - no result set is persisted.",
+        "operationId": "validate_trajectory_api_projects__project_id__calibrate_validate_trajectory_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/TrajectoryValidationRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Request"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrajectoryValidationReport"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Validate Trajectory",
+        "tags": [
+          "calibrate"
+        ]
+      }
+    },
     "/api/projects/{project_id}/compile/sionna": {
       "post": {
         "operationId": "compile_sionna_api_projects__project_id__compile_sionna_post",
@@ -8997,6 +10516,66 @@
         "summary": "Download Dataset File",
         "tags": [
           "datasets"
+        ]
+      }
+    },
+    "/api/projects/{project_id}/duplicate": {
+      "post": {
+        "description": "Fork a project: copy its whole folder to a sibling under the same root.\n\nEVERYTHING is copied - visual assets, rf/ artifacts, results/, ai/ logs,\nprovenance - so the duplicate is a true fork of the project's full state.\nThe copy always gets a modern ``<new_id>.seam`` folder name (even when the\nsource is a legacy ``.sionnatwin``); the scene file inside keeps whatever\nfilename was copied, which the store loads and saves back transparently.\nAfter the copy, the scene's scene_id (and name, if provided) is rewritten\nvia the store so the fork is self-consistent (PUT /scene id checks pass).\nNo in-memory store state needs cloning: the store rescans roots per call,\nand per-project locks/live overlays are keyed by id, which the fork does\nnot share.",
+        "operationId": "duplicate_project_api_projects__project_id__duplicate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ProjectDuplicateRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectInfo"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Duplicate Project",
+        "tags": [
+          "projects"
         ]
       }
     },
@@ -9263,6 +10842,65 @@
         "summary": "Render Project",
         "tags": [
           "render"
+        ]
+      }
+    },
+    "/api/projects/{project_id}/results/channel": {
+      "get": {
+        "description": "Latest (or a specific) persisted channel analysis — lets the Metrics\ndashboard reload what the user last analyzed instead of starting empty.",
+        "operationId": "get_channel_result_api_projects__project_id__results_channel_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "result_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Result Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelAnalysisResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Channel Result",
+        "tags": [
+          "simulate"
         ]
       }
     },
@@ -9670,6 +11308,68 @@
         ]
       }
     },
+    "/api/projects/{project_id}/results/{result_id}/label": {
+      "patch": {
+        "description": "Name a stored run (\"before-glass-facade\"); labeled runs survive prune.\n\nPassing label=null clears the name.",
+        "operationId": "label_result_api_projects__project_id__results__result_id__label_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "result_id",
+            "required": true,
+            "schema": {
+              "title": "Result Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResultLabelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResultSetRef"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Label Result",
+        "tags": [
+          "simulate"
+        ]
+      }
+    },
     "/api/projects/{project_id}/rf/assign": {
       "post": {
         "operationId": "assign_api_projects__project_id__rf_assign_post",
@@ -9811,6 +11511,118 @@
           }
         },
         "summary": "Get Materials",
+        "tags": [
+          "materials"
+        ]
+      }
+    },
+    "/api/projects/{project_id}/rf/materials/export": {
+      "get": {
+        "description": "Export custom materials as a pack for import into another project.\n\n``ids`` is a comma-separated selection; omitted means every non-builtin\nmaterial in the library. Builtin materials are never exported - they ship\nwith every install - but explicitly requesting an unknown id is a 404.",
+        "operationId": "export_materials_api_projects__project_id__rf_materials_export_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "ids",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ids"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RFMaterialLibrary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export Materials",
+        "tags": [
+          "materials"
+        ]
+      }
+    },
+    "/api/projects/{project_id}/rf/materials/import": {
+      "post": {
+        "description": "Merge an exported material pack into this project's library.\n\nImports are user-space copies, so builtin is forced off (mirrors\nput_material). An incoming material whose values match the stored one\n(builtin flag aside) is skipped; a colliding id with different values is\nimported under a numeric-suffix rename (glass -> glass_2).",
+        "operationId": "import_materials_api_projects__project_id__rf_materials_import_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MaterialImportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaterialImportResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Import Materials",
         "tags": [
           "materials"
         ]
@@ -10110,6 +11922,151 @@
           }
         },
         "summary": "Get Scene Bounds",
+        "tags": [
+          "scene"
+        ]
+      }
+    },
+    "/api/projects/{project_id}/scene/history": {
+      "get": {
+        "description": "How many undo steps are available (server-side history ring depth).\n\nThe Undo button reads this so it survives operations that reload the scene\n(split, agent segmentation) instead of relying on a client-side counter\nthat those reloads reset.",
+        "operationId": "scene_history_depth_api_projects__project_id__scene_history_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "integer"
+                  },
+                  "title": "Response Scene History Depth Api Projects  Project Id  Scene History Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Scene History Depth",
+        "tags": [
+          "scene"
+        ]
+      }
+    },
+    "/api/projects/{project_id}/scene/positions": {
+      "get": {
+        "description": "Positions-only live feed: device/actor poses without the full scene.\n\nThe Live-sync poll only merges positions client-side, but used to download\nthe ENTIRE scene (prims, result refs — MBs on a campus) every 2 s to get\nthem. This returns just the pose table, with the same live-state overlay\nsemantics as GET /scene so external (persist=false) pushes are followed.",
+        "operationId": "get_scene_positions_api_projects__project_id__scene_positions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Scene Positions Api Projects  Project Id  Scene Positions Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Scene Positions",
+        "tags": [
+          "scene"
+        ]
+      }
+    },
+    "/api/projects/{project_id}/scene/restore": {
+      "post": {
+        "description": "Undo: make the steps-th newest history snapshot the current scene.",
+        "operationId": "restore_scene_api_projects__project_id__scene_restore_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "steps",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "title": "Steps",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Scene"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Restore Scene",
         "tags": [
           "scene"
         ]
@@ -10538,6 +12495,51 @@
         ]
       }
     },
+    "/api/projects/{project_id}/simulate/cancel": {
+      "post": {
+        "description": "Request cooperative cancellation of the project's running solve.\n\nLoop-based solves (trajectory, dataset, mesh radio map, scenario, height\nsweeps) stop at their next checkpoint; a single-shot solver call finishes\nits current invocation first.",
+        "operationId": "cancel_solve_api_projects__project_id__simulate_cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Cancel Solve Api Projects  Project Id  Simulate Cancel Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel Solve",
+        "tags": [
+          "simulate"
+        ]
+      }
+    },
     "/api/projects/{project_id}/simulate/mesh-radio-map": {
       "post": {
         "description": "Per-triangle coverage on the requested prims' surfaces (facades,\nroads, floors) - probe receivers at triangle centers, chunk-solved with\nthe active backend.",
@@ -10709,6 +12711,61 @@
         ]
       }
     },
+    "/api/projects/{project_id}/simulate/radio-map-sweep": {
+      "post": {
+        "description": "Solve the planar radio map at each height and persist every run\n(auto-labeled \"h=<H> m\" so the sweep survives pruning). Returns the run\nids plus a per-height coverage summary for the altitude curve.",
+        "operationId": "simulate_radio_map_sweep_api_projects__project_id__simulate_radio_map_sweep_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RadioMapSweepRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Simulate Radio Map Sweep Api Projects  Project Id  Simulate Radio Map Sweep Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Simulate Radio Map Sweep",
+        "tags": [
+          "simulate"
+        ]
+      }
+    },
     "/api/projects/{project_id}/simulate/scenario": {
       "post": {
         "operationId": "simulate_scenario_api_projects__project_id__simulate_scenario_post",
@@ -10817,6 +12874,68 @@
         "summary": "Simulate Trajectory",
         "tags": [
           "simulate"
+        ]
+      }
+    },
+    "/api/settings/ai": {
+      "get": {
+        "description": "The effective local-AI endpoints/models + where each value comes from.",
+        "operationId": "get_ai_settings_api_settings_ai_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AISettingsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Ai Settings",
+        "tags": [
+          "settings"
+        ]
+      },
+      "put": {
+        "description": "Replace the AI overlay; applies to the running process immediately.",
+        "operationId": "put_ai_settings_api_settings_ai_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AISettingsUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AISettingsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Ai Settings",
+        "tags": [
+          "settings"
         ]
       }
     }

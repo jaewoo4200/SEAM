@@ -41,9 +41,25 @@ GPU도, 호환 모델도 나머지 기능을 쓰는 데는 전혀 필요 없으�
 
 ## 구성(Configuration)
 
-환경 변수 (`app.core.config.get_settings()`가 한 번만 읽습니다). 이름은 정규
-`SEAM_*` 접두사를 쓰며, 모든 변수에서 레거시 `SIONNATWIN_*` 이름도 여전히
-인정됩니다 (둘 다 설정하면 `SEAM_*`가 우선).
+소스는 두 가지이며, 우선순위 순서는 다음과 같습니다:
+
+1. **`~/.seam/settings.json`** — 툴바의 ⚙ AI 설정 다이얼로그가 기록합니다
+   (`GET`/`PUT /api/settings/ai`). 정확히 네 개의 키만 다루고 환경 변수보다
+   **우선**하며, 변경은 실행 중인 백엔드에 즉시 적용됩니다(쓰기 시 설정
+   캐시와 AI 도달성 캐시가 함께 무효화됨):
+
+   ```json
+   {"version": 1, "ai": {"ollama_url": "...", "text_model": "...",
+                          "openai_url": "...", "openai_model": "..."}}
+   ```
+
+   다이얼로그에서 필드를 비우면 해당 오버레이 항목이 지워져 환경 변수 /
+   내장 기본값으로 돌아갑니다. 그 외(`SEAM_AI_ENABLED`, 비전 모델, 타임아웃,
+   auto-apply)는 환경 변수 전용으로 유지됩니다.
+
+2. **환경 변수** (`seam_studio.core.config.get_settings()`가 읽습니다). 이름은
+   정규 `SEAM_*` 접두사를 쓰며, 모든 변수에서 레거시 `SIONNATWIN_*` 이름도
+   여전히 인정됩니다 (둘 다 설정하면 `SEAM_*`가 우선).
 
 | variable | default | meaning |
 |---|---|---|

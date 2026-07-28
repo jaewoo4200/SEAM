@@ -43,9 +43,25 @@ no GPU, and no compatible model are required for anything else to work, and
 
 ## Configuration
 
-Environment variables (read once by `app.core.config.get_settings()`).
-Names use the canonical `SEAM_*` prefix; the legacy `SIONNATWIN_*` name is
-still accepted for every variable (`SEAM_*` wins when both are set).
+Two sources, in precedence order:
+
+1. **`~/.seam/settings.json`** — written by the toolbar's ⚙ AI-settings
+   dialog (`GET`/`PUT /api/settings/ai`). Covers exactly four keys and WINS
+   over the env vars; a change applies to the running backend immediately
+   (the settings cache and the AI reachability caches are cleared on write):
+
+   ```json
+   {"version": 1, "ai": {"ollama_url": "...", "text_model": "...",
+                          "openai_url": "...", "openai_model": "..."}}
+   ```
+
+   An empty field in the dialog clears its overlay entry, falling back to the
+   env var / built-in default. Everything else (`SEAM_AI_ENABLED`, vision
+   model, timeouts, auto-apply) stays env-only.
+
+2. **Environment variables** (read by `seam_studio.core.config.get_settings()`).
+   Names use the canonical `SEAM_*` prefix; the legacy `SIONNATWIN_*` name is
+   still accepted for every variable (`SEAM_*` wins when both are set).
 
 | variable | default | meaning |
 |---|---|---|

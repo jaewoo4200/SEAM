@@ -8,13 +8,15 @@ import { LineChart, exportCsv } from "../charts";
 import { filterPaths, pathColor, pathDepth, powerRange } from "../pathFilter";
 import { meshRadioMapRange } from "./MeshRadioMapOverlay";
 import { UE_COLORS, samplesForUe, trajectorySteps, trajectoryUeIds } from "../trajectoryUtils";
-import type { ColorBy } from "../store/appStore";
+import type { AbBaseline, ColorBy } from "../store/appStore";
 import type {
   BeamformingResult,
+  ChannelAnalysisResult,
   DatasetInfo,
   DatasetGenerateRequest,
   DatasetSampling,
   LinkMetrics,
+  PathResultSet,
   PathType,
   RadioMapResultSet,
   RadioMapSweepResult,
@@ -2418,6 +2420,279 @@ function downloadRadioMapPng(rm: RadioMapResultSet): void {
   }, "image/png");
 }
 
+// ------------------------------------------------- A/B KPI compare (pin)
+
+/** One A/B row: pinned value, current value, and their delta. */
+interface AbRow {
+  label: string;
+  unit: string;
+  digits: number;
+  a: number | null;
+  b: number | null;
+  /** Which direction is an improvement (colors the delta); omit for counts. */
+  better?: "higher" | "lower";
+  title: string;
+}
+
+/** Scalars the A/B table reads off one paths run. `null` = no run at all (or,
+ *  for the gain, a backend that does not report path_gain_db). Folds rather
+ *  than Math.min(...spread) so a multi-thousand-path run cannot blow the stack. */
+function pathsKpis(r: PathResultSet | null) {
+  const paths = r?.paths ?? [];
+  let best: RayPath | null = null;
+  let firstDelay: number | null = null;
+  for (const p of paths) {
+    if (best === null || p.power_dbm > best.power_dbm) best = p;
+    if (firstDelay === null || p.delay_ns < firstDelay) firstDelay = p.delay_ns;
+  }
+  return {
+    count: r === null ? null : paths.length,
+    bestPowerDbm: best?.power_dbm ?? null,
+    bestGainDb: best?.path_gain_db ?? null,
+    firstDelayNs: firstDelay,
+  };
+}
+
+/** Provenance hash stamped into a persisted paths run's metadata by the
+ *  backend's _persist_result; null when absent (older runs / other kinds).
+ *  sim_config_hash covers SOLVER knobs only (frequency, depth, mechanisms,
+ *  samples); scene_hash covers devices/materials/geometry — the things an
+ *  A/B parameter edit actually changes. */
+function resultHash(
+  r: PathResultSet | null,
+  key: "sim_config_hash" | "scene_hash",
+): string | null {
+  const h = (r?.metadata as Record<string, unknown> | undefined)?.[key];
+  return typeof h === "string" ? h : null;
+}
+
+/** Build the KPI rows. Every field referenced here exists on PathResultSet /
+ *  RayPath / ChannelAnalysisResult — nothing is derived beyond picking the
+ *  strongest path and the earliest arrival. */
+function abRows(
+  a: AbBaseline,
+  bPaths: PathResultSet | null,
+  bChannel: ChannelAnalysisResult | null,
+): AbRow[] {
+  const pa = pathsKpis(a.paths);
+  const pb = pathsKpis(bPaths);
+  const ca = a.channel;
+  const cb = bChannel;
+  return [
+    { label: "Path count", unit: "", digits: 0, a: pa.count, b: pb.count,
+      title: "Number of ray paths in the solved result set." },
+    { label: "Best path power", unit: "dBm", digits: 1, better: "higher",
+      a: pa.bestPowerDbm, b: pb.bestPowerDbm,
+      title: "power_dbm of the strongest ray path in the run." },
+    { label: "Best path gain", unit: "dB", digits: 1, better: "higher",
+      a: pa.bestGainDb, b: pb.bestGainDb,
+      title: "path_gain_db of that same strongest path (missing on backends that do not report it)." },
+    { label: "First arrival", unit: "ns", digits: 2, better: "lower",
+      a: pa.firstDelayNs, b: pb.firstDelayNs,
+      title: "Smallest delay_ns across the run's paths." },
+    { label: "Num paths (channel)", unit: "", digits: 0,
+      a: ca?.num_paths ?? null, b: cb?.num_paths ?? null,
+      title: "Number of ray paths in the analyzed channel impulse response." },
+    { label: "RSRP", unit: "dBm", digits: 1, better: "higher",
+      a: ca?.rsrp_dbm ?? null, b: cb?.rsrp_dbm ?? null,
+      title: "Reference Signal Received Power (TS 38.215)." },
+    { label: "RSRQ", unit: "dB", digits: 1, better: "higher",
+      a: ca?.rsrq_db ?? null, b: cb?.rsrq_db ?? null,
+      title: "Reference Signal Received Quality = N_RB * RSRP / RSSI (TS 38.215)." },
+    { label: "RSSI", unit: "dBm", digits: 1,
+      a: ca?.rssi_dbm ?? null, b: cb?.rssi_dbm ?? null,
+      title: "Received Signal Strength Indicator — wideband signal + noise power." },
+    { label: "RSS", unit: "dBm", digits: 1, better: "higher",
+      a: ca?.rss_dbm ?? null, b: cb?.rss_dbm ?? null,
+      title: "Received signal strength summed over all ray paths." },
+    { label: "SINR", unit: "dB", digits: 1, better: "higher",
+      a: ca?.sinr_db ?? null, b: cb?.sinr_db ?? null,
+      title: "S/(I+N) — equals SNR when no other TX transmits." },
+    { label: "RMS delay spread", unit: "ns", digits: 2, better: "lower",
+      a: ca?.rms_delay_spread_ns ?? null, b: cb?.rms_delay_spread_ns ?? null,
+      title: "Root-mean-square delay spread of the power-delay profile." },
+  ];
+}
+
+/** Pin the current paths + channel results as "A", re-solve, and read the KPI
+ *  deltas against "B" (whatever is current). Verification aid only: a pure
+ *  client-side diff of two already-computed results — nothing is re-solved,
+ *  re-fetched or persisted here. */
+function AbCompareSection() {
+  const abBaseline = useAppStore((s) => s.abBaseline);
+  const pinAbBaseline = useAppStore((s) => s.pinAbBaseline);
+  const clearAbBaseline = useAppStore((s) => s.clearAbBaseline);
+  const pathResults = useAppStore((s) => s.pathResults);
+  const channelResult = useAppStore((s) => s.channelResult);
+  const busy = useAppStore((s) => s.busy);
+
+  const rows = useMemo(
+    () => (abBaseline ? abRows(abBaseline, pathResults, channelResult) : []),
+    [abBaseline, pathResults, channelResult],
+  );
+
+  const samePathsRun =
+    abBaseline?.paths != null &&
+    pathResults != null &&
+    abBaseline.paths.result_id === pathResults.result_id;
+  const linkChanged =
+    abBaseline?.channel != null &&
+    channelResult != null &&
+    (abBaseline.channel.tx_id !== channelResult.tx_id ||
+      abBaseline.channel.rx_id !== channelResult.rx_id);
+  const same = (key: "sim_config_hash" | "scene_hash") => {
+    const a = resultHash(abBaseline?.paths ?? null, key);
+    const b = resultHash(pathResults, key);
+    return a !== null && b !== null ? a === b : null;
+  };
+  const solverSame = same("sim_config_hash");
+  const sceneSame = same("scene_hash");
+
+  const fmt = (v: number | null, digits: number) =>
+    v === null ? "—" : v.toFixed(digits);
+  const deltaOf = (r: AbRow) => (r.a === null || r.b === null ? null : r.b - r.a);
+  const deltaStyle = (r: AbRow, d: number) => {
+    if (!r.better || Math.abs(d) < 1e-9) return undefined;
+    const good = r.better === "higher" ? d > 0 : d < 0;
+    return { color: good ? "#66bb6a" : "#e57373" };
+  };
+
+  return (
+    <Collapsible title="A/B compare (pin A → re-solve → B)">
+      <p className="hint">
+        Pin the current paths + channel results as baseline <b>A</b>, change a
+        parameter (power, antenna, array…), re-solve, and read the KPI deltas
+        (Δ = B − A). Client-side only — nothing is re-solved or stored here,
+        and the pin survives re-solves until you clear it or switch project.
+      </p>
+      <div className="panel-actions">
+        <button
+          className="primary"
+          disabled={busy !== null || (!pathResults && !channelResult)}
+          title="Snapshot the current results as baseline A"
+          onClick={() => pinAbBaseline()}
+        >
+          {abBaseline ? "Re-pin as A" : "Pin as A"}
+        </button>
+        {abBaseline && (
+          <button disabled={busy !== null} onClick={() => clearAbBaseline()}>
+            Clear A
+          </button>
+        )}
+        {abBaseline && (
+          <button
+            title="Download the A/B KPI table as CSV"
+            onClick={() =>
+              exportCsv(
+                "ab_compare",
+                ["kpi", "unit", "A", "B", "delta"],
+                rows.map((r) => [r.label, r.unit, r.a, r.b, deltaOf(r)]),
+              )
+            }
+          >
+            Export delta CSV
+          </button>
+        )}
+      </div>
+
+      {!abBaseline ? (
+        <p className="hint">Nothing pinned yet.</p>
+      ) : (
+        <>
+          <div className="results-meta">
+            A: paths{" "}
+            <span className="mono">{abBaseline.paths?.result_id ?? "—"}</span> ·
+            channel{" "}
+            <span className="mono">{abBaseline.channel?.result_id ?? "—"}</span> ·
+            pinned {formatCreatedAt(abBaseline.pinnedAt)}
+          </div>
+          <div className="results-meta">
+            B: paths <span className="mono">{pathResults?.result_id ?? "—"}</span> ·
+            channel{" "}
+            <span className="mono">{channelResult?.result_id ?? "—"}</span>
+            {channelResult && (
+              <>
+                {" "}
+                ({channelResult.tx_id}→{channelResult.rx_id})
+              </>
+            )}
+          </div>
+          {samePathsRun && (
+            <p className="hint">
+              B is the same paths run as A — change a parameter and re-solve to
+              get a real B.
+            </p>
+          )}
+          {linkChanged && (
+            <p className="hint">
+              A analyzed {abBaseline.channel!.tx_id}→{abBaseline.channel!.rx_id}{" "}
+              but B analyzed {channelResult!.tx_id}→{channelResult!.rx_id}: the
+              channel rows compare different links.
+            </p>
+          )}
+          <table className="results-table">
+            <thead>
+              <tr>
+                <th>KPI</th>
+                <th>A</th>
+                <th>B</th>
+                <th>Δ (B−A)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => {
+                const d = deltaOf(r);
+                return (
+                  <tr key={r.label}>
+                    <td title={r.title}>
+                      {r.label}
+                      {r.unit ? ` (${r.unit})` : ""}
+                    </td>
+                    <td className="mono">{fmt(r.a, r.digits)}</td>
+                    <td className="mono">{fmt(r.b, r.digits)}</td>
+                    <td
+                      className="mono"
+                      style={d === null ? undefined : deltaStyle(r, d)}
+                    >
+                      {d === null ? "—" : `${d > 0 ? "+" : ""}${d.toFixed(r.digits)}`}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {(solverSame !== null || sceneSame !== null) && (
+            <div className="results-meta">
+              {solverSame !== null && (
+                <span
+                  className="chip"
+                  title="sim_config_hash of the A and B paths runs — SOLVER knobs only (frequency, depth, mechanisms, samples). Device power/antenna edits do NOT show here; watch the scene chip for those."
+                  style={
+                    solverSame ? { borderColor: "#66bb6a", color: "#66bb6a" } : {}
+                  }
+                >
+                  {solverSame ? "solver config identical" : "solver config differs"}
+                </span>
+              )}{" "}
+              {sceneSame !== null && (
+                <span
+                  className="chip"
+                  title="scene_hash of the A and B paths runs — devices, materials and geometry. A deliberate A/B parameter edit SHOULD read 'scene differs'."
+                  style={
+                    sceneSame ? { borderColor: "#66bb6a", color: "#66bb6a" } : {}
+                  }
+                >
+                  {sceneSame ? "scene identical" : "scene differs"}
+                </span>
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </Collapsible>
+  );
+}
+
 // ------------------------------------------------- A/B radio-map compare
 
 /** Pick two stored radio_map runs and render A, B, and the per-cell B−A delta
@@ -3394,6 +3669,7 @@ export default function ResultExplorer() {
 
       <MeshRadioMapSection />
       <AltitudeSweepSection />
+      <AbCompareSection />
       <RadioMapCompareSection />
       <RunHistorySection />
       </div>

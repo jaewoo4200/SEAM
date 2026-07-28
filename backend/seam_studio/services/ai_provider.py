@@ -611,6 +611,17 @@ def _probe_openai(base_url: str) -> tuple[bool, str]:
 _model_cache: dict[str, tuple[float, list[str]]] = {}
 
 
+def invalidate_probe_caches() -> None:
+    """Drop the reachability + model-discovery caches.
+
+    Called after the AI settings change so the next /ai/status re-probes the
+    NEW endpoints instead of serving a <=30s stale entry keyed by the old
+    url (or a stale failure for a url the user just fixed).
+    """
+    _probe_cache.clear()
+    _model_cache.clear()
+
+
 def _model_mismatch(requested: str, served: str) -> bool:
     """True when the server's echoed model is a DIFFERENT model.
 

@@ -4,7 +4,7 @@ import type { Mode } from "../store/appStore";
 import { api, ApiError } from "../api/client";
 import OsmAreaPicker from "./OsmAreaPicker";
 import { PANEL_REGISTRY } from "./PanelHost";
-import type { Environment, ImportJobStatus } from "../types/api";
+import type { AISettingsUpdate, Environment, ImportJobStatus } from "../types/api";
 
 const PROJECT_ID_PATTERN = /^[a-z0-9_-]+$/;
 
@@ -52,6 +52,9 @@ export default function Toolbar() {
   // Destructive delete confirm: the modal is armed from the Actions menu and
   // requires the user to type the exact project id to enable the red button.
   const [deleteOpen, setDeleteOpen] = useState(false);
+  // Global AI settings dialog (gear next to the AI provider chip).
+  const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
+  const loadAiSettings = useAppStore((s) => s.loadAiSettings);
 
   const sionnaAvailable =
     health?.backends.some((b) => b.name === "sionna" && b.available) ?? false;
@@ -170,6 +173,16 @@ export default function Toolbar() {
         />
         {aiOff ? "AI off" : activeProvider!.name}
       </span>
+      <button
+        title="AI settings — LM Studio / Ollama endpoint and default model"
+        aria-label="AI settings"
+        onClick={() => {
+          void loadAiSettings();
+          setAiSettingsOpen(true);
+        }}
+      >
+        ⚙
+      </button>
 
       <span className="toolbar-actions">
         <ActionsMenu
@@ -222,6 +235,9 @@ export default function Toolbar() {
             await deleteCurrentProject();
           }}
         />
+      )}
+      {aiSettingsOpen && (
+        <AiSettingsModal onClose={() => setAiSettingsOpen(false)} />
       )}
     </header>
   );
@@ -378,6 +394,155 @@ function DeleteProjectModal({
             {busy ? "Deleting…" : "Delete project"}
           </button>
           <button disabled={busy} onClick={onCancel}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Global local-AI settings: LM Studio (OpenAI-compatible) and Ollama base
+ *  URLs + default models, persisted server-side in ~/.seam/settings.json.
+ *  Saving applies without restarting the backend (the server clears its
+ *  settings + probe caches on write). Same modal shell as DeleteProjectModal
+ *  (Esc / backdrop / Cancel dismiss). */
+function AiSettingsModal({ onClose }: { onClose: () => void }) {
+  const aiSettings = useAppStore((s) => s.aiSettings);
+  const saveAiSettings = useAppStore((s) => s.saveAiSettings);
+  const busy = useAppStore((s) => s.busy) !== null;
+  const [form, setForm] = useState<AISettingsUpdate | null>(null);
+  const firstRef = useRef<HTMLInputElement>(null);
+
+  // Seed the form once the GET lands (the gear fires loadAiSettings). Seed
+  // from OWNERSHIP, not from the effective values: only overlay-backed fields
+  // are filled, so Save writes exactly what the user typed and never silently
+  // pins an env-derived value into the overlay (where it would shadow future
+  // env changes forever). Inherited values show as placeholders instead.
+  useEffect(() => {
+    if (aiSettings && form === null) {
+      const own = (k: keyof AISettingsUpdate) =>
+        aiSettings.overlay_fields.includes(k) ? aiSettings[k] : "";
+      setForm({
+        openai_url: own("openai_url"),
+        openai_model: own("openai_model"),
+        ollama_url: own("ollama_url"),
+        text_model: own("text_model"),
+      });
+      firstRef.current?.focus();
+    }
+  }, [aiSettings, form]);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent): void {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const envHint = (field: string, envName: string) =>
+    aiSettings?.env_fields.includes(field) ? (
+      <span className="hint">
+        {envName} is set in the environment; this value overrides it.
+      </span>
+    ) : null;
+
+  const fields: {
+    key: keyof AISettingsUpdate;
+    label: string;
+    env: string;
+    placeholder: string;
+  }[] = [
+    {
+      key: "openai_url",
+      label: "LM Studio base URL (OpenAI-compatible)",
+      env: "SEAM_OPENAI_URL",
+      placeholder: "http://localhost:1234/v1",
+    },
+    {
+      key: "openai_model",
+      label: "LM Studio default model",
+      env: "SEAM_OPENAI_MODEL",
+      placeholder: "google/gemma-4-31b",
+    },
+    {
+      key: "ollama_url",
+      label: "Ollama base URL",
+      env: "SEAM_OLLAMA_URL",
+      placeholder: "http://localhost:11434",
+    },
+    {
+      key: "text_model",
+      label: "Ollama default model",
+      env: "SEAM_AI_TEXT_MODEL",
+      placeholder: "qwen3:8b",
+    },
+  ];
+
+  return (
+    <div className="modal-backdrop" onPointerDown={onClose}>
+      <div
+        className="modal-card"
+        role="dialog"
+        aria-label="AI settings"
+        aria-modal="true"
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        <h4>AI settings</h4>
+        <p className="hint">
+          Global local-AI endpoints and default models. Saved to{" "}
+          <span className="mono">{aiSettings?.overlay_path ?? "~/.seam/settings.json"}</span>{" "}
+          and applied immediately — no backend restart. Only filled fields are
+          pinned here; an empty field inherits its SEAM_* env var or the
+          built-in default (shown as the placeholder).
+        </p>
+        {aiSettings === null && (
+          <p className="hint">
+            Settings are unavailable (older backend or the API is unreachable).
+          </p>
+        )}
+        {aiSettings?.warnings.map((w) => (
+          <p key={w} className="hint">
+            {w}
+          </p>
+        ))}
+        {fields.map(({ key, label, env, placeholder }, i) => (
+          <label key={key} className="confirm-field">
+            {label}
+            <input
+              ref={i === 0 ? firstRef : undefined}
+              type="text"
+              value={form?.[key] ?? ""}
+              placeholder={aiSettings?.[key] || placeholder}
+              disabled={busy || form === null}
+              onChange={(e) =>
+                setForm((f) => (f === null ? f : { ...f, [key]: e.target.value }))
+              }
+            />
+            {envHint(key, env)}
+          </label>
+        ))}
+        <div className="confirm-actions">
+          <button
+            className="primary"
+            disabled={busy || form === null}
+            onClick={async () => {
+              if (form && (await saveAiSettings(form))) onClose();
+            }}
+          >
+            {busy ? "Saving…" : "Save"}
+          </button>
+          <button
+            disabled={busy || form === null}
+            title="Clear all four fields — Save then removes every overlay entry so each falls back to its SEAM_* env var or the built-in default"
+            onClick={() =>
+              setForm({ ollama_url: "", text_model: "", openai_url: "", openai_model: "" })
+            }
+          >
+            Reset to defaults
+          </button>
+          <button disabled={busy} onClick={onClose}>
             Cancel
           </button>
         </div>

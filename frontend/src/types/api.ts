@@ -846,6 +846,31 @@ export interface AIModelsResponse {
   providers: ProviderModels[];
 }
 
+/** GET/PUT /api/settings/ai — global local-AI endpoints + default models.
+ *  Values are the EFFECTIVE ones (overlay > env > built-in default).
+ *  `overlay_fields` names the fields coming from ~/.seam/settings.json;
+ *  `env_fields` names the fields that also have a SEAM_* env var set (the
+ *  overlay wins over it — the dialog shows a hint). */
+export interface AISettings {
+  ollama_url: string;
+  text_model: string;
+  openai_url: string;
+  openai_model: string;
+  overlay_fields: string[];
+  env_fields: string[];
+  overlay_path: string;
+  warnings: string[];
+}
+
+/** PUT body: a FULL replacement of the AI overlay. An empty string clears
+ *  that field back to the env value / built-in default. */
+export interface AISettingsUpdate {
+  ollama_url: string;
+  text_model: string;
+  openai_url: string;
+  openai_model: string;
+}
+
 export interface MaterialAlternative {
   rf_material_id: string;
   confidence: number;

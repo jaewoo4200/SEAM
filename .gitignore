@@ -28,6 +28,8 @@ examples/**/rf/generated_scene.xml
 examples/**/rf/compile_manifest.json
 examples/**/rf/meshes/
 examples/**/results/
+# ProjectStore undo-snapshot ring (services/project_store.py HISTORY_DIRNAME).
+examples/**/history/
 examples/**/mapping/face_group_map.json
 examples/**/ai/suggestions.jsonl
 examples/**/export/

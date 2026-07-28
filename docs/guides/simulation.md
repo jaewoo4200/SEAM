@@ -199,6 +199,14 @@ path gain along a route).
 - Results persist per project: paths land in
   `results/{backend}_paths_{NNN}.json` under the project folder, and the
   latest of each kind reloads with the project.
+- **A/B compare (pin A → re-solve → B)** in the Results panel freezes the
+  current paths + channel results as baseline **A**; change a parameter,
+  re-solve, and the table shows A / B / Δ for path count, best-path power and
+  gain, first arrival, RSRP/RSRQ/RSSI/RSS/SINR and RMS delay spread, plus two
+  provenance chips: *solver config* (solver knobs only) and *scene* (devices,
+  materials, geometry — a deliberate parameter edit should read *scene
+  differs*). The pin is client-side and lives until you clear it or switch
+  project; nothing extra is written to disk.
 - The **Run history** collapsible in the Results panel is the results
   explorer: past runs grouped by kind, reloadable with one click, labelable,
   and prunable (**Keep latest** N per kind → **Prune old results**; labeled

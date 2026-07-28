@@ -133,6 +133,41 @@ class AIModelsResponse(StrictModel):
     providers: list[ProviderModels]
 
 
+class AISettingsResponse(StrictModel):
+    """GET/PUT /api/settings/ai — the effective local-AI endpoints/models.
+
+    Values are what get_settings() actually resolved (overlay > env >
+    default), already trailing-slash normalized.
+    """
+
+    ollama_url: str
+    text_model: str
+    openai_url: str
+    openai_model: str
+    # Fields whose value currently comes from the settings overlay.
+    overlay_fields: list[str] = Field(default_factory=list)
+    # Fields that ALSO have a SEAM_*/SIONNATWIN_* env var set. The overlay
+    # wins; the dialog shows a hint so the shadowing is never silent.
+    env_fields: list[str] = Field(default_factory=list)
+    overlay_path: str
+    warnings: list[str] = Field(default_factory=list)
+
+
+class AISettingsUpdate(StrictModel):
+    """PUT /api/settings/ai — a FULL replacement of the AI overlay block.
+
+    Every field is sent every time; an empty/whitespace value CLEARS that
+    field's overlay entry so it falls back to env/default. Full replacement
+    (rather than a patch) keeps "omitted" and "cleared" from being
+    indistinguishable under StrictModel defaults.
+    """
+
+    ollama_url: str = ""
+    text_model: str = ""
+    openai_url: str = ""
+    openai_model: str = ""
+
+
 class AssignmentRule(StrictModel):
     """One name-match -> RF material rule (SEAM spec style).
 

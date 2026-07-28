@@ -15,6 +15,8 @@ import type {
   AgentTrace,
   AIModelsResponse,
   AIProviderStatus,
+  AISettings,
+  AISettingsUpdate,
   ApplyRulesRequest,
   ApplySuggestionsRequest,
   AssignRequest,
@@ -233,6 +235,11 @@ export const api = {
     request<AssignResponse>("POST", `/projects/${pid}/rf/batch-assign`, req),
 
   // ai
+  // Global local-AI endpoints/models, persisted server-side in
+  // ~/.seam/settings.json. PUT applies without a backend restart.
+  getAiSettings: () => request<AISettings>("GET", "/settings/ai"),
+  putAiSettings: (req: AISettingsUpdate) =>
+    request<AISettings>("PUT", "/settings/ai", req),
   aiStatus: (pid: string) => request<AIProviderStatus[]>("GET", `/projects/${pid}/ai/status`),
   // Per-provider selectable models (drives the model picker in the AI panel).
   aiModels: (pid: string) => request<AIModelsResponse>("GET", `/projects/${pid}/ai/models`),

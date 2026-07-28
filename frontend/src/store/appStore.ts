@@ -14,6 +14,8 @@ import type {
   AgentTrace,
   AgentView,
   AIProviderStatus,
+  AISettings,
+  AISettingsUpdate,
   AssignRequest,
   BeamformingMode,
   BeamformingResult,
@@ -172,6 +174,19 @@ export interface LastDecisionApply {
   }[];
 }
 
+/** Pinned "A" baseline for the Results A/B compare. Shallow references to the
+ *  result objects that were current when the user pressed Pin — the store
+ *  always REPLACES these objects on a re-solve and never mutates them, so a
+ *  reference is a safe frozen snapshot. Client-side only: nothing is written
+ *  to disk and nothing is re-fetched, so the deltas always compare exactly
+ *  what the user was looking at. */
+export interface AbBaseline {
+  /** ISO timestamp of the pin itself (A's own created_at may be null). */
+  pinnedAt: string;
+  paths: PathResultSet | null;
+  channel: ChannelAnalysisResult | null;
+}
+
 /** How the 3D viewer colors ray path polylines. */
 export type ColorBy = "type" | "power" | "depth";
 
@@ -187,6 +202,9 @@ interface AppState {
   materials: RFMaterialLibrary | null;
   health: HealthResponse | null;
   aiStatuses: AIProviderStatus[];
+  /** Global local-AI settings (GET /settings/ai); null until loaded or when
+   *  the backend predates the endpoint. */
+  aiSettings: AISettings | null;
   // Installed compute engines (builtin + alternate sionna-rt venvs).
   engines: EngineInfo[];
   mode: Mode;
@@ -265,6 +283,10 @@ interface AppState {
 
   // --- channel analysis ---
   channelResult: ChannelAnalysisResult | null;
+
+  /** Pinned baseline for the Results A/B KPI compare (null = nothing pinned).
+   *  Survives re-solves; cleared on project switch. */
+  abBaseline: AbBaseline | null;
 
   // --- result provenance / staleness ---
   /** Bumped on every scene edit (device/actor/material moves, live sync).
@@ -641,6 +663,11 @@ interface AppState {
     opts?: { persist?: boolean },
   ) => Promise<void>;
   clearChannel: () => void;
+  /** Snapshot the CURRENT paths + channel results as baseline "A". No-op with
+   *  a notice when neither exists yet. Re-pinning overwrites A. */
+  pinAbBaseline: () => void;
+  /** Drop the pinned baseline (the delta table hides). */
+  clearAbBaseline: () => void;
 
   // live sync + AI screenshot groundwork
   setLiveMode: (on: boolean) => void;
@@ -651,6 +678,12 @@ interface AppState {
   setAiModel: (id: string | null) => void;
   /** Fetch GET /ai/models into aiModels (best-effort; leaves [] on failure). */
   loadAiModels: (projectId: string) => Promise<void>;
+  /** Fetch GET /settings/ai into aiSettings (best-effort; null on failure). */
+  loadAiSettings: () => Promise<void>;
+  /** PUT /settings/ai, then re-pull provider status + models so the header
+   *  chip and the model picker reflect the new endpoints immediately.
+   *  Returns false when the save failed (error banner already set). */
+  saveAiSettings: (next: AISettingsUpdate) => Promise<boolean>;
   /** Viewer3D registers a canvas snapshot fn here; store calls it on demand. */
   registerViewportCapture: (fn: (() => string | null) | null) => void;
   captureViewport: () => string | null;
@@ -1221,6 +1254,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     scenarioLoop: false,
 
     channelResult: null,
+    abBaseline: null,
 
     sceneEpoch: 0,
     resultEpochs: {},
@@ -1242,6 +1276,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     aiModel: null,
     aiModels: [],
     aiModelsLoading: false,
+    aiSettings: null,
 
     segPreview: null,
     segJobProgress: null,
@@ -1384,6 +1419,8 @@ export const useAppStore = create<AppState>()((set, get) => {
           scenarioPlaying: false,
           scenarioLoop: false,
           channelResult: null,
+          // A pinned A/B baseline belongs to the previous project's scene.
+          abBaseline: null,
           // The surfaced RFData-export path belongs to the previous project.
           lastRfdataExport: null,
           // Live sync is opt-in and reset per project (stops any prior poll).
@@ -1558,6 +1595,7 @@ export const useAppStore = create<AppState>()((set, get) => {
             trajectory: null,
             scenario: null,
             channelResult: null,
+            abBaseline: null,
             sceneBounds: null,
             agentJob: null,
             agentTrace: null,
@@ -2117,6 +2155,39 @@ export const useAppStore = create<AppState>()((set, get) => {
       } finally {
         if (get().projectId === projectId) set({ aiModelsLoading: false });
       }
+    },
+
+    loadAiSettings: async () => {
+      try {
+        set({ aiSettings: await api.getAiSettings() });
+      } catch {
+        // Endpoint missing (older backend) or unreachable: the dialog shows a
+        // hint instead of a form. Never surfaces an error banner.
+        set({ aiSettings: null });
+      }
+    },
+
+    saveAiSettings: async (next) => {
+      const saved = await run("Saving AI settings…", () => api.putAiSettings(next));
+      if (saved === undefined) return false;
+      set({ aiSettings: saved });
+      // The backend cleared its 30s probe caches on write, so a refetch NOW
+      // reflects the new endpoints instead of waiting for the 45s poll.
+      const pid = get().projectId;
+      if (pid) {
+        try {
+          set({ aiStatuses: await api.aiStatus(pid) });
+        } catch {
+          // keep the last known statuses
+        }
+        void get().loadAiModels(pid);
+      } else {
+        // No project open: /ai/status is project-scoped, so fall back to the
+        // global health payload that also carries ai_providers.
+        const health = await api.health().catch(() => null);
+        if (health) set({ health });
+      }
+      return true;
     },
 
     suggestMaterials: async () => {
@@ -3246,6 +3317,27 @@ export const useAppStore = create<AppState>()((set, get) => {
       setLastChannelArgs(null);
       set({ channelResult: null });
     },
+
+    pinAbBaseline: () => {
+      const { pathResults, channelResult } = get();
+      if (!pathResults && !channelResult) {
+        set({
+          notice:
+            "Nothing to pin yet — simulate paths or run a channel analysis first",
+        });
+        return;
+      }
+      set({
+        abBaseline: {
+          pinnedAt: new Date().toISOString(),
+          paths: pathResults,
+          channel: channelResult,
+        },
+        notice: "Pinned current results as baseline A",
+      });
+    },
+
+    clearAbBaseline: () => set({ abBaseline: null, notice: "Cleared baseline A" }),
 
     // -------------------------------------------- live sync + screenshot
 

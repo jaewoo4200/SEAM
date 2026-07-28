@@ -42,10 +42,23 @@ IS_SOURCE_CHECKOUT = (
 # derive paths from it (site-packages' grandparent is a venv, not the repo).
 REPO_ROOT: Optional[Path] = _BACKEND_DIR.parent if IS_SOURCE_CHECKOUT else None
 
-# User-writable home for installed runs: projects/, plugins/, engines.json.
+# User-writable home for installed runs: projects/, plugins/, engines.json,
+# and the settings.json overlay.
 SEAM_HOME = Path(
     os.environ.get("SEAM_HOME") or (Path.home() / ".seam")
 ).expanduser()
+
+SETTINGS_FILE_NAME = "settings.json"
+
+
+def settings_file() -> Path:
+    """User-editable settings overlay (``~/.seam/settings.json``).
+
+    Always under SEAM_HOME, in a source checkout too: these are per-user /
+    per-machine endpoints, not per-checkout state. A function (not a module
+    constant) so tests can repoint SEAM_HOME.
+    """
+    return SEAM_HOME / SETTINGS_FILE_NAME
 
 # Where projects are looked up, in order. The first root is where new
 # projects are created. (SEAM_PROJECT_ROOTS env overrides this entirely —
