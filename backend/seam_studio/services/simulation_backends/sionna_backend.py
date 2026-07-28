@@ -1112,12 +1112,17 @@ class SionnaBackend(RayTracingBackend):
 
     @staticmethod
     def _apply_custom_materials(project_dir: Path, rt_scene, warnings: list[str]) -> None:
-        """Push constant-model material parameters onto loaded RadioMaterials.
+        """Push library material parameters onto loaded RadioMaterials.
 
         The compiler writes rf/compile_manifest.json describing the material
         groups it exported. For custom constant materials we override the
         loaded scene's RadioMaterial parameters when a material of the same
-        name exists; ITU materials are left to Sionna's built-in tables.
+        name exists. ITU-backed groups keep Sionna's built-in permittivity/
+        conductivity tables but get the library's scattering/XPD pushed here:
+        the XML cannot carry those values and Sionna defaults both to 0, so
+        without this pass they silently never reached the solver (with
+        SimulationConfig.scattering=True every ITU surface scattered nothing,
+        erasing all material contrast in the diffuse component).
         """
         manifest_path = project_dir / "rf" / "compile_manifest.json"
         if not manifest_path.is_file():
@@ -1133,6 +1138,10 @@ class SionnaBackend(RayTracingBackend):
         # where custom_material carries the constant-model parameters. The XML
         # already embeds these via the radio-material plugin; this pass is a
         # defensive re-sync that also surfaces missing materials as warnings.
+        # Two library ids can bind one shared ITU built-in (e.g. "ground" ->
+        # itu_medium_dry_ground): remember what was applied so a disagreement
+        # surfaces as a warning instead of silent load-order luck.
+        applied_itu: dict[str, dict] = {}
         for entry in manifest.get("groups", []):
             if not isinstance(entry, dict):
                 continue
@@ -1140,7 +1149,49 @@ class SionnaBackend(RayTracingBackend):
             # Override variants publish their own group_id (= bsdf id without
             # the "mat-" prefix); plain groups fall back to the material id.
             mat_id = entry.get("group_id") or entry.get("rf_material_id")
-            if not mat_id or not isinstance(custom, dict):
+            if not mat_id:
+                continue
+            if not isinstance(custom, dict):
+                itu_params = entry.get("itu_solver_params")
+                itu_name = entry.get("itu_name")
+                if isinstance(itu_params, dict) and itu_name:
+                    try:
+                        materials = rt_scene.radio_materials
+                        # Plain ITU groups share the built-in binding (bsdf id
+                        # "mat-<itu_name>"); override variants own their bsdf
+                        # ("mat-<group_id>").
+                        target = (
+                            str(mat_id) if entry.get("overrides") else str(itu_name)
+                        )
+                        rt_mat = materials.get(target) or materials.get(
+                            f"mat-{target}"
+                        )
+                        if rt_mat is None:
+                            warnings.append(
+                                f"ITU material {target!r} from the compile "
+                                "manifest was not found in the loaded Sionna "
+                                "scene; its scattering/XPD were not applied"
+                            )
+                            continue
+                        prev = applied_itu.get(target)
+                        if prev is not None and prev != itu_params:
+                            warnings.append(
+                                f"materials sharing ITU built-in {target!r} "
+                                f"disagree on scattering/XPD ({prev} vs "
+                                f"{itu_params}); the last one wins"
+                            )
+                        applied_itu[target] = itu_params
+                        scattering = itu_params.get("scattering_coefficient")
+                        if scattering is not None:
+                            rt_mat.scattering_coefficient = float(scattering)
+                        xpd = itu_params.get("xpd_coefficient")
+                        if xpd is not None:
+                            rt_mat.xpd_coefficient = float(xpd)
+                    except Exception as exc:  # noqa: BLE001 - per-material best effort
+                        warnings.append(
+                            f"could not apply ITU scattering/XPD for "
+                            f"{mat_id!r}: {exc}"
+                        )
                 continue
             try:
                 # Sionna 1.x: scene.radio_materials is a dict name->RadioMaterial

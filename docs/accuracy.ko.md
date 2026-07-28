@@ -28,6 +28,9 @@
 - **확산 산란 대응 재질.** `RFMaterial.scattering_coefficient`는
   측정 기반 값(콘크리트/벽돌 ~0.2)으로 설정되어 Sionna `RadioMaterial`에
   반영되며, 실행마다 `SimulationConfig.scattering`으로 활성화합니다(→ `diffuse_reflection=True`).
+  constant 모델 재질은 컴파일된 XML에 값이 실리고, ITU 기반 재질은 XML로
+  표현할 수 없어(Sionna 내장 기본값도 0) 백엔드가 컴파일 manifest의
+  `itu_solver_params`를 통해 솔브 시점에 로드된 재질에 산란/XPD를 적용합니다.
 - **대역 외 가드레일.** ITU 지면 재질을 ~10 GHz 이상에서 사용하면
   `validate_scene`가 `MATERIAL_OUT_OF_BAND`를 발생시켜 `ground_28ghz`를 가리키고,
   Sionna 백엔드도 솔브 시점에 경고합니다(`_frequency_warnings`).

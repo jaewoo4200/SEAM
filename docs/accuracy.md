@@ -28,7 +28,11 @@ error sources and what SEAM Studio does about them.
 - **Diffuse-scattering-ready materials.** `RFMaterial.scattering_coefficient`
   is set to measurement-backed values (concrete/brick ~0.2) and pushed onto the
   Sionna `RadioMaterial`; enable it per run with `SimulationConfig.scattering`
-  (→ `diffuse_reflection=True`).
+  (→ `diffuse_reflection=True`). Constant-model materials carry it in the
+  compiled XML; for ITU-backed materials the XML cannot represent it (and
+  Sionna's built-ins default it to 0), so the backend applies the library
+  scattering/XPD onto the loaded materials at solve time via the compile
+  manifest's `itu_solver_params`.
 - **Out-of-band guardrail.** `validate_scene` emits `MATERIAL_OUT_OF_BAND` when
   an ITU ground material is used above ~10 GHz, pointing at `ground_28ghz`; the
   Sionna backend also warns at solve time (`_frequency_warnings`).

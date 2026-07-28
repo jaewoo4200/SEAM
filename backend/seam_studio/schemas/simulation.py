@@ -84,7 +84,10 @@ class MeshRadioMapRequest(StrictModel):
     tx_id: Optional[str] = None
     metric: Literal["path_gain_db", "rss_dbm"] = "rss_dbm"
     # Sampling budget across ALL requested surfaces; meshes above it are
-    # sampled every k-th triangle (stride recorded per surface).
+    # sampled every k-th triangle (stride recorded per surface). The default
+    # suits a handful of prims — on many-prim scenes (e.g. a 62-prim campus)
+    # 2000 leaves only a few lit triangles per surface, so scale it with the
+    # prim count (paper harness uses 20000).
     max_triangles: int = Field(default=2000, ge=1, le=20000)
     # Probe offset along the face normal so receivers sit just off the surface.
     offset_m: float = Field(default=0.05, gt=0.0)

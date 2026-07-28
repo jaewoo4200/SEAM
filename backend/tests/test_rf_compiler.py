@@ -151,6 +151,15 @@ def test_manifest_and_mappings(project: Path, library: RFMaterialLibrary) -> Non
         # itu_* library materials are not "constant" model -> no custom params.
         assert group["custom_material"] is None
         assert group["face_count"] > 0
+    # ITU-backed groups carry the library scattering/XPD for the backend's
+    # solve-time overlay (the XML cannot represent them for ITU materials).
+    by_id = {g["rf_material_id"]: g for g in manifest["groups"]}
+    assert by_id["itu_concrete"]["itu_solver_params"] == pytest.approx(
+        {"scattering_coefficient": 0.20, "xpd_coefficient": 0.10}
+    )
+    assert by_id["itu_glass"]["itu_solver_params"] == pytest.approx(
+        {"scattering_coefficient": 0.02, "xpd_coefficient": 0.05}
+    )
     assert UNASSIGNED_ID in manifest["skipped_prim_ids"]
 
     object_map = json.loads(
@@ -387,3 +396,78 @@ def test_itu_scattering_override_warns_and_stays_plain(
     wall = next(g for g in result.material_groups if WALL_ID in g.prim_ids)
     assert wall.group_id is None and wall.overrides is None
     assert any("not representable for ITU" in w for w in result.warnings)
+
+
+def test_itu_solver_params_follow_library_edits(
+    project: Path, library: RFMaterialLibrary
+) -> None:
+    """Editing an ITU material's scattering in the library must re-fingerprint
+    AND land in the manifest (the solve-time overlay reads the manifest)."""
+    from seam_studio.services.rf_compiler import rf_fingerprint
+
+    scene = _build_scene()
+    before = rf_fingerprint(scene, library)
+    edited = next(m for m in library.materials if m.id == "itu_concrete")
+    edited.scattering_coefficient = 0.55
+    assert rf_fingerprint(scene, library) != before
+
+    compile_project(project, scene, library)
+    manifest = json.loads(
+        (project / "rf" / "compile_manifest.json").read_text(encoding="utf-8")
+    )
+    concrete = next(
+        g for g in manifest["groups"] if g["rf_material_id"] == "itu_concrete"
+    )
+    assert concrete["itu_solver_params"]["scattering_coefficient"] == 0.55
+
+
+def _sionna_available() -> bool:
+    from seam_studio.services.availability import sionna_available
+
+    return sionna_available()
+
+
+@pytest.mark.skipif(not _sionna_available(), reason="sionna-rt not installed")
+def test_itu_scattering_reaches_loaded_scene(
+    project: Path, library: RFMaterialLibrary
+) -> None:
+    """Library scattering/XPD on ITU-backed materials must land on the LOADED
+    Sionna materials: upstream defaults are 0 and the XML cannot carry them,
+    so only the manifest overlay can (found via paper E2 - scattering=True
+    produced zero material contrast on every ITU surface)."""
+    from seam_studio.services.simulation_backends.sionna_backend import (
+        SionnaBackend,
+        _ensure_sionna_variant,
+    )
+
+    compile_project(project, _build_scene(), library)
+    warnings: list[str] = []
+    _ensure_sionna_variant(warnings)
+    from sionna.rt import load_scene
+
+    rt_scene = load_scene(str(project / "rf" / "generated_scene.xml"))
+
+    def value(name: str, attr: str) -> float:
+        mats = rt_scene.radio_materials
+        mat = mats.get(name) or mats.get(f"mat-{name}")
+        assert mat is not None, f"{name} missing from loaded scene"
+        v = getattr(mat, attr)
+        try:
+            return float(v[0])
+        except TypeError:
+            return float(v)
+
+    # The silent-drop this guards against: Sionna's own default is zero.
+    assert value("itu_concrete", "scattering_coefficient") == 0.0
+
+    SionnaBackend._apply_custom_materials(project, rt_scene, warnings)
+
+    lib = {m.id: m for m in library.materials}
+    for mat_id in ("itu_concrete", "itu_glass"):
+        assert value(mat_id, "scattering_coefficient") == pytest.approx(
+            lib[mat_id].scattering_coefficient
+        )
+        assert value(mat_id, "xpd_coefficient") == pytest.approx(
+            lib[mat_id].xpd_coefficient
+        )
+    assert not any("could not apply" in w for w in warnings), warnings

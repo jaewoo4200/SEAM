@@ -567,7 +567,9 @@ def _emit_bsdf(root: ET.Element, bsdf_id: str, material: Optional[RFMaterial]) -
 
     ITU-backed materials use a plain diffuse bsdf: Sionna RT's loader converts
     ids matching (mat-)itu_* into built-in ITU RadioMaterials, and reflectance
-    (the preview color) is visual-only, never RF truth.
+    (the preview color) is visual-only, never RF truth. Their library
+    scattering/XPD travel via the manifest's itu_solver_params instead — the
+    backend applies them onto the loaded materials at solve time.
 
     Everything else must be a "radio-material" plugin carrying its constant
     parameters directly - Sionna 1.x load_scene REJECTS shapes whose bsdf is
@@ -791,6 +793,30 @@ def _custom_material(
     }
 
 
+def _itu_solver_params(material: Optional[RFMaterial]) -> Optional[dict]:
+    """Library scattering/XPD for an ITU-backed material.
+
+    The XML cannot carry these for ITU materials (the diffuse-bsdf path has no
+    RF fields and the itu-radio-material plugin only takes thickness), and
+    Sionna's built-in ITU materials default both to 0 — so the backend pushes
+    them onto the loaded RadioMaterials at solve time
+    (sionna_backend._apply_custom_materials). Before this existed, a library
+    scattering value on an ITU material silently never reached the solver.
+    """
+    if (
+        material is None
+        or material.model != "itu_frequency_dependent"
+        or not material.itu_name
+    ):
+        return None
+    params: dict[str, float] = {}
+    if material.scattering_coefficient is not None:
+        params["scattering_coefficient"] = float(material.scattering_coefficient)
+    if material.xpd_coefficient is not None:
+        params["xpd_coefficient"] = float(material.xpd_coefficient)
+    return params or None
+
+
 def _manifest(
     scene: Scene,
     library: RFMaterialLibrary,
@@ -820,6 +846,10 @@ def _manifest(
                 # defensive re-sync pushes the variant's values, not the
                 # library defaults.
                 "custom_material": _custom_material(material, group.overrides),
+                # Scattering/XPD for ITU-backed groups, applied onto Sionna's
+                # built-in materials at solve time (their upstream defaults
+                # are 0 and the XML cannot carry these values).
+                "itu_solver_params": _itu_solver_params(material),
             }
         )
     # Actors: individual shapes the backend moves per frame. Also carry any

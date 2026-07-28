@@ -4,7 +4,9 @@
 # model: itu_frequency_dependent -> parameters follow ITU-R P.2040 at the
 #   simulation frequency (maps to Sionna RT built-in itu_* materials via
 #   itu_name). relative_permittivity/conductivity are left null because they
-#   are frequency-derived.
+#   are frequency-derived. scattering_coefficient/xpd_coefficient ARE honored:
+#   Sionna's built-ins default both to 0, so the backend overlays these values
+#   onto the loaded materials at solve time (compile manifest itu_solver_params).
 # model: constant -> relative_permittivity / conductivity_s_per_m used as-is.
 #
 # preview_color drives the frontend RF overlay mode only - it has no
