@@ -68,6 +68,9 @@ a{color:var(--acc);text-decoration:none}
   linear-gradient(180deg,rgba(11,17,27,.62) 0%,rgba(11,17,27,.38) 38%,var(--hero-fade) 88%)}
 .hero .wrap{position:relative;padding-bottom:64px;padding-top:96px}
 .eyebrow{display:inline-block;font-family:Consolas,monospace;font-size:12px;letter-spacing:.22em;color:#9ecdf8;text-transform:uppercase;background:rgba(7,12,20,.72);padding:6px 12px 6px 14px;border-radius:4px;border:1px solid rgba(46,155,255,.28);backdrop-filter:blur(3px)}
+.newsline{display:block;width:fit-content;font-size:12.5px;color:#cfe0f2;background:rgba(7,12,20,.72);border:1px solid rgba(46,155,255,.28);border-radius:999px;padding:5px 14px;margin:0 0 12px;backdrop-filter:blur(3px)}
+.newsline .nv{color:#6fc0ff;font-weight:700;font-family:Consolas,monospace;margin-right:6px}
+.newsline a{color:#9ecdf8}
 h1.wordmark{font:650 clamp(44px,7vw,84px)/1.02 "Segoe UI Variable Display","Segoe UI",sans-serif;
   letter-spacing:-.02em;color:#eaf1fb;margin:10px 0 6px;text-shadow:0 2px 6px rgba(4,10,20,.6),0 6px 28px rgba(4,10,20,.5)}
 h1 .studio{color:var(--acc)}
@@ -214,6 +217,8 @@ footer{margin-top:40px;border-top:1px solid var(--line)}
   <nav class="theme-sw" aria-label="Theme"><button data-theme="auto">Auto</button><button data-theme="light">Light</button><button data-theme="dark">Dark</button></nav>
   <nav class="lang" aria-label="Language"><a href="../ko/">KO</a><span>·</span><b>EN</b></nav>
   <div class="wrap">
+    <div class="newsline"><span class="nv">NEW v0.1.2</span> A/B result compare · in-app AI settings · ITU scattering fix —
+      <a href="https://pypi.org/project/seam-studio/">pip install -U seam-studio</a></div>
     <div class="eyebrow">Scene-to-Electromagnetic Authoring and Mapping</div>
     <h1 class="wordmark">SEAM <span class="studio">Studio</span></h1>
     <p class="tag"><b>A local-first, AI-assisted RF digital twin workbench.</b> In one textured 3D scene,
