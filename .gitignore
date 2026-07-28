@@ -53,6 +53,10 @@ SEAM_Code_Review_Fix_Request_for_Claude.md
 # Generated document exports (implementation handbook docx/pdf and the like).
 output/
 
+# Cross-engine experiment duplicates of the demo projects (paper harness
+# xengine_check working copies; the originals stay tracked).
+examples/demo_project/*_xeng.seam/
+
 # Reference scene bundle (large binary assets; download separately -
 # see INSTALL.md). The old personal-named dir is ignored too.
 reference-bundle/
