@@ -31,6 +31,9 @@
   constant 모델 재질은 컴파일된 XML에 값이 실리고, ITU 기반 재질은 XML로
   표현할 수 없어(Sionna 내장 기본값도 0) 백엔드가 컴파일 manifest의
   `itu_solver_params`를 통해 솔브 시점에 로드된 재질에 산란/XPD를 적용합니다.
+  주의: 같은 `itu_name`을 공유하는 재질 둘은 Sionna에서 RadioMaterial 하나로
+  병합되어 재질별 산란/XPD를 다르게 줄 수 없습니다(컴파일이 경고) — 산란을
+  바꾸려면 원본 ITU 재질을 수정하거나 constant 모델로 복제하세요.
 - **대기 가스 감쇠 (ITU-R P.676).** Sionna RT에는 대기 흡수 모델이 없어
   `SimulationConfig.atmospheric_absorption`이 경로별 후처리로 적용합니다
   (paths / channel / trajectory / beamforming; 라디오맵은 솔버 내부 계산이라

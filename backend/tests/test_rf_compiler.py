@@ -471,3 +471,26 @@ def test_itu_scattering_reaches_loaded_scene(
             lib[mat_id].xpd_coefficient
         )
     assert not any("could not apply" in w for w in warnings), warnings
+
+
+def test_itu_name_collision_warns(project: Path, library: RFMaterialLibrary) -> None:
+    """Two referenced materials sharing one itu_name merge into one Sionna
+    RadioMaterial, silently discarding one side's scattering/XPD — the compile
+    must say so (DeepVerse finding: 'duplicate metal, set S=0.4' no-opped)."""
+    dup = library.get("itu_concrete").model_copy(deep=True)
+    dup.id = "itu_concrete_rough"
+    dup.display_name = "Rough concrete clone"
+    dup.scattering_coefficient = 0.4
+    library.materials.append(dup)
+
+    scene = _build_scene()
+    scene.prims[1].rf.material_id = "itu_concrete_rough"  # glass prim -> clone
+    result = compile_project(project, scene, library)
+    assert result.ok
+    hits = [w for w in result.warnings if "share itu_name='itu_concrete'" in w]
+    assert hits, result.warnings
+    assert "CONSTANT-model" in hits[0]
+
+    # No false positive when every referenced itu_name is unique.
+    clean = compile_project(project, _build_scene(), project_store.load_default_library())
+    assert not any("share itu_name" in w for w in clean.warnings)

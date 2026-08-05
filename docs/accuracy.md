@@ -32,7 +32,11 @@ error sources and what SEAM Studio does about them.
   compiled XML; for ITU-backed materials the XML cannot represent it (and
   Sionna's built-ins default it to 0), so the backend applies the library
   scattering/XPD onto the loaded materials at solve time via the compile
-  manifest's `itu_solver_params`.
+  manifest's `itu_solver_params`. One caveat: two library materials sharing
+  the same `itu_name` merge into ONE Sionna RadioMaterial, so their
+  per-material scattering/XPD cannot differ (the compile warns) — to vary
+  scattering, edit the original ITU material or duplicate it as a
+  constant-model material.
 - **Atmospheric gas attenuation (ITU-R P.676).** Sionna RT models none, so
   `SimulationConfig.atmospheric_absorption` applies it as a per-path
   post-process (paths / channel / trajectory / beamforming; radio maps are

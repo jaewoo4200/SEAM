@@ -157,6 +157,7 @@ def compile_project(
         return CompileResult(ok=False, errors=errors, validation=validation)
 
     candidates, skipped = _collect_candidates(scene, library, warnings)
+    _warn_itu_name_collisions(candidates, scene, library, warnings)
     grouped = _extract_grouped_meshes(project_dir, candidates, library, skipped, warnings)
 
     generated: list[str] = []
@@ -244,6 +245,44 @@ def _collect_candidates(
             continue
         candidates.append(prim)
     return candidates, skipped
+
+
+def _warn_itu_name_collisions(
+    candidates, scene: Scene, library: RFMaterialLibrary, warnings: list[str]
+) -> None:
+    """Warn when 2+ REFERENCED library materials share one itu_name.
+
+    ITU-backed materials emit their Sionna built-in name as the bsdf id
+    ("mat-<itu_name>"), so same-itu_name materials merge into ONE
+    RadioMaterial in the loaded scene — their per-material scattering/XPD
+    (manifest itu_solver_params) cannot be told apart and only one value
+    survives. Found via DeepVerse verification: a "duplicate metal, set
+    S=0.4" workflow silently no-opped.
+    """
+    used_ids = {
+        p.rf.material_id
+        for p in candidates
+        if p.rf.material_id is not None
+    }
+    used_ids.update(a.rf_material_id for a in scene.actors if a.rf_material_id)
+    by_itu: dict[str, list[str]] = {}
+    for mat_id in sorted(used_ids):
+        material = library.get(mat_id)
+        if (
+            material is not None
+            and material.model == "itu_frequency_dependent"
+            and material.itu_name
+        ):
+            by_itu.setdefault(material.itu_name, []).append(mat_id)
+    for itu_name, ids in sorted(by_itu.items()):
+        if len(ids) > 1:
+            warnings.append(
+                f"materials {', '.join(ids)} share itu_name={itu_name!r} — "
+                "they merge into ONE Sionna RadioMaterial, so per-material "
+                "scattering/XPD overrides cannot be distinguished (only one "
+                "value survives). To vary scattering, edit the original "
+                "material or duplicate it as a CONSTANT-model material instead"
+            )
 
 
 def _override_plan(
