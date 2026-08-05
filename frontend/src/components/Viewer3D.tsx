@@ -2744,18 +2744,73 @@ export default function Viewer3D() {
   };
 
   const uri = scene?.assets.visual_scene_uri ?? null;
-  // Cache-busting: a material split rewrites visual/scene.glb in place (same
-  // URI), so a bare URL would keep serving useGLTF's stale cache. glbEpoch is
-  // bumped by the segmentation apply/undo flows; appending it as ?v= makes the
-  // loader treat the rewritten GLB as a fresh URL. Evicting the prior epoch's
-  // entry below keeps the cache from growing unbounded across splits.
+  // The viewport renders the single visual_scene_uri GLB, but prims may
+  // reference any GLB and the RF compiler reads them per prim — such prims
+  // are solved but invisible, which reads as "my walls do nothing" (hit live
+  // during the DeepVerse verification: 15 measured facade walls were in the
+  // RF result yet absent on screen). Count them and say so with a banner.
+  const hiddenPrimCount = useMemo(() => {
+    if (!scene?.assets.visual_scene_uri) return 0;
+    const main = scene.assets.visual_scene_uri;
+    return scene.prims.filter(
+      (p) => p.mesh_ref !== null && p.mesh_ref.asset_uri !== main,
+    ).length;
+  }, [scene]);
+  // Cache-busting: visual/scene.glb can be rewritten in place (same URI) by a
+  // material split, a scene import, or an out-of-band file swap, and useGLTF
+  // caches by URL — a bare URL keeps serving the stale mesh forever (the old
+  // glbEpoch-only key covered segmentation apply/undo and nothing else; a
+  // replaced scene.glb only showed up in incognito). The ?v= key is the
+  // asset's actual Last-Modified/ETag, probed with a cheap HEAD request every
+  // time the scene object changes (each save/refresh), so the GLB re-fetches
+  // exactly when the file changed — and never on unrelated scene edits (the
+  // scene *revision* bumps on every device move, so it would be the wrong
+  // key). glbEpoch stays in the key as the fallback for responses without
+  // either header. url === undefined means "probe in flight for a new asset";
+  // the canvas shows its loading note rather than flashing fallback prims.
   const glbEpoch = useAppStore((s) => s.glbEpoch);
   const baseUrl = projectId && uri ? api.assetUrl(projectId, uri) : null;
-  const url = baseUrl ? (glbEpoch > 0 ? `${baseUrl}?v=${glbEpoch}` : baseUrl) : null;
+  const [url, setUrl] = useState<string | null | undefined>(
+    baseUrl === null ? null : undefined,
+  );
+  const probedBase = useRef<string | null>(null);
+  useEffect(() => {
+    if (!baseUrl) {
+      probedBase.current = null;
+      setUrl(null);
+      return;
+    }
+    if (probedBase.current !== baseUrl) {
+      // Different asset (project switch): drop to the probing state so the
+      // previous project's mesh never renders under the new scene.
+      probedBase.current = baseUrl;
+      setUrl(undefined);
+    }
+    let alive = true;
+    const fallback = glbEpoch > 0 ? `${baseUrl}?v=${glbEpoch}` : baseUrl;
+    fetch(baseUrl, { method: "HEAD" })
+      .then((r) => {
+        if (!alive) return;
+        const stamp =
+          r.headers.get("last-modified") ?? r.headers.get("etag");
+        setUrl(
+          stamp
+            ? `${baseUrl}?v=${encodeURIComponent(stamp)}.${glbEpoch}`
+            : fallback,
+        );
+      })
+      .catch(() => {
+        if (alive) setUrl(fallback);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [baseUrl, glbEpoch, scene]);
   const prevGlbUrl = useRef<string | null>(null);
   useEffect(() => {
-    // Drop the previous epoch's cache entry once the new URL is in play, so the
+    // Drop the previous key's cache entry once the new URL is in play, so the
     // rewritten mesh is re-fetched and old buffers are released.
+    if (typeof url !== "string") return;
     if (prevGlbUrl.current && prevGlbUrl.current !== url) {
       useGLTF.clear(prevGlbUrl.current);
     }
@@ -2904,7 +2959,11 @@ export default function Viewer3D() {
             </Html>
           }
         >
-          {url && !assetFailed ? (
+          {url === undefined ? (
+            <Html center>
+              <div className="canvas-note">Loading visual scene…</div>
+            </Html>
+          ) : url && !assetFailed ? (
             <AssetBoundary key={url} url={url} fallback={<FallbackPrims />} onFailed={() => setAssetFailed(true)}>
               <GLBScene url={url} />
             </AssetBoundary>
@@ -2945,8 +3004,22 @@ export default function Viewer3D() {
           </button>
         </div>
       )}
-      {scene && (!url || assetFailed) && (
+      {scene && (url === null || assetFailed) && (
         <div className="viewer-banner">Visual asset missing — showing placeholder geometry</div>
+      )}
+      {typeof url === "string" && !assetFailed && hiddenPrimCount > 0 && (
+        <div
+          className="viewer-banner"
+          title={
+            "These prims reference a different GLB than the scene's visual " +
+            "asset. They ARE part of the RF compile/solve — the viewport just " +
+            "renders the single visual_scene_uri GLB. Merge the geometry into " +
+            "one GLB to see everything."
+          }
+        >
+          {hiddenPrimCount} prim{hiddenPrimCount === 1 ? "" : "s"} in RF solve
+          but not shown in viewport (other GLB)
+        </div>
       )}
       {/* Visible placement buttons: arm the same viewer ghost as the K/L
           hotkeys, for mouse discoverability. */}

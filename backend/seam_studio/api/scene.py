@@ -149,6 +149,10 @@ def validate_project_scene(project_id: str) -> ValidationReport:
     return validate_scene(scene, library, project_dir=project_dir)
 
 
+# HEAD is registered explicitly (FastAPI does not derive it from GET): the
+# viewer probes the GLB's Last-Modified/ETag this way to key its mesh cache,
+# so a rewritten scene.glb re-fetches without re-downloading on every edit.
+@router.head("/projects/{project_id}/assets/{asset_path:path}", include_in_schema=False)
 @router.get("/projects/{project_id}/assets/{asset_path:path}")
 def get_asset(project_id: str, asset_path: str) -> FileResponse:
     store = deps.get_store()
