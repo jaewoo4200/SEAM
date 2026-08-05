@@ -3,6 +3,7 @@ import { useAppStore } from "../store/appStore";
 import { api, ApiError } from "../api/client";
 import BeamSweepHeatmap from "./BeamSweepHeatmap";
 import AngularPlot from "./AngularPlot";
+import PlaybackPanel from "./PlaybackPanel";
 import { EpochStaleChip, PATH_COLORS, SELECTED_PATH_COLOR, formatVec, materialById } from "./common";
 import { LineChart, exportCsv } from "../charts";
 import { filterPaths, pathColor, pathDepth, powerRange } from "../pathFilter";
@@ -3071,7 +3072,14 @@ const RUN_HISTORY_KINDS: ResultSetRef["kind"][] = [
   "mesh_radio_map",
   "scenario",
   "channel",
+  "playback",
 ];
+
+/** Group headings that read better than the raw kind string. Kinds missing
+ *  here fall back to their own name (paths, channel, …). */
+const RUN_HISTORY_LABELS: Partial<Record<ResultSetRef["kind"], string>> = {
+  playback: "playback (GT vs DT)",
+};
 
 /** One run row with an inline-editable label. Committing (blur/Enter) PATCHes
  *  the label; labeled runs are spared by pruning. */
@@ -3213,7 +3221,7 @@ function RunHistorySection() {
           {RUN_HISTORY_KINDS.filter((k) => (grouped.get(k)?.length ?? 0) > 0).map((kind) => (
             <div key={kind} style={{ marginTop: 8 }}>
               <h4>
-                {kind} ({grouped.get(kind)!.length})
+                {RUN_HISTORY_LABELS[kind] ?? kind} ({grouped.get(kind)!.length})
               </h4>
               <table className="results-table">
                 <thead>
@@ -3285,6 +3293,9 @@ export default function ResultExplorer() {
   const showPaths = useAppStore((s) => s.showPaths);
   const showRadioMap = useAppStore((s) => s.showRadioMap);
   const showBeamforming = useAppStore((s) => s.showBeamforming);
+  const playback = useAppStore((s) => s.playback);
+  const showPlayback = useAppStore((s) => s.showPlayback);
+  const showBeamLobe = useAppStore((s) => s.showBeamLobe);
   const toggleOverlay = useAppStore((s) => s.toggleOverlay);
   const projectId = useAppStore((s) => s.projectId);
   const busy = useAppStore((s) => s.busy);
@@ -3426,6 +3437,15 @@ export default function ResultExplorer() {
 
   const selectedPath = pathResults?.paths.find((p) => p.path_id === selectedPathId) ?? null;
 
+  // Beam lobe sources: the STATIC beamforming lobe needs a codebook sweep (a
+  // scalar MRT/SVD gain has no curve to draw), while a playback pack carries a
+  // per-frame sweep of its own. Either one keeps the toggle live.
+  const hasStaticLobe =
+    beamforming !== null &&
+    beamforming.mode === "codebook_sweep" &&
+    beamforming.sweep_gain_db !== null;
+  const hasPlaybackPack = playback !== null && playback.frames.length > 0;
+
   return (
     <>
       {/* Channel/Trajectory/Scenario/ML-dataset cards are dockable panels now
@@ -3518,6 +3538,30 @@ export default function ResultExplorer() {
         </label>
         <TrajectoryRaysToggle />
         <ScenarioOverlayToggle />
+        <label
+          className={hasPlaybackPack ? "" : "disabled"}
+          title="Per-frame RX marker, rays and TX beam lobe from the playback pack"
+        >
+          <input
+            type="checkbox"
+            checked={showPlayback}
+            disabled={!hasPlaybackPack}
+            onChange={() => toggleOverlay("playback")}
+          />{" "}
+          Playback
+        </label>
+        <label
+          className={hasStaticLobe || hasPlaybackPack ? "" : "disabled"}
+          title="Beam lobe drawn from the codebook sweep (needs a codebook_sweep beamforming run or a playback pack)"
+        >
+          <input
+            type="checkbox"
+            checked={showBeamLobe}
+            disabled={!hasStaticLobe && !hasPlaybackPack}
+            onChange={() => toggleOverlay("beamLobe")}
+          />{" "}
+          Beam lobe
+        </label>
       </div>
 
       {beamforming && showBeamforming && <BeamformingCard beamforming={beamforming} />}
@@ -3669,6 +3713,9 @@ export default function ResultExplorer() {
 
       <MeshRadioMapSection />
       <AltitudeSweepSection />
+      {/* Renders nothing unless the project carries sensor_data/ (it reads the
+          manifest from the store and self-hides), so no gate is needed here. */}
+      <PlaybackPanel />
       <AbCompareSection />
       <RadioMapCompareSection />
       <RunHistorySection />

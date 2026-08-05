@@ -49,6 +49,9 @@ import type {
   OsmImportRequest,
   OsmImportResponse,
   PathResultSet,
+  PlaybackBuildRequest,
+  PlaybackResultSet,
+  SensorManifestResponse,
   ProjectCreateRequest,
   ProjectDeleteResponse,
   ProjectInfo,
@@ -438,6 +441,20 @@ export const api = {
     }
     return URL.createObjectURL(await res.blob());
   },
+
+  // Frame-indexed multimodal sensor data (sensor_data/manifest.json) plus
+  // detected drive segments; 404 when the project carries none.
+  getSensors: (pid: string) =>
+    request<SensorManifestResponse>("GET", `/projects/${pid}/sensors`),
+  // Build the GT-vs-DT playback pack: one paths+beamforming solve per
+  // manifest frame (long; progress arrives over the simulation_* WS events).
+  buildPlayback: (pid: string, req: PlaybackBuildRequest) =>
+    request<PlaybackResultSet>("POST", `/projects/${pid}/simulate/playback`, req),
+  getPlayback: (pid: string, resultId?: string) =>
+    request<PlaybackResultSet>(
+      "GET",
+      `/projects/${pid}/results/playback${resultId ? `?result_id=${encodeURIComponent(resultId)}` : ""}`,
+    ),
 
   // static project assets (GLB, textures)
   assetUrl: (pid: string, uri: string) => `${BASE}/projects/${pid}/assets/${uri}`,

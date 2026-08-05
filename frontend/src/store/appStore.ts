@@ -29,6 +29,9 @@ import type {
   MaterialSuggestionResponse,
   MeshRadioMapResultSet,
   PathResultSet,
+  PlaybackBuildRequest,
+  PlaybackResultSet,
+  SensorManifestResponse,
   PathType,
   ProjectInfo,
   ProviderModels,
@@ -281,6 +284,33 @@ interface AppState {
   scenarioSpeed: number;
   scenarioLoop: boolean;
 
+  // --- multimodal sensors + GT-vs-DT playback (issue #3) ---
+  /** sensor_data/manifest.json + detected drive segments; null = project
+   *  carries no sensor data (the panel hides itself). */
+  sensors: SensorManifestResponse | null;
+  /** Stored playback pack. Deliberately NOT invalidated by afterSceneEdit:
+   *  playback frames are historical solves against recorded poses, not a
+   *  prediction for the current scene state. */
+  playback: PlaybackResultSet | null;
+  playbackFrame: number;
+  playbackPlaying: boolean;
+  /** Frames per second for the playback clock (panel-owned setInterval). */
+  playbackSpeed: number;
+  /** Index into sensors.segments (-1 = whole recording). */
+  playbackSegment: number;
+  /** Viewport overlay: per-frame RX marker + rays + TX beam lobe. */
+  showPlayback: boolean;
+  /** Dynamic beam lobe for the STATIC beamforming result (playback frames
+   *  always draw their lobe while showPlayback is on). */
+  showBeamLobe: boolean;
+  loadSensors: () => Promise<void>;
+  runPlaybackBuild: (req: PlaybackBuildRequest) => Promise<void>;
+  loadPlayback: (resultId?: string) => Promise<void>;
+  setPlaybackFrame: (i: number) => void;
+  setPlaybackPlaying: (v: boolean) => void;
+  setPlaybackSpeed: (v: number) => void;
+  setPlaybackSegment: (i: number) => void;
+
   // --- channel analysis ---
   channelResult: ChannelAnalysisResult | null;
 
@@ -428,7 +458,14 @@ interface AppState {
   cancelSolve: () => Promise<void>;
   selectPath: (pathId: string | null) => void;
   toggleOverlay: (
-    kind: "paths" | "radioMap" | "meshRadioMap" | "beamforming" | "trajectoryRays",
+    kind:
+      | "paths"
+      | "radioMap"
+      | "meshRadioMap"
+      | "beamforming"
+      | "trajectoryRays"
+      | "playback"
+      | "beamLobe",
   ) => void;
   /** Per-frame trajectory rays overlay (include_paths results). Independent of
    *  the static Rays toggle: computing a trajectory turns it ON, computing
@@ -1253,6 +1290,15 @@ export const useAppStore = create<AppState>()((set, get) => {
     scenarioSpeed: 1,
     scenarioLoop: false,
 
+    sensors: null,
+    playback: null,
+    playbackFrame: 0,
+    playbackPlaying: false,
+    playbackSpeed: 6,
+    playbackSegment: -1,
+    showPlayback: false,
+    showBeamLobe: true,
+
     channelResult: null,
     abBaseline: null,
 
@@ -1419,6 +1465,14 @@ export const useAppStore = create<AppState>()((set, get) => {
           scenarioPlaying: false,
           scenarioLoop: false,
           channelResult: null,
+          // Sensor manifest + playback pack belong to one project's frames
+          // (refetched below when the new project carries sensor_data/).
+          sensors: null,
+          playback: null,
+          playbackFrame: 0,
+          playbackPlaying: false,
+          playbackSegment: -1,
+          showPlayback: false,
           // A pinned A/B baseline belongs to the previous project's scene.
           abBaseline: null,
           // The surfaced RFData-export path belongs to the previous project.
@@ -1543,6 +1597,10 @@ export const useAppStore = create<AppState>()((set, get) => {
           // no persisted channel analysis; ignore silently
         }
       });
+      // Sensor manifest + latest playback pack (both 404-tolerant; the
+      // playback panel only appears when the project carries sensor_data/).
+      void get().loadSensors();
+      void get().loadPlayback();
       // Latest stored mesh radio map + live-event socket: both out-of-band and
       // fully best-effort so a missing endpoint (this wave still landing on the
       // backend) never blocks or breaks project open.
@@ -1850,6 +1908,8 @@ export const useAppStore = create<AppState>()((set, get) => {
       else if (kind === "meshRadioMap") set({ showMeshRadioMap: !get().showMeshRadioMap });
       else if (kind === "trajectoryRays")
         set({ showTrajectoryRays: !get().showTrajectoryRays });
+      else if (kind === "playback") set({ showPlayback: !get().showPlayback });
+      else if (kind === "beamLobe") set({ showBeamLobe: !get().showBeamLobe });
       else set({ showBeamforming: !get().showBeamforming });
     },
 
@@ -1990,6 +2050,15 @@ export const useAppStore = create<AppState>()((set, get) => {
           const result = await api.getChannelResult(pid, ref.result_id);
           set({ channelResult: result, ...resultsMode() });
           stampResult("channel");
+        } else if (ref.kind === "playback") {
+          const result = await api.getPlayback(pid, ref.result_id);
+          set({
+            playback: result,
+            playbackFrame: 0,
+            playbackPlaying: false,
+            showPlayback: true,
+            ...resultsMode(),
+          });
         } else {
           set({ error: `Cannot activate result of kind ${ref.kind}` });
           return;
@@ -2009,6 +2078,70 @@ export const useAppStore = create<AppState>()((set, get) => {
         // no mesh radio map yet (or endpoint not landed): ignore silently
       }
     },
+
+    loadSensors: async () => {
+      const pid = get().projectId;
+      if (!pid) return;
+      try {
+        const sensors = await api.getSensors(pid);
+        // Guard against a project switch racing the fetch.
+        if (get().projectId === pid) set({ sensors });
+      } catch (err) {
+        // 404 = the project carries no sensor_data/; the panel hides itself.
+        // Anything else (notably 422 = the manifest IS there but will not
+        // parse; the detail names the offending field) must surface —
+        // otherwise a broken manifest looks exactly like no sensor data.
+        if (err instanceof ApiError && (err.status === 404 || err.status === 501)) return;
+        if (get().projectId === pid)
+          set({ error: err instanceof Error ? err.message : String(err) });
+      }
+    },
+
+    runPlaybackBuild: async (req) => {
+      const pid = get().projectId;
+      if (!pid) return;
+      await run("Building playback pack…", async () => {
+        // Long-running (one paths+beamforming solve pair per frame); per-frame
+        // progress + Cancel arrive over the simulation_* WS events like any
+        // other solve. The live solver-panel config is inlined so every knob
+        // (frequency, absorption, depth, backend) applies exactly like
+        // simulatePaths — an explicit config in `req` wins.
+        const result = await api.buildPlayback(pid, {
+          config: get().pathsConfig,
+          ...req,
+        });
+        set({
+          playback: result,
+          playbackFrame: 0,
+          playbackPlaying: false,
+          showPlayback: true,
+          ...resultsMode(),
+          notice: `Playback pack built: ${result.frames.length} frame(s)`,
+        });
+        await refetchSceneInner(); // a ResultSetRef was appended to the scene
+      });
+    },
+
+    loadPlayback: async (resultId) => {
+      const pid = get().projectId;
+      if (!pid) return;
+      try {
+        const result = await api.getPlayback(pid, resultId);
+        if (get().projectId === pid)
+          set({ playback: result, playbackFrame: 0, playbackPlaying: false });
+      } catch {
+        // no stored playback pack yet: ignore silently (project open path)
+      }
+    },
+
+    setPlaybackFrame: (i) => {
+      const pb = get().playback;
+      const max = pb ? Math.max(0, pb.frames.length - 1) : 0;
+      set({ playbackFrame: Math.max(0, Math.min(max, i)) });
+    },
+    setPlaybackPlaying: (v) => set({ playbackPlaying: v }),
+    setPlaybackSpeed: (v) => set({ playbackSpeed: Math.max(1, Math.min(30, v)) }),
+    setPlaybackSegment: (i) => set({ playbackSegment: i, playbackPlaying: false }),
 
     removePaths: () => set({ pathResults: null, selectedPathId: null }),
 

@@ -330,7 +330,9 @@ function GlobalSection() {
     setRadioMapConfig(p);
   };
 
-  const arraySizes = [1, 2, 4, 8];
+  // 16 is the upper bound BeamformingRequest accepts, and the ULA size the
+  // DeepVerse-style drive datasets are recorded with.
+  const arraySizes = [1, 2, 4, 8, 16];
   const arraySelect = (
     value: number,
     onChange: (v: number) => void,

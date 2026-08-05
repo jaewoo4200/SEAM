@@ -145,7 +145,7 @@ export interface SimulationConfig {
 
 export interface ResultSetRef {
   result_id: string;
-  kind: "paths" | "radio_map" | "mesh_radio_map" | "trajectory" | "scenario" | "channel";
+  kind: "paths" | "radio_map" | "mesh_radio_map" | "trajectory" | "scenario" | "channel" | "playback";
   backend: string;
   simulation_config_id: string;
   uri: string;
@@ -1569,4 +1569,108 @@ export interface TrajectoryValidationReport {
   stats: TrajectoryValidationStats;
   backend: string;
   warnings: string[];
+}
+
+/* ------------------------------------------------------------------ *
+ * Multimodal sensor data + GT-vs-DT playback (issue #3)
+ * ------------------------------------------------------------------ */
+
+export interface SensorChannel {
+  key: string;
+  kind: "image" | "pointcloud" | "beam_profile" | "json";
+  label: string;
+}
+
+export interface SensorFramePose {
+  position: Vec3;
+  orientation_deg: Vec3;
+}
+
+export interface SensorGtMetrics {
+  rss_dbm: number | null;
+  rss_coherent_dbm: number | null;
+  tau_rms_ns: number | null;
+  n_paths: number | null;
+  best_beam_deg: number | null;
+}
+
+export interface SensorFrame {
+  index: number;
+  time_s: number | null;
+  // channel key -> project-relative file path (serve via api.assetUrl).
+  files: Record<string, string>;
+  pose: SensorFramePose | null;
+  gt: SensorGtMetrics | null;
+}
+
+export interface SensorManifest {
+  version: number;
+  entity_id: string | null;
+  channels: SensorChannel[];
+  frames: SensorFrame[];
+}
+
+export interface SensorSegment {
+  label: string;
+  // Inclusive positions into the sorted frames array (not frame indices).
+  start: number;
+  end: number;
+}
+
+export interface SensorManifestResponse {
+  manifest: SensorManifest;
+  segments: SensorSegment[];
+  warnings: string[];
+}
+
+// GT beam_profile channel file payload ({azimuth_deg, power_dbm}).
+export interface BeamProfile {
+  azimuth_deg: number[];
+  power_dbm: (number | null)[];
+}
+
+export interface PlaybackFrame {
+  index: number;
+  time_s: number | null;
+  rx_position: Vec3;
+  // World azimuth (deg) per sweep sample; power is absolute dBm.
+  beam_azimuth_deg: number[];
+  beam_power_dbm: (number | null)[];
+  best_beam_deg: number | null;
+  rss_dbm: number | null;
+  rss_coherent_dbm: number | null;
+  tau_rms_ns: number | null;
+  n_paths: number;
+  paths: RayPath[];
+}
+
+export interface PlaybackResultSet {
+  result_id: string;
+  kind: "playback";
+  backend: string;
+  simulation_config_id: string;
+  created_at: string | null;
+  tx_id: string;
+  rx_id: string;
+  frames: PlaybackFrame[];
+  warnings: string[];
+  metadata: Record<string, unknown>;
+}
+
+export interface PlaybackBuildRequest {
+  config_id?: string | null;
+  config?: SimulationConfig | null;
+  tx_id?: string | null;
+  rx_id?: string | null;
+  frame_stride?: number;
+  max_frames?: number;
+  tx_rows?: number;
+  tx_cols?: number;
+  rx_rows?: number;
+  rx_cols?: number;
+  use_device_orientation?: boolean;
+  sweep_start_deg?: number;
+  sweep_stop_deg?: number;
+  sweep_step_deg?: number;
+  max_paths_per_frame?: number;
 }

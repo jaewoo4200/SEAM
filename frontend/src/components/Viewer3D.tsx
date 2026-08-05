@@ -16,10 +16,12 @@ import { directionalPosition, renderQualityDpr } from "../viewportSettings";
 import type { RadioMapColormap } from "../viewportSettings";
 import ViewportPanel from "./ViewportPanel";
 import MeshRadioMapOverlay from "./MeshRadioMapOverlay";
+import BeamLobeOverlay, { beamSweepAxisDeg } from "./BeamLobeOverlay";
 import { captureAgentViews } from "./AgentCapture";
 import { segmentationClassColor } from "../types/api";
 import type {
   Actor,
+  PlaybackResultSet,
   Prim,
   RadioMapResultSet,
   RayPath,
@@ -511,6 +513,14 @@ function deviceMarkerRadius(
   })();
   return base * markerScale;
 }
+
+/** Beam-lobe radius = device marker radius × this. The marker radius already
+ *  tracks the device spread AND the user's marker-size slider, so one
+ *  multiplier covers both ends of the range: a lab room (0.15 m indoor floor ×
+ *  the 2.0 default slider → a 3.6 m lobe in a ~10 m room) and a campus (2.5 m
+ *  cap × 2.0 → a 60 m lobe on a ~350 m site). envScale(env)*10 was the
+ *  alternative and is a flat 10 m outdoors — sub-pixel at campus scale. */
+const LOBE_RADIUS_SCALE = 12;
 
 /** X/Y/Z translate gizmo WRAPPING the selected marker (deterministic - no
  *  conditional refs, whose detach ordering could null the target when
@@ -1133,6 +1143,63 @@ function TrajectoryOverlay({ trajectory }: { trajectory: TrajectoryResultSet }) 
           radius={ueRadius}
         />
       ))}
+    </group>
+  );
+}
+
+// -------------------------------------------------------------- playback
+
+/** Amber, so the whole GT-vs-DT playback layer (moving RX + its lobe) reads as
+ *  one thing and stays distinguishable from the static beamforming lobe. */
+const PLAYBACK_COLOR = "#d97706";
+
+/** GT-vs-DT playback overlay at the current frame: the recorded RX pose, the
+ *  frame's solved rays, and the measured beam lobe at the TX. Frame sweep
+ *  curves are ALREADY world-azimuth (PlaybackFrame.beam_azimuth_deg is the
+ *  backend's reprojection), so the lobe axis is 0 — do not re-apply a link
+ *  azimuth here. */
+function PlaybackOverlay({ playback }: { playback: PlaybackResultSet }) {
+  const playbackFrame = useAppStore((s) => s.playbackFrame);
+  const scene = useAppStore((s) => s.scene);
+  const env = useAppStore((s) => s.resolvedEnvironment);
+  const markerScale = useAppStore((s) => s.viewport.markerScale);
+  // The "Beam lobe" overlay checkbox governs the playback lobe too — without
+  // this the checkbox is a no-op whenever only a pack (no static sweep)
+  // exists. Marker + rays stay under the broader "Playback" toggle.
+  const showBeamLobe = useAppStore((s) => s.showBeamLobe);
+  const frame =
+    playback.frames[Math.max(0, Math.min(playback.frames.length - 1, playbackFrame))];
+  if (!scene || !frame) return null;
+  const radius = deviceMarkerRadius(scene, env, markerScale);
+  // The scene TX stays where it is during playback (only the RX was recorded
+  // moving); a missing device just means no lobe, not a broken overlay.
+  const tx = scene.devices.find((d) => d.id === playback.tx_id);
+  return (
+    <group userData={{ __noFit: true }}>
+      {frame.paths.length > 0 && <PathLines paths={frame.paths} showInteractions={false} />}
+      <group position={frame.rx_position}>
+        <mesh>
+          <sphereGeometry args={[radius, 24, 16]} />
+          <meshStandardMaterial
+            color={PLAYBACK_COLOR}
+            emissive={PLAYBACK_COLOR}
+            emissiveIntensity={0.6}
+          />
+        </mesh>
+        <Html position={[0, 0, radius * 2.4]} center zIndexRange={[10, 0]}>
+          <div className="device-label selected">{playback.rx_id}</div>
+        </Html>
+      </group>
+      {tx && showBeamLobe && (
+        <BeamLobeOverlay
+          origin={tx.position}
+          axisDeg={0}
+          anglesDeg={frame.beam_azimuth_deg}
+          powerDbm={frame.beam_power_dbm}
+          radius={radius * LOBE_RADIUS_SCALE}
+          color={PLAYBACK_COLOR}
+        />
+      )}
     </group>
   );
 }
@@ -2616,6 +2683,10 @@ export default function Viewer3D() {
   const showMeshRadioMapToggle = useAppStore((s) => s.showMeshRadioMap);
   const trajectory = useAppStore((s) => s.trajectory);
   const scenario = useAppStore((s) => s.scenario);
+  const beamforming = useAppStore((s) => s.beamforming);
+  const showBeamLobe = useAppStore((s) => s.showBeamLobe);
+  const playback = useAppStore((s) => s.playback);
+  const showPlayback = useAppStore((s) => s.showPlayback);
   const showPaths = useAppStore((s) => s.showPaths);
   const showRadioMapToggle = useAppStore((s) => s.showRadioMap);
   const clearSelection = useAppStore((s) => s.clearSelection);
@@ -2849,6 +2920,52 @@ export default function Viewer3D() {
   // Trajectory overlay (marker/trail; per-frame rays gated separately by the
   // independent "Trajectory rays" toggle inside TrajectoryOverlay).
   const trajActive = trajectory !== null && mode === "results" && !scenarioActive;
+  const playbackActive =
+    playback !== null && playback.frames.length > 0 && mode === "results" && showPlayback;
+  // Static beamforming lobe: the sweep row of the SELECTED RX beam, drawn at
+  // the TX. Only codebook_sweep produces a curve — tx_mrt/svd report a scalar
+  // gain, and a lobe invented from a scalar would be exactly the static shape
+  // this overlay exists to avoid.
+  const beamLobe = useMemo(() => {
+    if (!scene || !beamforming || mode !== "results" || !showBeamLobe) return null;
+    if (beamforming.mode !== "codebook_sweep" || !beamforming.sweep_gain_db) return null;
+    const tx = scene.devices.find((d) => d.id === beamforming.tx_id);
+    const rx = scene.devices.find((d) => d.id === beamforming.rx_id);
+    if (!tx || !rx) return null;
+    const angles = beamforming.sweep_angles_deg;
+    const sweep = beamforming.sweep_gain_db;
+    // sweep_gain_db is [rx_beam][tx_beam] in both backends, so the TX-azimuth
+    // curve is the row of one RX beam; best_rx_angle_deg is always an element
+    // of sweep_angles_deg (both backends select it from that list).
+    let row =
+      beamforming.best_rx_angle_deg === null
+        ? -1
+        : angles.indexOf(beamforming.best_rx_angle_deg);
+    if (row < 0 || !sweep[row]) {
+      // Unknown/absent best RX beam: fall back to the row holding the global max.
+      let best = -Infinity;
+      row = -1;
+      for (let i = 0; i < sweep.length; i++) {
+        for (const v of sweep[i]) {
+          if (v !== null && Number.isFinite(v) && v > best) {
+            best = v;
+            row = i;
+          }
+        }
+      }
+    }
+    const curve = row >= 0 ? sweep[row] : undefined;
+    if (!curve || curve.length < 2) return null;
+    return {
+      origin: tx.position,
+      axisDeg: beamSweepAxisDeg(beamforming, tx.position, rx.position),
+      anglesDeg: angles,
+      powerDbm: curve,
+    };
+  }, [scene, beamforming, mode, showBeamLobe]);
+  const lobeRadius = scene
+    ? deviceMarkerRadius(scene, resolvedEnv, viewport.markerScale) * LOBE_RADIUS_SCALE
+    : 10;
   const dirPos = directionalPosition(
     viewport.directionalAzimuthDeg,
     viewport.directionalElevationDeg,
@@ -2998,6 +3115,18 @@ export default function Viewer3D() {
         {showRadioMap && <RadioMapPlane radioMap={radioMap} />}
         {showMeshRadioMap && <MeshRadioMapOverlay result={meshRadioMap} />}
         {trajActive && <TrajectoryOverlay trajectory={trajectory} />}
+        {/* Beam lobe from the static beamforming run; the playback overlay
+            draws its own per-frame lobe from the frame's sweep curve. */}
+        {beamLobe && (
+          <BeamLobeOverlay
+            origin={beamLobe.origin}
+            axisDeg={beamLobe.axisDeg}
+            anglesDeg={beamLobe.anglesDeg}
+            powerDbm={beamLobe.powerDbm}
+            radius={lobeRadius}
+          />
+        )}
+        {playbackActive && <PlaybackOverlay playback={playback} />}
         {povVisible && povSourceId && (
           <EntityPovInset sourceId={povSourceId} targetId={povTargetId} />
         )}

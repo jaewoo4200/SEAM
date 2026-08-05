@@ -910,6 +910,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{project_id}/results/playback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Playback Result */
+        get: operations["get_playback_result_api_projects__project_id__results_playback_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{project_id}/results/prune": {
         parameters: {
             query?: never;
@@ -1395,6 +1412,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{project_id}/sensors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Sensors */
+        get: operations["get_sensors_api_projects__project_id__sensors_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{project_id}/simulate/beamforming": {
         parameters: {
             query?: never;
@@ -1473,6 +1507,27 @@ export interface paths {
         put?: never;
         /** Simulate Paths */
         post: operations["simulate_paths_api_projects__project_id__simulate_paths_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/simulate/playback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Simulate Playback
+         * @description GT-vs-DT playback pack (issue #3): replay the project's sensor manifest,
+         *     one paths solve + one codebook sweep per selected frame.
+         */
+        post: operations["simulate_playback_api_projects__project_id__simulate_playback_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3524,6 +3579,150 @@ export interface components {
             warnings?: string[];
         };
         /**
+         * PlaybackBuildRequest
+         * @description Body for POST /simulate/playback (GT-vs-DT playback pack, issue #3).
+         *
+         *     Replays the project's sensor manifest (sensor_data/manifest.json): for
+         *     each selected frame the RX device is moved to the frame pose (in memory —
+         *     the stored scene is never edited) and one paths solve plus one codebook
+         *     beam sweep run; results persist as ONE "playback" result set whose frames
+         *     align with the manifest by index.
+         */
+        PlaybackBuildRequest: {
+            config?: components["schemas"]["SimulationConfig"] | null;
+            /** Config Id */
+            config_id?: string | null;
+            /**
+             * Frame Stride
+             * @default 1
+             */
+            frame_stride: number;
+            /**
+             * Max Frames
+             * @default 400
+             */
+            max_frames: number;
+            /**
+             * Max Paths Per Frame
+             * @default 12
+             */
+            max_paths_per_frame: number;
+            /**
+             * Rx Cols
+             * @default 1
+             */
+            rx_cols: number;
+            /** Rx Id */
+            rx_id?: string | null;
+            /**
+             * Rx Rows
+             * @default 1
+             */
+            rx_rows: number;
+            /**
+             * Sweep Start Deg
+             * @default -60
+             */
+            sweep_start_deg: number;
+            /**
+             * Sweep Step Deg
+             * @default 2.5
+             */
+            sweep_step_deg: number;
+            /**
+             * Sweep Stop Deg
+             * @default 60
+             */
+            sweep_stop_deg: number;
+            /**
+             * Tx Cols
+             * @default 16
+             */
+            tx_cols: number;
+            /** Tx Id */
+            tx_id?: string | null;
+            /**
+             * Tx Rows
+             * @default 1
+             */
+            tx_rows: number;
+            /**
+             * Use Device Orientation
+             * @default true
+             */
+            use_device_orientation: boolean;
+        };
+        /**
+         * PlaybackFrame
+         * @description One frame of a GT-vs-DT playback pack: the SEAM side of the sensor
+         *     manifest's frame at the same ``index``. GT scalars/curves live in the
+         *     manifest (inline gt + beam_profile channel files) — the pack stores only
+         *     what the solver produced, so GT data is never duplicated.
+         */
+        PlaybackFrame: {
+            /** Beam Azimuth Deg */
+            beam_azimuth_deg?: number[];
+            /** Beam Power Dbm */
+            beam_power_dbm?: (number | null)[];
+            /** Best Beam Deg */
+            best_beam_deg?: number | null;
+            /** Index */
+            index: number;
+            /**
+             * N Paths
+             * @default 0
+             */
+            n_paths: number;
+            /** Paths */
+            paths?: components["schemas"]["RayPath"][];
+            /** Rss Coherent Dbm */
+            rss_coherent_dbm?: number | null;
+            /** Rss Dbm */
+            rss_dbm?: number | null;
+            /** Rx Position */
+            rx_position: number[];
+            /** Tau Rms Ns */
+            tau_rms_ns?: number | null;
+            /** Time S */
+            time_s?: number | null;
+        };
+        /**
+         * PlaybackResultSet
+         * @description Frame-synced GT-vs-DT playback pack (issue #3).
+         *
+         *     Built by POST /simulate/playback: one solve pair (paths + codebook
+         *     beamforming) per sensor-manifest frame, with the RX moved to the frame
+         *     pose. Frames align 1:1 with manifest frames by ``index``.
+         */
+        PlaybackResultSet: {
+            /** Backend */
+            backend: string;
+            /** Created At */
+            created_at?: string | null;
+            /** Frames */
+            frames?: components["schemas"]["PlaybackFrame"][];
+            /**
+             * Kind
+             * @default playback
+             * @constant
+             */
+            kind: "playback";
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            };
+            /** Result Id */
+            result_id: string;
+            /** Rx Id */
+            rx_id: string;
+            /** Simulation Config Id */
+            simulation_config_id: string;
+            /** Tx Id */
+            tx_id: string;
+            /** Warnings */
+            warnings?: string[];
+        };
+        /**
          * PointObject
          * @description A point given as an object, in either coordinate system.
          *
@@ -3955,7 +4154,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "paths" | "radio_map" | "mesh_radio_map" | "trajectory" | "scenario" | "channel";
+            kind: "paths" | "radio_map" | "mesh_radio_map" | "trajectory" | "scenario" | "channel" | "playback";
             /** Label */
             label?: string | null;
             /** Result Id */
@@ -3982,7 +4181,7 @@ export interface components {
              */
             keep_latest: number;
             /** Kinds */
-            kinds?: ("paths" | "radio_map" | "mesh_radio_map" | "trajectory" | "scenario" | "channel")[] | null;
+            kinds?: ("paths" | "radio_map" | "mesh_radio_map" | "trajectory" | "scenario" | "channel" | "playback")[] | null;
         };
         /** RuleGenerationRequest */
         RuleGenerationRequest: {
@@ -4271,6 +4470,98 @@ export interface components {
             removed_prim_ids: string[];
             /** Restored Prim Id */
             restored_prim_id: string;
+        };
+        /**
+         * SensorChannel
+         * @description One modality present in the frame files.
+         */
+        SensorChannel: {
+            /** Key */
+            key: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "image" | "pointcloud" | "beam_profile" | "json";
+            /**
+             * Label
+             * @default
+             */
+            label: string;
+        };
+        /** SensorFrame */
+        SensorFrame: {
+            /** Files */
+            files?: {
+                [key: string]: string;
+            };
+            gt?: components["schemas"]["SensorGtMetrics"] | null;
+            /** Index */
+            index: number;
+            pose?: components["schemas"]["SensorFramePose"] | null;
+            /** Time S */
+            time_s?: number | null;
+        };
+        /**
+         * SensorFramePose
+         * @description Pose of the tracked entity (usually the UE) at this frame.
+         */
+        SensorFramePose: {
+            /** Orientation Deg */
+            orientation_deg?: number[];
+            /** Position */
+            position: number[];
+        };
+        /**
+         * SensorGtMetrics
+         * @description Optional per-frame ground-truth scalars (curves go in a beam_profile
+         *     channel file; only small numbers belong inline).
+         */
+        SensorGtMetrics: {
+            /** Best Beam Deg */
+            best_beam_deg?: number | null;
+            /** N Paths */
+            n_paths?: number | null;
+            /** Rss Coherent Dbm */
+            rss_coherent_dbm?: number | null;
+            /** Rss Dbm */
+            rss_dbm?: number | null;
+            /** Tau Rms Ns */
+            tau_rms_ns?: number | null;
+        };
+        /** SensorManifest */
+        SensorManifest: {
+            /** Channels */
+            channels?: components["schemas"]["SensorChannel"][];
+            /** Entity Id */
+            entity_id?: string | null;
+            /** Frames */
+            frames?: components["schemas"]["SensorFrame"][];
+            /**
+             * Version
+             * @default 1
+             */
+            version: number;
+        };
+        /** SensorManifestResponse */
+        SensorManifestResponse: {
+            manifest: components["schemas"]["SensorManifest"];
+            /** Segments */
+            segments?: components["schemas"]["SensorSegment"][];
+            /** Warnings */
+            warnings?: string[];
+        };
+        /**
+         * SensorSegment
+         * @description One contiguous drive segment (frame-time jump detection).
+         */
+        SensorSegment: {
+            /** End */
+            end: number;
+            /** Label */
+            label: string;
+            /** Start */
+            start: number;
         };
         /**
          * SimulateRequest
@@ -6449,6 +6740,39 @@ export interface operations {
             };
         };
     };
+    get_playback_result_api_projects__project_id__results_playback_get: {
+        parameters: {
+            query?: {
+                result_id?: string | null;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlaybackResultSet"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     prune_results_api_projects__project_id__results_prune_post: {
         parameters: {
             query?: never;
@@ -7327,6 +7651,37 @@ export interface operations {
             };
         };
     };
+    get_sensors_api_projects__project_id__sensors_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SensorManifestResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     simulate_beamforming_api_projects__project_id__simulate_beamforming_post: {
         parameters: {
             query?: never;
@@ -7452,6 +7807,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PathResultSet"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    simulate_playback_api_projects__project_id__simulate_playback_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlaybackBuildRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlaybackResultSet"];
                 };
             };
             /** @description Validation Error */

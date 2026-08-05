@@ -3296,3 +3296,157 @@ button.picking {
 .agent-batch-status.st-error { color: var(--err); }
 .agent-batch-status.st-cancelled,
 .agent-batch-status.st-skipped { color: var(--muted); }
+
+/* ------------------------------------------- GT-vs-DT playback dashboard */
+
+.pb-panel {
+  margin-top: 10px;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: rgba(79, 195, 247, 0.04);
+}
+.pb-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.pb-title {
+  font-weight: 600;
+}
+.pb-sub {
+  color: var(--muted);
+  font-size: 11px;
+}
+.pb-err {
+  color: var(--err);
+}
+.pb-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+/* Transport bar: mirrors .traj-transport but wraps, since the Results panel
+   is drag-resizable down to a narrow sidebar. */
+.pb-transport {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.pb-transport button {
+  flex: none;
+  min-width: 32px;
+}
+.pb-transport select {
+  flex: 0 1 auto;
+  max-width: 150px;
+}
+.pb-transport input[type="range"] {
+  flex: 1 1 90px;
+  min-width: 70px;
+  accent-color: var(--accent);
+}
+.pb-frame-num {
+  color: var(--muted);
+  font-size: 11px;
+  flex: none;
+}
+
+/* One cell per modality; re-flows to a single column in a narrow panel. */
+.pb-grid {
+  display: grid;
+  /* min(240px, 100%) keeps a single column from overflowing the results
+     sidebar at its narrowest allowed width. */
+  grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+.pb-cell {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-2);
+  padding: 6px 8px;
+  min-width: 0;
+}
+.pb-cell-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: 11px;
+  margin-bottom: 5px;
+}
+.pb-cell-toggles {
+  display: inline-flex;
+  gap: 4px;
+}
+.pb-cell-toggles button {
+  padding: 1px 6px;
+  font-size: 11px;
+  border-radius: 3px;
+}
+.pb-cell-toggles button.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+.pb-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.pb-legend i {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  display: inline-block;
+}
+.pb-legend i + i {
+  margin-left: 6px;
+}
+
+.pb-canvas-wrap {
+  position: relative;
+}
+.pb-canvas-wrap canvas {
+  display: block;
+  border-radius: 3px;
+}
+/* Hover readout over the beam chart; `left` is set inline per cursor x. */
+.pb-tip {
+  position: absolute;
+  top: 6px;
+  pointer-events: none;
+  background: rgba(11, 15, 20, 0.9);
+  border: 1px solid var(--border-light);
+  border-radius: 3px;
+  padding: 3px 5px;
+  font-size: 11px;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+.pb-img {
+  display: block;
+  width: 100%;
+  border-radius: 3px;
+  background: var(--bg);
+}
+
+/* KPI rows are read-only — drop the .results-table row affordances. */
+.pb-kpi tbody tr {
+  cursor: default;
+}
+.pb-kpi th {
+  cursor: default;
+}
+.pb-kpi th:hover {
+  color: var(--muted);
+}
