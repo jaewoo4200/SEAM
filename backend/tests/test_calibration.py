@@ -474,3 +474,46 @@ def test_import_measurements_csv_unknown_project_404(api_client):
         json={"csv_text": "x,y,z,measured_path_gain_db\n1,2,1.5,-90\n"},
     )
     assert resp.status_code == 404
+
+
+def test_boundary_fit_warns_and_sensitivity_reported(tmp_path: Path):
+    """DeepVerse DT31 finding: a weakly observed parameter 'fit' a physically
+    wrong value at the grid EDGE with no warning. The boundary guard plus the
+    sensitivity_db field make that failure mode loud."""
+    scene = _scene()
+    library = load_default_library()
+    config = SimulationConfig(id="default", backend="mock", frequency_hz=28e9)
+    backend = MockBackend()
+    positions = [[10.0, 0.0, 1.5], [25.0, 5.0, 1.5], [40.0, -5.0, 1.5]]
+
+    from seam_studio.services.calibration import _simulate_path_gains
+
+    # Truth generated at S=0.9 — OUTSIDE the sweep grid below, so the best
+    # grid value is forced onto the boundary.
+    truth_lib = library.model_copy(deep=True)
+    truth_lib.get("ground").scattering_coefficient = 0.9
+    req0 = CalibrationRequest(
+        config=config,
+        measurements=[
+            MeasurementSample(rx_position=p, measured_path_gain_db=0.0)
+            for p in positions
+        ],
+        target_material_id="ground",
+    )
+    truth = _simulate_path_gains(backend, tmp_path, scene, truth_lib, config, req0)
+    measurements = [
+        MeasurementSample(rx_position=p, measured_path_gain_db=t)  # type: ignore[arg-type]
+        for p, t in zip(positions, truth)
+    ]
+
+    report = calibrate_material(
+        backend, tmp_path, scene, library, config,
+        CalibrationRequest(
+            config=config, measurements=measurements,
+            target_material_id="ground", param="scattering_coefficient",
+            grid=[0.1, 0.2, 0.3, 0.4, 0.5],
+        ),
+    )
+    assert report.fitted_value == 0.5  # clamped to the boundary
+    assert any("grid boundary" in w for w in report.warnings)
+    assert report.sensitivity_db is not None and report.sensitivity_db > 0.0

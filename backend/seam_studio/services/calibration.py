@@ -181,6 +181,37 @@ def calibrate_material(
         )
         best_value = None
 
+    # Observability guards (DeepVerse DT31 finding: a weakly observed ground
+    # material "fit" eps_r=8.0 — a physically wrong value at the grid edge —
+    # off a 0.13 dB pseudo-improvement while a direct per-path sweep showed
+    # the value WORSENS the ground path by 16-20 dB). The old gates missed it:
+    # 1e-6 is a death-only sensitivity floor and 0.05 dB is generous next to
+    # scene-approximation noise.
+    sensitivity_db = (max(finite) - min(finite)) if finite else None
+    if (
+        best_value is not None
+        and len(grid) >= 2
+        and (best_value == grid[0] or best_value == grid[-1])
+    ):
+        warnings.append(
+            f"fitted value {best_value} sits at the grid boundary — the true "
+            "optimum may lie outside the grid, or the parameter is "
+            "unidentifiable from this measurement set; extend the grid before "
+            "trusting the fit"
+        )
+    if best_value is not None and len(finite) >= 3 and before.n_links > 0:
+        import statistics
+
+        scatter = statistics.pstdev(finite)
+        improvement = before.rmse_db - best_rmse
+        if improvement < scatter:
+            warnings.append(
+                f"RMSE improvement {improvement:.3f} dB is within the grid "
+                f"curve's own scatter ({scatter:.3f} dB std) — likely "
+                "measurement/scene noise rather than a real material "
+                "estimate; treat the parameter as weakly observable here"
+            )
+
     applied = False
     if request.apply:
         if improved and best_value is not None:
@@ -200,6 +231,7 @@ def calibrate_material(
         after=after,
         grid_values=list(grid),
         grid_rmse_db=grid_rmse,
+        sensitivity_db=sensitivity_db,
         per_link_after=per_link,
         applied=applied,
         backend=backend.name,

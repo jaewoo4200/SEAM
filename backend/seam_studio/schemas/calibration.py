@@ -69,6 +69,10 @@ class CalibrationReport(StrictModel):
     grid_values: list[float] = Field(default_factory=list)
     # None marks grid values whose compile failed (skipped, not zero-error).
     grid_rmse_db: list[Optional[float]] = Field(default_factory=list)
+    # max - min of the grid RMSE curve: how much the parameter moves the error
+    # at all. A fit whose improvement is small next to this (or to the curve's
+    # scatter) is observability-limited, not a real material estimate.
+    sensitivity_db: Optional[float] = None
     per_link_after: list[LinkError] = Field(default_factory=list)
     applied: bool = False
     backend: str = ""
