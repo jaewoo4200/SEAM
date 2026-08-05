@@ -47,6 +47,14 @@ error sources and what SEAM Studio does about them.
 - **Out-of-band guardrail.** `validate_scene` emits `MATERIAL_OUT_OF_BAND` when
   an ITU ground material is used above ~10 GHz, pointing at `ground_28ghz`; the
   Sionna backend also warns at solve time (`_frequency_warnings`).
+- **Coherent vs noncoherent RSS.** Trajectory samples carry both `rss_dbm`
+  (noncoherent power sum — wideband-average, RSRP-like) and
+  `rss_coherent_dbm` (narrowband coherent sum, fading nulls included).
+  When validating against measurements, match the definition:
+  wideband-average logs → the default `metric: "noncoherent"`;
+  CW/narrowband drive tests → `metric: "coherent"` on
+  `POST /calibrate/validate-trajectory`. Mixing them shows up as
+  +10–20 dB "outliers" at mmWave that are really fading nulls.
 - **Measurement calibration** (`POST /calibrate/materials`,
   `services/calibration.py`). Import measured per-link path gain; the tool
   simulates the same links, computes a **level offset** (absorbs unknown

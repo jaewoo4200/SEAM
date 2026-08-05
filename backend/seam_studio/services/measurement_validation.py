@@ -123,7 +123,19 @@ def validate_trajectory(
     warnings.extend(result.warnings)
 
     measured = [m.measured_path_gain_db for m in ordered]
-    predicted = [s.path_gain_db for s in result.samples]
+    if request.metric == "coherent":
+        # Narrowband coherent gain (fading nulls included) — compare against
+        # CW/narrowband drive tests. Wideband-average logs (RSRP-like) belong
+        # to the default noncoherent metric; mixing the two definitions read
+        # as +10..20 dB outliers in the DeepVerse DT31 validation.
+        predicted = [
+            (s.rss_coherent_dbm - tx.power_dbm)
+            if s.rss_coherent_dbm is not None
+            else None
+            for s in result.samples
+        ]
+    else:
+        predicted = [s.path_gain_db for s in result.samples]
     # Level-offset alignment + RMSE/MAE: the exact math the material
     # calibration reports, so both loops read the same error metric.
     stats, _, idx = _stats(measured, predicted)

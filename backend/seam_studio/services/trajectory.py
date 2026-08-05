@@ -110,10 +110,21 @@ def resample_orientations(
     return out
 
 
-def _aggregate(powers_dbm: list[float], delays_ns: list[float], tx_power_dbm: float):
-    """RSS, path gain, RMS delay spread from per-path power/delay."""
+def _aggregate(
+    powers_dbm: list[float],
+    delays_ns: list[float],
+    tx_power_dbm: float,
+    phases_rad: Optional[list[float]] = None,
+):
+    """RSS, path gain, RMS delay spread (+ coherent RSS) from per-path data.
+
+    The default rss_dbm is the NONCOHERENT power sum (wideband-average
+    quantity, RSRP-like). rss_coherent_dbm is |sum a_l e^{j phi_l}|^2 — the
+    narrowband received power a CW receiver sees, fading nulls included;
+    None when phases are missing/misaligned.
+    """
     if not powers_dbm:
-        return None, None, None, None
+        return None, None, None, None, None
     lin = [10.0 ** (p / 10.0) for p in powers_dbm]
     total = sum(lin)
     rss_dbm = 10.0 * math.log10(total) if total > 0 else None
@@ -123,7 +134,15 @@ def _aggregate(powers_dbm: list[float], delays_ns: list[float], tx_power_dbm: fl
     var = sum(w * (t - mean_tau) ** 2 for w, t in zip(lin, delays_ns)) / total
     rms = math.sqrt(max(var, 0.0))
     strongest_delay = delays_ns[max(range(len(lin)), key=lambda i: lin[i])]
-    return rss_dbm, path_gain_db, rms, strongest_delay
+    rss_coherent_dbm: Optional[float] = None
+    if phases_rad is not None and len(phases_rad) == len(powers_dbm):
+        acc = complex(0.0, 0.0)
+        for p_dbm, phi in zip(powers_dbm, phases_rad):
+            amp = 10.0 ** (p_dbm / 20.0)
+            acc += complex(amp * math.cos(phi), amp * math.sin(phi))
+        mag_sq = abs(acc) ** 2
+        rss_coherent_dbm = 10.0 * math.log10(mag_sq) if mag_sq > 0.0 else None
+    return rss_dbm, path_gain_db, rms, strongest_delay, rss_coherent_dbm
 
 
 def _waypoint_velocity(
@@ -184,7 +203,8 @@ def _sample_from_result(
     interference = 10.0 * math.log10(intf_lin) if intf_lin > 0.0 else None
     powers = [p.power_dbm for p in serving_paths]
     delays = [p.delay_ns for p in serving_paths]
-    rss, gain, rms, strongest = _aggregate(powers, delays, tx_power)
+    phases = [p.phase_rad for p in serving_paths]
+    rss, gain, rms, strongest, rss_coh = _aggregate(powers, delays, tx_power, phases)
     # Per-waypoint Doppler spread (power-weighted std of per-path Doppler), from
     # the backend's per-path doppler_hz (aligned to result.paths). Only defined
     # for the single-UE path where result.paths carries exactly this UE.
@@ -210,6 +230,7 @@ def _sample_from_result(
         position=[float(c) for c in position],
         rss_dbm=rss,
         path_gain_db=gain,
+        rss_coherent_dbm=rss_coh,
         interference_dbm=interference,
         sinr_db=sinr,  # S/(I+N); equals SNR when nothing interferes
         rms_delay_spread_ns=rms,

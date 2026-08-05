@@ -465,6 +465,9 @@ export interface TrajectorySample {
   position: Vec3;
   rss_dbm: number | null;
   path_gain_db: number | null;
+  /** Narrowband coherent received power (fading nulls included) — what a CW
+   *  receiver measures, vs the wideband-average rss_dbm. */
+  rss_coherent_dbm?: number | null;
   sinr_db: number | null;
   interference_dbm?: number | null;
   rms_delay_spread_ns: number | null;
@@ -1535,6 +1538,9 @@ export interface TrajectoryValidationRequest {
   tx_id?: string | null;
   measurements?: MeasurementSample[] | null;
   max_points?: number;
+  /** "noncoherent" (power sum — RSRP-like wideband logs, default) or
+   *  "coherent" (CW/narrowband drive tests, fading nulls included). */
+  metric?: "noncoherent" | "coherent";
 }
 
 export interface TrajectoryValidationPoint {

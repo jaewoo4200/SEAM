@@ -43,6 +43,12 @@
 - **대역 외 가드레일.** ITU 지면 재질을 ~10 GHz 이상에서 사용하면
   `validate_scene`가 `MATERIAL_OUT_OF_BAND`를 발생시켜 `ground_28ghz`를 가리키고,
   Sionna 백엔드도 솔브 시점에 경고합니다(`_frequency_warnings`).
+- **코히런트 vs 논코히런트 RSS.** 궤적 샘플은 `rss_dbm`(논코히런트 파워 합 —
+  광대역 평균, RSRP류)과 `rss_coherent_dbm`(협대역 코히런트 합, 페이딩 널
+  포함)을 함께 담습니다. 측정과 대조할 때는 정의를 맞추세요: 광대역 평균
+  로그 → 기본 `metric: "noncoherent"`, CW/협대역 드라이브 테스트 →
+  `POST /calibrate/validate-trajectory`의 `metric: "coherent"`. 정의를 섞으면
+  mmWave에서 페이딩 널이 +10–20 dB "이상점"처럼 보입니다.
 - **측정 보정** (`POST /calibrate/materials`,
   `services/calibration.py`). 측정된 링크별 경로 이득을 임포트하면 도구가
   동일한 링크를 시뮬레이션해 **레벨 오프셋**(미지의 절대 TX 전력을 흡수)과

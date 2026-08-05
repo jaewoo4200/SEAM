@@ -134,6 +134,12 @@ class TrajectoryValidationRequest(StrictModel):
     # Solve budget: logs longer than this are subsampled evenly (first and
     # last point kept) before the per-point trajectory solve.
     max_points: int = Field(default=200, ge=1)
+    # Which predicted quantity to score against the measurements:
+    # "noncoherent" (power sum — wideband-average measurements, RSRP-like) or
+    # "coherent" (|sum a e^{j phi}|^2 — CW/narrowband drive tests, fading
+    # nulls included). Mixing definitions showed up as +10..20 dB outliers in
+    # the DeepVerse DT31 validation (RMSE 2.93 -> 0.53 dB once matched).
+    metric: Literal["noncoherent", "coherent"] = "noncoherent"
 
 
 class TrajectoryValidationPoint(StrictModel):

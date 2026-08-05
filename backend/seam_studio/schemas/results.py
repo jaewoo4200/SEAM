@@ -113,6 +113,12 @@ class TrajectorySample(StrictModel):
     position: Vec3
     rss_dbm: Optional[float] = None
     path_gain_db: Optional[float] = None
+    # Narrowband COHERENT received power |sum a_l e^{j phi_l}|^2 — what a
+    # CW/narrowband receiver actually measures, fading nulls included
+    # (DeepVerse DT31 GT link loss is this quantity; comparing it against the
+    # noncoherent rss_dbm mixes definitions and reads as +10..20 dB outliers).
+    # Requires the carrier-phase convention on RayPath.phase_rad.
+    rss_coherent_dbm: Optional[float] = None
     # Co-channel interference (sum of every non-serving TX's power at the UE);
     # None when the scene has a single TX or nothing interferes here.
     interference_dbm: Optional[float] = None
