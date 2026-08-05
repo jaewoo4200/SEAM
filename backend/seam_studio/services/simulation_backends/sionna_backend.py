@@ -31,6 +31,7 @@ from seam_studio.schemas.results import (
 )
 from seam_studio.schemas.scene import Scene
 from seam_studio.schemas.simulation import BeamformingRequest, SimulationConfig
+from seam_studio.services import atmosphere
 
 from .base import (
     UNSAVED_RESULT_ID,
@@ -733,6 +734,12 @@ class SionnaBackend(RayTracingBackend):
             "rxs": [dev_json(d) for d in rxs],
             "material_to_prims": material_to_prims,
         }
+        # Atmospheric absorption is resolved HERE (the worker stays
+        # dependency-light and just applies the number it is handed).
+        absorption_alpha, absorption_warning = atmosphere.absorption_db_per_km(config)
+        if absorption_warning:
+            warnings.append(absorption_warning)
+        job["absorption_db_per_km"] = absorption_alpha
         result = engine_registry.run_paths_job(engine, job)
         warnings.extend(result.get("warnings", []))
         paths = [RayPath(**p) for p in result.get("paths", [])]
@@ -916,9 +923,12 @@ class SionnaBackend(RayTracingBackend):
             samples_per_src=config.num_samples or 1_000_000,
         )
 
+        absorption_alpha, absorption_warning = atmosphere.absorption_db_per_km(config)
+        if absorption_warning:
+            warnings.append(absorption_warning)
         paths, doppler_hz = self._convert_paths(
             solved, txs, rxs, objid_to_material, material_to_prims, warnings, np,
-            config.frequency_hz,
+            config.frequency_hz, absorption_alpha,
         )
         metadata = {
             "frequency_hz": config.frequency_hz,
@@ -1048,6 +1058,17 @@ class SionnaBackend(RayTracingBackend):
             tau = tau[:, 0, :, 0, :]
         if tau.shape == (a.shape[0], a.shape[2], a.shape[4]):
             rot = np.exp(-2j * np.pi * config.frequency_hz * tau)
+            # Same per-path post-processing as RayPath assembly: atmospheric
+            # gas attenuation over the path length (amplitude scale = half
+            # the dB because a is a voltage amplitude).
+            absorption_alpha, absorption_warning = atmosphere.absorption_db_per_km(config)
+            if absorption_warning:
+                base.warnings.append(absorption_warning)
+            if absorption_alpha > 0.0:
+                att_db = absorption_alpha * (
+                    np.maximum(tau, 0.0) * atmosphere.SPEED_OF_LIGHT / 1000.0
+                )
+                rot = rot * 10.0 ** (-att_db / 20.0)
             a = a * rot[:, None, :, None, :]
         else:
             base.warnings.append(
@@ -1250,6 +1271,7 @@ class SionnaBackend(RayTracingBackend):
         warnings: list[str],
         np,
         frequency_hz: float,
+        absorption_db_per_km: float = 0.0,
     ) -> tuple[list[RayPath], Optional[list[float]]]:
         """Normalize a sionna-rt 2.x Paths object into schema RayPath entries.
 
@@ -1362,8 +1384,14 @@ class SionnaBackend(RayTracingBackend):
                     if mag <= 0:
                         continue
                     # |a| is the free-space/interaction channel gain; add the
-                    # transmit power to get received power in dBm.
-                    power_dbm = 20.0 * math.log10(max(mag, 1e-30)) + txs[t].power_dbm
+                    # transmit power to get received power in dBm. Atmospheric
+                    # gas attenuation (Sionna models none) is a per-path
+                    # post-process over the path length delay*c.
+                    power_dbm = (
+                        20.0 * math.log10(max(mag, 1e-30))
+                        + txs[t].power_dbm
+                        - atmosphere.path_attenuation_db(absorption_db_per_km, tau_s)
+                    )
 
                     bounce, interactions = SionnaBackend._path_interactions(
                         r, t, p, vertices, objects, itypes,

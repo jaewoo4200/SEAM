@@ -266,7 +266,18 @@ def run(job: dict) -> dict:
                 amp = complex(a[r, t, p]) if a.ndim == 3 else 0j
                 if abs(amp) <= 0:
                     continue
-                power_dbm = 20.0 * math.log10(max(abs(amp), 1e-30)) + txs[t].get("power_dbm", 30.0)
+                # Atmospheric gas attenuation over the path length delay*c —
+                # resolved by the main process (this worker stays dependency-
+                # light); 0.0 when the option is off.
+                absorption_db = (
+                    float(job.get("absorption_db_per_km") or 0.0)
+                    * (tau_s * 299_792_458.0 / 1000.0)
+                )
+                power_dbm = (
+                    20.0 * math.log10(max(abs(amp), 1e-30))
+                    + txs[t].get("power_dbm", 30.0)
+                    - absorption_db
+                )
 
                 bounce, interactions = [], []
                 if vertices is not None and vertices.ndim == 5:

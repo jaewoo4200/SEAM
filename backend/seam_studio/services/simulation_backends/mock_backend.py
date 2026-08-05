@@ -23,6 +23,7 @@ from seam_studio.schemas.results import (
 )
 from seam_studio.schemas.scene import Prim, Scene
 from seam_studio.schemas.simulation import BeamformingRequest, SimulationConfig
+from seam_studio.services import atmosphere
 
 from .base import (
     UNSAVED_RESULT_ID,
@@ -73,6 +74,12 @@ def _dist(a: list[float], b: list[float]) -> float:
 
 def _delay_ns(dist_m: float) -> float:
     return dist_m / SPEED_OF_LIGHT * 1e9
+
+
+def _absorption_db(config: SimulationConfig, dist_m: float) -> float:
+    """Atmospheric gas attenuation over one path (0 when the option is off)."""
+    alpha, _ = atmosphere.absorption_db_per_km(config)
+    return atmosphere.path_attenuation_db(alpha, dist_m / SPEED_OF_LIGHT)
 
 
 def _phase_rad(dist_m: float, freq_hz: float) -> float:
@@ -165,6 +172,9 @@ class MockBackend(RayTracingBackend):
 
         paths: list[RayPath] = []
         warnings: list[str] = []
+        _, absorption_warning = atmosphere.absorption_db_per_km(config)
+        if absorption_warning:
+            warnings.append(absorption_warning)
         if not txs or not rxs:
             warnings.append(
                 "scene has no matching tx/rx devices; no paths computed"
@@ -223,7 +233,8 @@ class MockBackend(RayTracingBackend):
             rx_id=rx.id,
             path_type="los",
             vertices=[list(tx.position), list(rx.position)],
-            power_dbm=friis_dbm(tx.power_dbm, config.frequency_hz, dist),
+            power_dbm=friis_dbm(tx.power_dbm, config.frequency_hz, dist)
+            - _absorption_db(config, dist),
             delay_ns=_delay_ns(dist),
             phase_rad=_phase_rad(dist, config.frequency_hz),
             interactions=[],
@@ -268,7 +279,8 @@ class MockBackend(RayTracingBackend):
             path_type="reflection",
             vertices=[list(tx.position), point, list(rx.position)],
             power_dbm=friis_dbm(tx.power_dbm, config.frequency_hz, total)
-            - reflection_loss_db(ground_mat, GROUND_REFLECTION_LOSS_DB),
+            - reflection_loss_db(ground_mat, GROUND_REFLECTION_LOSS_DB)
+            - _absorption_db(config, total),
             delay_ns=_delay_ns(total),
             phase_rad=_phase_rad(total, config.frequency_hz),
             interactions=[interaction],
@@ -343,7 +355,8 @@ class MockBackend(RayTracingBackend):
             path_type="reflection",
             vertices=[list(tx.position), bounce, list(rx.position)],
             power_dbm=friis_dbm(tx.power_dbm, config.frequency_hz, total)
-            - reflection_loss_db(wall_mat, WALL_REFLECTION_LOSS_DB),
+            - reflection_loss_db(wall_mat, WALL_REFLECTION_LOSS_DB)
+            - _absorption_db(config, total),
             delay_ns=_delay_ns(total),
             phase_rad=_phase_rad(total, config.frequency_hz),
             interactions=[interaction],

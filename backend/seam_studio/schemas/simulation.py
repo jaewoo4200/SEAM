@@ -59,6 +59,15 @@ class SimulationConfig(StrictModel):
     # SINR == SNR = RSS - (-174 dBm/Hz + 10log10(B) + NF)).
     bandwidth_hz: float = Field(default=100e6, gt=0.0)
     noise_figure_db: float = Field(default=7.0, ge=0.0)
+    # ITU-R P.676 atmospheric gas attenuation, applied as a per-path
+    # post-process (paths / channel / trajectory / beamforming; grid and mesh
+    # radio maps are computed inside the solver and are NOT corrected).
+    # Matters above ~10 GHz; the 60 GHz oxygen band is ~15 dB/km — Wireless
+    # InSite-generated GT (DeepVerse) includes it, Sionna RT does not.
+    atmospheric_absorption: bool = False
+    # Explicit specific attenuation override. None + enabled = the built-in
+    # COARSE P.676 curve (solve warns); set explicitly for quantitative work.
+    absorption_db_per_km: Optional[float] = Field(default=None, ge=0.0)
     radio_map: RadioMapGridConfig = Field(default_factory=RadioMapGridConfig)
 
 

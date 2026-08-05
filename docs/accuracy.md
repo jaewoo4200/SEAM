@@ -33,6 +33,13 @@ error sources and what SEAM Studio does about them.
   Sionna's built-ins default it to 0), so the backend applies the library
   scattering/XPD onto the loaded materials at solve time via the compile
   manifest's `itu_solver_params`.
+- **Atmospheric gas attenuation (ITU-R P.676).** Sionna RT models none, so
+  `SimulationConfig.atmospheric_absorption` applies it as a per-path
+  post-process (paths / channel / trajectory / beamforming; radio maps are
+  solver-side and unaffected). Set `absorption_db_per_km` explicitly for
+  quantitative work (60 GHz oxygen band ≈ 14–15 dB/km — Wireless
+  InSite-generated GT includes it); without the override a coarse built-in
+  curve is used and the solve warns.
 - **Out-of-band guardrail.** `validate_scene` emits `MATERIAL_OUT_OF_BAND` when
   an ITU ground material is used above ~10 GHz, pointing at `ground_28ghz`; the
   Sionna backend also warns at solve time (`_frequency_warnings`).

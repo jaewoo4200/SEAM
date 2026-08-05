@@ -31,6 +31,12 @@
   constant 모델 재질은 컴파일된 XML에 값이 실리고, ITU 기반 재질은 XML로
   표현할 수 없어(Sionna 내장 기본값도 0) 백엔드가 컴파일 manifest의
   `itu_solver_params`를 통해 솔브 시점에 로드된 재질에 산란/XPD를 적용합니다.
+- **대기 가스 감쇠 (ITU-R P.676).** Sionna RT에는 대기 흡수 모델이 없어
+  `SimulationConfig.atmospheric_absorption`이 경로별 후처리로 적용합니다
+  (paths / channel / trajectory / beamforming; 라디오맵은 솔버 내부 계산이라
+  미적용). 정량 비교에는 `absorption_db_per_km`를 명시하세요 (60 GHz 산소
+  대역 ≈ 14–15 dB/km — Wireless InSite 계열 GT에는 내장돼 있음); 미지정 시
+  근사 내장 곡선을 쓰고 solve가 경고를 냅니다.
 - **대역 외 가드레일.** ITU 지면 재질을 ~10 GHz 이상에서 사용하면
   `validate_scene`가 `MATERIAL_OUT_OF_BAND`를 발생시켜 `ground_28ghz`를 가리키고,
   Sionna 백엔드도 솔브 시점에 경고합니다(`_frequency_warnings`).

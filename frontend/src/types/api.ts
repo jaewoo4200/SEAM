@@ -135,6 +135,11 @@ export interface SimulationConfig {
   num_samples: number;
   bandwidth_hz: number;
   noise_figure_db: number;
+  /** ITU-R P.676 atmospheric gas attenuation as a per-path post-process
+   *  (paths/channel/trajectory/beamforming; radio maps unaffected). */
+  atmospheric_absorption: boolean;
+  /** Explicit dB/km override; null = built-in coarse P.676 curve (warns). */
+  absorption_db_per_km: number | null;
   radio_map: RadioMapGridConfig;
 }
 

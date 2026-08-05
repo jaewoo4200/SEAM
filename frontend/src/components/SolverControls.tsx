@@ -171,6 +171,36 @@ function Mechanisms({
           onChange={(v) => patch({ [m.key]: v } as Partial<SimulationConfig>)}
         />
       ))}
+      <Check
+        label="Atmospheric absorption"
+        checked={config.atmospheric_absorption}
+        disabled={disabled}
+        onChange={(v) => patch({ atmospheric_absorption: v })}
+      />
+      {config.atmospheric_absorption && (
+        <label
+          className="solver-check"
+          title="ITU-R P.676 gas attenuation applied per path (paths / channel / trajectory / beamforming; radio maps unaffected). Empty = built-in coarse curve (the solve warns); set dB/km explicitly for quantitative work — 60 GHz oxygen band is ~14-15 dB/km."
+        >
+          α
+          <input
+            type="number"
+            min={0}
+            step={0.1}
+            value={config.absorption_db_per_km ?? ""}
+            placeholder="auto"
+            disabled={disabled}
+            style={{ width: 64 }}
+            onChange={(e) =>
+              patch({
+                absorption_db_per_km:
+                  e.target.value === "" ? null : Number(e.target.value),
+              })
+            }
+          />
+          dB/km
+        </label>
+      )}
     </div>
   );
 }
