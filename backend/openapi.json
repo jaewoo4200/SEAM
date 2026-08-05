@@ -1334,6 +1334,11 @@
             "minimum": 1.0,
             "title": "Tx Rows",
             "type": "integer"
+          },
+          "use_device_orientation": {
+            "default": false,
+            "title": "Use Device Orientation",
+            "type": "boolean"
           }
         },
         "title": "BeamformingRequest",
@@ -1682,6 +1687,17 @@
             },
             "title": "Per Link After",
             "type": "array"
+          },
+          "sensitivity_db": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sensitivity Db"
           },
           "target_material_id": {
             "title": "Target Material Id",
@@ -7236,6 +7252,23 @@
         "additionalProperties": false,
         "description": "Full Sionna RT solver parameter surface (mirrors PathSolver/\nRadioMapSolver options so every knob is user-controllable in the UI).",
         "properties": {
+          "absorption_db_per_km": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Absorption Db Per Km"
+          },
+          "atmospheric_absorption": {
+            "default": false,
+            "title": "Atmospheric Absorption",
+            "type": "boolean"
+          },
           "backend": {
             "default": "auto",
             "enum": [
@@ -7973,6 +8006,17 @@
             ],
             "title": "Rms Delay Spread Ns"
           },
+          "rss_coherent_dbm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rss Coherent Dbm"
+          },
           "rss_dbm": {
             "anyOf": [
               {
@@ -8354,6 +8398,15 @@
             ],
             "title": "Measurements"
           },
+          "metric": {
+            "default": "noncoherent",
+            "enum": [
+              "noncoherent",
+              "coherent"
+            ],
+            "title": "Metric",
+            "type": "string"
+          },
           "tx_id": {
             "anyOf": [
               {
@@ -8698,7 +8751,7 @@
   "info": {
     "description": "Unified RF-visual scene authoring, RF material assignment, Sionna RT projection compilation, and simulation result APIs.",
     "title": "SEAM Studio",
-    "version": "0.1.1"
+    "version": "0.1.2"
   },
   "openapi": "3.1.0",
   "paths": {
