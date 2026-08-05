@@ -517,3 +517,45 @@ def test_boundary_fit_warns_and_sensitivity_reported(tmp_path: Path):
     assert report.fitted_value == 0.5  # clamped to the boundary
     assert any("grid boundary" in w for w in report.warnings)
     assert report.sensitivity_db is not None and report.sensitivity_db > 0.0
+
+
+def test_already_optimal_fit_not_reported_as_weakly_observable(tmp_path: Path):
+    """Review finding: when the stored value already sits at the grid optimum
+    of a strongly bent RMSE curve, improvement ~ 0 used to trigger the
+    'weakly observable' scatter warning — inverting the truth for the most
+    observable case there is. The guard now reports it as a near-optimal
+    no-op instead."""
+    scene = _scene()
+    library = load_default_library()
+    config = SimulationConfig(id="default", backend="mock", frequency_hz=28e9)
+    backend = MockBackend()
+    positions = [[10.0, 0.0, 1.5], [25.0, 5.0, 1.5], [40.0, -5.0, 1.5]]
+
+    from seam_studio.services.calibration import _simulate_path_gains
+
+    # Truth generated at the CURRENT stored value: baseline RMSE ~ 0, so the
+    # grid cannot improve on it, while off-optimum grid values worsen it.
+    req0 = CalibrationRequest(
+        config=config,
+        measurements=[
+            MeasurementSample(rx_position=p, measured_path_gain_db=0.0)
+            for p in positions
+        ],
+        target_material_id="ground",
+    )
+    truth = _simulate_path_gains(backend, tmp_path, scene, library, config, req0)
+    measurements = [
+        MeasurementSample(rx_position=p, measured_path_gain_db=t)  # type: ignore[arg-type]
+        for p, t in zip(positions, truth)
+    ]
+    stored = library.get("ground").scattering_coefficient
+    report = calibrate_material(
+        backend, tmp_path, scene, library, config,
+        CalibrationRequest(
+            config=config, measurements=measurements,
+            target_material_id="ground", param="scattering_coefficient",
+            grid=sorted({0.0, stored, 0.6, 0.9}),
+        ),
+    )
+    assert not any("weakly observable" in w for w in report.warnings), report.warnings
+    assert any("grid optimum" in w for w in report.warnings), report.warnings

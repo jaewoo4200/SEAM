@@ -139,12 +139,31 @@ def validate_trajectory(
     # Level-offset alignment + RMSE/MAE: the exact math the material
     # calibration reports, so both loops read the same error metric.
     stats, _, idx = _stats(measured, predicted)
+    solved = set(idx)
     excluded = len(ordered) - len(idx)
     if excluded:
-        warnings.append(
-            f"{excluded} point(s) produced zero paths and were excluded from "
-            "the stats"
+        # Under the coherent metric a point can be excluded with paths
+        # present: perfect multipath cancellation makes the narrowband sum
+        # vanish (rss_coherent_dbm = None). Reporting that as "zero paths"
+        # would hide a real fading null behind a solver-failure message.
+        zero_paths = sum(
+            1
+            for i in range(len(ordered))
+            if i not in solved
+            and (result.samples[i].path_count if i < len(result.samples) else 0) == 0
         )
+        nulls = excluded - zero_paths
+        if zero_paths:
+            warnings.append(
+                f"{zero_paths} point(s) produced zero paths and were excluded "
+                "from the stats"
+            )
+        if nulls:
+            warnings.append(
+                f"{nulls} point(s) have paths but no finite coherent sum "
+                "(deep fading null — the narrowband components cancel) and "
+                "were excluded from the stats"
+            )
     if not idx and ordered:
         # An all-excluded run must not read as a clean pass ("Validated 0
         # point(s); RMSE 0.00 dB" is what turned a path-dead scene into a
@@ -155,7 +174,6 @@ def validate_trajectory(
             "trajectory warnings above"
         )
 
-    solved = set(idx)
     points = [
         TrajectoryValidationPoint(
             index=i,

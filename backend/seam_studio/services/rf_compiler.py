@@ -535,11 +535,19 @@ def _actor_mesh(
             return None
         # Y-up trap: standard glTF assets are Y-up, but actor meshes must be
         # Z-up world-baked — an un-rotated car compiles lying on its side with
-        # no error anywhere downstream. Upright vehicle-class bodies have
-        # their smallest bounding extent along Z (height); when the smallest
-        # extent lies along Y instead, that is the classic Y-up signature.
+        # no error anywhere downstream. The smallest-extent-along-Y signature
+        # only holds for bodies that are wider than tall (cars, UAVs); a
+        # correctly Z-up pedestrian or sign panel has its smallest extent
+        # along Y legitimately, so the check is gated by actor kind. Boxy
+        # vehicles whose width/height ratio is under the 1.2 margin (vans,
+        # buses) slip through — a warning miss, never a false alarm.
         ext = [float(v) for v in mesh.extents]
-        if ext[1] < ext[0] and ext[1] < ext[2] and ext[2] >= 1.2 * ext[1]:
+        if (
+            actor.kind in ("car", "uav")
+            and ext[1] < ext[0]
+            and ext[1] < ext[2]
+            and ext[2] >= 1.2 * ext[1]
+        ):
             warnings.append(
                 f"actor {actor.id} mesh extents are smallest along Y "
                 f"({ext[0]:.2f} x {ext[1]:.2f} x {ext[2]:.2f} m) — this looks "

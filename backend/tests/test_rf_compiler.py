@@ -536,3 +536,35 @@ def test_mesh_actor_yup_heuristic_warns(project: Path, library: RFMaterialLibrar
     tm_scene2.export(project / "visual" / "car.glb")
     clean = compile_project(project, scene, library)
     assert not any("Y-up" in w for w in clean.warnings), clean.warnings
+
+
+def test_mesh_actor_yup_heuristic_kind_gated(project: Path, library: RFMaterialLibrary) -> None:
+    """The Y-up signature (smallest extent along Y) only holds for bodies
+    wider than tall. A correctly Z-up pedestrian mesh (0.5 x 0.35 x 1.7) has
+    its smallest extent along Y legitimately — kinds other than car/uav must
+    never draw the warning (review finding: human/motorbike/sign false
+    positives)."""
+    from seam_studio.schemas.scene import Actor, ActorShape
+
+    person = trimesh.creation.box(extents=[0.5, 0.35, 1.7])
+    person.apply_translation([0.0, 0.0, 0.85])
+    tm_scene = trimesh.Scene()
+    tm_scene.add_geometry(person, geom_name="person", node_name="person")
+    tm_scene.export(project / "visual" / "person.glb")
+
+    scene = _build_scene()
+    scene.actors.append(
+        Actor(
+            id="ped_1",
+            kind="human",
+            shape=ActorShape(
+                type="mesh",
+                mesh_ref=MeshRef(mesh_name="person", asset_uri="visual/person.glb"),
+            ),
+            rf_material_id="metal",
+            position=[5.0, 5.0, 0.0],
+        )
+    )
+    result = compile_project(project, scene, library)
+    assert result.ok
+    assert not any("Y-up" in w for w in result.warnings), result.warnings

@@ -205,12 +205,27 @@ def calibrate_material(
         scatter = statistics.pstdev(finite)
         improvement = before.rmse_db - best_rmse
         if improvement < scatter:
-            warnings.append(
-                f"RMSE improvement {improvement:.3f} dB is within the grid "
-                f"curve's own scatter ({scatter:.3f} dB std) — likely "
-                "measurement/scene noise rather than a real material "
-                "estimate; treat the parameter as weakly observable here"
-            )
+            # Two very different situations produce a small improvement: a
+            # flat noisy curve (weak observability — distrust the fit), and a
+            # stored value that already sits at the optimum of a strongly
+            # bent curve (the most observable case there is — a "weakly
+            # observable" warning would invert the truth). Discriminate by
+            # how much the curve worsens AWAY from the baseline.
+            if (max(finite) - before.rmse_db) > 2.0 * scatter:
+                warnings.append(
+                    f"stored value is already near the grid optimum "
+                    f"(improvement {improvement:.3f} dB, while off-optimum "
+                    f"grid values worsen RMSE by up to "
+                    f"{max(finite) - before.rmse_db:.3f} dB) — the fit is a "
+                    "no-op, not a sign of weak observability"
+                )
+            else:
+                warnings.append(
+                    f"RMSE improvement {improvement:.3f} dB is within the grid "
+                    f"curve's own scatter ({scatter:.3f} dB std) — likely "
+                    "measurement/scene noise rather than a real material "
+                    "estimate; treat the parameter as weakly observable here"
+                )
 
     applied = False
     if request.apply:

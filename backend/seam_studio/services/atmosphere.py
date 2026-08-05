@@ -6,8 +6,10 @@ exactly linear 14.17 dB/km oxygen term at 60 GHz that SEAM lacked to three
 decimals). Because the effect is a pure per-path exponential, it can be
 applied outside the solver: gain_db -= alpha(f) * path_length_km, with
 path_length = delay * c. This applies to path-based outputs (paths, channel
-analysis, trajectory, beamforming); grid/mesh radio maps are computed inside
-the solver and are NOT corrected.
+analysis, trajectory, beamforming) AND to the mesh radio map (built from
+per-path solves); the GRID radio map is computed inside the solver and is
+NOT corrected — both backends emit a warning when absorption is on so the
+heatmap is never silently alpha x distance above the path results.
 
 The built-in curve below is a COARSE reading of the ITU-R P.676 sea-level
 standard-atmosphere specific-attenuation curve (1013 hPa, 15 C, 7.5 g/m3
@@ -79,9 +81,25 @@ def absorption_db_per_km(config) -> tuple[float, Optional[str]]:
     if override is not None:
         return float(override), None
     alpha = _approx_db_per_km(config.frequency_hz)
+    f_ghz = config.frequency_hz / 1e9
+    lo_f = _P676_APPROX[0][0]
+    hi_f = _P676_APPROX[-1][0]
+    if f_ghz < lo_f or f_ghz > hi_f:
+        # Outside the anchor span the curve is a flat clamp, not an
+        # interpolation — at 183 GHz (H2O line, ~28 dB/km true) the clamp
+        # returns 0.7 dB/km, ~40x low. The regular "~2x off" wording would
+        # be a lie here, so say what the number actually is.
+        return alpha, (
+            f"atmospheric absorption: {f_ghz:.1f} GHz is OUTSIDE the "
+            f"built-in curve's {lo_f:.0f}-{hi_f:.0f} GHz anchor range — the "
+            f"returned {alpha:.2f} dB/km is a flat extrapolation of the "
+            "nearest anchor and can be an order of magnitude wrong (the "
+            "183 GHz water line is ~28 dB/km); set absorption_db_per_km "
+            "explicitly"
+        )
     return alpha, (
         f"atmospheric absorption uses the built-in APPROXIMATE P.676 curve "
-        f"({alpha:.2f} dB/km at {config.frequency_hz / 1e9:.1f} GHz; coarse "
+        f"({alpha:.2f} dB/km at {f_ghz:.1f} GHz; coarse "
         "anchors, up to ~2x off between them) — set absorption_db_per_km "
         "explicitly for quantitative comparisons"
     )

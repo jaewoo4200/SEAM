@@ -374,6 +374,20 @@ class MockBackend(RayTracingBackend):
         txs = _select_devices(scene, "tx", config.tx_ids)
         warnings: list[str] = []
 
+        # Mirror the sionna backend: the grid map skips the per-path
+        # absorption post-process, so say so instead of letting the heatmap
+        # silently disagree with path-based results by alpha x distance.
+        _alpha, _ = atmosphere.absorption_db_per_km(config)
+        if _alpha > 0.0:
+            warnings.append(
+                "grid radio map is NOT corrected for atmospheric absorption "
+                f"({_alpha:.2f} dB/km at {config.frequency_hz / 1e9:.1f} GHz): "
+                "cells read up to alpha x distance dB higher than "
+                "path/trajectory/channel results at the same points "
+                f"(~{_alpha * 0.3:.1f} dB at 300 m); the mesh radio map is "
+                "path-based and IS corrected"
+            )
+
         # Grid extent: explicit override when the request pins a region
         # (refinement), otherwise the union bbox of device positions and prim
         # anchors padded 20 m so coverage extends beyond the built geometry.

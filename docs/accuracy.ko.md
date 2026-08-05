@@ -36,8 +36,10 @@
   바꾸려면 원본 ITU 재질을 수정하거나 constant 모델로 복제하세요.
 - **대기 가스 감쇠 (ITU-R P.676).** Sionna RT에는 대기 흡수 모델이 없어
   `SimulationConfig.atmospheric_absorption`이 경로별 후처리로 적용합니다
-  (paths / channel / trajectory / beamforming; 라디오맵은 솔버 내부 계산이라
-  미적용). 정량 비교에는 `absorption_db_per_km`를 명시하세요 (60 GHz 산소
+  (paths / channel / trajectory / beamforming, 그리고 경로 기반인 메시
+  라디오맵까지; **그리드** 라디오맵은 솔버 내부 계산이라 미적용 — 히트맵이
+  경로 결과보다 α·거리만큼 조용히 높게 나오지 않도록 solve가 경고를 냅니다).
+  정량 비교에는 `absorption_db_per_km`를 명시하세요 (60 GHz 산소
   대역 ≈ 14–15 dB/km — Wireless InSite 계열 GT에는 내장돼 있음); 미지정 시
   근사 내장 곡선을 쓰고 solve가 경고를 냅니다.
 - **대역 외 가드레일.** ITU 지면 재질을 ~10 GHz 이상에서 사용하면

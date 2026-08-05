@@ -39,8 +39,10 @@ error sources and what SEAM Studio does about them.
   constant-model material.
 - **Atmospheric gas attenuation (ITU-R P.676).** Sionna RT models none, so
   `SimulationConfig.atmospheric_absorption` applies it as a per-path
-  post-process (paths / channel / trajectory / beamforming; radio maps are
-  solver-side and unaffected). Set `absorption_db_per_km` explicitly for
+  post-process (paths / channel / trajectory / beamforming, and the mesh
+  radio map, which is path-based; the **grid** radio map is solver-side and
+  NOT corrected — the solve warns so the heatmap is never silently
+  α·distance above the path results). Set `absorption_db_per_km` explicitly for
   quantitative work (60 GHz oxygen band ≈ 14–15 dB/km — Wireless
   InSite-generated GT includes it); without the override a coarse built-in
   curve is used and the solve warns.

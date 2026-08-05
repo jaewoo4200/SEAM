@@ -1586,6 +1586,23 @@ class SionnaBackend(RayTracingBackend):
 
         warnings: list[str] = self._frequency_warnings(scene, library, config)
 
+        # The grid map is computed inside the solver, so the per-path
+        # absorption post-process cannot reach it — without this warning the
+        # coverage heatmap silently disagrees with paths/trajectory/channel
+        # results by alpha x distance in the same session (4.5 dB at 300 m /
+        # 60 GHz), and with the MESH radio map, which is built from per-path
+        # solves and IS corrected.
+        _alpha, _ = atmosphere.absorption_db_per_km(config)
+        if _alpha > 0.0:
+            warnings.append(
+                "grid radio map is NOT corrected for atmospheric absorption "
+                f"({_alpha:.2f} dB/km at {config.frequency_hz / 1e9:.1f} GHz): "
+                "cells read up to alpha x distance dB higher than "
+                "path/trajectory/channel results at the same points "
+                f"(~{_alpha * 0.3:.1f} dB at 300 m); the mesh radio map is "
+                "path-based and IS corrected"
+            )
+
         # Pin the Dr.Jit/Mitsuba compute variant (CUDA->LLVM) before the import.
         _ensure_sionna_variant(warnings)
 

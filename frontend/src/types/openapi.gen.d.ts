@@ -94,9 +94,9 @@ export interface paths {
          * Create Project
          * @description Create a new project folder under the first configured project root.
          *
-         *     ``template`` is accepted for forward compatibility, but only "empty" is
-         *     materialized today: "demo" also yields an empty project (the demo content
-         *     generator lives in examples/scripts and is not wired into the API yet).
+         *     ``template="demo"`` generates the Sample Demo content (toy urban scene
+         *     GLB, TX/RX pair, car + pedestrian actors) programmatically — this is how
+         *     a pip install gets its first project without shipping binary assets.
          */
         post: operations["create_project_api_projects_post"];
         delete?: never;
@@ -139,6 +139,52 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/import/jobs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Import Job Status
+         * @description Poll a background import job started by POST /projects/import/start.
+         */
+        get: operations["get_import_job_status_api_projects_import_jobs__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/import/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Project Import
+         * @description Kick off a background import; poll GET /projects/import/jobs/{job_id}.
+         *
+         *     Same multipart contract as POST /projects/import, but returns 202 with a
+         *     job id immediately so the UI can show phase/progress instead of a frozen
+         *     button during a minutes-long campus bundle import. Validation and the
+         *     duplicate-id check run BEFORE the job is registered, so obvious mistakes
+         *     still fail fast with the familiar 400/409 instead of a doomed job.
+         */
+        post: operations["start_project_import_api_projects_import_start_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{project_id}": {
         parameters: {
             query?: never;
@@ -165,7 +211,11 @@ export interface paths {
         delete: operations["delete_project_api_projects__project_id__delete"];
         options?: never;
         head?: never;
-        patch?: never;
+        /**
+         * Rename Project
+         * @description Rename a project's scene (display name only - the folder/id is stable).
+         */
+        patch: operations["rename_project_api_projects__project_id__patch"];
         trace?: never;
     };
     "/api/projects/{project_id}/agent/material-assignment/start": {
@@ -379,6 +429,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{project_id}/analyze/channel-sweep": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Analyze Channel Sweep
+         * @description Link parameter sweep: the single-link analysis re-run per sweep value
+         *     with the swept field patched (nothing persisted).
+         */
+        post: operations["analyze_channel_sweep_api_projects__project_id__analyze_channel_sweep_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{project_id}/analyze/material-impact": {
         parameters: {
             query?: never;
@@ -394,6 +465,27 @@ export interface paths {
          *     cosine similarity, dRSS, capacity proxy) - the KICS 2026 evaluation.
          */
         post: operations["analyze_material_impact_api_projects__project_id__analyze_material_impact_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/analyze/spectrogram": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Analyze Spectrogram
+         * @description Doppler-time spectrogram of the coherent channel h(t) (ISAC sensing
+         *     readout): STFT over the per-path Doppler superposition of one link.
+         */
+        post: operations["analyze_spectrogram_api_projects__project_id__analyze_spectrogram_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -498,6 +590,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{project_id}/calibrate/validate-trajectory": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Validate Trajectory
+         * @description Measured-vs-predicted path gain along the flight/drive log.
+         *
+         *     The measurement points (inline, or the project's stored import when the
+         *     body carries none) are time-ordered and their RX positions replayed as the
+         *     waypoints of the trajectory solver; per-point predictions are then aligned
+         *     to the measurements with the calibration module's level-offset math and
+         *     scored (RMSE/MAE). Computed on demand - no result set is persisted.
+         */
+        post: operations["validate_trajectory_api_projects__project_id__calibrate_validate_trajectory_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{project_id}/compile/sionna": {
         parameters: {
             query?: never;
@@ -585,6 +703,37 @@ export interface paths {
         get: operations["download_dataset_file_api_projects__project_id__datasets__dataset_id__files__filename__get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/duplicate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Duplicate Project
+         * @description Fork a project: copy its whole folder to a sibling under the same root.
+         *
+         *     EVERYTHING is copied - visual assets, rf/ artifacts, results/, ai/ logs,
+         *     provenance - so the duplicate is a true fork of the project's full state.
+         *     The copy always gets a modern ``<new_id>.seam`` folder name (even when the
+         *     source is a legacy ``.sionnatwin``); the scene file inside keeps whatever
+         *     filename was copied, which the store loads and saves back transparently.
+         *     After the copy, the scene's scene_id (and name, if provided) is rewritten
+         *     via the store so the fork is self-consistent (PUT /scene id checks pass).
+         *     No in-memory store state needs cloning: the store rescans roots per call,
+         *     and per-project locks/live overlays are keyed by id, which the fork does
+         *     not share.
+         */
+        post: operations["duplicate_project_api_projects__project_id__duplicate_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -683,6 +832,27 @@ export interface paths {
         put?: never;
         /** Render Project */
         post: operations["render_project_api_projects__project_id__render_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/results/channel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Channel Result
+         * @description Latest (or a specific) persisted channel analysis — lets the Metrics
+         *     dashboard reload what the user last analyzed instead of starting empty.
+         */
+        get: operations["get_channel_result_api_projects__project_id__results_channel_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -818,6 +988,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{project_id}/results/{result_id}/label": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Label Result
+         * @description Name a stored run ("before-glass-facade"); labeled runs survive prune.
+         *
+         *     Passing label=null clears the name.
+         */
+        patch: operations["label_result_api_projects__project_id__results__result_id__label_patch"];
+        trace?: never;
+    };
     "/api/projects/{project_id}/rf/assign": {
         parameters: {
             query?: never;
@@ -863,6 +1055,55 @@ export interface paths {
         get: operations["get_materials_api_projects__project_id__rf_materials_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/rf/materials/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Materials
+         * @description Export custom materials as a pack for import into another project.
+         *
+         *     ``ids`` is a comma-separated selection; omitted means every non-builtin
+         *     material in the library. Builtin materials are never exported - they ship
+         *     with every install - but explicitly requesting an unknown id is a 404.
+         */
+        get: operations["export_materials_api_projects__project_id__rf_materials_export_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/rf/materials/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import Materials
+         * @description Merge an exported material pack into this project's library.
+         *
+         *     Imports are user-space copies, so builtin is forced off (mirrors
+         *     put_material). An incoming material whose values match the stored one
+         *     (builtin flag aside) is skipped; a colliding id with different values is
+         *     imported under a numeric-suffix rename (glass -> glass_2).
+         */
+        post: operations["import_materials_api_projects__project_id__rf_materials_import_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -950,6 +1191,75 @@ export interface paths {
         get: operations["get_scene_bounds_api_projects__project_id__scene_bounds_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/scene/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Scene History Depth
+         * @description How many undo steps are available (server-side history ring depth).
+         *
+         *     The Undo button reads this so it survives operations that reload the scene
+         *     (split, agent segmentation) instead of relying on a client-side counter
+         *     that those reloads reset.
+         */
+        get: operations["scene_history_depth_api_projects__project_id__scene_history_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/scene/positions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Scene Positions
+         * @description Positions-only live feed: device/actor poses without the full scene.
+         *
+         *     The Live-sync poll only merges positions client-side, but used to download
+         *     the ENTIRE scene (prims, result refs — MBs on a campus) every 2 s to get
+         *     them. This returns just the pose table, with the same live-state overlay
+         *     semantics as GET /scene so external (persist=false) pushes are followed.
+         */
+        get: operations["get_scene_positions_api_projects__project_id__scene_positions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/scene/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Restore Scene
+         * @description Undo: make the steps-th newest history snapshot the current scene.
+         */
+        post: operations["restore_scene_api_projects__project_id__scene_restore_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1106,6 +1416,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{project_id}/simulate/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel Solve
+         * @description Request cooperative cancellation of the project's running solve.
+         *
+         *     Loop-based solves (trajectory, dataset, mesh radio map, scenario, height
+         *     sweeps) stop at their next checkpoint; a single-shot solver call finishes
+         *     its current invocation first.
+         */
+        post: operations["cancel_solve_api_projects__project_id__simulate_cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{project_id}/simulate/mesh-radio-map": {
         parameters: {
             query?: never;
@@ -1162,6 +1496,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{project_id}/simulate/radio-map-sweep": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Simulate Radio Map Sweep
+         * @description Solve the planar radio map at each height and persist every run
+         *     (auto-labeled "h=<H> m" so the sweep survives pruning). Returns the run
+         *     ids plus a per-height coverage summary for the altitude curve.
+         */
+        post: operations["simulate_radio_map_sweep_api_projects__project_id__simulate_radio_map_sweep_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{project_id}/simulate/scenario": {
         parameters: {
             query?: never;
@@ -1196,6 +1552,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/settings/ai": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Ai Settings
+         * @description The effective local-AI endpoints/models + where each value comes from.
+         */
+        get: operations["get_ai_settings_api_settings_ai_get"];
+        /**
+         * Put Ai Settings
+         * @description Replace the AI overlay; applies to the running process immediately.
+         */
+        put: operations["put_ai_settings_api_settings_ai_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1207,6 +1587,11 @@ export interface components {
         AIModelInfo: {
             /** Id */
             id: string;
+            /**
+             * Is Available
+             * @default true
+             */
+            is_available: boolean;
             /** Is Default */
             is_default: boolean;
             /** Label */
@@ -1234,8 +1619,64 @@ export interface components {
             name: string;
         };
         /**
+         * AISettingsResponse
+         * @description GET/PUT /api/settings/ai — the effective local-AI endpoints/models.
+         *
+         *     Values are what get_settings() actually resolved (overlay > env >
+         *     default), already trailing-slash normalized.
+         */
+        AISettingsResponse: {
+            /** Env Fields */
+            env_fields?: string[];
+            /** Ollama Url */
+            ollama_url: string;
+            /** Openai Model */
+            openai_model: string;
+            /** Openai Url */
+            openai_url: string;
+            /** Overlay Fields */
+            overlay_fields?: string[];
+            /** Overlay Path */
+            overlay_path: string;
+            /** Text Model */
+            text_model: string;
+            /** Warnings */
+            warnings?: string[];
+        };
+        /**
+         * AISettingsUpdate
+         * @description PUT /api/settings/ai — a FULL replacement of the AI overlay block.
+         *
+         *     Every field is sent every time; an empty/whitespace value CLEARS that
+         *     field's overlay entry so it falls back to env/default. Full replacement
+         *     (rather than a patch) keeps "omitted" and "cleared" from being
+         *     indistinguishable under StrictModel defaults.
+         */
+        AISettingsUpdate: {
+            /**
+             * Ollama Url
+             * @default
+             */
+            ollama_url: string;
+            /**
+             * Openai Model
+             * @default
+             */
+            openai_model: string;
+            /**
+             * Openai Url
+             * @default
+             */
+            openai_url: string;
+            /**
+             * Text Model
+             * @default
+             */
+            text_model: string;
+        };
+        /**
          * Actor
-         * @description Movable RF-relevant object (car, human, custom scatterer).
+         * @description Movable RF-relevant object (car, human, UAV, custom scatterer).
          *
          *     Compiled as its OWN Sionna shape (never merged into material groups) so
          *     the backend can move it per frame and re-solve; may carry devices (V2X).
@@ -1252,7 +1693,7 @@ export interface components {
              * @default custom
              * @enum {string}
              */
-            kind: "car" | "human" | "custom";
+            kind: "car" | "human" | "custom" | "uav";
             /**
              * Name
              * @default
@@ -1650,7 +2091,9 @@ export interface components {
          *     - codebook_sweep: hardware-style beam training - a DFT codebook of azimuth
          *       beams is scanned on BOTH ends (default -60..60 deg, 5 deg step =>
          *       25x25 = 625 beam pairs, the ICC'26 paper setup) and the strongest pair
-         *       is selected. This is what real mmWave systems do.
+         *       is selected. This is what real mmWave systems do. The sweep costs ONE
+         *       ray-tracing solve: every pair is a NumPy product on the resulting channel
+         *       matrix H, so the pair count does not multiply solve time.
          *     - tx_mrt: transmit maximum-ratio combining toward the first RX antenna
          *       (full CSI at TX only).
          *     - svd: both-ends SVD precoding (full-CSI upper bound, not implementable
@@ -1705,6 +2148,11 @@ export interface components {
              * @default 4
              */
             tx_rows: number;
+            /**
+             * Use Device Orientation
+             * @default false
+             */
+            use_device_orientation: boolean;
         };
         /**
          * BeamformingResult
@@ -1784,6 +2232,28 @@ export interface components {
             /** Project Id */
             project_id: string;
         };
+        /** Body_start_project_import_api_projects_import_start_post */
+        Body_start_project_import_api_projects_import_start_post: {
+            /**
+             * Environment
+             * @default auto
+             */
+            environment: string;
+            /**
+             * File
+             * @description Mitsuba/Sionna scene .xml or bundle .zip
+             */
+            file: string;
+            /**
+             * Meshes
+             * @default []
+             */
+            meshes: string[];
+            /** Name */
+            name: string;
+            /** Project Id */
+            project_id: string;
+        };
         /** Body_upload_mask_api_projects__project_id__segmentation_upload_mask_post */
         Body_upload_mask_api_projects__project_id__segmentation_upload_mask_post: {
             /** File */
@@ -1818,6 +2288,8 @@ export interface components {
             param: "scattering_coefficient" | "relative_permittivity" | "conductivity_s_per_m";
             /** Per Link After */
             per_link_after?: components["schemas"]["LinkError"][];
+            /** Sensitivity Db */
+            sensitivity_db?: number | null;
             /** Target Material Id */
             target_material_id: string;
             /** Warnings */
@@ -1872,6 +2344,11 @@ export interface components {
              * @default 1
              */
             num_time_steps: number;
+            /**
+             * Persist
+             * @default false
+             */
+            persist: boolean;
             /** Rx Id */
             rx_id?: string | null;
             /** Sampling Frequency Hz */
@@ -1904,6 +2381,8 @@ export interface components {
             coherence_bandwidth_mhz?: number | null;
             /** Coherence Time Ms */
             coherence_time_ms?: number | null;
+            /** Created At */
+            created_at?: string | null;
             /** Distance 3D M */
             distance_3d_m: number;
             /** Doppler Spread Hz */
@@ -1938,6 +2417,11 @@ export interface components {
             num_resource_blocks?: number | null;
             /** Pl Models */
             pl_models?: components["schemas"]["PathLossModelResult"][];
+            /**
+             * Result Id
+             * @default unsaved
+             */
+            result_id: string;
             /** Rms Delay Spread Ns */
             rms_delay_spread_ns?: number | null;
             /** Rsrp Dbm */
@@ -1963,6 +2447,90 @@ export interface components {
              * @default 30
              */
             subcarrier_spacing_khz: number;
+            /** Tx Id */
+            tx_id: string;
+            /** Warnings */
+            warnings?: string[];
+        };
+        /**
+         * ChannelSweepPoint
+         * @description One sweep row: the swept value plus the scalar KPIs of that analysis.
+         *     All KPIs inherit the null-ness of ChannelAnalysisResult (e.g. no LoS path
+         *     -> k_factor_db is None).
+         */
+        ChannelSweepPoint: {
+            /** K Factor Db */
+            k_factor_db?: number | null;
+            /** Path Loss Db */
+            path_loss_db?: number | null;
+            /** Rms Delay Spread Ns */
+            rms_delay_spread_ns?: number | null;
+            /** Rss Dbm */
+            rss_dbm?: number | null;
+            /** Sinr Db */
+            sinr_db?: number | null;
+            /** Snr Db */
+            snr_db?: number | null;
+            /** Value */
+            value: number;
+        };
+        /**
+         * ChannelSweepRequest
+         * @description Body for POST /analyze/channel-sweep: the normal single-link selection
+         *     plus the field to sweep and the values to evaluate it at. Nothing is
+         *     persisted; each point is an independent on-demand analysis.
+         */
+        ChannelSweepRequest: {
+            config?: components["schemas"]["SimulationConfig"] | null;
+            /** Config Id */
+            config_id?: string | null;
+            /**
+             * Num Cfr Points
+             * @default 128
+             */
+            num_cfr_points: number;
+            /**
+             * Num Time Steps
+             * @default 1
+             */
+            num_time_steps: number;
+            /**
+             * Persist
+             * @default false
+             */
+            persist: boolean;
+            /** Rx Id */
+            rx_id?: string | null;
+            /** Sampling Frequency Hz */
+            sampling_frequency_hz?: number | null;
+            /**
+             * Subcarrier Spacing Khz
+             * @default 30
+             */
+            subcarrier_spacing_khz: number;
+            /**
+             * Sweep Field
+             * @enum {string}
+             */
+            sweep_field: "frequency_hz" | "tx_power_dbm" | "bandwidth_hz" | "noise_figure_db";
+            /** Sweep Values */
+            sweep_values: number[];
+            /** Tx Id */
+            tx_id?: string | null;
+        };
+        /** ChannelSweepResult */
+        ChannelSweepResult: {
+            /** Backend */
+            backend: string;
+            /** Rows */
+            rows?: components["schemas"]["ChannelSweepPoint"][];
+            /** Rx Id */
+            rx_id: string;
+            /**
+             * Sweep Field
+             * @enum {string}
+             */
+            sweep_field: "frequency_hz" | "tx_power_dbm" | "bandwidth_hz" | "noise_figure_db";
             /** Tx Id */
             tx_id: string;
             /** Warnings */
@@ -2094,6 +2662,13 @@ export interface components {
         };
         /** DatasetSampling */
         DatasetSampling: {
+            /** Actor Id */
+            actor_id?: string | null;
+            /**
+             * Dt S
+             * @default 0.1
+             */
+            dt_s: number;
             /** End M */
             end_m?: number[] | null;
             /**
@@ -2133,6 +2708,8 @@ export interface components {
             seed: number;
             /** Start M */
             start_m?: number[] | null;
+            /** Waypoints */
+            waypoints?: number[][] | null;
         };
         /** Device */
         Device: {
@@ -2307,6 +2884,26 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
+        /**
+         * HandoverConfig
+         * @description Per-step serving-TX re-selection along a trajectory (3GPP A3-style).
+         *
+         *     A candidate TX must beat the current serving RSS by ``hysteresis_db`` for
+         *     ``time_to_trigger_steps`` consecutive steps before the UE hands over; the
+         *     trigger step's metrics already use the new serving cell.
+         */
+        HandoverConfig: {
+            /**
+             * Hysteresis Db
+             * @default 3
+             */
+            hysteresis_db: number;
+            /**
+             * Time To Trigger Steps
+             * @default 1
+             */
+            time_to_trigger_steps: number;
+        };
         /** HealthBackendStatus */
         HealthBackendStatus: {
             /** Available */
@@ -2400,6 +2997,45 @@ export interface components {
             y?: number | null;
             /** Z */
             z?: number | null;
+        };
+        /**
+         * ImportJobStarted
+         * @description 202 response of POST /projects/import/start.
+         */
+        ImportJobStarted: {
+            /** Job Id */
+            job_id: string;
+        };
+        /**
+         * ImportJobStatus
+         * @description Polling snapshot of a background import job.
+         *
+         *     ``project``/``warnings`` are populated once ``status == "done"``;
+         *     ``error`` once ``status == "error"`` (same message the sync endpoint's
+         *     HTTPException would have carried).
+         */
+        ImportJobStatus: {
+            /** Done */
+            done: number;
+            /** Error */
+            error?: string | null;
+            /** Job Id */
+            job_id: string;
+            /** Phase */
+            phase: string;
+            project?: components["schemas"]["ProjectInfo"] | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "running" | "done" | "error";
+            /** Total */
+            total: number;
+            /**
+             * Warnings
+             * @default []
+             */
+            warnings: string[];
         };
         /** ImportOSMRequest */
         ImportOSMRequest: {
@@ -2625,6 +3261,28 @@ export interface components {
             /** Waypoints */
             waypoints?: number[][] | null;
         };
+        /**
+         * MaterialImportRequest
+         * @description A material pack, as produced by the export endpoint.
+         *
+         *     Defined here (not in schemas/materials.py) so the export/import flow is
+         *     fully contained in this router.
+         */
+        MaterialImportRequest: {
+            /** Materials */
+            materials: components["schemas"]["RFMaterial"][];
+        };
+        /** MaterialImportResponse */
+        MaterialImportResponse: {
+            /** Imported */
+            imported?: string[];
+            /** Renamed */
+            renamed?: {
+                [key: string]: string;
+            };
+            /** Skipped */
+            skipped?: string[];
+        };
         /** MaterialSuggestion */
         MaterialSuggestion: {
             /** Alternatives */
@@ -2685,6 +3343,8 @@ export interface components {
             measurement_id?: string | null;
             /** Rx Position */
             rx_position: number[];
+            /** Time S */
+            time_s?: number | null;
             /** Tx Id */
             tx_id?: string | null;
         };
@@ -2941,9 +3601,22 @@ export interface components {
             /**
              * Template
              * @default empty
-             * @constant
+             * @enum {string}
              */
-            template: "empty";
+            template: "empty" | "demo";
+        };
+        /**
+         * ProjectDuplicateRequest
+         * @description Body for POST /projects/{id}/duplicate. Both fields optional.
+         *
+         *     Defined here rather than in app.schemas.projects because the model is
+         *     purely a transport detail of this route (nothing else consumes it).
+         */
+        ProjectDuplicateRequest: {
+            /** Name */
+            name?: string | null;
+            /** New Id */
+            new_id?: string | null;
         };
         /** ProjectInfo */
         ProjectInfo: {
@@ -2959,6 +3632,14 @@ export interface components {
             project_id: string;
             /** Scene Id */
             scene_id?: string | null;
+        };
+        /**
+         * ProjectRenameRequest
+         * @description Body for PATCH /projects/{id}.
+         */
+        ProjectRenameRequest: {
+            /** Name */
+            name: string;
         };
         /**
          * ProviderModels
@@ -3183,6 +3864,19 @@ export interface components {
             /** Warnings */
             warnings?: string[];
         };
+        /**
+         * RadioMapSweepRequest
+         * @description Coverage-vs-altitude: one planar radio map per requested height.
+         */
+        RadioMapSweepRequest: {
+            config?: components["schemas"]["SimulationConfig"] | null;
+            /** Config Id */
+            config_id?: string | null;
+            /** Heights M */
+            heights_m: number[];
+            /** Threshold Db */
+            threshold_db?: number | null;
+        };
         /** RayPath */
         RayPath: {
             /** Aoa Deg */
@@ -3243,6 +3937,11 @@ export interface components {
              */
             width: number;
         };
+        /** ResultLabelRequest */
+        ResultLabelRequest: {
+            /** Label */
+            label?: string | null;
+        };
         /**
          * ResultSetRef
          * @description Pointer from the scene to a stored result artifact.
@@ -3256,11 +3955,15 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "paths" | "radio_map" | "mesh_radio_map" | "trajectory" | "scenario";
+            kind: "paths" | "radio_map" | "mesh_radio_map" | "trajectory" | "scenario" | "channel";
+            /** Label */
+            label?: string | null;
             /** Result Id */
             result_id: string;
             /** Simulation Config Id */
             simulation_config_id: string;
+            /** Size Bytes */
+            size_bytes?: number | null;
             /** Uri */
             uri: string;
         };
@@ -3279,7 +3982,7 @@ export interface components {
              */
             keep_latest: number;
             /** Kinds */
-            kinds?: ("paths" | "radio_map" | "mesh_radio_map" | "trajectory" | "scenario")[] | null;
+            kinds?: ("paths" | "radio_map" | "mesh_radio_map" | "trajectory" | "scenario" | "channel")[] | null;
         };
         /** RuleGenerationRequest */
         RuleGenerationRequest: {
@@ -3383,6 +4086,8 @@ export interface components {
             prims?: components["schemas"]["Prim"][];
             /** Result Sets */
             result_sets?: components["schemas"]["ResultSetRef"][];
+            /** Revision */
+            revision?: number | null;
             /** Scene Id */
             scene_id: string;
             /**
@@ -3418,6 +4123,34 @@ export interface components {
             max: number[];
             /** Min */
             min: number[];
+        };
+        /**
+         * SceneImportResult
+         * @description Imported project plus any non-fatal import warnings.
+         *
+         *     Warnings (skipped meshes, out-of-band material remaps, degenerate faces)
+         *     used to be written only to provenance.json where they were easy to miss —
+         *     a scene could import "successfully" with buildings silently dropped. The UI
+         *     surfaces this list as a toast right after import.
+         */
+        SceneImportResult: {
+            /** Created At */
+            created_at?: string | null;
+            /** Modified At */
+            modified_at?: string | null;
+            /** Name */
+            name: string;
+            /** Path */
+            path: string;
+            /** Project Id */
+            project_id: string;
+            /** Scene Id */
+            scene_id?: string | null;
+            /**
+             * Warnings
+             * @default []
+             */
+            warnings: string[];
         };
         /** SegmentationApplyRequest */
         SegmentationApplyRequest: {
@@ -3554,6 +4287,13 @@ export interface components {
          *     RadioMapSolver options so every knob is user-controllable in the UI).
          */
         SimulationConfig: {
+            /** Absorption Db Per Km */
+            absorption_db_per_km?: number | null;
+            /**
+             * Atmospheric Absorption
+             * @default false
+             */
+            atmospheric_absorption: boolean;
             /**
              * Backend
              * @default auto
@@ -3647,6 +4387,73 @@ export interface components {
             synthetic_array: boolean;
             /** Tx Ids */
             tx_ids?: string[] | null;
+        };
+        /**
+         * SpectrogramRequest
+         * @description Body for POST /analyze/spectrogram: Doppler-time spectrogram of the
+         *     coherent channel h(t) (ISAC sensing readout). Deliberately its own schema:
+         *     the spectrogram needs thousands of time samples, far beyond the 64-step cap
+         *     the normal analysis keeps for its inline envelope.
+         */
+        SpectrogramRequest: {
+            config?: components["schemas"]["SimulationConfig"] | null;
+            /** Config Id */
+            config_id?: string | null;
+            /**
+             * Duration S
+             * @default 1
+             */
+            duration_s: number;
+            /** Hop */
+            hop?: number | null;
+            /** Rx Id */
+            rx_id?: string | null;
+            /**
+             * Sampling Frequency Hz
+             * @default 500
+             */
+            sampling_frequency_hz: number;
+            /** Tx Id */
+            tx_id?: string | null;
+            /**
+             * Window
+             * @default 128
+             */
+            window: number;
+        };
+        /** SpectrogramResult */
+        SpectrogramResult: {
+            /** Backend */
+            backend: string;
+            /** Doppler Hz */
+            doppler_hz?: number[];
+            /** Frequency Hz */
+            frequency_hz: number;
+            /** Hop */
+            hop: number;
+            /** Magnitude Db */
+            magnitude_db?: number[][];
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Num Paths
+             * @default 0
+             */
+            num_paths: number;
+            /** Rx Id */
+            rx_id: string;
+            /** Sampling Frequency Hz */
+            sampling_frequency_hz: number;
+            /** Times S */
+            times_s?: number[];
+            /** Tx Id */
+            tx_id: string;
+            /** Warnings */
+            warnings?: string[];
+            /** Window */
+            window: number;
         };
         /**
          * SplitPartsRequest
@@ -3785,8 +4592,12 @@ export interface components {
             position: number[];
             /** Rms Delay Spread Ns */
             rms_delay_spread_ns?: number | null;
+            /** Rss Coherent Dbm */
+            rss_coherent_dbm?: number | null;
             /** Rss Dbm */
             rss_dbm?: number | null;
+            /** Serving Tx Id */
+            serving_tx_id?: string | null;
             /** Sinr Db */
             sinr_db?: number | null;
             /** Strongest Delay Ns */
@@ -3832,6 +4643,7 @@ export interface components {
              * @default false
              */
             follow_terrain: boolean;
+            handover?: components["schemas"]["HandoverConfig"] | null;
             /**
              * Include Paths
              * @default false
@@ -3857,6 +4669,83 @@ export interface components {
             ue_id?: string | null;
             /** Waypoints */
             waypoints?: number[][] | null;
+        };
+        /** TrajectoryValidationPoint */
+        TrajectoryValidationPoint: {
+            /** Aligned Predicted Db */
+            aligned_predicted_db?: number | null;
+            /** Error Db */
+            error_db?: number | null;
+            /** Index */
+            index: number;
+            /** Measured Db */
+            measured_db: number;
+            /**
+             * Path Count
+             * @default 0
+             */
+            path_count: number;
+            /** Position */
+            position: number[];
+            /** Predicted Db */
+            predicted_db?: number | null;
+            /** Time S */
+            time_s?: number | null;
+        };
+        /** TrajectoryValidationReport */
+        TrajectoryValidationReport: {
+            /**
+             * Backend
+             * @default
+             */
+            backend: string;
+            /** Points */
+            points?: components["schemas"]["TrajectoryValidationPoint"][];
+            stats: components["schemas"]["TrajectoryValidationStats"];
+            /** Tx Id */
+            tx_id: string;
+            /** Warnings */
+            warnings?: string[];
+        };
+        /**
+         * TrajectoryValidationRequest
+         * @description Body for POST /calibrate/validate-trajectory.
+         *
+         *     Replay a measurement log's RX positions through the trajectory solver and
+         *     score measured vs predicted path gain per point with the same level-offset
+         *     alignment the material calibration uses (measured-vs-predicted along the
+         *     flight/drive log — the measurement round-trip check).
+         */
+        TrajectoryValidationRequest: {
+            config?: components["schemas"]["SimulationConfig"] | null;
+            /** Config Id */
+            config_id?: string | null;
+            /**
+             * Max Points
+             * @default 200
+             */
+            max_points: number;
+            /** Measurements */
+            measurements?: components["schemas"]["MeasurementSample"][] | null;
+            /**
+             * Metric
+             * @default noncoherent
+             * @enum {string}
+             */
+            metric: "noncoherent" | "coherent";
+            /** Tx Id */
+            tx_id?: string | null;
+        };
+        /** TrajectoryValidationStats */
+        TrajectoryValidationStats: {
+            /** Level Offset Db */
+            level_offset_db: number;
+            /** Mean Abs Error Db */
+            mean_abs_error_db: number;
+            /** N */
+            n: number;
+            /** Rmse Db */
+            rmse_db: number;
         };
         /** Transform */
         Transform: {
@@ -4133,7 +5022,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ProjectInfo"];
+                    "application/json": components["schemas"]["SceneImportResult"];
                 };
             };
             /** @description Validation Error */
@@ -4167,6 +5056,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ImportOSMResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_import_job_status_api_projects_import_jobs__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportJobStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    start_project_import_api_projects_import_start_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_start_project_import_api_projects_import_start_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImportJobStarted"];
                 };
             };
             /** @description Validation Error */
@@ -4231,6 +5184,41 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rename_project_api_projects__project_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectRenameRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectInfo"];
                 };
             };
             /** @description Validation Error */
@@ -4647,6 +5635,41 @@ export interface operations {
             };
         };
     };
+    analyze_channel_sweep_api_projects__project_id__analyze_channel_sweep_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChannelSweepRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChannelSweepResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     analyze_material_impact_api_projects__project_id__analyze_material_impact_post: {
         parameters: {
             query?: never;
@@ -4669,6 +5692,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MaterialImpactReport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    analyze_spectrogram_api_projects__project_id__analyze_spectrogram_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["SpectrogramRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SpectrogramResult"];
                 };
             };
             /** @description Validation Error */
@@ -4850,6 +5908,41 @@ export interface operations {
             };
         };
     };
+    validate_trajectory_api_projects__project_id__calibrate_validate_trajectory_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["TrajectoryValidationRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrajectoryValidationReport"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     compile_sionna_api_projects__project_id__compile_sionna_post: {
         parameters: {
             query?: never;
@@ -4999,6 +6092,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    duplicate_project_api_projects__project_id__duplicate_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ProjectDuplicateRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectInfo"];
                 };
             };
             /** @description Validation Error */
@@ -5174,6 +6302,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_channel_result_api_projects__project_id__results_channel_get: {
+        parameters: {
+            query?: {
+                result_id?: string | null;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChannelAnalysisResult"];
                 };
             };
             /** @description Validation Error */
@@ -5424,6 +6585,42 @@ export interface operations {
             };
         };
     };
+    label_result_api_projects__project_id__results__result_id__label_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                result_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ResultLabelRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResultSetRef"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     assign_api_projects__project_id__rf_assign_post: {
         parameters: {
             query?: never;
@@ -5512,6 +6709,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RFMaterialLibrary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_materials_api_projects__project_id__rf_materials_export_get: {
+        parameters: {
+            query?: {
+                ids?: string | null;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RFMaterialLibrary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    import_materials_api_projects__project_id__rf_materials_import_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MaterialImportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MaterialImportResponse"];
                 };
             };
             /** @description Validation Error */
@@ -5712,6 +6977,105 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SceneBounds"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    scene_history_depth_api_projects__project_id__scene_history_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: number;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_scene_positions_api_projects__project_id__scene_positions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    restore_scene_api_projects__project_id__scene_restore_post: {
+        parameters: {
+            query?: {
+                steps?: number;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Scene"];
                 };
             };
             /** @description Validation Error */
@@ -5998,6 +7362,39 @@ export interface operations {
             };
         };
     };
+    cancel_solve_api_projects__project_id__simulate_cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     simulate_mesh_radio_map_api_projects__project_id__simulate_mesh_radio_map_post: {
         parameters: {
             query?: never;
@@ -6103,6 +7500,43 @@ export interface operations {
             };
         };
     };
+    simulate_radio_map_sweep_api_projects__project_id__simulate_radio_map_sweep_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RadioMapSweepRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     simulate_scenario_api_projects__project_id__simulate_scenario_post: {
         parameters: {
             query?: never;
@@ -6160,6 +7594,59 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TrajectoryResultSet"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_ai_settings_api_settings_ai_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AISettingsResponse"];
+                };
+            };
+        };
+    };
+    put_ai_settings_api_settings_ai_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AISettingsUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AISettingsResponse"];
                 };
             };
             /** @description Validation Error */

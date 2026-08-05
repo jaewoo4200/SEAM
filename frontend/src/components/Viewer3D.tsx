@@ -2752,8 +2752,15 @@ export default function Viewer3D() {
   const hiddenPrimCount = useMemo(() => {
     if (!scene?.assets.visual_scene_uri) return 0;
     const main = scene.assets.visual_scene_uri;
+    // material_id check mirrors rf_compiler._collect_candidates: a prim
+    // without an RF material is skipped by the compile, so "in RF solve"
+    // would be false for it — an unassigned multi-GLB import must not brag
+    // about solve coverage it does not have.
     return scene.prims.filter(
-      (p) => p.mesh_ref !== null && p.mesh_ref.asset_uri !== main,
+      (p) =>
+        p.mesh_ref !== null &&
+        p.mesh_ref.asset_uri !== main &&
+        p.rf.material_id !== null,
     ).length;
   }, [scene]);
   // Cache-busting: visual/scene.glb can be rewritten in place (same URI) by a
@@ -2761,14 +2768,17 @@ export default function Viewer3D() {
   // caches by URL — a bare URL keeps serving the stale mesh forever (the old
   // glbEpoch-only key covered segmentation apply/undo and nothing else; a
   // replaced scene.glb only showed up in incognito). The ?v= key is the
-  // asset's actual Last-Modified/ETag, probed with a cheap HEAD request every
-  // time the scene object changes (each save/refresh), so the GLB re-fetches
-  // exactly when the file changed — and never on unrelated scene edits (the
-  // scene *revision* bumps on every device move, so it would be the wrong
-  // key). glbEpoch stays in the key as the fallback for responses without
-  // either header. url === undefined means "probe in flight for a new asset";
-  // the canvas shows its loading note rather than flashing fallback prims.
+  // asset's actual ETag/Last-Modified, probed with a cheap HEAD request on
+  // every scene edit (sceneEpoch — NOT the scene object, which live-mode
+  // polling replaces every 2 s, and NOT the scene revision, which bumps on
+  // every device move), so the GLB re-fetches exactly when the file changed.
+  // ETag is preferred: Starlette derives it from mtime float + size, so it
+  // is strictly finer than Last-Modified's 1-second resolution. glbEpoch
+  // stays in the key as the fallback for responses without either header.
+  // url === undefined means "probe in flight for a new asset"; the canvas
+  // shows its loading note rather than flashing fallback prims.
   const glbEpoch = useAppStore((s) => s.glbEpoch);
+  const sceneEpoch = useAppStore((s) => s.sceneEpoch);
   const baseUrl = projectId && uri ? api.assetUrl(projectId, uri) : null;
   const [url, setUrl] = useState<string | null | undefined>(
     baseUrl === null ? null : undefined,
@@ -2792,7 +2802,7 @@ export default function Viewer3D() {
       .then((r) => {
         if (!alive) return;
         const stamp =
-          r.headers.get("last-modified") ?? r.headers.get("etag");
+          r.headers.get("etag") ?? r.headers.get("last-modified");
         setUrl(
           stamp
             ? `${baseUrl}?v=${encodeURIComponent(stamp)}.${glbEpoch}`
@@ -2805,7 +2815,7 @@ export default function Viewer3D() {
     return () => {
       alive = false;
     };
-  }, [baseUrl, glbEpoch, scene]);
+  }, [baseUrl, glbEpoch, sceneEpoch]);
   const prevGlbUrl = useRef<string | null>(null);
   useEffect(() => {
     // Drop the previous key's cache entry once the new URL is in play, so the

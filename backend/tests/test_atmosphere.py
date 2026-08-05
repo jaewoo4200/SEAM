@@ -122,3 +122,45 @@ def test_mock_warns_when_builtin_curve_used(tmp_path):
         SimulationConfig(atmospheric_absorption=True),
     )
     assert any("APPROXIMATE" in w for w in result.warnings)
+
+
+def test_out_of_anchor_range_warns_extrapolation():
+    """Above 100 GHz the built-in curve is a flat clamp, not an interpolation
+    (183 GHz H2O line: true ~28 dB/km vs clamp 0.7 dB/km, ~40x low). The
+    regular '~2x off' wording would be a lie there — the warning must say the
+    number is an extrapolation that can be an order of magnitude wrong."""
+    cfg = SimulationConfig(
+        id="default", backend="mock", frequency_hz=183e9,
+        atmospheric_absorption=True,
+    )
+    alpha, warning = atmosphere.absorption_db_per_km(cfg)
+    assert alpha == pytest.approx(0.7)
+    assert warning is not None and "OUTSIDE" in warning
+    assert "order of magnitude" in warning
+    # In-range frequencies keep the regular approximate-curve wording.
+    cfg60 = SimulationConfig(
+        id="default", backend="mock", frequency_hz=60e9,
+        atmospheric_absorption=True,
+    )
+    _, w60 = atmosphere.absorption_db_per_km(cfg60)
+    assert w60 is not None and "OUTSIDE" not in w60
+
+
+def test_grid_radio_map_warns_absorption_not_applied(tmp_path):
+    """The grid radio map is solver-side and skips the per-path absorption
+    post-process — without a warning the heatmap silently reads alpha*distance
+    dB above paths/trajectory results in the same session (4.5 dB at 300 m /
+    60 GHz, DeepVerse review finding)."""
+    scene = make_scene()
+    library = load_default_library()
+    backend = MockBackend()
+    on = SimulationConfig(
+        id="default", backend="mock", frequency_hz=60e9,
+        atmospheric_absorption=True, absorption_db_per_km=15.0,
+    )
+    rm = backend.simulate_radio_map(tmp_path, scene, library, on)
+    assert any("NOT corrected" in w for w in rm.warnings)
+
+    off = SimulationConfig(id="default", backend="mock", frequency_hz=60e9)
+    rm_off = backend.simulate_radio_map(tmp_path, scene, library, off)
+    assert not any("NOT corrected" in w for w in rm_off.warnings)
