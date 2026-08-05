@@ -127,6 +127,12 @@ class BeamformingRequest(StrictModel):
     rx_rows: int = Field(default=4, ge=1, le=16)
     rx_cols: int = Field(default=4, ge=1, le=16)
     mode: Literal["codebook_sweep", "tx_mrt", "svd"] = "codebook_sweep"
+    # False (default): panels auto-aim at each other (look_at) — the lab-preset
+    # behavior. True: use each Device.orientation_deg instead, so codebook
+    # angles are relative to the ARRAY broadside (what fixed-bearing BS
+    # datasets like DeepVerse report; look_at re-aims per link and makes beam
+    # trajectories physically meaningless for a moving UE).
+    use_device_orientation: bool = False
     sweep_start_deg: float = -60.0
     sweep_stop_deg: float = 60.0
     sweep_step_deg: float = Field(default=5.0, gt=0.0)

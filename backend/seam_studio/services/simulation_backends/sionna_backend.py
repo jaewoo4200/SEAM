@@ -234,7 +234,13 @@ def _codebook_sweep(base, H, h00: float, request, np, tx_y_norm, rx_y_norm) -> N
     for i, w_r in enumerate(rx_beams):
         row: list[float] = []
         for j, w_t in enumerate(tx_beams):
-            power = abs(np.vdot(w_r, H @ w_t)) ** 2
+            # Matched filtering on BOTH ends: y = w_r^H H w_t*, i.e. the TX
+            # weight is the CONJUGATE of the channel's element-phase profile
+            # (np.vdot already conjugates w_r). Without conj(w_t) the sweep
+            # peaked at the MIRROR angle: an off-axis LoS link at +30 deg
+            # azimuth reported best_tx = -30 (regression-tested; DeepVerse
+            # DEV_HANDOFF beamforming defect 3 — the sign was never pinned).
+            power = abs(np.vdot(w_r, H @ np.conj(w_t))) ** 2
             gain_db = 10.0 * math.log10(max(power / h00, 1e-30))
             row.append(round(gain_db, 3))
             if power > best[0]:
@@ -1014,21 +1020,65 @@ class SionnaBackend(RayTracingBackend):
             rx.antenna, base.warnings, num_rows=request.rx_rows, num_cols=request.rx_cols
         )
         self._apply_custom_materials(project_dir, rt_scene, base.warnings)
-        # Panels face each other (look_at), like the lab presets' explicit
-        # boresights: without this, a steep link loses its vertical array gain
-        # to broadside mismatch and the azimuth-only codebook can't recover it
-        # (verified: -23 deg elevation costs ~5.7 dB per end at 4 rows).
-        rt_scene.add(
-            Transmitter(
-                name=tx.id,
-                position=list(tx.position),
-                power_dbm=tx.power_dbm,
-                look_at=list(rx.position),
+        # Default: panels face each other (look_at), like the lab presets'
+        # explicit boresights — without this, a steep link loses its vertical
+        # array gain to broadside mismatch and the azimuth-only codebook can't
+        # recover it (verified: -23 deg elevation costs ~5.7 dB per end at 4
+        # rows). use_device_orientation=True instead honors the devices' own
+        # orientation_deg (Sionna treats look_at and orientation as exclusive)
+        # so codebook angles are broadside-relative — required to compare
+        # against fixed-bearing BS datasets and for meaningful beam
+        # trajectories with a moving UE.
+        if request.use_device_orientation:
+            rt_scene.add(
+                Transmitter(
+                    name=tx.id,
+                    position=list(tx.position),
+                    power_dbm=tx.power_dbm,
+                    orientation=[math.radians(v) for v in tx.orientation_deg],
+                )
             )
-        )
-        rt_scene.add(
-            Receiver(name=rx.id, position=list(rx.position), look_at=list(tx.position))
-        )
+            rt_scene.add(
+                Receiver(
+                    name=rx.id,
+                    position=list(rx.position),
+                    orientation=[math.radians(v) for v in rx.orientation_deg],
+                )
+            )
+        else:
+            rt_scene.add(
+                Transmitter(
+                    name=tx.id,
+                    position=list(tx.position),
+                    power_dbm=tx.power_dbm,
+                    look_at=list(rx.position),
+                )
+            )
+            rt_scene.add(
+                Receiver(
+                    name=rx.id, position=list(rx.position), look_at=list(tx.position)
+                )
+            )
+        # An azimuth codebook sweep steers across HORIZONTAL element offsets;
+        # with a single column the steering vector is all-ones at every angle
+        # and the sweep map is silently flat (rows/cols swapped is the classic
+        # mistake — DeepVerse-style "[16,1] ULA" is tx_cols=16 here).
+        if request.mode == "codebook_sweep":
+            # 1x1 is a legitimate single element; the trap is a VERTICAL-only
+            # array (rows>1, cols==1) where the user almost certainly meant
+            # the transpose.
+            if request.tx_cols == 1 and request.tx_rows > 1:
+                base.warnings.append(
+                    "tx horizontal array size is 1 (tx_cols=1) — the azimuth "
+                    "codebook sweep is degenerate on the TX axis; did you mean "
+                    f"tx_cols={request.tx_rows}, tx_rows=1?"
+                )
+            if request.rx_cols == 1 and request.rx_rows > 1:
+                base.warnings.append(
+                    "rx horizontal array size is 1 (rx_cols=1) — the azimuth "
+                    "codebook sweep is degenerate on the RX axis; did you mean "
+                    f"rx_cols={request.rx_rows}, rx_rows=1?"
+                )
 
         # synthetic_array=True keeps the per-antenna channel tensor dense so the
         # MRT/SVD math below has a full [rx_ant, tx_ant] matrix per path.

@@ -740,6 +740,10 @@ export interface BeamformingRequest {
   rx_rows?: number;
   rx_cols?: number;
   mode?: BeamformingMode;
+  /** True: honor Device.orientation_deg (broadside-relative codebook angles,
+   *  comparable to fixed-bearing BS datasets). False/omitted: panels auto-aim
+   *  at each other (look_at) — the lab-preset behavior. */
+  use_device_orientation?: boolean;
   sweep_start_deg?: number;
   sweep_stop_deg?: number;
   sweep_step_deg?: number;

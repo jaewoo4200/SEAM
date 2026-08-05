@@ -205,3 +205,51 @@ def test_los_phase_carries_carrier_term(project: Path):
     assert abs(math.remainder(p.phase_rad - expected, 2.0 * math.pi)) < 1e-3
     # And it must NOT be the pre-fix value (raw angle(a) == 0.0 for LoS).
     assert abs(p.phase_rad) > 1e-3
+
+
+def test_codebook_sweep_sign_convention_and_orientation(project: Path):
+    """Pin the codebook angle SIGN against Sionna's H phase convention: a
+    LoS-only link at +30 deg azimuth from a broadside-fixed 1x4 TX ULA must
+    peak at +30 deg, not the mirror -30. Nothing asserted this before, and it
+    also exercises use_device_orientation (broadside-relative angles instead
+    of the default look_at re-aiming)."""
+    import math
+
+    from seam_studio.schemas.simulation import BeamformingRequest
+
+    scene = _demo_scene()
+    # Boresight of an orientation-[0,0,0] planar array is +x; put the RX at
+    # +30 deg azimuth (toward +y) at the same height so the azimuth-only
+    # codebook sees a pure horizontal offset. +30 is exactly on the 5-deg
+    # sweep grid.
+    # z=12 clears the demo wall (top at z=8), which would otherwise graze the
+    # LoS ray and zero the path count.
+    d = 20.0
+    az = math.radians(30.0)
+    scene.devices[0].position = [0.0, 0.0, 12.0]
+    scene.devices[1].position = [d * math.cos(az), d * math.sin(az), 12.0]
+    cfg = SimulationConfig(
+        id="default", frequency_hz=3.5e9, max_depth=0, num_samples=100_000,
+        reflection=False, diffraction=False,
+    )
+    req = BeamformingRequest(
+        mode="codebook_sweep", use_device_orientation=True,
+        tx_rows=1, tx_cols=4, rx_rows=1, rx_cols=1,
+    )
+    result = SionnaBackend().simulate_beamforming(
+        project, scene, load_default_library(), cfg, req
+    )
+    assert result.num_paths and result.num_paths >= 1, result.warnings
+    assert result.best_tx_angle_deg == pytest.approx(30.0, abs=2.5), (
+        f"best TX angle {result.best_tx_angle_deg} — a mirror-image peak at "
+        "-30 means the codebook conjugation convention flipped"
+    )
+    # rx is a single element -> no degenerate-sweep warning for 1x1; the
+    # vertical-only trap DOES warn:
+    req_bad = BeamformingRequest(
+        mode="codebook_sweep", tx_rows=16, tx_cols=1, rx_rows=1, rx_cols=1
+    )
+    result_bad = SionnaBackend().simulate_beamforming(
+        project, scene, load_default_library(), cfg, req_bad
+    )
+    assert any("tx_cols=1" in w for w in result_bad.warnings)
