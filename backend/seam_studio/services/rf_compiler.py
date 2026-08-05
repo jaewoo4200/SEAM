@@ -533,6 +533,20 @@ def _actor_mesh(
                 f"found in {actor.shape.mesh_ref.asset_uri}; skipped"
             )
             return None
+        # Y-up trap: standard glTF assets are Y-up, but actor meshes must be
+        # Z-up world-baked — an un-rotated car compiles lying on its side with
+        # no error anywhere downstream. Upright vehicle-class bodies have
+        # their smallest bounding extent along Z (height); when the smallest
+        # extent lies along Y instead, that is the classic Y-up signature.
+        ext = [float(v) for v in mesh.extents]
+        if ext[1] < ext[0] and ext[1] < ext[2] and ext[2] >= 1.2 * ext[1]:
+            warnings.append(
+                f"actor {actor.id} mesh extents are smallest along Y "
+                f"({ext[0]:.2f} x {ext[1]:.2f} x {ext[2]:.2f} m) — this looks "
+                "like an un-rotated Y-up glTF asset. Actor meshes must be "
+                "Z-up (world-baked); a Y-up vehicle compiles silently lying "
+                "on its side"
+            )
         return mesh
     return _actor_box_mesh(actor)
 

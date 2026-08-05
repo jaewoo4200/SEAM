@@ -49,6 +49,17 @@
   로그 → 기본 `metric: "noncoherent"`, CW/협대역 드라이브 테스트 →
   `POST /calibrate/validate-trajectory`의 `metric: "coherent"`. 정의를 섞으면
   mmWave에서 페이딩 널이 +10–20 dB "이상점"처럼 보입니다.
+- **차체 에코 (근거리 액터 레시피).** mmWave 측정에서 근·중거리 두 번째 강한
+  경로는 고전적 지면반사가 아니라 UE 차량 차체의 디퓨즈 에코인 경우가 많습니다
+  (DeepVerse DT31, 60 GHz). 재현 레시피: 실차급 메시 액터 + **constant 모델**
+  차체 재질(`scattering_coefficient ≈ 0.4`) + `SimulationConfig.scattering:
+  true` — GT 에코 전력과 0.9 dB 이내로 일치했습니다. box 액터는 에코를 전혀
+  만들지 못하고, 스펙큘러만 쓰는 실차 메시는 차체 지오메트리 수 cm에 따라
+  에코가 생겼다 사라져 불안정합니다. 에코의 정확한 지연/각도는 실측 차량의
+  루프 장비에 좌우되므로 이 레시피는 "부류 재현"이지 "기하 정밀 재현"이
+  아닙니다. 액터 메시는 **Z-up 월드베이크**여야 합니다 — 표준 Y-up glTF는
+  차가 옆으로 누운 채 조용히 컴파일됩니다(이제 컴파일이 Y-up 바운드 시그니처를
+  경고).
 - **측정 보정** (`POST /calibrate/materials`,
   `services/calibration.py`). 측정된 링크별 경로 이득을 임포트하면 도구가
   동일한 링크를 시뮬레이션해 **레벨 오프셋**(미지의 절대 TX 전력을 흡수)과

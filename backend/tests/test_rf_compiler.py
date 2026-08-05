@@ -494,3 +494,45 @@ def test_itu_name_collision_warns(project: Path, library: RFMaterialLibrary) -> 
     # No false positive when every referenced itu_name is unique.
     clean = compile_project(project, _build_scene(), project_store.load_default_library())
     assert not any("share itu_name" in w for w in clean.warnings)
+
+
+def test_mesh_actor_yup_heuristic_warns(project: Path, library: RFMaterialLibrary) -> None:
+    """An un-rotated Y-up glTF vehicle compiles lying on its side with no
+    error (DeepVerse verification hit this silently). A mesh actor whose
+    smallest bounding extent lies along Y — instead of Z, the height axis of
+    any upright vehicle-class body — must draw a compile warning."""
+    from seam_studio.schemas.scene import Actor, ActorShape
+
+    # Car-shaped box in Y-up axes: 4.2 long (X), 1.5 tall (Y), 2.0 wide (Z).
+    car = trimesh.creation.box(extents=[4.2, 1.5, 2.0])
+    car.apply_translation([0.0, 0.75, 0.0])
+    tm_scene = trimesh.Scene()
+    tm_scene.add_geometry(car, geom_name="car_body", node_name="car_body")
+    tm_scene.export(project / "visual" / "car.glb")
+
+    scene = _build_scene()
+    scene.actors.append(
+        Actor(
+            id="car_1",
+            kind="car",
+            shape=ActorShape(
+                type="mesh",
+                mesh_ref=MeshRef(mesh_name="car_body", asset_uri="visual/car.glb"),
+            ),
+            rf_material_id="metal",
+            position=[5.0, 5.0, 0.0],
+        )
+    )
+    result = compile_project(project, scene, library)
+    assert result.ok
+    hits = [w for w in result.warnings if "Y-up" in w and "car_1" in w]
+    assert hits, result.warnings
+
+    # A properly Z-up car (height smallest, along Z) stays quiet.
+    zcar = trimesh.creation.box(extents=[4.2, 2.0, 1.5])
+    zcar.apply_translation([0.0, 0.0, 0.75])
+    tm_scene2 = trimesh.Scene()
+    tm_scene2.add_geometry(zcar, geom_name="car_body", node_name="car_body")
+    tm_scene2.export(project / "visual" / "car.glb")
+    clean = compile_project(project, scene, library)
+    assert not any("Y-up" in w for w in clean.warnings), clean.warnings

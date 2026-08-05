@@ -55,6 +55,19 @@ error sources and what SEAM Studio does about them.
   CW/narrowband drive tests → `metric: "coherent"` on
   `POST /calibrate/validate-trajectory`. Mixing them shows up as
   +10–20 dB "outliers" at mmWave that are really fading nulls.
+- **Vehicle body echo (near-field actor recipe).** At mmWave the second
+  strongest near/mid-range path in measured data is often NOT the classic
+  ground reflection but a diffuse echo off the UE's own vehicle body
+  (DeepVerse DT31, 60 GHz). To reproduce it: a real-car-class mesh actor +
+  a **constant-model** body material with `scattering_coefficient ≈ 0.4` +
+  `SimulationConfig.scattering: true` — this matched the GT echo power
+  within 0.9 dB. Box actors produce no echo at all, and a specular-only
+  real mesh is unstable (its echo appears/vanishes with centimeters of
+  body geometry). Exact echo delay/angle still depends on the measured
+  vehicle's roof equipment, so treat the recipe as class-correct, not
+  geometry-exact. Actor meshes must be **Z-up world-baked** — a standard
+  Y-up glTF compiles silently lying on its side (the compile now warns on
+  the Y-up bounding signature).
 - **Measurement calibration** (`POST /calibrate/materials`,
   `services/calibration.py`). Import measured per-link path gain; the tool
   simulates the same links, computes a **level offset** (absorbs unknown

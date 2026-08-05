@@ -252,7 +252,7 @@ materials:
     xpd_coefficient: 0.15
     transmissive: false
     preview_color: "#6d4c41"
-    notes: Constant dry-ground stand-in for mmWave (>10 GHz) where ITU ground models are undefined; matches the bundle's 28 GHz-safe ground.
+    notes: Constant dry-ground stand-in for mmWave (>10 GHz) where ITU ground models are undefined; matches the bundle's 28 GHz-safe ground. Despite the name it holds across the mmWave range - at 60 GHz its far-range ground reflection measured within 2-3 dB of Wireless InSite GT (DeepVerse DT31).
     builtin: true
 
   # ------------------------------------------------------------------ #
