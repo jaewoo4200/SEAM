@@ -5163,6 +5163,310 @@
         "title": "PathResultSet",
         "type": "object"
       },
+      "PlaybackBuildRequest": {
+        "additionalProperties": false,
+        "description": "Body for POST /simulate/playback (GT-vs-DT playback pack, issue #3).\n\nReplays the project's sensor manifest (sensor_data/manifest.json): for\neach selected frame the RX device is moved to the frame pose (in memory —\nthe stored scene is never edited) and one paths solve plus one codebook\nbeam sweep run; results persist as ONE \"playback\" result set whose frames\nalign with the manifest by index.",
+        "properties": {
+          "config": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SimulationConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "config_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Config Id"
+          },
+          "frame_stride": {
+            "default": 1,
+            "minimum": 1.0,
+            "title": "Frame Stride",
+            "type": "integer"
+          },
+          "max_frames": {
+            "default": 400,
+            "maximum": 2000.0,
+            "minimum": 1.0,
+            "title": "Max Frames",
+            "type": "integer"
+          },
+          "max_paths_per_frame": {
+            "default": 12,
+            "maximum": 64.0,
+            "minimum": 0.0,
+            "title": "Max Paths Per Frame",
+            "type": "integer"
+          },
+          "rx_cols": {
+            "default": 1,
+            "maximum": 16.0,
+            "minimum": 1.0,
+            "title": "Rx Cols",
+            "type": "integer"
+          },
+          "rx_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rx Id"
+          },
+          "rx_rows": {
+            "default": 1,
+            "maximum": 16.0,
+            "minimum": 1.0,
+            "title": "Rx Rows",
+            "type": "integer"
+          },
+          "sweep_start_deg": {
+            "default": -60.0,
+            "title": "Sweep Start Deg",
+            "type": "number"
+          },
+          "sweep_step_deg": {
+            "default": 2.5,
+            "exclusiveMinimum": 0.0,
+            "title": "Sweep Step Deg",
+            "type": "number"
+          },
+          "sweep_stop_deg": {
+            "default": 60.0,
+            "title": "Sweep Stop Deg",
+            "type": "number"
+          },
+          "tx_cols": {
+            "default": 16,
+            "maximum": 16.0,
+            "minimum": 1.0,
+            "title": "Tx Cols",
+            "type": "integer"
+          },
+          "tx_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tx Id"
+          },
+          "tx_rows": {
+            "default": 1,
+            "maximum": 16.0,
+            "minimum": 1.0,
+            "title": "Tx Rows",
+            "type": "integer"
+          },
+          "use_device_orientation": {
+            "default": true,
+            "title": "Use Device Orientation",
+            "type": "boolean"
+          }
+        },
+        "title": "PlaybackBuildRequest",
+        "type": "object"
+      },
+      "PlaybackFrame": {
+        "additionalProperties": false,
+        "description": "One frame of a GT-vs-DT playback pack: the SEAM side of the sensor\nmanifest's frame at the same ``index``. GT scalars/curves live in the\nmanifest (inline gt + beam_profile channel files) — the pack stores only\nwhat the solver produced, so GT data is never duplicated.",
+        "properties": {
+          "beam_azimuth_deg": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Beam Azimuth Deg",
+            "type": "array"
+          },
+          "beam_power_dbm": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Beam Power Dbm",
+            "type": "array"
+          },
+          "best_beam_deg": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Beam Deg"
+          },
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "n_paths": {
+            "default": 0,
+            "title": "N Paths",
+            "type": "integer"
+          },
+          "paths": {
+            "items": {
+              "$ref": "#/components/schemas/RayPath"
+            },
+            "title": "Paths",
+            "type": "array"
+          },
+          "rss_coherent_dbm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rss Coherent Dbm"
+          },
+          "rss_dbm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rss Dbm"
+          },
+          "rx_position": {
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "title": "Rx Position",
+            "type": "array"
+          },
+          "tau_rms_ns": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tau Rms Ns"
+          },
+          "time_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time S"
+          }
+        },
+        "required": [
+          "index",
+          "rx_position"
+        ],
+        "title": "PlaybackFrame",
+        "type": "object"
+      },
+      "PlaybackResultSet": {
+        "additionalProperties": false,
+        "description": "Frame-synced GT-vs-DT playback pack (issue #3).\n\nBuilt by POST /simulate/playback: one solve pair (paths + codebook\nbeamforming) per sensor-manifest frame, with the RX moved to the frame\npose. Frames align 1:1 with manifest frames by ``index``.",
+        "properties": {
+          "backend": {
+            "title": "Backend",
+            "type": "string"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "frames": {
+            "items": {
+              "$ref": "#/components/schemas/PlaybackFrame"
+            },
+            "title": "Frames",
+            "type": "array"
+          },
+          "kind": {
+            "const": "playback",
+            "default": "playback",
+            "title": "Kind",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "result_id": {
+            "title": "Result Id",
+            "type": "string"
+          },
+          "rx_id": {
+            "title": "Rx Id",
+            "type": "string"
+          },
+          "simulation_config_id": {
+            "title": "Simulation Config Id",
+            "type": "string"
+          },
+          "tx_id": {
+            "title": "Tx Id",
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "result_id",
+          "backend",
+          "simulation_config_id",
+          "tx_id",
+          "rx_id"
+        ],
+        "title": "PlaybackResultSet",
+        "type": "object"
+      },
       "PointObject": {
         "additionalProperties": false,
         "description": "A point given as an object, in either coordinate system.\n\nCartesian: ``x``/``y`` (+ optional ``z`` or ``agl_m``). Geographic:\n``lat``/``lon`` (+ optional ``alt_m`` or ``agl_m``). The presence of\n``lat`` AND ``lon`` selects the geographic reading. ``agl_m`` (height above\nthe scene surface) and ``z``/``alt_m`` (absolute height) are mutually\nexclusive; if both are given AGL wins and a warning is emitted.",
@@ -6390,7 +6694,8 @@
               "mesh_radio_map",
               "trajectory",
               "scenario",
-              "channel"
+              "channel",
+              "playback"
             ],
             "title": "Kind",
             "type": "string"
@@ -6460,7 +6765,8 @@
                     "mesh_radio_map",
                     "trajectory",
                     "scenario",
-                    "channel"
+                    "channel",
+                    "playback"
                   ],
                   "type": "string"
                 },
@@ -7217,6 +7523,271 @@
           "removed_prim_ids"
         ],
         "title": "SegmentationUndoResponse",
+        "type": "object"
+      },
+      "SensorChannel": {
+        "additionalProperties": false,
+        "description": "One modality present in the frame files.",
+        "properties": {
+          "key": {
+            "pattern": "^[a-z0-9_\\-]+$",
+            "title": "Key",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "image",
+              "pointcloud",
+              "beam_profile",
+              "json"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "default": "",
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "kind"
+        ],
+        "title": "SensorChannel",
+        "type": "object"
+      },
+      "SensorFrame": {
+        "additionalProperties": false,
+        "properties": {
+          "files": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Files",
+            "type": "object"
+          },
+          "gt": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SensorGtMetrics"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "pose": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SensorFramePose"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "time_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time S"
+          }
+        },
+        "required": [
+          "index"
+        ],
+        "title": "SensorFrame",
+        "type": "object"
+      },
+      "SensorFramePose": {
+        "additionalProperties": false,
+        "description": "Pose of the tracked entity (usually the UE) at this frame.",
+        "properties": {
+          "orientation_deg": {
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "title": "Orientation Deg",
+            "type": "array"
+          },
+          "position": {
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "title": "Position",
+            "type": "array"
+          }
+        },
+        "required": [
+          "position"
+        ],
+        "title": "SensorFramePose",
+        "type": "object"
+      },
+      "SensorGtMetrics": {
+        "additionalProperties": false,
+        "description": "Optional per-frame ground-truth scalars (curves go in a beam_profile\nchannel file; only small numbers belong inline).",
+        "properties": {
+          "best_beam_deg": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Best Beam Deg"
+          },
+          "n_paths": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "N Paths"
+          },
+          "rss_coherent_dbm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rss Coherent Dbm"
+          },
+          "rss_dbm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rss Dbm"
+          },
+          "tau_rms_ns": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tau Rms Ns"
+          }
+        },
+        "title": "SensorGtMetrics",
+        "type": "object"
+      },
+      "SensorManifest": {
+        "additionalProperties": false,
+        "properties": {
+          "channels": {
+            "items": {
+              "$ref": "#/components/schemas/SensorChannel"
+            },
+            "title": "Channels",
+            "type": "array"
+          },
+          "entity_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity Id"
+          },
+          "frames": {
+            "items": {
+              "$ref": "#/components/schemas/SensorFrame"
+            },
+            "title": "Frames",
+            "type": "array"
+          },
+          "version": {
+            "default": 1,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "title": "SensorManifest",
+        "type": "object"
+      },
+      "SensorManifestResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "manifest": {
+            "$ref": "#/components/schemas/SensorManifest"
+          },
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/SensorSegment"
+            },
+            "title": "Segments",
+            "type": "array"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "manifest"
+        ],
+        "title": "SensorManifestResponse",
+        "type": "object"
+      },
+      "SensorSegment": {
+        "additionalProperties": false,
+        "description": "One contiguous drive segment (frame-time jump detection).",
+        "properties": {
+          "end": {
+            "title": "End",
+            "type": "integer"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "start": {
+            "title": "Start",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "label",
+          "start",
+          "end"
+        ],
+        "title": "SensorSegment",
         "type": "object"
       },
       "SimulateRequest": {
@@ -8751,7 +9322,7 @@
   "info": {
     "description": "Unified RF-visual scene authoring, RF material assignment, Sionna RT projection compilation, and simulation result APIs.",
     "title": "SEAM Studio",
-    "version": "0.1.2"
+    "version": "0.1.3"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -11125,6 +11696,64 @@
         ]
       }
     },
+    "/api/projects/{project_id}/results/playback": {
+      "get": {
+        "operationId": "get_playback_result_api_projects__project_id__results_playback_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "result_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Result Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaybackResultSet"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Playback Result",
+        "tags": [
+          "simulate"
+        ]
+      }
+    },
     "/api/projects/{project_id}/results/prune": {
       "post": {
         "description": "Delete older result files and their ResultSetRef entries.\n\nFor each result kind in scope (all kinds, or those named in\n``request.kinds``), the newest ``keep_latest`` refs are retained and the\nolder ones dropped: their result files are removed (a file already gone is\nstill dropped from the scene, logged as a warning) and their refs deleted\nfrom ``scene.result_sets``. Surviving refs keep their original order. One\n``results_pruned`` provenance event is appended with the removed count.",
@@ -12488,6 +13117,48 @@
         ]
       }
     },
+    "/api/projects/{project_id}/sensors": {
+      "get": {
+        "operationId": "get_sensors_api_projects__project_id__sensors_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SensorManifestResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Sensors",
+        "tags": [
+          "sensors"
+        ]
+      }
+    },
     "/api/projects/{project_id}/simulate/beamforming": {
       "post": {
         "description": "MIMO beamforming gain (MRT / SVD) over one TX->RX link. Computed on\ndemand and returned directly (not stored as a result set).",
@@ -12700,6 +13371,59 @@
           }
         },
         "summary": "Simulate Paths",
+        "tags": [
+          "simulate"
+        ]
+      }
+    },
+    "/api/projects/{project_id}/simulate/playback": {
+      "post": {
+        "description": "GT-vs-DT playback pack (issue #3): replay the project's sensor manifest,\none paths solve + one codebook sweep per selected frame.",
+        "operationId": "simulate_playback_api_projects__project_id__simulate_playback_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlaybackBuildRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaybackResultSet"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Simulate Playback",
         "tags": [
           "simulate"
         ]

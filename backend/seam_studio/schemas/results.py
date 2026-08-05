@@ -147,6 +147,51 @@ class TrajectoryResultSet(StrictModel):
     metadata: dict = Field(default_factory=dict)
 
 
+class PlaybackFrame(StrictModel):
+    """One frame of a GT-vs-DT playback pack: the SEAM side of the sensor
+    manifest's frame at the same ``index``. GT scalars/curves live in the
+    manifest (inline gt + beam_profile channel files) — the pack stores only
+    what the solver produced, so GT data is never duplicated."""
+
+    index: int
+    time_s: Optional[float] = None
+    rx_position: Vec3
+    # Codebook sweep reprojected onto WORLD azimuth (deg, atan2(y,x) about
+    # +Z): axis_deg + sweep angle, where axis_deg is the TX device yaw when
+    # the sweep ran with use_device_orientation, else the TX->RX link azimuth
+    # (mock backend: its sweep axis is already world-anchored — axis 0).
+    beam_azimuth_deg: list[float] = Field(default_factory=list)
+    # Absolute beam power (dBm): single_element_dbm + sweep gain at the best
+    # RX beam. None marks sweep cells the backend could not evaluate.
+    beam_power_dbm: list[Optional[float]] = Field(default_factory=list)
+    best_beam_deg: Optional[float] = None  # world azimuth of the peak
+    rss_dbm: Optional[float] = None
+    rss_coherent_dbm: Optional[float] = None
+    tau_rms_ns: Optional[float] = None
+    n_paths: int = 0
+    # Strongest-K ray polylines for the viewport (capped by the request).
+    paths: list[RayPath] = Field(default_factory=list)
+
+
+class PlaybackResultSet(StrictModel):
+    """Frame-synced GT-vs-DT playback pack (issue #3).
+
+    Built by POST /simulate/playback: one solve pair (paths + codebook
+    beamforming) per sensor-manifest frame, with the RX moved to the frame
+    pose. Frames align 1:1 with manifest frames by ``index``."""
+
+    result_id: str
+    kind: Literal["playback"] = "playback"
+    backend: str
+    simulation_config_id: str
+    created_at: Optional[str] = None
+    tx_id: str
+    rx_id: str
+    frames: list[PlaybackFrame] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    metadata: dict = Field(default_factory=dict)
+
+
 class RadioMapResultSet(StrictModel):
     result_id: str
     kind: Literal["radio_map"] = "radio_map"

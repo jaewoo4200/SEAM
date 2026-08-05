@@ -561,7 +561,11 @@ class MockBackend(RayTracingBackend):
                 math.atan2(rx_d.position[1] - tx_d.position[1],
                            rx_d.position[0] - tx_d.position[0])
             )
-            az = max(request.sweep_start_deg, min(request.sweep_stop_deg, az))
+            # The lobe stays centered on the TRUE bearing — clamping it into
+            # the sweep range fabricated full array gain at the sweep edge
+            # whenever the link bearing fell outside the swept sector (a
+            # +/-60 deg array genuinely cannot steer to 170 deg; the honest
+            # answer is the sidelobe floor, not a relabeled boresight).
             angles: list[float] = []
             a = request.sweep_start_deg
             while a <= request.sweep_stop_deg + 1e-9:
@@ -571,8 +575,10 @@ class MockBackend(RayTracingBackend):
 
             def lobe(angle: float, n_h: int) -> float:
                 # ~3 dB per beamwidth step away from boresight, scaled by
-                # horizontal aperture; floor at -25 dB sidelobe level.
-                off = abs(angle - az)
+                # horizontal aperture; floor at -25 dB sidelobe level. The
+                # offset is wrap-aware so bearings near +/-180 measure to the
+                # truly nearest beam instead of the far end of the circle.
+                off = abs((angle - az + 180.0) % 360.0 - 180.0)
                 width = 102.0 / max(n_h, 1)  # deg, half-power beamwidth approx
                 return max(-25.0, -3.0 * (off / max(width / 2.0, 1e-6)) ** 2)
 
@@ -583,7 +589,7 @@ class MockBackend(RayTracingBackend):
             ]
             result.sweep_angles_deg = angles
             result.sweep_gain_db = sweep
-            best_ra = min(angles, key=lambda x: abs(x - az))
+            best_ra = min(angles, key=lambda x: abs((x - az + 180.0) % 360.0 - 180.0))
             best_ta = best_ra
             result.best_rx_angle_deg = best_ra
             result.best_tx_angle_deg = best_ta

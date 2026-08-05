@@ -32,6 +32,7 @@ from seam_studio.schemas.results import (
     BeamformingResult,
     MeshRadioMapResultSet,
     PathResultSet,
+    PlaybackResultSet,
     RadioMapResultSet,
     TrajectoryResultSet,
 )
@@ -39,6 +40,7 @@ from seam_studio.schemas.scene import ResultSetRef, Scene
 from seam_studio.schemas.simulation import (
     BeamformingRequest,
     MeshRadioMapRequest,
+    PlaybackBuildRequest,
     SimulateRequest,
     SimulationConfig,
     TrajectorySimulateRequest,
@@ -102,7 +104,8 @@ def _solve_guard(project_id: str, kind: str) -> Iterator[None]:
                 raise
 
 ResultKind = Literal[
-    "paths", "radio_map", "mesh_radio_map", "trajectory", "scenario", "channel"
+    "paths", "radio_map", "mesh_radio_map", "trajectory", "scenario",
+    "channel", "playback",
 ]
 RESULT_KINDS: tuple[str, ...] = (
     "paths",
@@ -111,6 +114,7 @@ RESULT_KINDS: tuple[str, ...] = (
     "trajectory",
     "scenario",
     "channel",
+    "playback",
 )
 AnyResult = Union[
     PathResultSet,
@@ -119,6 +123,7 @@ AnyResult = Union[
     TrajectoryResultSet,
     ScenarioResultSet,
     ChannelAnalysisResult,
+    PlaybackResultSet,
 ]
 
 
@@ -529,6 +534,63 @@ def get_trajectory_result(
 ) -> TrajectoryResultSet:
     return TrajectoryResultSet.model_validate(
         _load_result(project_id, "trajectory", result_id)
+    )
+
+
+@router.post(
+    "/projects/{project_id}/simulate/playback", response_model=PlaybackResultSet
+)
+def simulate_playback(
+    project_id: str, request: PlaybackBuildRequest
+) -> PlaybackResultSet:
+    """GT-vs-DT playback pack (issue #3): replay the project's sensor manifest,
+    one paths solve + one codebook sweep per selected frame."""
+    from seam_studio.services.playback import build_playback
+    from seam_studio.services.sensor_store import MANIFEST_REL, load_manifest
+
+    with _solve_guard(project_id, "playback"):
+        store = get_store()
+        scene = load_scene_live(store, project_id)
+        library = store.load_materials(project_id)
+        config = _resolve_config(
+            scene, SimulateRequest(config_id=request.config_id, config=request.config)
+        )
+        try:
+            backend = resolve_backend(config)
+        except BackendUnavailableError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+
+        project_dir = store.resolve(project_id)
+        try:
+            manifest = load_manifest(project_dir)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        if manifest is None:
+            raise HTTPException(
+                status_code=404, detail=f"no sensor data: {MANIFEST_REL} not found"
+            )
+        try:
+            result = build_playback(
+                backend, project_dir, scene, library, config, request, manifest,
+                tick=solve_ctx.tick,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+        return _persist_result(
+            project_id, scene, project_dir, "playback", backend.name, config.id,
+            result, config=config,
+        )
+
+
+@router.get(
+    "/projects/{project_id}/results/playback", response_model=PlaybackResultSet
+)
+def get_playback_result(
+    project_id: str, result_id: Optional[str] = Query(default=None)
+) -> PlaybackResultSet:
+    return PlaybackResultSet.model_validate(
+        _load_result(project_id, "playback", result_id)
     )
 
 

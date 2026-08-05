@@ -138,6 +138,39 @@ class BeamformingRequest(StrictModel):
     sweep_step_deg: float = Field(default=5.0, gt=0.0)
 
 
+class PlaybackBuildRequest(StrictModel):
+    """Body for POST /simulate/playback (GT-vs-DT playback pack, issue #3).
+
+    Replays the project's sensor manifest (sensor_data/manifest.json): for
+    each selected frame the RX device is moved to the frame pose (in memory —
+    the stored scene is never edited) and one paths solve plus one codebook
+    beam sweep run; results persist as ONE "playback" result set whose frames
+    align with the manifest by index.
+    """
+
+    config_id: Optional[str] = None
+    config: Optional[SimulationConfig] = None
+    tx_id: Optional[str] = None  # None = first tx
+    # RX device moved per frame; None = manifest.entity_id, else first rx.
+    rx_id: Optional[str] = None
+    # Every Nth manifest frame, capped at max_frames (evenly, first/last kept).
+    frame_stride: int = Field(default=1, ge=1)
+    max_frames: int = Field(default=400, ge=1, le=2000)
+    tx_rows: int = Field(default=1, ge=1, le=16)
+    tx_cols: int = Field(default=16, ge=1, le=16)
+    rx_rows: int = Field(default=1, ge=1, le=16)
+    rx_cols: int = Field(default=1, ge=1, le=16)
+    # True (default here, unlike BeamformingRequest): fixed-bearing BS sweeps
+    # need array-broadside angles or the beam trajectory is meaningless for a
+    # moving UE. Requires the TX device's orientation_deg to be authored.
+    use_device_orientation: bool = True
+    sweep_start_deg: float = -60.0
+    sweep_stop_deg: float = 60.0
+    sweep_step_deg: float = Field(default=2.5, gt=0.0)
+    # Strongest-K ray polylines stored per frame for the viewport overlay.
+    max_paths_per_frame: int = Field(default=12, ge=0, le=64)
+
+
 class UERoute(StrictModel):
     """One routed UE for a multi-UE trajectory: an rx device id and the
     waypoint polyline it walks. The polyline is resampled to the request's
