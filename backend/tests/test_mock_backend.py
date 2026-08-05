@@ -358,3 +358,21 @@ def test_api_named_sionna_backend_409_when_absent(api_client):
         json={"config": {"backend": "sionna"}},
     )
     assert resp.status_code == 409
+
+
+def test_phase_convention_includes_carrier_term(backend, scene, library, tmp_path):
+    """RayPath.phase_rad carries the TOTAL passband phase -2*pi*f_c*tau
+    (e^{-j*omega*tau} convention, wrapped to (-pi, pi]). Found via DeepVerse
+    DT31 GT: without the carrier term every coherent consumer (CFR/CIR)
+    systematically mis-cancels sparse multipath."""
+    config = SimulationConfig()
+    result = backend.simulate_paths(tmp_path, scene, library, config)
+    los = next(p for p in result.paths if p.path_type == "los")
+    d = math.dist(TX_POS, RX_POS)
+    expected = math.remainder(
+        -2.0 * math.pi * d * config.frequency_hz / SPEED_OF_LIGHT, 2.0 * math.pi
+    )
+    assert los.phase_rad == pytest.approx(expected, abs=1e-9)
+    # The sign matters: the OLD (positive) convention is the conjugate and
+    # breaks consistency with compute_cfr's e^{-j*2*pi*f_k*tau} baseband term.
+    assert los.phase_rad != pytest.approx(-expected, abs=1e-6) or expected == 0.0

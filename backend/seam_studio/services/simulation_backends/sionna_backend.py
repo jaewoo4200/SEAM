@@ -917,7 +917,8 @@ class SionnaBackend(RayTracingBackend):
         )
 
         paths, doppler_hz = self._convert_paths(
-            solved, txs, rxs, objid_to_material, material_to_prims, warnings, np
+            solved, txs, rxs, objid_to_material, material_to_prims, warnings, np,
+            config.frequency_hz,
         )
         metadata = {
             "frequency_hz": config.frequency_hz,
@@ -1036,6 +1037,23 @@ class SionnaBackend(RayTracingBackend):
         if a.ndim != 5 or a.shape[-1] == 0:
             base.warnings.append(f"unexpected/empty path coefficients {a.shape}; no beamforming")
             return base
+        # Carrier propagation phase per path: Sionna's Paths.a excludes
+        # e^{-j2*pi*f_c*tau} (verified: LoS angle(a)=0 at any distance), so a
+        # plain sum over paths systematically mis-cancels multipath (DeepVerse
+        # DT31: absolute beamforming level ~4.5 dB pessimistic). Rotate each
+        # path by its own carrier term first — the RayPath.phase_rad convention.
+        tau_raw = paths.tau
+        tau = np.asarray(tau_raw.numpy() if hasattr(tau_raw, "numpy") else tau_raw)
+        if tau.ndim == 5:  # non-synthetic layout: reduce to reference elements
+            tau = tau[:, 0, :, 0, :]
+        if tau.shape == (a.shape[0], a.shape[2], a.shape[4]):
+            rot = np.exp(-2j * np.pi * config.frequency_hz * tau)
+            a = a * rot[:, None, :, None, :]
+        else:
+            base.warnings.append(
+                f"unexpected tau shape {tau.shape} vs a {a.shape}; beamforming "
+                "sums paths without the carrier phase term"
+            )
         H = a[0, :, 0, :, :].sum(axis=-1)  # [num_rx_ant, num_tx_ant]
         base.num_paths = int(a.shape[-1])
         h00 = abs(H[0, 0]) ** 2
@@ -1231,6 +1249,7 @@ class SionnaBackend(RayTracingBackend):
         material_to_prims: dict[str, list[str]],
         warnings: list[str],
         np,
+        frequency_hz: float,
     ) -> tuple[list[RayPath], Optional[list[float]]]:
         """Normalize a sionna-rt 2.x Paths object into schema RayPath entries.
 
@@ -1379,7 +1398,20 @@ class SionnaBackend(RayTracingBackend):
                             power_dbm=power_dbm,
                             path_gain_db=power_dbm - txs[t].power_dbm,
                             delay_ns=tau_s * 1e9,
-                            phase_rad=math.atan2(amp.imag, amp.real),
+                            # RayPath convention: TOTAL passband phase at the
+                            # carrier = interaction phase (angle of a) plus the
+                            # propagation term -2*pi*f_c*tau. Sionna's Paths.a
+                            # deliberately EXCLUDES the propagation phase
+                            # (verified: LoS angle(a) == 0.0 at any distance),
+                            # so without this term every coherent consumer
+                            # (CFR/CIR/spectrogram, coherent RSS) mis-cancels
+                            # sparse multipath (DeepVerse DT31 GT: band-mean
+                            # deficit -5.85 dB vs GT -0.96 dB).
+                            phase_rad=math.remainder(
+                                math.atan2(amp.imag, amp.real)
+                                - 2.0 * math.pi * frequency_hz * tau_s,
+                                2.0 * math.pi,
+                            ),
                             aod_deg=aod,
                             aoa_deg=aoa,
                             interactions=interactions,

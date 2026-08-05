@@ -309,7 +309,15 @@ def run(job: dict) -> dict:
                     "vertices": [list(txs[t]["position"])] + bounce + [list(rxs[r]["position"])],
                     "power_dbm": power_dbm,
                     "delay_ns": tau_s * 1e9,
-                    "phase_rad": math.atan2(amp.imag, amp.real),
+                    # RayPath convention (see sionna_backend._convert_paths):
+                    # total passband phase = angle(a) - 2*pi*f_c*tau. Paths.a
+                    # excludes the propagation phase, so it must be restored
+                    # here or coherent consumers mis-cancel multipath.
+                    "phase_rad": math.remainder(
+                        math.atan2(amp.imag, amp.real)
+                        - 2.0 * math.pi * float(job["frequency_hz"]) * tau_s,
+                        2.0 * math.pi,
+                    ),
                     "interactions": interactions,
                 })
     return {"ok": True, "engine_version": version, "paths": paths,

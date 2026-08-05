@@ -76,8 +76,13 @@ def _delay_ns(dist_m: float) -> float:
 
 
 def _phase_rad(dist_m: float, freq_hz: float) -> float:
-    # Electrical length modulo 2*pi: deterministic, no RNG.
-    return (2.0 * math.pi * dist_m * freq_hz / SPEED_OF_LIGHT) % (2.0 * math.pi)
+    # RayPath convention: total passband phase -2*pi*f_c*tau (tau = dist/c),
+    # wrapped to (-pi, pi]. Deterministic, no RNG. The NEGATIVE sign is the
+    # physical e^{-j*omega*tau} delay convention shared with the sionna
+    # backends and assumed by compute_cfr's e^{-j*2*pi*f_k*tau} baseband term.
+    return math.remainder(
+        -2.0 * math.pi * dist_m * freq_hz / SPEED_OF_LIGHT, 2.0 * math.pi
+    )
 
 
 def _select_devices(

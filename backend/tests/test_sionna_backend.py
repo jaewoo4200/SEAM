@@ -176,3 +176,32 @@ def test_multi_antenna_los_matches_fspl(project: Path):
         f"cross-pol LOS {los_vx.power_dbm:.2f} dBm vs expected "
         f"{expected_dbm - 3.01:.2f} dBm (FSPL - 3 dB pol split)"
     )
+
+
+def test_los_phase_carries_carrier_term(project: Path):
+    """Regression for the carrier-phase bug (DeepVerse DT31): Sionna's Paths.a
+    excludes the propagation phase (LoS angle(a) == 0 at ANY distance), so the
+    backend must bake -2*pi*f_c*tau into phase_rad. Self-consistency: the LoS
+    phase must equal -2*pi*f_c*delay mod 2*pi from the SAME result."""
+    import math
+
+    backend = SionnaBackend()
+    scene = _demo_scene()
+    library = load_default_library()
+    # 3.5 GHz keeps the demo scene's ITU ground (1-10 GHz) in band, matching
+    # the other tests in this file.
+    config = SimulationConfig(
+        id="default", frequency_hz=3.5e9, max_depth=3, num_samples=200_000
+    )
+    result = backend.simulate_paths(project, scene, library, config)
+    los = [p for p in result.paths if p.path_type == "los"]
+    assert los, "expected a LoS path"
+    p = los[0]
+    expected = math.remainder(
+        -2.0 * math.pi * config.frequency_hz * (p.delay_ns * 1e-9), 2.0 * math.pi
+    )
+    # angle(a) for a LoS path is 0 (no interactions), so the baked phase is
+    # exactly the carrier term; small tolerance for float32 tau round-trip.
+    assert abs(math.remainder(p.phase_rad - expected, 2.0 * math.pi)) < 1e-3
+    # And it must NOT be the pre-fix value (raw angle(a) == 0.0 for LoS).
+    assert abs(p.phase_rad) > 1e-3

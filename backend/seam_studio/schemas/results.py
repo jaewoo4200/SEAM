@@ -37,6 +37,12 @@ class RayPath(StrictModel):
     # comparison metric independent of the configured transmit power.
     path_gain_db: Optional[float] = None
     delay_ns: float = Field(ge=0.0)
+    # TOTAL passband phase at the carrier, wrapped to (-pi, pi]: the solver's
+    # interaction phase PLUS the carrier propagation term -2*pi*f_c*tau
+    # (e^{-j*omega*tau} convention). Coherent consumers (CFR/CIR, coherent
+    # RSS) use this directly; compute_cfr adds only the BASEBAND offset term
+    # e^{-j*2*pi*f_k*tau} on top. For a pure LoS path this equals
+    # -2*pi*f_c*d/c mod 2*pi (regression-tested).
     phase_rad: float = 0.0
     # [azimuth_deg, elevation_deg] of departure (at TX) and arrival (at RX).
     # Azimuth is atan2(y, x) about +Z; elevation is up from the XY plane.
