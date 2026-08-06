@@ -30,6 +30,14 @@ const SHARPEN = 1.5;
 // Odd step count keeps one ring exactly at elevation 0 (the crest).
 const EL_STEPS = 9;
 const EL_MAX_DEG = 13;
+// Azimuth subdivision between sweep samples (Catmull-Rom on the radius): a
+// 10-deg codebook step otherwise renders every sample as a polygon corner.
+// Interpolation only smooths BETWEEN measured points — it passes through
+// every sample, so no lobe is invented.
+const AZ_SUBDIV = 6;
+// Silhouette lines darker than the body: a same-hue outline melts into the
+// translucent fill; near-black reads on both the dark viewport and light maps.
+const OUTLINE_COLOR = "#0b0f14";
 
 const DEG = Math.PI / 180;
 
@@ -112,6 +120,35 @@ export default function BeamLobeOverlay({
           : clamp01((p - floor) / DYNAMIC_RANGE_DB);
       az.push((axisDeg + anglesDeg[i]) * DEG);
       r.push(radius * Math.pow(t, SHARPEN));
+    }
+    // Catmull-Rom resample of r over az: passes through every measured
+    // sample, rounds the corners between them (clamped at 0 so an overshoot
+    // below the floor cannot flip a petal inside out).
+    if (az.length >= 2 && AZ_SUBDIV > 1) {
+      const sAz: number[] = [];
+      const sR: number[] = [];
+      for (let i = 0; i < az.length - 1; i++) {
+        const r0 = r[Math.max(0, i - 1)];
+        const r1 = r[i];
+        const r2 = r[i + 1];
+        const r3 = r[Math.min(r.length - 1, i + 2)];
+        for (let k = 0; k < AZ_SUBDIV; k++) {
+          const t = k / AZ_SUBDIV;
+          const t2 = t * t;
+          const t3 = t2 * t;
+          const rr =
+            0.5 *
+            (2 * r1 +
+              (-r0 + r2) * t +
+              (2 * r0 - 5 * r1 + 4 * r2 - r3) * t2 +
+              (-r0 + 3 * r1 - 3 * r2 + r3) * t3);
+          sAz.push(az[i] + ((az[i + 1] - az[i]) * k) / AZ_SUBDIV);
+          sR.push(Math.max(0, rr));
+        }
+      }
+      sAz.push(az[az.length - 1]);
+      sR.push(r[r.length - 1]);
+      return { az: sAz, r: sR };
     }
     return { az, r };
   }, [anglesDeg, powerDbm, axisDeg, radius]);
@@ -242,10 +279,10 @@ export default function BeamLobeOverlay({
         />
       </mesh>
       <Line points={crest} color={color} lineWidth={2} />
-      <Line points={outline.top} color={color} lineWidth={1.25} />
-      <Line points={outline.bottom} color={color} lineWidth={1.25} />
+      <Line points={outline.top} color={OUTLINE_COLOR} lineWidth={1.25} />
+      <Line points={outline.bottom} color={OUTLINE_COLOR} lineWidth={1.25} />
       {outline.edges.map((pts, i) => (
-        <Line key={i} points={pts} color={color} lineWidth={1.25} />
+        <Line key={i} points={pts} color={OUTLINE_COLOR} lineWidth={1.25} />
       ))}
     </group>
   );
