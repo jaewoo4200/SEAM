@@ -28,8 +28,8 @@ const SHARPEN = 1.5;
 // Vertical extrusion of the horizontal curve: an elevation arc of +/-EL_MAX_DEG
 // in EL_STEPS rings, so the lobe reads as a 3D body instead of a flat ribbon.
 // Odd step count keeps one ring exactly at elevation 0 (the crest).
-const EL_STEPS = 5;
-const EL_MAX_DEG = 12;
+const EL_STEPS = 9;
+const EL_MAX_DEG = 13;
 
 const DEG = Math.PI / 180;
 
@@ -124,23 +124,24 @@ export default function BeamLobeOverlay({
     for (let j = 0; j < EL_STEPS; j++) {
       els.push((-EL_MAX_DEG + (2 * EL_MAX_DEG * j) / (EL_STEPS - 1)) * DEG);
     }
-    // Spherical sample: cos(elevation) is the cos falloff on the horizontal
-    // radius, so the extruded rings taper toward the top/bottom edge.
+    // ONE closed rounded body per petal: outer shell + top/bottom lids + the
+    // two side caps. An earlier version also drew an apex fan at EVERY
+    // elevation ring, which stacked five translucent sheets inside the body
+    // and read as "several overlapping beams" (user report) — interior
+    // membranes are exactly what a closed surface must not have.
     const pos: number[] = [];
     const push = (i: number, j: number) => {
       const r = curve.r[i];
       const a = curve.az[i];
       const e = els[j];
+      // Spherical sample: cos(elevation) tapers the horizontal radius, so the
+      // vertical cross-section is a smooth arc rather than a box edge.
       pos.push(r * Math.cos(e) * Math.cos(a), r * Math.cos(e) * Math.sin(a), r * Math.sin(e));
     };
+    const apex = () => pos.push(0, 0, 0);
+    const top = EL_STEPS - 1;
     for (let i = 0; i < n - 1; i++) {
-      // Fan from the apex to the two adjacent curve points, per elevation ring.
-      for (let j = 0; j < EL_STEPS; j++) {
-        pos.push(0, 0, 0);
-        push(i, j);
-        push(i + 1, j);
-      }
-      // Outer shell between adjacent rings, so the lobe closes into a body.
+      // Outer shell between adjacent rings.
       for (let j = 0; j < EL_STEPS - 1; j++) {
         push(i, j);
         push(i + 1, j);
@@ -149,6 +150,22 @@ export default function BeamLobeOverlay({
         push(i + 1, j + 1);
         push(i, j + 1);
       }
+      // Lids: apex to the outermost rings only.
+      apex();
+      push(i, top);
+      push(i + 1, top);
+      apex();
+      push(i + 1, 0);
+      push(i, 0);
+    }
+    // Side caps close the first/last azimuth edge across the elevation arc.
+    for (let j = 0; j < EL_STEPS - 1; j++) {
+      apex();
+      push(0, j + 1);
+      push(0, j);
+      apex();
+      push(n - 1, j);
+      push(n - 1, j + 1);
     }
     g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
     return g;
