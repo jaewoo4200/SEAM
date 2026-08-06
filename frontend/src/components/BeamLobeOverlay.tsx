@@ -29,10 +29,12 @@ const SHARPEN = 1.5;
 // el in [-90, 90]. The radius vanishing at the poles closes every petal into
 // a smooth balloon through the apex — no rims anywhere (the earlier +/-13 deg
 // slab had hard top/bottom edges; user asked for an ellipsoid-like body).
-// VERT_POWER=1 makes the vertical cross-section an exact circle through the
-// apex; >1 flattens it (narrower vertical beamwidth than horizontal).
+// VERT_POWER sets the vertical beamwidth: 1 is literally a SPHERE (r=R*cos
+// is a circle through the apex — that build looked like a giant ball), so a
+// directed lobe needs a much faster falloff. 6 puts the vertical half-power
+// point near +/-27 deg: an elongated teardrop instead of a ball.
 const EL_STEPS = 13;
-const VERT_POWER = 1.5;
+const VERT_POWER = 6;
 // Azimuth subdivision between sweep samples (Catmull-Rom on the radius): a
 // 10-deg codebook step otherwise renders every sample as a polygon corner.
 // Interpolation only smooths BETWEEN measured points — it passes through
