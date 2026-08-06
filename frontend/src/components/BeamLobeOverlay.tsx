@@ -30,20 +30,22 @@ const SHARPEN = 1.5;
 // smooth balloon through the apex — no rims anywhere.
 const EL_STEPS = 13;
 
-/** Vertical falloff exponent from the array's VERTICAL aperture. The sweep
- *  is azimuth-only, so the vertical cross-section cannot come from measured
- *  data — but it need not be an arbitrary constant either: a ULA's vertical
- *  half-power beamwidth is ~102 deg / rows, and solving cos^k(hpbw/2) = 1/2
- *  gives the exponent that reproduces it. One row (a 16x1 stick) is genuinely
- *  wide vertically; 4 rows is ~+/-13 deg and renders as a slim teardrop.
- *  Clamps: k=1 is literally a sphere (r = R cos(el) is the equation of one),
- *  so the floor keeps single-row lobes readable, and the ceiling keeps the
- *  13-ring tessellation from aliasing on very tall arrays. */
-function vertPower(txRows: number): number {
-  const halfDeg = 102 / Math.max(1, txRows) / 2;
-  const c = Math.cos(halfDeg * DEG);
-  const k = c > 0 && c < 1 ? Math.log(0.5) / Math.log(c) : 6;
-  return Math.min(40, Math.max(6, k));
+/** Vertical taper t(el) in [0, 1] from the array's VERTICAL aperture. The
+ *  sweep is azimuth-only, so the vertical cross-section cannot come from
+ *  measured data — but it must use the SAME display normalization as the
+ *  horizontal curve (quadratic dB rolloff for a ULA of `rows`, through the
+ *  same DYNAMIC_RANGE_DB window and SHARPEN), or the cross-section lies: a
+ *  strict half-power vertical against the generous 25 dB horizontal window
+ *  rendered a square 4x4 array — whose beam is nearly round — as a flat
+ *  beak. The trailing |cos el|^0.35 only pinches the poles closed (wide
+ *  single-row patterns would otherwise leave an open seam at zenith); it is
+ *  ~0.95 at 30 deg, so it barely touches the profile where it matters. */
+function vertTaper(elRad: number, txRows: number): number {
+  const hpbwDeg = 102 / Math.max(1, txRows);
+  const elDeg = Math.abs(elRad) / DEG;
+  const gainDb = -3 * Math.pow(elDeg / (hpbwDeg / 2), 2);
+  const t = clamp01((gainDb + DYNAMIC_RANGE_DB) / DYNAMIC_RANGE_DB);
+  return Math.pow(t, SHARPEN) * Math.pow(Math.abs(Math.cos(elRad)), 0.35);
 }
 // Azimuth subdivision between sweep samples (Catmull-Rom on the radius): a
 // 10-deg codebook step otherwise renders every sample as a polygon corner.
@@ -112,11 +114,10 @@ export default function BeamLobeOverlay({
    *  at 0: elevation steering is not modeled there. */
   tiltDeg?: number;
   /** Vertical rows of the TX array — sets the lobe's vertical beamwidth via
-   *  vertPower (the sweep itself carries no elevation data). */
+   *  vertTaper (the sweep itself carries no elevation data). */
   txRows?: number;
   color?: string;
 }) {
-  const vpow = vertPower(txRows);
   // Polar curve in LOCAL coordinates (the group carries the origin): world
   // azimuth per sample and the normalized radius that is the whole point of
   // this overlay.
@@ -190,7 +191,7 @@ export default function BeamLobeOverlay({
       const a = curve.az[i];
       const e = els[j];
       const ce = Math.cos(e);
-      const rho = curve.r[i] * Math.pow(Math.abs(ce), vpow);
+      const rho = curve.r[i] * vertTaper(e, txRows);
       pos.push(rho * ce * Math.cos(a), rho * ce * Math.sin(a), rho * Math.sin(e));
     };
     const apex = () => pos.push(0, 0, 0);
@@ -216,7 +217,7 @@ export default function BeamLobeOverlay({
     }
     g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
     return g;
-  }, [curve, vpow]);
+  }, [curve, txRows]);
 
   // The memo mints a new BufferGeometry on every curve change (every playback
   // frame); without this the old GPU buffers leak for the whole session.
@@ -242,7 +243,7 @@ export default function BeamLobeOverlay({
       for (let j = 0; j < EL_STEPS; j++) {
         const e = (-90 + (180 * j) / (EL_STEPS - 1)) * DEG;
         const ce = Math.cos(e);
-        const rho = curve.r[i] * Math.pow(Math.abs(ce), vpow);
+        const rho = curve.r[i] * vertTaper(e, txRows);
         pts.push([
           rho * ce * Math.cos(curve.az[i]),
           rho * ce * Math.sin(curve.az[i]),
@@ -252,7 +253,7 @@ export default function BeamLobeOverlay({
       return pts;
     };
     return { edges: [meridian(0), meridian(curve.r.length - 1)] };
-  }, [curve, vpow]);
+  }, [curve, txRows]);
 
   // Pitch the whole fan about the horizontal axis perpendicular to the aim
   // azimuth: a point at azimuth a0 maps to (cos e * xy, sin e * z), i.e. the
