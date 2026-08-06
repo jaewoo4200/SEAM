@@ -25,11 +25,14 @@ const DYNAMIC_RANGE_DB = 25;
 // r = radius * t^SHARPEN. The exponent only sharpens the CONTRAST between main
 // lobe and sidelobes; it does not invent shape (t is monotone in the data).
 const SHARPEN = 1.5;
-// Vertical extrusion of the horizontal curve: an elevation arc of +/-EL_MAX_DEG
-// in EL_STEPS rings, so the lobe reads as a 3D body instead of a flat ribbon.
-// Odd step count keeps one ring exactly at elevation 0 (the crest).
-const EL_STEPS = 9;
-const EL_MAX_DEG = 13;
+// Full-elevation revolution: rho(az, el) = r(az) * cos^VERT_POWER(el) over
+// el in [-90, 90]. The radius vanishing at the poles closes every petal into
+// a smooth balloon through the apex — no rims anywhere (the earlier +/-13 deg
+// slab had hard top/bottom edges; user asked for an ellipsoid-like body).
+// VERT_POWER=1 makes the vertical cross-section an exact circle through the
+// apex; >1 flattens it (narrower vertical beamwidth than horizontal).
+const EL_STEPS = 13;
+const VERT_POWER = 1.5;
 // Azimuth subdivision between sweep samples (Catmull-Rom on the radius): a
 // 10-deg codebook step otherwise renders every sample as a polygon corner.
 // Interpolation only smooths BETWEEN measured points — it passes through
@@ -159,26 +162,22 @@ export default function BeamLobeOverlay({
     if (n < 2) return g;
     const els: number[] = [];
     for (let j = 0; j < EL_STEPS; j++) {
-      els.push((-EL_MAX_DEG + (2 * EL_MAX_DEG * j) / (EL_STEPS - 1)) * DEG);
+      els.push((-90 + (180 * j) / (EL_STEPS - 1)) * DEG);
     }
-    // ONE closed rounded body per petal: outer shell + top/bottom lids + the
-    // two side caps. An earlier version also drew an apex fan at EVERY
-    // elevation ring, which stacked five translucent sheets inside the body
-    // and read as "several overlapping beams" (user report) — interior
-    // membranes are exactly what a closed surface must not have.
+    // One smooth shell per petal, closed through the apex at both poles (rho
+    // -> 0 at el = +/-90), plus the two azimuth-end caps. No lids and no
+    // interior membranes: earlier versions stacked apex fans inside the body
+    // ("several overlapping beams") or cut the arc at +/-13 deg (hard rims).
     const pos: number[] = [];
     const push = (i: number, j: number) => {
-      const r = curve.r[i];
       const a = curve.az[i];
       const e = els[j];
-      // Spherical sample: cos(elevation) tapers the horizontal radius, so the
-      // vertical cross-section is a smooth arc rather than a box edge.
-      pos.push(r * Math.cos(e) * Math.cos(a), r * Math.cos(e) * Math.sin(a), r * Math.sin(e));
+      const ce = Math.cos(e);
+      const rho = curve.r[i] * Math.pow(Math.abs(ce), VERT_POWER);
+      pos.push(rho * ce * Math.cos(a), rho * ce * Math.sin(a), rho * Math.sin(e));
     };
     const apex = () => pos.push(0, 0, 0);
-    const top = EL_STEPS - 1;
     for (let i = 0; i < n - 1; i++) {
-      // Outer shell between adjacent rings.
       for (let j = 0; j < EL_STEPS - 1; j++) {
         push(i, j);
         push(i + 1, j);
@@ -187,15 +186,9 @@ export default function BeamLobeOverlay({
         push(i + 1, j + 1);
         push(i, j + 1);
       }
-      // Lids: apex to the outermost rings only.
-      apex();
-      push(i, top);
-      push(i + 1, top);
-      apex();
-      push(i + 1, 0);
-      push(i, 0);
     }
-    // Side caps close the first/last azimuth edge across the elevation arc.
+    // End caps: flat fans closing the first/last azimuth edge (their edge
+    // curve already starts and ends at the apex via the pole pinch).
     for (let j = 0; j < EL_STEPS - 1; j++) {
       apex();
       push(0, j + 1);
@@ -222,29 +215,26 @@ export default function BeamLobeOverlay({
     [curve],
   );
 
-  // Silhouette outline: top/bottom elevation rings plus the four apex edges.
-  // The 0.35-alpha body alone melts into busy scenes; a full-opacity border
-  // keeps the lobe readable as one object.
+  // Silhouette outline: the meridian curves closing the two azimuth ends
+  // (they start and end at the apex via the pole pinch). The 0.35-alpha body
+  // alone melts into busy scenes; full-opacity dark borders keep the lobe
+  // readable as one object.
   const outline = useMemo(() => {
-    const ring = (e: number) =>
-      curve.r.map(
-        (r, i) =>
-          [
-            r * Math.cos(e) * Math.cos(curve.az[i]),
-            r * Math.cos(e) * Math.sin(curve.az[i]),
-            r * Math.sin(e),
-          ] as Vec3,
-      );
-    const top = ring(EL_MAX_DEG * DEG);
-    const bottom = ring(-EL_MAX_DEG * DEG);
-    const apex: Vec3 = [0, 0, 0];
-    const edges: Vec3[][] = [
-      [apex, top[0]],
-      [apex, top[top.length - 1]],
-      [apex, bottom[0]],
-      [apex, bottom[bottom.length - 1]],
-    ];
-    return { top, bottom, edges };
+    const meridian = (i: number) => {
+      const pts: Vec3[] = [];
+      for (let j = 0; j < EL_STEPS; j++) {
+        const e = (-90 + (180 * j) / (EL_STEPS - 1)) * DEG;
+        const ce = Math.cos(e);
+        const rho = curve.r[i] * Math.pow(Math.abs(ce), VERT_POWER);
+        pts.push([
+          rho * ce * Math.cos(curve.az[i]),
+          rho * ce * Math.sin(curve.az[i]),
+          rho * Math.sin(e),
+        ]);
+      }
+      return pts;
+    };
+    return { edges: [meridian(0), meridian(curve.r.length - 1)] };
   }, [curve]);
 
   // Pitch the whole fan about the horizontal axis perpendicular to the aim
@@ -278,9 +268,7 @@ export default function BeamLobeOverlay({
           side={THREE.DoubleSide}
         />
       </mesh>
-      <Line points={crest} color={color} lineWidth={2} />
-      <Line points={outline.top} color={OUTLINE_COLOR} lineWidth={1.25} />
-      <Line points={outline.bottom} color={OUTLINE_COLOR} lineWidth={1.25} />
+      <Line points={crest} color={OUTLINE_COLOR} lineWidth={1.5} />
       {outline.edges.map((pts, i) => (
         <Line key={i} points={pts} color={OUTLINE_COLOR} lineWidth={1.25} />
       ))}
