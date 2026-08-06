@@ -68,6 +68,7 @@ export default function BeamLobeOverlay({
   anglesDeg,
   powerDbm,
   radius,
+  tiltDeg = 0,
   color = "#4fc3f7",
 }: {
   /** Lobe apex in world meters (the TX device position). */
@@ -80,6 +81,12 @@ export default function BeamLobeOverlay({
   powerDbm: (number | null)[];
   /** Radius of the peak sample in meters (scene-scaled by the caller). */
   radius: number;
+  /** Elevation pitch of the whole fan (deg, + up). look_at sweeps aim the
+   *  panel at the RX in 3D, so codebook angle 0 carries the link's downtilt —
+   *  a rooftop TX firing at a ground RX must NOT draw a horizontal lobe
+   *  hovering over the void. Fixed-bearing (device-orientation) sweeps stay
+   *  at 0: elevation steering is not modeled there. */
+  tiltDeg?: number;
   color?: string;
 }) {
   // Polar curve in LOCAL coordinates (the group carries the origin): world
@@ -161,13 +168,53 @@ export default function BeamLobeOverlay({
     [curve],
   );
 
+  // Silhouette outline: top/bottom elevation rings plus the four apex edges.
+  // The 0.35-alpha body alone melts into busy scenes; a full-opacity border
+  // keeps the lobe readable as one object.
+  const outline = useMemo(() => {
+    const ring = (e: number) =>
+      curve.r.map(
+        (r, i) =>
+          [
+            r * Math.cos(e) * Math.cos(curve.az[i]),
+            r * Math.cos(e) * Math.sin(curve.az[i]),
+            r * Math.sin(e),
+          ] as Vec3,
+      );
+    const top = ring(EL_MAX_DEG * DEG);
+    const bottom = ring(-EL_MAX_DEG * DEG);
+    const apex: Vec3 = [0, 0, 0];
+    const edges: Vec3[][] = [
+      [apex, top[0]],
+      [apex, top[top.length - 1]],
+      [apex, bottom[0]],
+      [apex, bottom[bottom.length - 1]],
+    ];
+    return { top, bottom, edges };
+  }, [curve]);
+
+  // Pitch the whole fan about the horizontal axis perpendicular to the aim
+  // azimuth: a point at azimuth a0 maps to (cos e * xy, sin e * z), i.e. the
+  // fan tilts toward/away from the target instead of staying in the plane.
+  const quaternion = useMemo(() => {
+    const q = new THREE.Quaternion();
+    if (tiltDeg) {
+      const a0 = axisDeg * DEG;
+      q.setFromAxisAngle(
+        new THREE.Vector3(Math.sin(a0), -Math.cos(a0), 0).normalize(),
+        tiltDeg * DEG,
+      );
+    }
+    return q;
+  }, [axisDeg, tiltDeg]);
+
   if (curve.r.length < 2) return null;
 
   return (
     // __noFit is MANDATORY: the lobe is UI, not scene geometry. Untagged, it
     // wins the surface-probe raycast (device AGL) and drags the camera fit,
     // exactly like the device markers documented in Viewer3D.tsx:624-628.
-    <group position={origin} userData={{ __noFit: true }}>
+    <group position={origin} quaternion={quaternion} userData={{ __noFit: true }}>
       <mesh geometry={geometry} renderOrder={2}>
         <meshBasicMaterial
           color={color}
@@ -178,6 +225,11 @@ export default function BeamLobeOverlay({
         />
       </mesh>
       <Line points={crest} color={color} lineWidth={2} />
+      <Line points={outline.top} color={color} lineWidth={1.25} />
+      <Line points={outline.bottom} color={color} lineWidth={1.25} />
+      {outline.edges.map((pts, i) => (
+        <Line key={i} points={pts} color={color} lineWidth={1.25} />
+      ))}
     </group>
   );
 }

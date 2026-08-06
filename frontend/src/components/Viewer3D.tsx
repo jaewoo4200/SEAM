@@ -2956,9 +2956,17 @@ export default function Viewer3D() {
     }
     const curve = row >= 0 ? sweep[row] : undefined;
     if (!curve || curve.length < 2) return null;
+    // The look_at sweep aims the panel at the RX in 3D, so codebook angle 0
+    // carries the link's elevation too — the fan must pitch toward the RX
+    // (a rooftop TX firing at a ground RX drew a horizontal lobe hovering
+    // over the void without this).
+    const dx = rx.position[0] - tx.position[0];
+    const dy = rx.position[1] - tx.position[1];
+    const dz = rx.position[2] - tx.position[2];
     return {
       origin: tx.position,
       axisDeg: beamSweepAxisDeg(beamforming, tx.position, rx.position),
+      tiltDeg: (Math.atan2(dz, Math.hypot(dx, dy)) * 180) / Math.PI,
       anglesDeg: angles,
       powerDbm: curve,
     };
@@ -3121,6 +3129,7 @@ export default function Viewer3D() {
           <BeamLobeOverlay
             origin={beamLobe.origin}
             axisDeg={beamLobe.axisDeg}
+            tiltDeg={beamLobe.tiltDeg}
             anglesDeg={beamLobe.anglesDeg}
             powerDbm={beamLobe.powerDbm}
             radius={lobeRadius}
