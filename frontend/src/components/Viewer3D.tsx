@@ -2969,6 +2969,8 @@ export default function Viewer3D() {
       tiltDeg: (Math.atan2(dz, Math.hypot(dx, dy)) * 180) / Math.PI,
       anglesDeg: angles,
       powerDbm: curve,
+      // Vertical beamwidth follows the array's vertical aperture (rows).
+      txRows: beamforming.tx_array[0] ?? 1,
     };
   }, [scene, beamforming, mode, showBeamLobe]);
   const lobeRadius = scene
@@ -3130,6 +3132,7 @@ export default function Viewer3D() {
             origin={beamLobe.origin}
             axisDeg={beamLobe.axisDeg}
             tiltDeg={beamLobe.tiltDeg}
+            txRows={beamLobe.txRows}
             anglesDeg={beamLobe.anglesDeg}
             powerDbm={beamLobe.powerDbm}
             radius={lobeRadius}
