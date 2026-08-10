@@ -10,6 +10,12 @@ accept BOTH - our own field names AND the AODT names documented in
 ``dataset.py``'s ``aodt_field_map`` (e.g. ``power_dB`` == our per-path power,
 ``cir_delay`` == our delay). Unknown columns are ignored.
 
+File naming: ray paths are read from ``paths.parquet`` or, when the export
+follows AODT's ClickHouse table names (what :mod:`aodt_export` writes),
+``raypaths.parquet``. A raypaths table carries geometry and mechanisms only -
+per-path power and delay live in the ``cirs`` table, so imported paths from
+that layout have power/delay 0.
+
 pyarrow is imported LAZILY inside the reader and, when missing, we raise the
 typed :class:`AodtImportUnavailable` so the API layer can answer 409 instead of
 500. No hard dependency on pyarrow is added to the package.
@@ -37,7 +43,11 @@ _POWER_COLS = ("power_dbm", "power_dB", "power_db", "rx_power_dbm")
 _GAIN_COLS = ("path_gain_db", "gain_db", "channel_gain_db")
 _DELAY_COLS = ("delay_ns", "cir_delay", "delay")  # cir_delay is seconds in AODT
 _PHASE_COLS = ("phase_rad", "phase")
-_PATHTYPE_COLS = ("path_type", "interaction_type", "type")
+# interaction_types is AODT's per-bounce list ("emission" then the mechanisms);
+# a scalar type column still wins when both are present.
+_PATHTYPE_COLS = ("path_type", "interaction_type", "type", "interaction_types")
+# Tokens in interaction_types that mark the ray's ends, not a mechanism.
+_ENDPOINT_INTERACTIONS = {"emission", "reception", "arrival"}
 # Per-vertex polyline of the ray, when present (list<list<float>> column).
 _POINTS_COLS = ("points", "vertices", "path_points", "interaction_points")
 # Straight tx->rx fallback endpoints.
@@ -99,6 +109,21 @@ def _read_table(path: Path) -> list[dict]:
 def _normalize_path_type(raw) -> str:
     if raw is None:
         return "mixed"
+    if isinstance(raw, (list, tuple)):
+        # AODT interaction_types: emission/reception frame the bounces, so an
+        # otherwise empty list is a direct ray and a single mechanism repeated
+        # is that mechanism; anything heterogeneous is "mixed".
+        kinds = {
+            str(t).strip().lower()
+            for t in raw
+            if str(t).strip().lower() not in _ENDPOINT_INTERACTIONS
+        }
+        if not kinds:
+            return "los"
+        if len(kinds) == 1:
+            only = kinds.pop()
+            return only if only in _VALID_PATH_TYPES else "mixed"
+        return "mixed"
     t = str(raw).strip().lower()
     return t if t in _VALID_PATH_TYPES else "mixed"
 
@@ -137,10 +162,22 @@ def _delay_ns(raw) -> float:
 
 
 def import_paths(project_dir_source: Path, warnings: list[str]) -> PathResultSet:
-    """paths.parquet -> PathResultSet."""
-    parquet = project_dir_source / "paths.parquet"
-    if not parquet.is_file():
-        raise AodtImportError(f"paths.parquet not found in {project_dir_source}")
+    """paths.parquet (or AODT's own raypaths.parquet) -> PathResultSet."""
+    parquet = next(
+        (
+            p
+            for p in (
+                project_dir_source / "paths.parquet",
+                project_dir_source / "raypaths.parquet",
+            )
+            if p.is_file()
+        ),
+        None,
+    )
+    if parquet is None:
+        raise AodtImportError(
+            f"paths.parquet / raypaths.parquet not found in {project_dir_source}"
+        )
     rows = _read_table(parquet)
     if not rows:
         raise AodtImportError("paths.parquet has no rows")

@@ -740,6 +740,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{project_id}/export/aodt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Export Aodt Endpoint */
+        post: operations["export_aodt_endpoint_api_projects__project_id__export_aodt_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{project_id}/export/rfdata": {
         parameters: {
             query?: never;
@@ -2044,6 +2061,54 @@ export interface components {
              * @default 0.5
              */
             vertical_spacing: number;
+        };
+        /**
+         * AodtExportRequest
+         * @description Body for POST /export/aodt (NVIDIA AODT results-schema parquet).
+         *
+         *     ``source`` picks what becomes the time axis: "paths" writes ONE snapshot
+         *     (time_idx 0) from a stored path result, "playback" writes one time index
+         *     per frame of a stored playback pack. ``result_id`` selects a specific
+         *     stored result of that kind; None takes the latest.
+         */
+        AodtExportRequest: {
+            /** Config Id */
+            config_id?: string | null;
+            /**
+             * Fft Size
+             * @default 64
+             */
+            fft_size: number;
+            /** Result Id */
+            result_id?: string | null;
+            /**
+             * Source
+             * @default paths
+             * @enum {string}
+             */
+            source: "paths" | "playback";
+            /**
+             * Subcarrier Spacing Hz
+             * @default 30000
+             */
+            subcarrier_spacing_hz: number;
+        };
+        /**
+         * AodtExportSummary
+         * @description POST /export/aodt response: what was written, and how many rows per
+         *     AODT table (telemetry/ran_config are never written - see aodt_export).
+         */
+        AodtExportSummary: {
+            /** Export Dir */
+            export_dir: string;
+            /** Files */
+            files?: string[];
+            /** Tables */
+            tables?: {
+                [key: string]: number;
+            };
+            /** Warnings */
+            warnings?: string[];
         };
         /** ApplyRulesRequest */
         ApplyRulesRequest: {
@@ -6418,6 +6483,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProjectInfo"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_aodt_endpoint_api_projects__project_id__export_aodt_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["AodtExportRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AodtExportSummary"];
                 };
             };
             /** @description Validation Error */

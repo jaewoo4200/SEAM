@@ -255,3 +255,31 @@ class RFDataExportSummary(StrictModel):
     has_paths: bool = False
     has_radio_map: bool = False
     has_trajectory: bool = False
+
+
+class AodtExportRequest(StrictModel):
+    """Body for POST /export/aodt (NVIDIA AODT results-schema parquet).
+
+    ``source`` picks what becomes the time axis: "paths" writes ONE snapshot
+    (time_idx 0) from a stored path result, "playback" writes one time index
+    per frame of a stored playback pack. ``result_id`` selects a specific
+    stored result of that kind; None takes the latest.
+    """
+
+    config_id: Optional[str] = None
+    source: Literal["paths", "playback"] = "paths"
+    result_id: Optional[str] = None
+    # Baseband tone count of the cfrs rows (FFT bin grid across bandwidth_hz).
+    fft_size: int = Field(default=64, ge=8, le=4096)
+    # Reported in rus/dus; SEAM has no numerology, so it is a declared value.
+    subcarrier_spacing_hz: float = Field(default=30e3, gt=0.0)
+
+
+class AodtExportSummary(StrictModel):
+    """POST /export/aodt response: what was written, and how many rows per
+    AODT table (telemetry/ran_config are never written - see aodt_export)."""
+
+    export_dir: str
+    files: list[str] = Field(default_factory=list)
+    tables: dict[str, int] = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)

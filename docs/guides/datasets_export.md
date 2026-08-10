@@ -111,6 +111,56 @@ After the export, a dismissible row appears in **Results** — *"Exported RFData
 to `export/rfdata`"* — with a download link per file, so you don't have to dig
 through the project folder.
 
+### AODT results-schema export
+
+The bundle above is the *viewer* contract. For tooling written against NVIDIA
+AODT's own [results schemas](https://docs.nvidia.com/aerial/aodt/), there is a
+second export that writes those tables as Parquet:
+
+```
+POST /api/projects/{project_id}/export/aodt
+     {"source": "paths", "result_id": null, "fft_size": 64,
+      "subcarrier_spacing_hz": 30000}
+```
+
+It writes one `<table>.parquet` per AODT table into `export/aodt/`:
+`ues`, `scatterers`, `rus`, `dus`, `panels`, `patterns`, `time_info`, `cfrs`,
+`cirs`, `raypaths` — column names and types verbatim from the AODT docs.
+`source: "paths"` writes a single snapshot (`time_idx` 0) from a stored paths
+result; `source: "playback"` writes one `time_idx` per frame of a stored
+playback pack, so `time_info`, `raypaths`, `cirs` and `cfrs` span the drive and
+the UE's `route_*` columns carry the frame positions.
+
+Two AODT tables are **never** written: `telemetry` and `ran_config`. Both are
+RAN-simulation outputs (scheduler/PHY KPIs, gNB configuration) that a
+ray-tracing pipeline does not produce — emitting empty ones would claim
+coverage SEAM does not have.
+
+Alongside the tables, `id_map.json` records the string ↔ integer id mapping the
+Parquet rows cannot carry: device id → `ru_id`/`ue_id`, prim id → `prim_ids`
+index, actor id → scatterer `ID`, and device → panel index.
+
+Caveats worth knowing before you consume the tables:
+
+- `normals` is all zeros — SEAM records the interaction point and the prim it
+  belongs to, never the surface normal there; `object_ids` repeat `prim_ids`
+  (there is no separate USD object table).
+- `ru_ant_el`/`ue_ant_el` are `(0, 0[, 0])` and each `ampl_*` list has one
+  entry: the path solver resolves per-link coefficients, not per-element ones.
+- `patterns` is a single isotropic placeholder row.
+- Amplitudes (and therefore `cirs`/`cfrs`) are channel coefficients —
+  |a| = 10^(path_gain_dB/20), phase from the path's carrier phase — not
+  received power. `cir_delay` is in **seconds**, per the AODT schema.
+- In `raypaths`, `points` is the whole polyline (TX, every interaction, RX), so
+  `normals`/`prim_ids`/`object_ids`/`vegetation_depths` are parallel to it,
+  while `interaction_types` is `"emission"` plus one entry per bounce — the
+  arrival at the RX is not an interaction.
+
+This export needs `pyarrow` (`pip install "seam-studio[results]"`); without it
+the endpoint answers **409**, and it answers **404** when the project has no
+stored result of the requested source kind. The written `raypaths.parquet`
+reads back through SEAM's own AODT importer (`POST /results/import-aodt`).
+
 ---
 
 ## 3. Viewport captures — Snapshot and Render

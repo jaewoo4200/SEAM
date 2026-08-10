@@ -109,6 +109,57 @@ mock 솔버가 만들지만, 파이프라인 테스트에는 충분합니다).
 RFData to `export/rfdata`"* — 파일별 다운로드 링크가 붙어 있어 프로젝트
 폴더를 뒤질 필요가 없습니다.
 
+### AODT 결과 스키마 내보내기
+
+위 번들은 *뷰어* 계약입니다. NVIDIA AODT 자체
+[결과 스키마](https://docs.nvidia.com/aerial/aodt/)에 맞춰 만들어진 도구에
+넘기려면, 해당 테이블들을 Parquet 으로 쓰는 두 번째 내보내기를 사용하세요:
+
+```
+POST /api/projects/{project_id}/export/aodt
+     {"source": "paths", "result_id": null, "fft_size": 64,
+      "subcarrier_spacing_hz": 30000}
+```
+
+`export/aodt/` 안에 AODT 테이블별로 `<table>.parquet` 하나씩 기록됩니다:
+`ues`, `scatterers`, `rus`, `dus`, `panels`, `patterns`, `time_info`, `cfrs`,
+`cirs`, `raypaths` — 컬럼 이름과 타입은 AODT 문서 그대로입니다.
+`source: "paths"` 는 저장된 paths 결과에서 스냅숏 하나(`time_idx` 0)를 쓰고,
+`source: "playback"` 은 저장된 playback 팩의 프레임마다 `time_idx` 를 하나씩
+써서 `time_info`·`raypaths`·`cirs`·`cfrs` 가 주행 구간 전체를 덮고 UE 의
+`route_*` 컬럼에 프레임 위치가 담깁니다.
+
+AODT 테이블 중 `telemetry` 와 `ran_config` 는 **쓰지 않습니다**. 둘 다
+RAN 시뮬레이션 산출물(스케줄러/PHY KPI, gNB 설정)이라 레이 트레이싱
+파이프라인이 만들어내지 않으며, 빈 파일을 쓰면 SEAM 이 제공하지 않는 범위를
+제공하는 것처럼 보이게 됩니다.
+
+테이블과 함께 `id_map.json` 이 기록됩니다 — Parquet 행이 담을 수 없는 문자열
+↔ 정수 id 매핑입니다: 디바이스 id → `ru_id`/`ue_id`, prim id → `prim_ids`
+인덱스, 액터 id → scatterer `ID`, 디바이스 → panel 인덱스.
+
+테이블을 쓰기 전에 알아둘 제약:
+
+- `normals` 는 전부 0 입니다 — SEAM 은 상호작용 지점과 그 prim 만 기록하고
+  표면 법선은 기록하지 않습니다. `object_ids` 는 `prim_ids` 와 같습니다(별도
+  USD object 테이블이 없습니다).
+- `ru_ant_el`/`ue_ant_el` 는 `(0, 0[, 0])` 이고 `ampl_*` 리스트는 항목이
+  하나입니다: 경로 솔버는 링크 단위 계수를 풀지, 소자 단위 계수를 풀지
+  않습니다.
+- `patterns` 는 등방성 자리표시자 한 행입니다.
+- 진폭(그리고 `cirs`/`cfrs`)은 수신 전력이 아니라 채널 계수입니다 —
+  |a| = 10^(path_gain_dB/20), 위상은 경로의 반송파 위상. `cir_delay` 는 AODT
+  스키마대로 **초(second)** 단위입니다.
+- `raypaths` 의 `points` 는 폴리라인 전체(TX, 모든 상호작용, RX)라
+  `normals`/`prim_ids`/`object_ids`/`vegetation_depths` 가 여기에 나란히
+  대응하고, `interaction_types` 는 `"emission"` 뒤에 반사마다 한 항목입니다 —
+  RX 도달은 상호작용이 아닙니다.
+
+이 내보내기는 `pyarrow` 가 필요합니다(`pip install "seam-studio[results]"`).
+없으면 엔드포인트가 **409** 를, 요청한 source 종류의 결과가 프로젝트에 없으면
+**404** 를 돌려줍니다. 기록된 `raypaths.parquet` 는 SEAM 자체 AODT
+임포터(`POST /results/import-aodt`)로 다시 읽어들일 수 있습니다.
+
 ---
 
 ## 3. 뷰포트 캡처 — Snapshot 과 Render

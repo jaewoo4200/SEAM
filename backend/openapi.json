@@ -989,6 +989,94 @@
         "title": "Antenna",
         "type": "object"
       },
+      "AodtExportRequest": {
+        "additionalProperties": false,
+        "description": "Body for POST /export/aodt (NVIDIA AODT results-schema parquet).\n\n``source`` picks what becomes the time axis: \"paths\" writes ONE snapshot\n(time_idx 0) from a stored path result, \"playback\" writes one time index\nper frame of a stored playback pack. ``result_id`` selects a specific\nstored result of that kind; None takes the latest.",
+        "properties": {
+          "config_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Config Id"
+          },
+          "fft_size": {
+            "default": 64,
+            "maximum": 4096.0,
+            "minimum": 8.0,
+            "title": "Fft Size",
+            "type": "integer"
+          },
+          "result_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Id"
+          },
+          "source": {
+            "default": "paths",
+            "enum": [
+              "paths",
+              "playback"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "subcarrier_spacing_hz": {
+            "default": 30000.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Subcarrier Spacing Hz",
+            "type": "number"
+          }
+        },
+        "title": "AodtExportRequest",
+        "type": "object"
+      },
+      "AodtExportSummary": {
+        "additionalProperties": false,
+        "description": "POST /export/aodt response: what was written, and how many rows per\nAODT table (telemetry/ran_config are never written - see aodt_export).",
+        "properties": {
+          "export_dir": {
+            "title": "Export Dir",
+            "type": "string"
+          },
+          "files": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Files",
+            "type": "array"
+          },
+          "tables": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Tables",
+            "type": "object"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "export_dir"
+        ],
+        "title": "AodtExportSummary",
+        "type": "object"
+      },
       "ApplyRulesRequest": {
         "additionalProperties": false,
         "properties": {
@@ -9322,7 +9410,7 @@
   "info": {
     "description": "Unified RF-visual scene authoring, RF material assignment, Sionna RT projection compilation, and simulation result APIs.",
     "title": "SEAM Studio",
-    "version": "0.1.3"
+    "version": "0.1.4"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -11200,6 +11288,65 @@
         "summary": "Duplicate Project",
         "tags": [
           "projects"
+        ]
+      }
+    },
+    "/api/projects/{project_id}/export/aodt": {
+      "post": {
+        "operationId": "export_aodt_endpoint_api_projects__project_id__export_aodt_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/AodtExportRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Request"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AodtExportSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export Aodt Endpoint",
+        "tags": [
+          "export"
         ]
       }
     },
