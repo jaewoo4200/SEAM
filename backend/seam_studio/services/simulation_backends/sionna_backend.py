@@ -293,6 +293,38 @@ def clear_scene_cache() -> None:
     _SCENE_CACHE.clear()
 
 
+# Long solve sessions grow the process until the OS kills it: Dr.Jit caches
+# malloc arenas and compiled kernels across solves, and an automated sweep of
+# ~103 consecutive paths solves died with a connection reset (observed on the
+# HYRAY HYU comparison). The malloc cache releases after EVERY solve (cheap —
+# arenas are re-warmed in ms); every _FULL_FLUSH_EVERY solves the compiled
+# scene + kernel caches are dropped too, so the next solve pays one recompile
+# instead of the process dying at solve ~100.
+_FULL_FLUSH_EVERY = 32
+_solves_since_full_flush = 0
+
+
+def _release_solver_memory() -> None:
+    global _solves_since_full_flush
+    import gc
+
+    gc.collect()
+    try:
+        import drjit as dr  # type: ignore[import-not-found]
+
+        dr.flush_malloc_cache()
+        _solves_since_full_flush += 1
+        if _solves_since_full_flush >= _FULL_FLUSH_EVERY:
+            _solves_since_full_flush = 0
+            clear_scene_cache()
+            flush_kernels = getattr(dr, "flush_kernel_cache", None)
+            if flush_kernels is not None:
+                flush_kernels()
+    except Exception:
+        # Memory hygiene must never fail a solve that already succeeded.
+        pass
+
+
 def cache_stats() -> dict:
     """Hit/miss/load counters, exposed for tests to assert cache behaviour."""
     return dict(_CACHE_STATS)
@@ -621,9 +653,12 @@ class SionnaBackend(RayTracingBackend):
                 return self._simulate_paths_engine(
                     project_dir, scene, library, config, actor_states
                 )
-            return self._simulate_paths_impl(
-                project_dir, scene, library, config, actor_states, actor_velocities
-            )
+            try:
+                return self._simulate_paths_impl(
+                    project_dir, scene, library, config, actor_states, actor_velocities
+                )
+            finally:
+                _release_solver_memory()
         except Exception as exc:  # noqa: BLE001 - graceful degradation contract
             # A scene left half-mutated in the cache must not be reused.
             clear_scene_cache()
@@ -984,7 +1019,12 @@ class SionnaBackend(RayTracingBackend):
             base.warnings.append("scene needs at least one tx and one rx")
             return base
         try:
-            return self._beamforming_impl(project_dir, scene, library, config, request, tx, rx, base)
+            try:
+                return self._beamforming_impl(
+                    project_dir, scene, library, config, request, tx, rx, base
+                )
+            finally:
+                _release_solver_memory()
         except Exception as exc:  # noqa: BLE001 - graceful degradation contract
             clear_scene_cache()
             base.warnings.append(
@@ -1552,7 +1592,10 @@ class SionnaBackend(RayTracingBackend):
         config: SimulationConfig,
     ) -> RadioMapResultSet:
         try:
-            return self._simulate_radio_map_impl(project_dir, scene, library, config)
+            try:
+                return self._simulate_radio_map_impl(project_dir, scene, library, config)
+            finally:
+                _release_solver_memory()
         except Exception as exc:  # noqa: BLE001 - graceful degradation contract
             clear_scene_cache()
             txs = [d for d in scene.devices if d.kind == "tx"]
