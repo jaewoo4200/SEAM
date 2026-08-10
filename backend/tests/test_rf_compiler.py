@@ -568,3 +568,34 @@ def test_mesh_actor_yup_heuristic_kind_gated(project: Path, library: RFMaterialL
     result = compile_project(project, scene, library)
     assert result.ok
     assert not any("Y-up" in w for w in result.warnings), result.warnings
+
+
+def test_visual_asset_edit_marks_projection_stale(
+    project: Path, library: RFMaterialLibrary
+) -> None:
+    """rf_fingerprint hashes bindings, not the GLB the meshes are extracted
+    from — an out-of-band GLB rewrite (height-inversion scripts, external
+    tools) previously kept serving the stale extracted PLYs (hit live during
+    the HYRAY run). The manifest's visual_asset_stamp closes that hole."""
+    from seam_studio.services.rf_compiler import projection_is_stale
+
+    scene = _build_scene()
+    result = compile_project(project, scene, library)
+    assert result.ok
+    assert projection_is_stale(project, scene, library) is False
+
+    # Out-of-band rewrite: same bindings, different geometry bytes/mtime.
+    glb = project / "visual" / "scene.glb"
+    tall = trimesh.creation.box(extents=[4.0, 0.2, 9.0])
+    tall.apply_translation([0.0, 0.0, 4.5])
+    glass = trimesh.creation.box(extents=[1.0, 0.05, 1.0])
+    glass.apply_translation([2.0, 1.0, 1.5])
+    tm_scene = trimesh.Scene()
+    tm_scene.add_geometry(tall, geom_name="wall_box", node_name="wall_box")
+    tm_scene.add_geometry(glass, geom_name="glass_box", node_name="glass_box")
+    tm_scene.export(glb)
+
+    assert projection_is_stale(project, scene, library) is True
+    # Recompiling clears the staleness again.
+    assert compile_project(project, scene, library).ok
+    assert projection_is_stale(project, scene, library) is False

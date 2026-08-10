@@ -139,7 +139,15 @@ def projection_is_stale(
     recorded = manifest.get("rf_fingerprint")
     if not recorded:
         return True
-    return recorded != rf_fingerprint(scene, library)
+    if recorded != rf_fingerprint(scene, library):
+        return True
+    # The fingerprint covers bindings, not the visual files the meshes are
+    # extracted from — an out-of-band GLB rewrite must also read as stale.
+    # Older manifests lack the stamp; treating that as stale upgrades them
+    # with one recompile, same policy as a missing fingerprint.
+    return manifest.get("visual_asset_stamp") != _visual_asset_stamp(
+        project_dir, scene
+    )
 
 
 def compile_project(
@@ -171,10 +179,10 @@ def compile_project(
     )
     generated.append(SCENE_XML_REL)
 
-    _write_json(
-        project_dir / MANIFEST_REL,
-        _manifest(scene, library, material_groups, actor_exports, skipped, warnings),
-    )
+    manifest = _manifest(scene, library, material_groups, actor_exports, skipped, warnings)
+    # Stamped at the call site so _manifest stays filesystem-free.
+    manifest["visual_asset_stamp"] = _visual_asset_stamp(project_dir, scene)
+    _write_json(project_dir / MANIFEST_REL, manifest)
     generated.append(MANIFEST_REL)
 
     object_map, face_group_map = _mappings(scene, material_groups)
@@ -876,6 +884,30 @@ def _itu_solver_params(material: Optional[RFMaterial]) -> Optional[dict]:
     if material.xpd_coefficient is not None:
         params["xpd_coefficient"] = float(material.xpd_coefficient)
     return params or None
+
+
+def _visual_asset_stamp(project_dir: Path, scene: Scene) -> list[list]:
+    """(uri, mtime_ns, size) per distinct visual asset the compile reads.
+
+    rf_fingerprint deliberately hashes bindings only — but the compiled RF
+    meshes are EXTRACTED from these files, so an out-of-band GLB edit (height
+    inversion scripts, external DCC tools) must read as stale too. Without
+    this the backend kept solving against the previously extracted PLYs after
+    a GLB rewrite (observed live during the HYRAY height-inversion run)."""
+    uris = {p.mesh_ref.asset_uri for p in scene.prims if p.mesh_ref is not None}
+    uris |= {
+        a.shape.mesh_ref.asset_uri
+        for a in scene.actors
+        if a.shape.type == "mesh" and a.shape.mesh_ref is not None
+    }
+    rows: list[list] = []
+    for uri in sorted(uris):
+        try:
+            st = (project_dir / uri).stat()
+            rows.append([uri, st.st_mtime_ns, st.st_size])
+        except OSError:
+            rows.append([uri, -1, -1])
+    return rows
 
 
 def _manifest(
