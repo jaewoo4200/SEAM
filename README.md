@@ -1,5 +1,10 @@
 # SEAM Studio
 
+[![PyPI](https://img.shields.io/pypi/v/seam-studio)](https://pypi.org/project/seam-studio/)
+[![CI](https://github.com/jaewoo4200/SEAM/actions/workflows/ci.yml/badge.svg)](https://github.com/jaewoo4200/SEAM/actions/workflows/ci.yml)
+[![License](https://img.shields.io/pypi/l/seam-studio)](LICENSE)
+[![Python](https://img.shields.io/pypi/pyversions/seam-studio)](https://pypi.org/project/seam-studio/)
+
 **SEAM** — Scene-to-Electromagnetic Authoring and Mapping for Wireless Digital Twins
 
 > **한국어 README: [README.ko.md](README.ko.md)** · Project page: <https://jaewoo4200.github.io/SEAM/en/>
@@ -306,6 +311,22 @@ cd frontend && npm run build                          # typecheck + build
 (Windows: `backend\.venv\Scripts\python.exe -m pytest backend\tests -q`)
 
 ---
+
+## Citation
+
+If you use SEAM Studio in your research, please cite it
+([CITATION.cff](CITATION.cff) carries the machine-readable metadata):
+
+```bibtex
+@software{seam_studio,
+  author  = {Lee, Jaewoo and Kim, Yekaterina and Kim, Sunwoo},
+  title   = {{SEAM Studio}: Scene-to-Electromagnetic Authoring and
+             Mapping for Wireless Digital Twins},
+  url     = {https://github.com/jaewoo4200/SEAM},
+  version = {0.1.5},
+  year    = {2026}
+}
+```
 
 ## License / Credits
 

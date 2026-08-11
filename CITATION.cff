@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "SEAM Studio: Scene-to-Electromagnetic Authoring and Mapping for Wireless Digital Twins"
+type: software
+authors:
+  - family-names: Lee
+    given-names: Jaewoo
+    affiliation: "Wireless Systems Lab, Hanyang University"
+  - family-names: Kim
+    given-names: Yekaterina
+    affiliation: "Wireless Systems Lab, Hanyang University"
+  - family-names: Kim
+    given-names: Sunwoo
+    affiliation: "Wireless Systems Lab, Hanyang University"
+version: 0.1.5
+date-released: "2026-08-10"
+repository-code: "https://github.com/jaewoo4200/SEAM"
+url: "https://jaewoo4200.github.io/SEAM/"
+license: Apache-2.0
+keywords:
+  - wireless digital twin
+  - ray tracing
+  - Sionna RT
+  - RF propagation
+  - material assignment
+  - digital twin authoring
+  - 6G
