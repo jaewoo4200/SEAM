@@ -69,6 +69,14 @@ seam-env\Scripts\pip install seam-studio
 seam-env\Scripts\seam-studio         # serves + opens http://127.0.0.1:8000
 ```
 
+> **Windows long paths:** part of the dependency tree
+> (`sionna-rt → pythreejs → jupyterlab_widgets`) ships files whose paths
+> exceed the classic 260-character limit. If `pip install` fails with
+> `OSError: [Errno 2]` deep inside `site-packages`, either create the venv
+> at a short path (e.g. `C:\seam-env`) or enable NTFS long paths
+> (set `LongPathsEnabled=1` under
+> `HKLM\SYSTEM\CurrentControlSet\Control\FileSystem`, then reboot).
+
 **Linux / macOS:**
 
 ```bash

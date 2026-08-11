@@ -67,6 +67,13 @@ seam-env\Scripts\pip install seam-studio
 seam-env\Scripts\seam-studio         # http://127.0.0.1:8000 서빙 + 브라우저 오픈
 ```
 
+> **Windows 긴 경로:** 의존성 트리 일부(`sionna-rt → pythreejs →
+> jupyterlab_widgets`)에 고전적인 260자 경로 제한을 넘는 파일이 있습니다.
+> `pip install`이 `site-packages` 깊숙한 곳에서 `OSError: [Errno 2]`로
+> 실패하면, venv를 짧은 경로(예: `C:\seam-env`)에 만들거나 NTFS 긴 경로를
+> 활성화하세요(`HKLM\SYSTEM\CurrentControlSet\Control\FileSystem`의
+> `LongPathsEnabled=1` 설정 후 재부팅).
+
 **Linux / macOS:**
 
 ```bash
