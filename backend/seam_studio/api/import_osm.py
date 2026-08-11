@@ -5,9 +5,15 @@ building footprints (extruded) plus a ground plane, with RF materials
 pre-assigned. The heavy lifting lives in ``app.services.osm_import``; this
 module is a thin request/response + error-mapping shell.
 
+The Overpass payload is frozen into each project (``osm/overpass.json`` + its
+SHA-256 sidecar) and reused for later imports of the same bbox AND endpoint, so
+the common case never touches the network; a reuse is reported in ``warnings``
+and ``refresh: true`` forces a live re-fetch.
+
 Error contract:
 - 400 invalid arguments, unknown material id, or an id that already exists;
-- 502 the Overpass API was unreachable or returned garbage;
+- 502 the Overpass API was unreachable, returned garbage, or aborted the query
+  server-side and answered with partial data;
 - 504 the Overpass API timed out.
 """
 
@@ -41,6 +47,11 @@ class ImportOSMRequest(StrictModel):
     ground_material: str = "ground_28ghz"
     # Used when a footprint has no height / building:levels tag.
     default_building_height_m: float = Field(default=10.0, gt=0.0)
+    # Reproducibility: by default an import reuses the frozen Overpass payload
+    # an earlier import of the same bbox + endpoint stored (no network; the
+    # response says so). Set true to force a live re-fetch and freeze the
+    # fresher OSM snapshot instead.
+    refresh: bool = False
 
 
 class ImportOSMResponse(StrictModel):
@@ -67,6 +78,7 @@ def import_osm(req: ImportOSMRequest) -> ImportOSMResponse:
             default_building_material=req.default_building_material,
             ground_material=req.ground_material,
             default_building_height_m=req.default_building_height_m,
+            refresh=req.refresh,
         )
     except OverpassTimeout as exc:
         raise HTTPException(status_code=504, detail=str(exc))

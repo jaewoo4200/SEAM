@@ -4003,6 +4003,11 @@
             ],
             "title": "Project Id"
           },
+          "refresh": {
+            "default": false,
+            "title": "Refresh",
+            "type": "boolean"
+          },
           "width_m": {
             "default": 500.0,
             "maximum": 3000.0,

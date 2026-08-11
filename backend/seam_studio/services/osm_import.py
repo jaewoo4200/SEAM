@@ -8,7 +8,17 @@ under them, and assemble a ready-to-simulate SEAM project:
   plus a ground prim, every prim carrying a default RF material binding;
 - a single visual ``visual/scene.glb`` whose named geometries match each
   prim's ``mesh_ref.mesh_name`` (``ground``, ``building_000`` ...);
-- provenance recording the import parameters.
+- a FROZEN copy of the Overpass payload (``osm/overpass.json``) plus its
+  SHA-256 sidecar (``osm/overpass.meta.json``);
+- provenance recording the import parameters and the payload digest.
+
+OpenStreetMap is a live, mutable third-party source, so a scene imported today
+cannot be rebuilt from the same query a year from now. The freezer closes that
+hole: every import stores the exact payload it consumed inside the project
+folder, and later imports of the same bbox AND endpoint reuse that verified
+payload instead of hitting the network (see :func:`find_frozen_payload`).
+Overpass reports server-side truncation as HTTP 200 with a ``remark`` in the
+body, so such payloads are rejected at fetch time and never reused.
 
 Geodesy is a local equirectangular (tangent-plane) projection around the
 center: accurate to well under a metre for the <=3 km rectangles this importer
@@ -20,9 +30,14 @@ assembly helpers take already-fetched Overpass JSON so they can be unit-tested
 without a network (the route and tests monkeypatch ``fetch_overpass``).
 """
 
+import hashlib
+import json
+import logging
 import math
 import os
-from typing import Any, Optional
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, NamedTuple, Optional
 
 import trimesh
 
@@ -72,6 +87,15 @@ _OVERPASS_TIMEOUT_S = 30.0
 # Rectangle size bounds (m), per the API contract.
 _MIN_SIZE_M = 50.0
 _MAX_SIZE_M = 3000.0
+
+# Frozen Overpass payload + its metadata sidecar, project-relative. These live
+# INSIDE the project folder (beside visual/scene.glb and rf/generated_scene.xml)
+# so the payload travels with the project: zip it, publish it, and the OSM
+# snapshot the results were derived from goes with it.
+OVERPASS_PAYLOAD_REL = "osm/overpass.json"
+OVERPASS_META_REL = "osm/overpass.meta.json"
+
+_logger = logging.getLogger(__name__)
 
 
 class OverpassError(RuntimeError):
@@ -138,6 +162,18 @@ def build_query(bbox: tuple[float, float, float, float]) -> str:
     )
 
 
+def payload_remark(payload: dict[str, Any]) -> str:
+    """The payload's ``remark`` as a stripped string, or "" if it carries none.
+
+    Overpass answers a server-side timeout / maxsize abort with HTTP 200 and a
+    WELL-FORMED but truncated body whose only distress signal is this field.
+    """
+    remark = payload.get("remark")
+    if isinstance(remark, str) and remark.strip():
+        return remark.strip()
+    return ""
+
+
 def fetch_overpass(
     bbox: tuple[float, float, float, float],
     *,
@@ -147,8 +183,9 @@ def fetch_overpass(
     """POST the Overpass query and return the parsed JSON.
 
     Raises :class:`OverpassTimeout` on timeout and :class:`OverpassError` when
-    the endpoint is unreachable or the response is not usable JSON with an
-    ``elements`` list.
+    the endpoint is unreachable, the response is not usable JSON with an
+    ``elements`` list, or the body carries a failure ``remark`` (a 200-with-a-
+    truncated-payload; see :func:`payload_remark`).
     """
     import httpx  # lazy: keeps the module import free of a hard network dep
 
@@ -187,7 +224,296 @@ def fetch_overpass(
             "the OpenStreetMap Overpass API returned unexpected data; check "
             "your internet connection and retry"
         )
+    # A remark naming an error / timeout means the server gave up mid-query: the
+    # elements list is a PARTIAL area, which would silently freeze as if it were
+    # the whole bbox. Treat it as the failure it is (-> 502).
+    remark = payload_remark(data)
+    if "error" in remark.lower() or "timed out" in remark.lower():
+        raise OverpassError(
+            "the OpenStreetMap Overpass API aborted the query and returned "
+            f"partial data ({remark}); try again in a moment or reduce the area"
+        )
     return data
+
+
+# -------------------------------------------------------- payload freezer
+
+
+def _utcnow() -> str:
+    """UTC timestamp, ISO-8601 with offset (matches project_store events)."""
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _canonical_json(payload: dict[str, Any]) -> str:
+    """The exact text we hash AND write to ``osm/overpass.json``.
+
+    Sorted keys / compact separators, so the digest identifies the payload's
+    CONTENT rather than the whitespace and key order of whichever Overpass
+    mirror served it. ``json.dumps`` escapes newlines inside strings, so the
+    result never contains a literal newline - the text we hash is byte-identical
+    to what lands on disk on every platform (no Windows CRLF translation).
+    """
+    return json.dumps(
+        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+    )
+
+
+def payload_sha256(payload: dict[str, Any]) -> str:
+    """Bare lowercase hex SHA-256 of ``payload``'s canonical serialization.
+
+    Unprefixed on purpose (the codebase's other hashes carry a ``sha256:``
+    tag): ``sha256sum osm/overpass.json`` must verify a published project
+    without anyone having to strip a prefix first.
+    """
+    return hashlib.sha256(_canonical_json(payload).encode("utf-8")).hexdigest()
+
+
+def bbox_key(bbox: tuple[float, float, float, float]) -> str:
+    """Identity of a fetch region: the same 7-decimal string ``build_query``
+    embeds, so two imports match iff they would send the identical query."""
+    south, west, north, east = bbox
+    return f"{south:.7f},{west:.7f},{north:.7f},{east:.7f}"
+
+
+class FrozenOverpass(NamedTuple):
+    """A resolved Overpass payload plus where it came from.
+
+    ``source`` is one of:
+
+    ``overpass``  fetched live from ``endpoint`` at ``fetched_at``;
+    ``frozen``    reused from another project's verified freeze (``fetched_at``
+                  and ``endpoint`` are carried forward from the original fetch,
+                  which is the reproducibility-meaningful pair);
+    ``injected``  supplied by the caller (tests, scripted imports). ``bbox`` is
+                  None because we cannot vouch that canned data corresponds to
+                  any particular region, which also keeps it OUT of the reuse
+                  index - only payloads we actually fetched are offered back.
+    """
+
+    payload: dict[str, Any]
+    sha256: str
+    source: str
+    fetched_at: Optional[str] = None
+    endpoint: Optional[str] = None
+    bbox: Optional[tuple[float, float, float, float]] = None
+
+
+def freeze_payload(
+    store: ProjectStore, project_id: str, frozen: FrozenOverpass
+) -> None:
+    """Write the payload + its sidecar into the project (atomic, via the store).
+
+    Called for EVERY import, so an OSM project is always self-describing: you
+    can rebuild its geometry from ``osm/overpass.json`` with no network at all.
+    """
+    store.save_text(project_id, OVERPASS_PAYLOAD_REL, _canonical_json(frozen.payload))
+    store.save_json(
+        project_id,
+        OVERPASS_META_REL,
+        {
+            "sha256": frozen.sha256,
+            "source": frozen.source,
+            "fetched_at": frozen.fetched_at,
+            "endpoint": frozen.endpoint,
+            "bbox": list(frozen.bbox) if frozen.bbox is not None else None,
+            "bbox_key": bbox_key(frozen.bbox) if frozen.bbox is not None else None,
+            "payload_uri": OVERPASS_PAYLOAD_REL,
+            "frozen_by": f"seam-studio/{APP_VERSION} (osm_import)",
+        },
+    )
+
+
+def load_frozen_payload(project_dir: Path) -> Optional[FrozenOverpass]:
+    """Read and VERIFY the frozen payload in ``project_dir``, or return None.
+
+    Never raises. Returns None when the project has no freeze, when either file
+    is missing / unreadable / not the JSON we expect, or when the payload's
+    recomputed digest disagrees with the sidecar. A truncated or hand-edited
+    freeze must never be passed off as the payload whose hash we published, so
+    the sane fallback is to ignore it and let the caller fetch fresh data.
+    """
+    meta_file = project_dir / OVERPASS_META_REL
+    payload_file = project_dir / OVERPASS_PAYLOAD_REL
+    try:
+        meta = json.loads(meta_file.read_text(encoding="utf-8"))
+        raw = payload_file.read_bytes()
+    except (OSError, ValueError):
+        return None
+    if not isinstance(meta, dict):
+        return None
+    recorded = meta.get("sha256")
+    actual = hashlib.sha256(raw).hexdigest()
+    if not isinstance(recorded, str) or actual != recorded:
+        _logger.warning(
+            "ignoring frozen Overpass payload in %s: sha256 mismatch "
+            "(recorded %s, actual %s)",
+            project_dir,
+            recorded,
+            actual,
+        )
+        return None
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        return None
+    if not isinstance(payload, dict) or not isinstance(payload.get("elements"), list):
+        return None
+    bbox = meta.get("bbox")
+    if isinstance(bbox, list) and len(bbox) == 4:
+        try:
+            bbox_t = tuple(float(v) for v in bbox)  # type: ignore[assignment]
+        except (TypeError, ValueError):
+            bbox_t = None
+    else:
+        bbox_t = None
+    # Sidecars are hand-editable JSON: coerce anything that is not a string to
+    # None rather than letting it out into code that expects str-or-None.
+    fetched_at = meta.get("fetched_at")
+    endpoint = meta.get("endpoint")
+    return FrozenOverpass(
+        payload=payload,
+        sha256=recorded,
+        source="frozen",
+        fetched_at=fetched_at if isinstance(fetched_at, str) else None,
+        endpoint=endpoint if isinstance(endpoint, str) else None,
+        bbox=bbox_t,
+    )
+
+
+def _read_freeze_sidecar(project_dir: Path) -> Optional[dict[str, Any]]:
+    """Parse ONLY ``osm/overpass.meta.json`` (small), or None. Never raises.
+
+    The lookup scans sidecars first so a store full of multi-MB payloads costs
+    one tiny read per project instead of a full parse per project.
+    """
+    try:
+        meta = json.loads(
+            (project_dir / OVERPASS_META_REL).read_text(encoding="utf-8")
+        )
+    except (OSError, ValueError):
+        return None
+    return meta if isinstance(meta, dict) else None
+
+
+def _frozen_payload_dirs(store: ProjectStore) -> list[Path]:
+    """Project folders under the store's roots that carry a freeze sidecar.
+
+    Globbed straight off ``store.roots`` rather than walking
+    ``list_projects()``: that would parse every project's (multi-MB) scene file
+    just to find a cache entry. A root may itself be a single project folder,
+    so both shapes are probed. Sorted for a deterministic scan order.
+    """
+    found: list[Path] = []
+    for root in store.roots:
+        root = Path(root)
+        if not root.is_dir():
+            continue
+        if (root / OVERPASS_META_REL).is_file():
+            found.append(root)
+        found.extend(
+            sorted(p.parent.parent for p in root.glob(f"*/{OVERPASS_META_REL}"))
+        )
+    return found
+
+
+def find_frozen_payload(
+    store: ProjectStore,
+    bbox: tuple[float, float, float, float],
+    *,
+    endpoint: Optional[str] = None,
+) -> Optional[FrozenOverpass]:
+    """Newest verified freeze for ``bbox`` among the store's projects, else None.
+
+    Identity is (bbox, endpoint): ``OVERPASS_URL`` is env-overridable, and a
+    payload from a different mirror or a local extract is a different data
+    source, not a cache hit. ``endpoint`` defaults to the current
+    ``OVERPASS_URL``; carried-forward copies keep the ORIGINAL endpoint in their
+    sidecar, so an unchanged environment keeps chaining.
+
+    "Newest" = latest ``fetched_at`` (ties broken by folder name for
+    determinism), so an explicit ``refresh=True`` re-fetch becomes the payload
+    that later imports of the same region pick up.
+
+    Candidates are shortlisted from the cheap sidecars alone and only then
+    verified, newest first, one payload at a time - a store with many freezes
+    never parses more than the one it returns. A candidate that fails
+    verification (or carries a ``remark``, i.e. was a truncated Overpass answer
+    frozen before the fetch-time gate existed) falls through to the next.
+    """
+    want = bbox_key(bbox)
+    want_endpoint = endpoint if endpoint is not None else OVERPASS_URL
+    candidates: list[tuple[str, str, Path]] = []
+    for project_dir in _frozen_payload_dirs(store):
+        meta = _read_freeze_sidecar(project_dir)
+        if meta is None:
+            continue
+        if meta.get("bbox_key") != want or meta.get("endpoint") != want_endpoint:
+            continue
+        fetched_at = meta.get("fetched_at")
+        if not isinstance(fetched_at, str):
+            fetched_at = ""  # a hand-edited sidecar must not break the sort
+        candidates.append((fetched_at, project_dir.name, project_dir))
+    candidates.sort(key=lambda c: (c[0], c[1]), reverse=True)
+    for _fetched_at, _name, project_dir in candidates:
+        frozen = load_frozen_payload(project_dir)
+        if frozen is None or frozen.bbox is None or bbox_key(frozen.bbox) != want:
+            continue
+        remark = payload_remark(frozen.payload)
+        if remark:
+            _logger.warning(
+                "ignoring frozen Overpass payload in %s: it carries a remark "
+                "(%s), so it is a partial answer",
+                project_dir,
+                remark,
+            )
+            continue
+        return frozen
+    return None
+
+
+def resolve_payload(
+    store: ProjectStore,
+    bbox: Optional[tuple[float, float, float, float]],
+    *,
+    overpass_json: Optional[dict[str, Any]] = None,
+    refresh: bool = False,
+) -> FrozenOverpass:
+    """Pick the Overpass payload an import should consume.
+
+    Precedence: caller-injected > verified freeze for this bbox AND the current
+    endpoint > live fetch. ``refresh=True`` skips the freeze and always goes to
+    the network.
+
+    ``bbox`` is optional purely so an injected payload never forces the caller
+    to project one (``bbox_for`` divides by cos(lat), which is degenerate at the
+    poles); it is required for every path that consults or contacts Overpass.
+    """
+    if overpass_json is not None:
+        return FrozenOverpass(
+            payload=overpass_json,
+            sha256=payload_sha256(overpass_json),
+            source="injected",
+        )
+    if bbox is None:
+        raise ValueError("bbox is required when no overpass_json is supplied")
+    if not refresh:
+        frozen = find_frozen_payload(store, bbox, endpoint=OVERPASS_URL)
+        if frozen is not None:
+            # The carried sha was verified against the SOURCE file's bytes, but
+            # freeze_payload re-serializes canonically; recompute it so the
+            # sidecar we write always describes the bytes beside it (a no-op for
+            # a canonical source, and it keeps the chain honest for one that is
+            # valid-but-reformatted).
+            return frozen._replace(sha256=payload_sha256(frozen.payload))
+    payload = fetch_overpass(bbox)
+    return FrozenOverpass(
+        payload=payload,
+        sha256=payload_sha256(payload),
+        source="overpass",
+        fetched_at=_utcnow(),
+        endpoint=OVERPASS_URL,
+        bbox=bbox,
+    )
 
 
 # ---------------------------------------------------------------- geometry
@@ -364,13 +690,20 @@ def import_osm_project(
     ground_material: str = "ground_28ghz",
     default_building_height_m: float = _DEFAULT_BUILDING_HEIGHT_M,
     overpass_json: Optional[dict[str, Any]] = None,
+    refresh: bool = False,
 ) -> dict[str, Any]:
     """Fetch OSM buildings and assemble a ready-to-simulate project.
 
     Validates arguments and material ids (raising :class:`ValueError` for the
-    400 cases), fetches the Overpass data (unless ``overpass_json`` is supplied,
-    which the tests use to avoid the network), builds the meshes, creates the
-    project folder, and writes the scene / GLB / provenance.
+    400 cases), resolves the Overpass data, builds the meshes, creates the
+    project folder, and writes the scene / GLB / frozen payload / provenance.
+
+    The payload is resolved by :func:`resolve_payload`: an explicit
+    ``overpass_json`` wins (tests and scripted imports), else a verified freeze
+    of the same bbox and endpoint from an earlier import is reused with NO
+    network (and said so in ``warnings``), else Overpass is queried live.
+    ``refresh=True`` forces the live fetch. Whatever is used is then frozen into
+    this project's ``osm/`` folder.
 
     Returns ``{"project_id", "num_buildings", "num_skipped", "warnings"}``.
     Network failures propagate as :class:`OverpassError` / :class:`OverpassTimeout`.
@@ -399,10 +732,14 @@ def import_osm_project(
                 f"unknown {label} {mat_id!r}: not in the RF material library"
             )
 
-    # --- fetch (unless a canned response was provided) -----------------
-    if overpass_json is None:
-        bbox = bbox_for(lat, lon, width_m, height_m)
-        overpass_json = fetch_overpass(bbox)
+    # --- resolve the payload (injected > frozen reuse > live fetch) ----
+    # bbox is projected only when we may talk to Overpass; an injected payload
+    # is not tied to a region we can vouch for (see resolve_payload).
+    bbox = None if overpass_json is not None else bbox_for(lat, lon, width_m, height_m)
+    frozen = resolve_payload(
+        store, bbox, overpass_json=overpass_json, refresh=refresh
+    )
+    overpass_json = frozen.payload
 
     # --- geometry ------------------------------------------------------
     tm_scene, buildings, num_skipped, warnings = build_meshes(
@@ -413,6 +750,14 @@ def import_osm_project(
         height_m,
         default_building_height_m=default_building_height_m,
     )
+    if frozen.source == "frozen":
+        # Cached and live imports are otherwise indistinguishable in the
+        # response; say so, because "no network was touched" is exactly the
+        # thing a user asking for fresh OSM data needs to see.
+        warnings.append(
+            f"reused frozen Overpass payload fetched {frozen.fetched_at} "
+            f"(sha256 {frozen.sha256[:12]}...); set refresh=true to re-fetch"
+        )
 
     # --- canonical scene ----------------------------------------------
     prims: list[Prim] = []
@@ -473,6 +818,9 @@ def import_osm_project(
         tm_scene.export(file_type="glb")
     )
     store.save_scene(pid, scene)
+    # Freeze the payload BEFORE provenance so a recorded overpass_sha256 always
+    # has the file it names sitting next to it.
+    freeze_payload(store, pid, frozen)
     store.append_provenance(
         pid,
         {
@@ -484,6 +832,15 @@ def import_osm_project(
             "height_m": height_m,
             "num_buildings": len(buildings),
             "num_skipped": num_skipped,
+            # Reproducibility stamp. Prefixed because this event is flat and
+            # already carries its own `timestamp` / `lat` / `lon`; the sidecar
+            # osm/overpass.meta.json holds the same fields unprefixed.
+            "overpass_sha256": frozen.sha256,
+            "overpass_source": frozen.source,
+            "overpass_fetched_at": frozen.fetched_at,
+            "overpass_endpoint": frozen.endpoint,
+            "overpass_bbox": list(frozen.bbox) if frozen.bbox is not None else None,
+            "overpass_payload_uri": OVERPASS_PAYLOAD_REL,
         },
     )
 
