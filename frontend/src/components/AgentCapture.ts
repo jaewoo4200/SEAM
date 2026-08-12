@@ -214,6 +214,10 @@ export function captureAgentViews(
   // Materials are CLONED (not shared) so we can strip any active slice-clipping
   // planes / overlay state Viewer3D may have set on the live materials without
   // mutating them — the capture must show the mesh whole, as authored.
+  // Clone from the AUTHORED material Viewer3D cached in userData.__origMat, not
+  // mesh.material: in rf/ai/validation modes (and while selected) mesh.material
+  // is a flat mode-color override, and a VLM shown that sees a silhouette, not
+  // the photo texture it needs.
   const rgbScene = new THREE.Scene();
   rgbScene.background = new THREE.Color(0x202020);
   const rgbMaterialClones: THREE.Material[] = [];
@@ -223,11 +227,12 @@ export function captureAgentViews(
     rgbMaterialClones.push(c);
     return c;
   };
+  const authoredMat = (mesh.userData.__origMat ?? mesh.material) as
+    | THREE.Material
+    | THREE.Material[];
   const rgbMesh = new THREE.Mesh(
     srcGeom, // reference reuse is fine (never mutated)
-    Array.isArray(mesh.material)
-      ? mesh.material.map(cloneMat)
-      : cloneMat(mesh.material),
+    Array.isArray(authoredMat) ? authoredMat.map(cloneMat) : cloneMat(authoredMat),
   );
   worldMatrix.decompose(rgbMesh.position, rgbMesh.quaternion, rgbMesh.scale);
   rgbMesh.updateMatrixWorld(true);
