@@ -184,8 +184,10 @@ GET /api/projects/{id}/results/paths         latest = last ref of that kind
 저장(persist)된 모든 결과의 `metadata`에는 콘텐츠 해시가 찍혀 있어, 오래된(stale)
 결과를 감지할 수 있습니다(`simulate.py::_provenance_hashes`).
 
-- `scene_hash` — 정규 씬에서 `result_sets`를 **뺀** 값(결과가 자기를 만들어 낸
-  씬의 해시를 흔들어서는 안 되므로).
+- `scene_hash` — 정규 씬에서 `result_sets`와 `revision`을 **뺀** 값. 둘 다 결과를
+  저장하는 행위 자체가 건드리는 장부(ref 추가·저장 카운터 증가)이므로, 남겨 두면
+  결과가 자기를 만들어 낸 씬의 해시를 흔들게 됩니다. 동일한 솔브를 두 번 돌리면
+  `scene_hash`도 같아야 합니다.
 - `rf_assignment_hash` — `(prim_id, material_id, assignment_status)`만 담아, 순수한
   재질 재할당만으로도 변화를 감지할 수 있음.
 - `sim_config_hash` — 정확한 솔버 노브(knob); 전체 `config_snapshot`이

@@ -148,13 +148,17 @@ def _sha256(payload) -> str:
 def _provenance_hashes(scene: Scene, config: Optional[SimulationConfig]) -> dict:
     """Reproducibility hashes stamped into every persisted result's metadata.
 
-    scene_hash covers the canonical scene MINUS result_sets (results must not
-    churn the hash of the scene that produced them); rf_assignment_hash covers
-    just (prim id, material, status) so a pure material edit is detectable on
-    its own; sim_config_hash pins the exact solver knobs.
+    scene_hash covers the canonical scene MINUS result_sets AND revision:
+    both are bookkeeping the *act of solving* mutates (persisting a result
+    appends a ref and bumps the save counter), so leaving either in would make
+    two identical solves record different hashes and break the provenance
+    claim "same scene_hash => same input scene". rf_assignment_hash covers just
+    (prim id, material, status) so a pure material edit is detectable on its
+    own; sim_config_hash pins the exact solver knobs.
     """
     scene_payload = scene.model_dump(mode="json")
     scene_payload.pop("result_sets", None)
+    scene_payload.pop("revision", None)
     assignment = sorted(
         (p.id, p.rf.material_id or "", p.rf.assignment_status) for p in scene.prims
     )

@@ -190,8 +190,10 @@ recomputing the whole map — the refined values overwrite that region's cells.
 Every persisted result's `metadata` is stamped with content hashes so a stale
 result is detectable (`simulate.py::_provenance_hashes`):
 
-- `scene_hash` — the canonical scene **minus** `result_sets` (results must not
-  churn the hash of the scene that produced them).
+- `scene_hash` — the canonical scene **minus** `result_sets` and `revision`
+  (both are bookkeeping that persisting a result mutates, so leaving either in
+  would churn the hash of the scene that produced them; two identical solves
+  must record the same `scene_hash`).
 - `rf_assignment_hash` — just `(prim_id, material_id, assignment_status)`, so a
   pure material re-assignment is detectable on its own.
 - `sim_config_hash` — the exact solver knobs; the full `config_snapshot` is

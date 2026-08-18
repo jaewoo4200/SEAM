@@ -201,6 +201,43 @@ def test_result_id_never_reuses_live_id_after_ref_pruning(api_client):
     assert kept["created_at"] == second["created_at"]
 
 
+# ------------------------------------------------ pre-solve scene_hash
+
+
+def test_scene_hash_describes_the_pre_solve_scene(api_client):
+    """Two identical solves must stamp the SAME scene_hash.
+
+    Persisting a result appends a ResultSetRef AND bumps scene.revision, so a
+    hash taken over the raw scene dump made every repeat solve look like a
+    different input scene. _provenance_hashes drops both fields; a real scene
+    edit between solves must still move the hash.
+    """
+    api_client.post("/api/projects", json={"name": "Hash", "project_id": "hashp"})
+    scene = api_client.get("/api/projects/hashp/scene").json()
+    scene["devices"] = [
+        {"id": "tx_001", "kind": "tx", "position": [0, 0, 10]},
+        {"id": "rx_001", "kind": "rx", "position": [20, 0, 1.5]},
+    ]
+    assert api_client.put("/api/projects/hashp/scene", json=scene).status_code == 200
+
+    mock_req = {"config": {"backend": "mock"}}
+    first = api_client.post("/api/projects/hashp/simulate/paths", json=mock_req).json()
+    second = api_client.post("/api/projects/hashp/simulate/paths", json=mock_req).json()
+    assert first["metadata"]["scene_hash"] == second["metadata"]["scene_hash"]
+    # The revision really did move between the two solves (i.e. the equality
+    # above is the fix working, not the scene sitting still).
+    assert api_client.get("/api/projects/hashp/scene").json()["revision"] > (
+        scene.get("revision") or 0
+    )
+
+    # A genuine scene edit must change it.
+    edited = api_client.get("/api/projects/hashp/scene").json()
+    edited["devices"][1]["position"] = [30, 0, 1.5]
+    assert api_client.put("/api/projects/hashp/scene", json=edited).status_code == 200
+    third = api_client.post("/api/projects/hashp/simulate/paths", json=mock_req).json()
+    assert third["metadata"]["scene_hash"] != first["metadata"]["scene_hash"]
+
+
 # ------------------------------------------- suggester/validator consistency
 
 
