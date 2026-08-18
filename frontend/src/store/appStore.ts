@@ -412,6 +412,16 @@ interface AppState {
    *  survives the transient notice; reset on openProject. */
   lastRfdataExport: { export_dir: string; files: string[] } | null;
 
+  /** Destination + shape of the last successful channel-dataset (.npz)
+   *  export, surfaced durably like lastRfdataExport; reset on openProject. */
+  lastChannelNpzExport: {
+    export_dir: string;
+    files: string[];
+    num_ue: number;
+    num_tx: number;
+    link_count: number;
+  } | null;
+
   busy: string | null;
   error: string | null;
   notice: string | null;
@@ -494,6 +504,11 @@ interface AppState {
   exportRfdata: () => Promise<void>;
   /** Clear the surfaced last-RFData-export row (the ✕ on the dismissible row). */
   dismissRfdataExport: () => void;
+  /** Solve every UE x TX link and write the AODT/HYRAY-layout channel dataset
+   *  npz. The UE grid comes from a stored trajectory result when the project
+   *  has one (the richest grid), else from the scene's rx devices. */
+  exportChannelNpz: () => Promise<void>;
+  dismissChannelNpzExport: () => void;
   /** Delete an ML dataset (files + entry). Resolves true on success so the
    *  caller can drop the row from its local list; false on failure (the error
    *  is surfaced via the store's error banner). */
@@ -1196,7 +1211,14 @@ export const useAppStore = create<AppState>()((set, get) => {
       const type = typeof msg.type === "string" ? msg.type : "";
       if (type === "simulation_finished") {
         const backend = typeof msg.backend === "string" ? ` (${msg.backend})` : "";
-        set({ notice: `Simulation finished${backend}`, solveProgress: null });
+        // Exports run under the solve guard so the progress card works, but
+        // their own action posts a far more useful notice (paths + link
+        // count) — a generic "Simulation finished" would race and clobber it.
+        const isExport = msg.kind === "channel_npz_export";
+        set({
+          solveProgress: null,
+          ...(isExport ? {} : { notice: `Simulation finished${backend}` }),
+        });
       } else if (type === "compile_finished") {
         set({ notice: "Compile finished" });
       } else if (type === "simulation_progress") {
@@ -1336,6 +1358,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     radioMapIntervalSec: null,
 
     lastRfdataExport: null,
+    lastChannelNpzExport: null,
 
     busy: null,
     error: null,
@@ -1475,8 +1498,9 @@ export const useAppStore = create<AppState>()((set, get) => {
           showPlayback: false,
           // A pinned A/B baseline belongs to the previous project's scene.
           abBaseline: null,
-          // The surfaced RFData-export path belongs to the previous project.
+          // The surfaced export paths belong to the previous project.
           lastRfdataExport: null,
+          lastChannelNpzExport: null,
           // Live sync is opt-in and reset per project (stops any prior poll).
           liveMode: false,
           // AI model selection is per project: a model id valid for one
@@ -2176,6 +2200,41 @@ export const useAppStore = create<AppState>()((set, get) => {
     },
 
     dismissRfdataExport: () => set({ lastRfdataExport: null }),
+
+    exportChannelNpz: async () => {
+      const pid = get().projectId;
+      if (!pid) return;
+      // Prefer a stored trajectory run's per-sample positions (many UE rows)
+      // over the scene's rx devices (usually a single UE); the notice says
+      // which grid was used so the choice is never silent.
+      const hasTrajectory = (get().scene?.result_sets ?? []).some(
+        (r) => r.kind === "trajectory",
+      );
+      const ue_source = hasTrajectory ? "trajectory" : "devices";
+      await run("Exporting channel dataset…", async () => {
+        const summary = await api.exportChannelNpz(pid, {
+          config: get().pathsConfig,
+          ue_source,
+        });
+        const from =
+          ue_source === "trajectory" ? "latest trajectory" : "scene receivers";
+        set({
+          notice:
+            `Exported ${summary.link_count} links ` +
+            `(${summary.num_ue} UE x ${summary.num_tx} TX, from ${from}) ` +
+            `to ${summary.export_dir}`,
+          lastChannelNpzExport: {
+            export_dir: summary.export_dir,
+            files: summary.files,
+            num_ue: summary.num_ue,
+            num_tx: summary.num_tx,
+            link_count: summary.link_count,
+          },
+        });
+      });
+    },
+
+    dismissChannelNpzExport: () => set({ lastChannelNpzExport: null }),
 
     deleteDataset: async (datasetId) => {
       const pid = get().projectId;

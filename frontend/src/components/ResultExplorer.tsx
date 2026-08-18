@@ -2267,6 +2267,52 @@ function RfdataExportRow() {
   );
 }
 
+/** Same durable row for the channel-dataset (.npz) export, plus the link count
+ *  the dataset actually covers (U UEs x T TRPs). */
+function ChannelNpzExportRow() {
+  const last = useAppStore((s) => s.lastChannelNpzExport);
+  const dismiss = useAppStore((s) => s.dismissChannelNpzExport);
+  const projectId = useAppStore((s) => s.projectId);
+  if (!last) return null;
+  const { export_dir, files, num_ue, num_tx, link_count } = last;
+  const linkable = projectId !== null && !isAbsolutePath(export_dir);
+  return (
+    <div className="ai-note rfdata-export-row">
+      <div className="rfdata-export-head">
+        <span>
+          Exported {link_count} links ({num_ue} UE × {num_tx} TX) to{" "}
+          <span className="mono">{export_dir}</span>
+        </span>
+        <button className="row-del" title="Dismiss" onClick={dismiss}>
+          ×
+        </button>
+      </div>
+      {files.length > 0 && (
+        <div className="rfdata-export-files">
+          {files.map((f) => {
+            const name = f.split(/[\\/]/).pop() ?? f;
+            return linkable ? (
+              <a
+                key={f}
+                className="mono"
+                href={api.assetUrl(projectId!, f)}
+                download
+                style={{ marginRight: 8 }}
+              >
+                {name}
+              </a>
+            ) : (
+              <span key={f} className="mono" style={{ marginRight: 8 }}>
+                {name}
+              </span>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ----------------------------------------------------- radio-map colormaps
 
 /** Jet colormap (blue → cyan → green → yellow → red), t in 0..1. Matches the
@@ -3483,6 +3529,7 @@ export default function ResultExplorer() {
       </div>
 
       <RfdataExportRow />
+      <ChannelNpzExportRow />
 
       {(linkDevices.txs.length > 1 || linkDevices.rxs.length > 1) && (
         // AODT-style per-link filter chips: toggle a TX/RX to hide its links.

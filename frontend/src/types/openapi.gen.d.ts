@@ -757,6 +757,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{project_id}/export/channel-npz": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Export Channel Npz Endpoint
+         * @description Per-link channel dataset npz in the lab's AODT/HYRAY layout.
+         *
+         *     One paths solve per UE position: the UE is an EPHEMERAL rx probe added to a
+         *     deep copy of the scene (the mesh-radio-map probe pattern), so the stored
+         *     scene is never edited and no result set is persisted — only
+         *     ``export/channel_npz/`` is written.
+         *
+         *     Departure angles are reported in each transmitter's LOCAL array frame,
+         *     built from that TX Device's own ``orientation_deg`` ([yaw, pitch, roll]
+         *     degrees). This is the SAME frame the solver orients the array with:
+         *     ``sionna_backend`` passes ``orientation=radians(orientation_deg)`` to
+         *     Sionna's ``Transmitter``, and sionna-rt composes ``R = Rz(yaw) Ry(pitch)
+         *     Rx(roll)``; the exporter rotates world departure directions by ``R.T``.
+         *
+         *     Progress is reported over the project's event stream
+         *     (``simulation_started`` / ``simulation_progress`` / ``simulation_finished``
+         *     with ``kind="channel_npz_export"``) and the run is cancellable via
+         *     ``POST /simulate/cancel``.
+         */
+        post: operations["export_channel_npz_endpoint_api_projects__project_id__export_channel_npz_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{project_id}/export/rfdata": {
         parameters: {
             query?: never;
@@ -2573,6 +2610,110 @@ export interface components {
             warnings?: string[];
         };
         /**
+         * ChannelNpzExportRequest
+         * @description Body for POST /export/channel-npz (AODT/HYRAY-layout channel dataset).
+         *
+         *     ``ue_source`` picks where the UE grid comes from:
+         *
+         *     - ``"explicit"`` (default) - the ``ue_positions`` list, [x, y, z] meters in
+         *       scene coordinates. This is the baseline and always available.
+         *     - ``"devices"`` - every ``kind="rx"`` device in the scene, ordered by id.
+         *       This is what ``POST /import/devices`` persists, so an imported UE list is
+         *       exportable without restating it.
+         *     - ``"trajectory"`` - the per-sample positions of a stored ``trajectory``
+         *       result set (``ue_result_id``, else the latest one).
+         *
+         *     ``ue_ids`` / ``time_idx`` are optional passthrough columns (defaults:
+         *     ``arange(U)`` and ``zeros(U)``); when given they must be exactly U long.
+         */
+        ChannelNpzExportRequest: {
+            /**
+             * Batch
+             * @default 0
+             */
+            batch: number;
+            config?: components["schemas"]["SimulationConfig"] | null;
+            /** Config Id */
+            config_id?: string | null;
+            /**
+             * Max Paths
+             * @default 500
+             */
+            max_paths: number;
+            /**
+             * Normalization Db
+             * @default 0
+             */
+            normalization_db: number;
+            /** Time Idx */
+            time_idx?: number[] | null;
+            /** Tx Ids */
+            tx_ids?: string[] | null;
+            /** Ue Ids */
+            ue_ids?: number[] | null;
+            /** Ue Positions */
+            ue_positions?: number[][] | null;
+            /** Ue Result Id */
+            ue_result_id?: string | null;
+            /**
+             * Ue Source
+             * @default explicit
+             * @enum {string}
+             */
+            ue_source: "explicit" | "devices" | "trajectory";
+        };
+        /**
+         * ChannelNpzExportSummary
+         * @description POST /export/channel-npz response: what was written and how big it is.
+         */
+        ChannelNpzExportSummary: {
+            /**
+             * Elapsed S
+             * @default 0
+             */
+            elapsed_s: number;
+            /** Export Dir */
+            export_dir: string;
+            /** Files */
+            files?: string[];
+            /**
+             * Link Count
+             * @default 0
+             */
+            link_count: number;
+            /**
+             * Max Paths
+             * @default 0
+             */
+            max_paths: number;
+            /**
+             * Num Tx
+             * @default 0
+             */
+            num_tx: number;
+            /**
+             * Num Ue
+             * @default 0
+             */
+            num_ue: number;
+            /**
+             * Path Count
+             * @default 0
+             */
+            path_count: number;
+            /** Shapes */
+            shapes?: {
+                [key: string]: number[];
+            };
+            /**
+             * Size Bytes
+             * @default 0
+             */
+            size_bytes: number;
+            /** Warnings */
+            warnings?: string[];
+        };
+        /**
          * ChannelSweepPoint
          * @description One sweep row: the swept value plus the scalar KPIs of that analysis.
          *     All KPIs inherit the null-ness of ChannelAnalysisResult (e.g. no LoS path
@@ -3187,6 +3328,11 @@ export interface components {
             name: string;
             /** Project Id */
             project_id?: string | null;
+            /**
+             * Refresh
+             * @default false
+             */
+            refresh: boolean;
             /**
              * Width M
              * @default 500
@@ -4698,6 +4844,11 @@ export interface components {
              * @default 3
              */
             max_depth: number;
+            /**
+             * Max Num Paths Per Src
+             * @default 1000000
+             */
+            max_num_paths_per_src: number;
             /**
              * Name
              * @default Default
@@ -6518,6 +6669,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AodtExportSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_channel_npz_endpoint_api_projects__project_id__export_channel_npz_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChannelNpzExportRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChannelNpzExportSummary"];
                 };
             };
             /** @description Validation Error */

@@ -2319,6 +2319,212 @@
         "title": "ChannelAnalysisResult",
         "type": "object"
       },
+      "ChannelNpzExportRequest": {
+        "additionalProperties": false,
+        "description": "Body for POST /export/channel-npz (AODT/HYRAY-layout channel dataset).\n\n``ue_source`` picks where the UE grid comes from:\n\n- ``\"explicit\"`` (default) - the ``ue_positions`` list, [x, y, z] meters in\n  scene coordinates. This is the baseline and always available.\n- ``\"devices\"`` - every ``kind=\"rx\"`` device in the scene, ordered by id.\n  This is what ``POST /import/devices`` persists, so an imported UE list is\n  exportable without restating it.\n- ``\"trajectory\"`` - the per-sample positions of a stored ``trajectory``\n  result set (``ue_result_id``, else the latest one).\n\n``ue_ids`` / ``time_idx`` are optional passthrough columns (defaults:\n``arange(U)`` and ``zeros(U)``); when given they must be exactly U long.",
+        "properties": {
+          "batch": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Batch",
+            "type": "integer"
+          },
+          "config": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SimulationConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "config_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Config Id"
+          },
+          "max_paths": {
+            "default": 500,
+            "maximum": 2000.0,
+            "minimum": 1.0,
+            "title": "Max Paths",
+            "type": "integer"
+          },
+          "normalization_db": {
+            "default": 0.0,
+            "title": "Normalization Db",
+            "type": "number"
+          },
+          "time_idx": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "maxItems": 5000,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time Idx"
+          },
+          "tx_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tx Ids"
+          },
+          "ue_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "maxItems": 5000,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ue Ids"
+          },
+          "ue_positions": {
+            "anyOf": [
+              {
+                "items": {
+                  "items": {
+                    "type": "number"
+                  },
+                  "maxItems": 3,
+                  "minItems": 3,
+                  "type": "array"
+                },
+                "maxItems": 5000,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ue Positions"
+          },
+          "ue_result_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ue Result Id"
+          },
+          "ue_source": {
+            "default": "explicit",
+            "enum": [
+              "explicit",
+              "devices",
+              "trajectory"
+            ],
+            "title": "Ue Source",
+            "type": "string"
+          }
+        },
+        "title": "ChannelNpzExportRequest",
+        "type": "object"
+      },
+      "ChannelNpzExportSummary": {
+        "additionalProperties": false,
+        "description": "POST /export/channel-npz response: what was written and how big it is.",
+        "properties": {
+          "elapsed_s": {
+            "default": 0.0,
+            "title": "Elapsed S",
+            "type": "number"
+          },
+          "export_dir": {
+            "title": "Export Dir",
+            "type": "string"
+          },
+          "files": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Files",
+            "type": "array"
+          },
+          "link_count": {
+            "default": 0,
+            "title": "Link Count",
+            "type": "integer"
+          },
+          "max_paths": {
+            "default": 0,
+            "title": "Max Paths",
+            "type": "integer"
+          },
+          "num_tx": {
+            "default": 0,
+            "title": "Num Tx",
+            "type": "integer"
+          },
+          "num_ue": {
+            "default": 0,
+            "title": "Num Ue",
+            "type": "integer"
+          },
+          "path_count": {
+            "default": 0,
+            "title": "Path Count",
+            "type": "integer"
+          },
+          "shapes": {
+            "additionalProperties": {
+              "items": {
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "title": "Shapes",
+            "type": "object"
+          },
+          "size_bytes": {
+            "default": 0,
+            "title": "Size Bytes",
+            "type": "integer"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "export_dir"
+        ],
+        "title": "ChannelNpzExportSummary",
+        "type": "object"
+      },
       "ChannelSweepPoint": {
         "additionalProperties": false,
         "description": "One sweep row: the swept value plus the scalar KPIs of that analysis.\nAll KPIs inherit the null-ness of ChannelAnalysisResult (e.g. no LoS path\n-> k_factor_db is None).",
@@ -7998,6 +8204,12 @@
             "title": "Max Depth",
             "type": "integer"
           },
+          "max_num_paths_per_src": {
+            "default": 1000000,
+            "minimum": 1.0,
+            "title": "Max Num Paths Per Src",
+            "type": "integer"
+          },
           "name": {
             "default": "Default",
             "title": "Name",
@@ -11350,6 +11562,59 @@
           }
         },
         "summary": "Export Aodt Endpoint",
+        "tags": [
+          "export"
+        ]
+      }
+    },
+    "/api/projects/{project_id}/export/channel-npz": {
+      "post": {
+        "description": "Per-link channel dataset npz in the lab's AODT/HYRAY layout.\n\nOne paths solve per UE position: the UE is an EPHEMERAL rx probe added to a\ndeep copy of the scene (the mesh-radio-map probe pattern), so the stored\nscene is never edited and no result set is persisted — only\n``export/channel_npz/`` is written.\n\nDeparture angles are reported in each transmitter's LOCAL array frame,\nbuilt from that TX Device's own ``orientation_deg`` ([yaw, pitch, roll]\ndegrees). This is the SAME frame the solver orients the array with:\n``sionna_backend`` passes ``orientation=radians(orientation_deg)`` to\nSionna's ``Transmitter``, and sionna-rt composes ``R = Rz(yaw) Ry(pitch)\nRx(roll)``; the exporter rotates world departure directions by ``R.T``.\n\nProgress is reported over the project's event stream\n(``simulation_started`` / ``simulation_progress`` / ``simulation_finished``\nwith ``kind=\"channel_npz_export\"``) and the run is cancellable via\n``POST /simulate/cancel``.",
+        "operationId": "export_channel_npz_endpoint_api_projects__project_id__export_channel_npz_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChannelNpzExportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChannelNpzExportSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export Channel Npz Endpoint",
         "tags": [
           "export"
         ]

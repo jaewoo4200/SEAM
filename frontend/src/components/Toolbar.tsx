@@ -45,6 +45,7 @@ export default function Toolbar() {
   const compileRF = useAppStore((s) => s.compileRF);
   const simulatePaths = useAppStore((s) => s.simulatePaths);
   const exportRfdata = useAppStore((s) => s.exportRfdata);
+  const exportChannelNpz = useAppStore((s) => s.exportChannelNpz);
   const runBeamforming = useAppStore((s) => s.runBeamforming);
   const deleteCurrentProject = useAppStore((s) => s.deleteCurrentProject);
   const notify = useAppStore((s) => s.notify);
@@ -207,6 +208,15 @@ export default function Toolbar() {
               title:
                 "Export the AODT-viewer RFData bundle (scenario_meta, devices, paths, trajectory, radio_map, calibration)",
               onClick: () => void exportRfdata(),
+            },
+            {
+              label: "Channel dataset (.npz)",
+              title:
+                "Solve every UE×TX link and export a per-link channel dataset " +
+                "npz in the AODT/HYRAY layout (amplitude, local-frame " +
+                "departure angles, ToA, is_nlos). UE grid = the latest " +
+                "trajectory run if there is one, else the scene's receivers",
+              onClick: () => void exportChannelNpz(),
             },
             {
               label: "Delete project…",

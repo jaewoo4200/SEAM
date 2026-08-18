@@ -133,6 +133,9 @@ export interface SimulationConfig {
   synthetic_array: boolean;
   seed: number;
   num_samples: number;
+  /** PathSolver max_num_paths_per_src: hard cap on paths kept per source.
+   *  Radio-map solves ignore it (RadioMapSolver has no such kwarg). */
+  max_num_paths_per_src: number;
   bandwidth_hz: number;
   noise_figure_db: number;
   /** ITU-R P.676 atmospheric gas attenuation as a per-path post-process
@@ -574,6 +577,43 @@ export interface RFDataExportSummary {
   has_paths: boolean;
   has_radio_map: boolean;
   has_trajectory: boolean;
+}
+
+/** Where POST /export/channel-npz takes its UE grid from. */
+export type ChannelNpzUeSource = "explicit" | "devices" | "trajectory";
+
+/** Body for POST /export/channel-npz (AODT/HYRAY-layout channel dataset). */
+export interface ChannelNpzExportRequest {
+  config_id?: string | null;
+  config?: SimulationConfig | null;
+  /** TRP axis; null = every tx device in scene order. */
+  tx_ids?: string[] | null;
+  ue_source?: ChannelNpzUeSource;
+  /** Required when ue_source is "explicit". */
+  ue_positions?: [number, number, number][] | null;
+  /** ue_source "trajectory": which stored result; null = latest. */
+  ue_result_id?: string | null;
+  max_paths?: number;
+  /** dB folded into every amplitude; -5.06 reproduces the AODT convention. */
+  normalization_db?: number;
+  batch?: number;
+  ue_ids?: number[] | null;
+  time_idx?: number[] | null;
+}
+
+export interface ChannelNpzExportSummary {
+  export_dir: string;
+  files: string[];
+  /** Array name -> shape, e.g. sorted_dataset_ampl: [U, T, P]. */
+  shapes: Record<string, number[]>;
+  num_tx: number;
+  num_ue: number;
+  link_count: number;
+  path_count: number;
+  max_paths: number;
+  size_bytes: number;
+  elapsed_s: number;
+  warnings: string[];
 }
 
 // ------------------------------------------------------- scenario / live

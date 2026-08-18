@@ -9,9 +9,10 @@ is chosen so the same rows can move to Parquet (paths, radio maps) and Zarr
 
 from typing import Literal, Optional
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from .common import StrictModel, Vec3
+from .simulation import SimulationConfig
 
 PathType = Literal["los", "reflection", "diffraction", "scattering", "transmission", "mixed"]
 InteractionType = Literal["reflection", "diffraction", "scattering", "transmission"]
@@ -282,4 +283,78 @@ class AodtExportSummary(StrictModel):
     export_dir: str
     files: list[str] = Field(default_factory=list)
     tables: dict[str, int] = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
+
+
+# Hard ceiling on how many UE positions one channel-dataset export may solve.
+# The export is one paths solve per UE, so this bounds a single request's
+# wall-clock the way max_frames bounds a playback build.
+MAX_CHANNEL_NPZ_UES = 5000
+
+
+class ChannelNpzExportRequest(StrictModel):
+    """Body for POST /export/channel-npz (AODT/HYRAY-layout channel dataset).
+
+    ``ue_source`` picks where the UE grid comes from:
+
+    - ``"explicit"`` (default) - the ``ue_positions`` list, [x, y, z] meters in
+      scene coordinates. This is the baseline and always available.
+    - ``"devices"`` - every ``kind="rx"`` device in the scene, ordered by id.
+      This is what ``POST /import/devices`` persists, so an imported UE list is
+      exportable without restating it.
+    - ``"trajectory"`` - the per-sample positions of a stored ``trajectory``
+      result set (``ue_result_id``, else the latest one).
+
+    ``ue_ids`` / ``time_idx`` are optional passthrough columns (defaults:
+    ``arange(U)`` and ``zeros(U)``); when given they must be exactly U long.
+    """
+
+    config_id: Optional[str] = None
+    config: Optional[SimulationConfig] = None
+    # Transmitters that become the TRP axis; None = every tx device, in scene
+    # order. An explicit list also fixes the TRP ordering of the arrays.
+    tx_ids: Optional[list[str]] = None
+    ue_source: Literal["explicit", "devices", "trajectory"] = "explicit"
+    ue_positions: Optional[list[Vec3]] = Field(
+        default=None, max_length=MAX_CHANNEL_NPZ_UES
+    )
+    # ue_source="trajectory": which stored trajectory result to read; None =
+    # the latest.
+    ue_result_id: Optional[str] = None
+    # Path axis length P: links are sorted strongest-first and zero-padded to
+    # it (500 is the reference layout's width).
+    max_paths: int = Field(default=500, ge=1, le=2000)
+    # dB offset folded into every amplitude (|a| scales by 10**(x/20)). 0 keeps
+    # SEAM's own physical channel gain; -5.06 reproduces the AODT convention.
+    normalization_db: float = 0.0
+    # Written verbatim into the npz's scalar ``batch`` key.
+    batch: int = Field(default=0, ge=0)
+    ue_ids: Optional[list[int]] = Field(default=None, max_length=MAX_CHANNEL_NPZ_UES)
+    time_idx: Optional[list[int]] = Field(default=None, max_length=MAX_CHANNEL_NPZ_UES)
+
+    @model_validator(mode="after")
+    def _explicit_needs_positions(self) -> "ChannelNpzExportRequest":
+        if self.ue_source == "explicit" and not self.ue_positions:
+            raise ValueError(
+                'ue_source="explicit" requires a non-empty ue_positions list'
+            )
+        return self
+
+
+class ChannelNpzExportSummary(StrictModel):
+    """POST /export/channel-npz response: what was written and how big it is."""
+
+    export_dir: str
+    files: list[str] = Field(default_factory=list)
+    # Array name -> shape, so a client can show the layout without loading the
+    # npz (e.g. sorted_dataset_ampl: [U, T, P]).
+    shapes: dict[str, list[int]] = Field(default_factory=dict)
+    num_tx: int = 0
+    num_ue: int = 0
+    link_count: int = 0
+    # Paths actually written across every link (after strongest-first capping).
+    path_count: int = 0
+    max_paths: int = 0
+    size_bytes: int = 0
+    elapsed_s: float = 0.0
     warnings: list[str] = Field(default_factory=list)

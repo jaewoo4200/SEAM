@@ -163,7 +163,90 @@ reads back through SEAM's own AODT importer (`POST /results/import-aodt`).
 
 ---
 
-## 3. Viewport captures — Snapshot and Render
+## 3. Channel dataset (`.npz`) — the AODT/HYRAY per-link layout
+
+The ML dataset in section 1 is a *per-position* dataset (CFR, aggregated KPIs).
+When you need the raw **per-link multipath** in the layout NVIDIA AODT / HYRAY
+reference files use — one row per UE, one column per TRP, one entry per path —
+use the toolbar: **Actions ▾ → Channel dataset (.npz)**. It writes
+`export/channel_npz/channel_dataset.npz` plus a `metadata.json` sidecar.
+
+The UE grid is chosen for you: the **latest stored trajectory run** if the
+project has one (many UE rows), otherwise the scene's **receiver devices** —
+which is exactly what a UE list imported through `POST /import/devices` lands
+in. The transient notice and the dismissible **Results** row both say which grid
+was used, together with the link count. Because the export runs one paths solve
+per UE, it reports progress in the solve-progress card and is cancellable.
+
+The npz carries the 13 canonical keys, nothing more:
+
+| key | shape | dtype |
+|---|---|---|
+| `num_TRP`, `num_trajectory`, `batch` | scalar | `int64` |
+| `dataset_TRP_pos` | (T, 3) | `float32` |
+| `dataset_TRP_ori_angle` | (T, 2) | `float32` |
+| `dataset_UE_pos` | (U, 3) | `float32` |
+| `sorted_dataset_ampl` | (U, T, P) | `complex128` |
+| `sorted_dataset_azimuth` / `_elevation` | (U, T, P) | `float32` |
+| `sorted_dataset_toa` | (U, T, P) | `float32` |
+| `is_nlos` | (U, T) | `bool` |
+| `ue_id`, `time_idx` | (U,) | `int32` |
+
+T = transmitters, U = UE positions, P = `max_paths` (default 500). Each link's
+path axis is sorted **strongest-first** by |amplitude| and zero-padded to P; a
+link the solver found no path for stays all-zero with `is_nlos = True`.
+
+Conventions you must know before consuming the arrays:
+
+- `sorted_dataset_ampl` is the linear complex channel amplitude
+  `10^((path_gain_db + normalization_db)/20) · e^{j·phase_rad}` — **not**
+  received power. `normalization_db` defaults to `0.0` (SEAM's own physical
+  gain); the lab's AODT files carry a fixed **−5.06 dB** offset, so pass
+  `normalization_db: -5.06` to match them numerically.
+- `sorted_dataset_azimuth` / `_elevation` are **departure** angles in the
+  emitting TX's **local array frame**, in **radians**: azimuth is
+  `atan2(y_local, x_local)` in (−π, π], elevation is the **zenith** angle
+  `arccos(z_local)` in [0, π]. The local frame comes from that TX device's own
+  `orientation_deg` ([yaw, pitch, roll] degrees) through
+  `R = Rz(yaw)·Ry(pitch)·Rx(roll)` — the exact matrix sionna-rt builds from the
+  orientation SEAM hands its `Transmitter`, so the dataset's angles and the
+  solver's array steering share one frame.
+- `sorted_dataset_toa` is absolute propagation delay in **seconds**.
+- `dataset_TRP_ori_angle` is `[yaw_deg, pitch_deg]` per TX, in **degrees**
+  (matching the reference files, whose orientation pair is degree-valued while
+  the per-path angle arrays are radians).
+
+The whole surface is available over HTTP for scripted runs:
+
+```
+POST /api/projects/{project_id}/export/channel-npz
+     {"ue_source": "explicit",
+      "ue_positions": [[25, 5, 1.5], [40, -12, 1.5]],
+      "tx_ids": null,          // null = every tx device, in scene order
+      "max_paths": 500,
+      "normalization_db": 0.0,
+      "ue_ids": null, "time_idx": null, "batch": 0}
+```
+
+`ue_source` is `"explicit"` (the `ue_positions` list), `"devices"` (every `rx`
+device, ordered by id) or `"trajectory"` (a stored trajectory result's
+per-sample positions — `ue_result_id` picks one, `null` takes the latest).
+`ue_ids` / `time_idx` are optional passthrough columns (defaults `arange(U)` and
+`zeros(U)`); when given they must be exactly U long. A single export is capped
+at 5000 UE positions.
+
+The export **never touches your scene**: each UE is solved on an in-memory copy
+whose only receiver is an ephemeral probe, and no result set is persisted — only
+`export/channel_npz/` is written, plus one `export_channel_npz` provenance
+event.
+
+> Pair this with the **Max paths / TX** field in the Paths solver panel
+> (`max_num_paths_per_src`) when you want the solver itself to stop at the same
+> path count the export keeps.
+
+---
+
+## 4. Viewport captures — Snapshot and Render
 
 The two icon buttons in the bottom-right cluster of the viewport save scene
 images:
@@ -181,7 +264,7 @@ has its own camera button that saves the POV frame as a full-resolution PNG.
 
 ---
 
-## 4. CSV and figure exports from the dashboards
+## 5. CSV and figure exports from the dashboards
 
 - Every chart in the **Metrics dashboard** panel (and the other paper-styled
   charts) sits in a frame with **PNG / SVG / CSV** buttons in its header —

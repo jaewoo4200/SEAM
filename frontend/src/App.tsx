@@ -258,6 +258,8 @@ function solveProgressLabel(kind: string): string {
     scenario: "Simulating scenario",
     paths: "Simulating paths",
     beamforming: "Computing beamforming",
+    playback: "Building playback pack",
+    channel_npz_export: "Exporting channel dataset",
   };
   return map[kind] ?? "Solving";
 }

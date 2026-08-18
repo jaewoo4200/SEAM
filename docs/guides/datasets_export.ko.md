@@ -162,7 +162,86 @@ RAN 시뮬레이션 산출물(스케줄러/PHY KPI, gNB 설정)이라 레이 트
 
 ---
 
-## 3. 뷰포트 캡처 — Snapshot 과 Render
+## 3. 채널 데이터셋(`.npz`) — AODT/HYRAY 링크별 레이아웃
+
+1절의 ML 데이터셋은 *위치별* 데이터셋(CFR, 집계 KPI)입니다. NVIDIA AODT /
+HYRAY 참조 파일이 쓰는 레이아웃 그대로, 즉 **링크별 다중경로**를 UE 한 행 ×
+TRP 한 열 × 경로 한 항목으로 받고 싶다면 툴바에서 **Actions ▾ → Channel
+dataset (.npz)** 를 쓰세요. `export/channel_npz/channel_dataset.npz` 와
+`metadata.json` 사이드카를 씁니다.
+
+UE 격자는 자동으로 정해집니다. 프로젝트에 저장된 **trajectory 결과**가 있으면
+그중 최신 것(UE 행이 많음), 없으면 씬의 **수신기 디바이스** — 즉 `POST
+/import/devices` 로 임포트한 UE 목록이 들어가는 바로 그 자리입니다. 어느 격자를
+썼는지와 링크 수는 알림과 **Results** 의 닫을 수 있는 행에 모두 표시됩니다. UE
+하나당 paths 솔브 한 번을 돌리므로 진행률 카드에 진행 상황이 뜨고, 취소도
+됩니다.
+
+npz 에는 13개 정규 키만 들어갑니다.
+
+| 키 | shape | dtype |
+|---|---|---|
+| `num_TRP`, `num_trajectory`, `batch` | 스칼라 | `int64` |
+| `dataset_TRP_pos` | (T, 3) | `float32` |
+| `dataset_TRP_ori_angle` | (T, 2) | `float32` |
+| `dataset_UE_pos` | (U, 3) | `float32` |
+| `sorted_dataset_ampl` | (U, T, P) | `complex128` |
+| `sorted_dataset_azimuth` / `_elevation` | (U, T, P) | `float32` |
+| `sorted_dataset_toa` | (U, T, P) | `float32` |
+| `is_nlos` | (U, T) | `bool` |
+| `ue_id`, `time_idx` | (U,) | `int32` |
+
+T 는 송신기 수, U 는 UE 위치 수, P 는 `max_paths`(기본 500)입니다. 링크마다
+경로 축은 |진폭| 기준 **강한 순**으로 정렬해 P 까지 0으로 패딩합니다. 솔버가
+경로를 하나도 못 찾은 링크는 전부 0인 채로 `is_nlos = True` 가 됩니다.
+
+배열을 쓰기 전에 알아야 할 규약:
+
+- `sorted_dataset_ampl` 은 선형 복소 채널 진폭
+  `10^((path_gain_db + normalization_db)/20) · e^{j·phase_rad}` 이며 수신
+  **전력이 아닙니다**. `normalization_db` 기본값은 `0.0`(SEAM 자체 물리 이득)
+  이고, 연구실의 AODT 파일은 고정 **−5.06 dB** 오프셋을 함께 담고 있으므로
+  수치까지 맞추려면 `normalization_db: -5.06` 을 넘기세요.
+- `sorted_dataset_azimuth` / `_elevation` 은 송신 TX 의 **로컬 어레이 좌표계**
+  에서 본 **출발(departure)** 각이며 단위는 **라디안**입니다. 방위각은
+  `atan2(y_local, x_local)` 로 (−π, π], 앙각은 **천정각** `arccos(z_local)` 로
+  [0, π] 범위입니다. 로컬 좌표계는 해당 TX 디바이스 자신의
+  `orientation_deg`([yaw, pitch, roll] 도)에서 `R = Rz(yaw)·Ry(pitch)·Rx(roll)`
+  로 만듭니다 — SEAM 이 Sionna `Transmitter` 에 넘기는 orientation 으로
+  sionna-rt 가 세우는 바로 그 행렬이라, 데이터셋의 각도와 솔버의 어레이 조향이
+  같은 좌표계를 씁니다.
+- `sorted_dataset_toa` 는 절대 전파 지연이며 단위는 **초**입니다.
+- `dataset_TRP_ori_angle` 은 TX 별 `[yaw_deg, pitch_deg]` 이며 단위는 **도**
+  입니다(참조 파일과 동일 — 방향 쌍만 도 단위이고 경로별 각도 배열은 라디안).
+
+스크립트로 돌릴 수 있게 HTTP 로도 전부 열려 있습니다.
+
+```
+POST /api/projects/{project_id}/export/channel-npz
+     {"ue_source": "explicit",
+      "ue_positions": [[25, 5, 1.5], [40, -12, 1.5]],
+      "tx_ids": null,          // null = 씬 순서대로 모든 tx 디바이스
+      "max_paths": 500,
+      "normalization_db": 0.0,
+      "ue_ids": null, "time_idx": null, "batch": 0}
+```
+
+`ue_source` 는 `"explicit"`(`ue_positions` 목록), `"devices"`(모든 `rx`
+디바이스, id 순), `"trajectory"`(저장된 trajectory 결과의 샘플별 위치 —
+`ue_result_id` 로 지정하거나 `null` 이면 최신) 중 하나입니다. `ue_ids` /
+`time_idx` 는 선택적 패스스루 열이고(기본값 `arange(U)`, `zeros(U)`), 주는
+경우 길이가 정확히 U 여야 합니다. 한 번의 내보내기는 UE 5000개로 제한됩니다.
+
+이 내보내기는 **씬을 건드리지 않습니다**. UE 마다 메모리 상 사본에서 임시 프로브
+수신기 하나만 두고 풀며, 결과 세트도 저장하지 않습니다 — `export/channel_npz/`
+와 `export_channel_npz` 프로버넌스 이벤트 한 건만 남습니다.
+
+> 솔버 자체도 내보내기가 유지하는 경로 수에서 멈추게 하려면 Paths 솔버 패널의
+> **Max paths / TX** 필드(`max_num_paths_per_src`)와 함께 쓰세요.
+
+---
+
+## 4. 뷰포트 캡처 — Snapshot 과 Render
 
 뷰포트 우측 하단 버튼 묶음의 아이콘 버튼 두 개가 씬 이미지를 저장합니다:
 
@@ -179,7 +258,7 @@ RAN 시뮬레이션 산출물(스케줄러/PHY KPI, gNB 설정)이라 레이 트
 
 ---
 
-## 4. 대시보드의 CSV·그림 내보내기
+## 5. 대시보드의 CSV·그림 내보내기
 
 - **Metrics dashboard** 패널의 모든 차트(그리고 다른 논문 스타일 차트들)는
   헤더에 **PNG / SVG / CSV** 버튼이 있는 프레임 안에 있습니다 — 3× 비트맵,

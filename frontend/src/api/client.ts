@@ -59,6 +59,8 @@ import type {
   ResultsPruneRequest,
   ResultsPruneResponse,
   RFDataExportSummary,
+  ChannelNpzExportRequest,
+  ChannelNpzExportSummary,
   RFMaterial,
   RFMaterialLibrary,
   ChannelSweepRequest,
@@ -409,6 +411,13 @@ export const api = {
   // AODT RFData export
   exportRfdata: (pid: string, req: SimulateRequest = {}) =>
     request<RFDataExportSummary>("POST", `/projects/${pid}/export/rfdata`, req),
+
+  // Per-link channel dataset npz in the AODT/HYRAY layout (one paths solve
+  // per UE position; progress arrives over the event socket).
+  exportChannelNpz: (pid: string, req: ChannelNpzExportRequest) =>
+    request<ChannelNpzExportSummary>(
+      "POST", `/projects/${pid}/export/channel-npz`, req,
+    ),
 
   // ML ground-truth datasets: sweep a UE, solve per-position, export arrays.
   generateDataset: (pid: string, req: DatasetGenerateRequest) =>
