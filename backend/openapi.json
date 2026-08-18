@@ -9627,7 +9627,7 @@
   "info": {
     "description": "Unified RF-visual scene authoring, RF material assignment, Sionna RT projection compilation, and simulation result APIs.",
     "title": "SEAM Studio",
-    "version": "0.1.5"
+    "version": "0.1.6"
   },
   "openapi": "3.1.0",
   "paths": {

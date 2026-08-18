@@ -36,7 +36,7 @@ from typing import Optional
 
 from .paths import DEFAULT_PROJECT_ROOTS
 
-APP_VERSION = "0.1.5"
+APP_VERSION = "0.1.6"
 
 
 @dataclass(frozen=True)
