@@ -41,6 +41,7 @@ export function defaultSimConfig(): SimulationConfig {
     synthetic_array: true,
     seed: 42,
     num_samples: 1_000_000,
+    max_num_paths_per_src: 1_000_000,
     bandwidth_hz: 100e6,
     noise_figure_db: 7.0,
     radio_map: defaultRadioMapGrid(),
@@ -79,6 +80,7 @@ export function normalizeConfig(
     synthetic_array: raw.synthetic_array ?? d.synthetic_array,
     seed: raw.seed ?? d.seed,
     num_samples: raw.num_samples ?? d.num_samples,
+    max_num_paths_per_src: raw.max_num_paths_per_src ?? d.max_num_paths_per_src,
     bandwidth_hz: raw.bandwidth_hz ?? d.bandwidth_hz,
     noise_figure_db: raw.noise_figure_db ?? d.noise_figure_db,
     radio_map: {

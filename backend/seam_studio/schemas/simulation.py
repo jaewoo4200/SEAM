@@ -55,6 +55,12 @@ class SimulationConfig(StrictModel):
     seed: int = Field(default=42, ge=0)
     # Ray-launching sample budget (consumer-level default, refinable later).
     num_samples: int = Field(default=1_000_000, ge=1)
+    # Hard cap on how many paths the solver keeps PER SOURCE (PathSolver's
+    # max_num_paths_per_src). Sionna's own default is 1,000,000; lowering it
+    # bounds solver memory on dense multi-TX scenes, and dataset exports that
+    # zero-pad to a fixed path count can pin it to that count. Radio-map
+    # solves ignore it (RadioMapSolver has no such kwarg).
+    max_num_paths_per_src: int = Field(default=1_000_000, ge=1)
     # Link-budget context for SNR/SINR readouts (no interference model yet, so
     # SINR == SNR = RSS - (-174 dBm/Hz + 10log10(B) + NF)).
     bandwidth_hz: float = Field(default=100e6, gt=0.0)

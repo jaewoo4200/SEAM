@@ -573,6 +573,17 @@ function PathsSection() {
         </button>
       </div>
       <DepthAndSamples config={config} patch={patch} disabled={disabled} />
+      {/* PathSolver only: RadioMapSolver has no per-source path cap. */}
+      <NumField
+        label="Max paths / TX"
+        step={1}
+        min={1}
+        value={config.max_num_paths_per_src}
+        disabled={disabled}
+        onChange={(v) =>
+          patch({ max_num_paths_per_src: Math.max(1, Math.round(v)) })
+        }
+      />
       <Check
         label="Synthetic array"
         checked={config.synthetic_array}

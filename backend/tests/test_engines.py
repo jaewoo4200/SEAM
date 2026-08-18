@@ -157,3 +157,73 @@ def test_engines_api_lists_builtin(api_client):
     assert resp.status_code == 200
     ids = [e["id"] for e in resp.json()["engines"]]
     assert "builtin" in ids
+
+
+# ---------------------------------------------- max_num_paths_per_src knob
+
+
+def test_paths_job_carries_max_num_paths_per_src(tmp_path, monkeypatch, fake_engine, library):
+    """The out-of-process job dict must carry the per-source path cap, or the
+    subprocess engines silently solve with sionna's own default."""
+    monkeypatch.setattr(reg, "get_engine", lambda engine_id, refresh=False: fake_engine)
+    seen: dict = {}
+
+    def _capture(engine, job, **kwargs):
+        seen.update(job)
+        return {"ok": True, "engine_version": "9.9-test", "warnings": [], "paths": []}
+
+    monkeypatch.setattr(reg, "run_paths_job", _capture)
+    project = tmp_path / "proj"
+    (project / "rf").mkdir(parents=True)
+    (project / "rf" / "generated_scene.xml").write_text("<scene/>", encoding="utf-8")
+
+    SionnaBackend().simulate_paths(
+        project,
+        make_demo_scene(),
+        library,
+        SimulationConfig(
+            backend="sionna", engine="fake", num_samples=10, max_num_paths_per_src=64
+        ),
+    )
+    assert seen["max_num_paths_per_src"] == 64
+
+
+def test_worker_solver_kwargs_forwards_max_num_paths_per_src():
+    """The worker filters kwargs against the installed solver's signature: a
+    release that has the kwarg gets it, one that lacks it drops it loudly."""
+    from seam_studio.engine_workers import sionna_rt_worker as worker
+
+    class Modern:
+        def __call__(
+            self, scene, *, max_depth=3, los=True, specular_reflection=True,
+            diffuse_reflection=False, refraction=False, diffraction=False,
+            edge_diffraction=False, diffraction_lit_region=False,
+            synthetic_array=True, seed=42, samples_per_src=1,
+            max_num_paths_per_src=1_000_000,
+        ): ...
+
+    class Legacy:
+        def __call__(self, scene, *, max_depth=3, seed=42, samples_per_src=1): ...
+
+    job = {"max_depth": 2, "seed": 7, "num_samples": 10, "max_num_paths_per_src": 128,
+           "flags": {}}
+
+    warnings: list = []
+    kwargs = worker._solver_kwargs(Modern(), job, warnings)
+    assert kwargs["max_num_paths_per_src"] == 128
+    assert warnings == []
+
+    legacy_warnings: list = []
+    kwargs = worker._solver_kwargs(Legacy(), job, legacy_warnings)
+    assert "max_num_paths_per_src" not in kwargs
+    assert any("max_num_paths_per_src" in w for w in legacy_warnings)
+
+
+def test_config_round_trips_max_num_paths_per_src():
+    default = SimulationConfig()
+    assert default.max_num_paths_per_src == 1_000_000
+    dumped = SimulationConfig(max_num_paths_per_src=250).model_dump(mode="json")
+    assert dumped["max_num_paths_per_src"] == 250
+    assert SimulationConfig.model_validate(dumped).max_num_paths_per_src == 250
+    with pytest.raises(ValueError):
+        SimulationConfig(max_num_paths_per_src=0)

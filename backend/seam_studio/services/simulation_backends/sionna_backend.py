@@ -763,6 +763,7 @@ class SionnaBackend(RayTracingBackend):
             "max_depth": config.max_depth,
             "seed": config.seed,
             "num_samples": config.num_samples,
+            "max_num_paths_per_src": config.max_num_paths_per_src,
             "synthetic_array": config.synthetic_array,
             "flags": {
                 "los": config.los, "reflection": config.reflection,
@@ -962,6 +963,7 @@ class SionnaBackend(RayTracingBackend):
             synthetic_array=config.synthetic_array,
             seed=config.seed,
             samples_per_src=config.num_samples or 1_000_000,
+            max_num_paths_per_src=config.max_num_paths_per_src,
         )
 
         absorption_alpha, absorption_warning = atmosphere.absorption_db_per_km(config)
@@ -1129,6 +1131,7 @@ class SionnaBackend(RayTracingBackend):
             edge_diffraction=config.edge_diffraction,
             diffraction_lit_region=config.diffraction_lit_region, synthetic_array=True,
             seed=config.seed, samples_per_src=config.num_samples or 1_000_000,
+            max_num_paths_per_src=config.max_num_paths_per_src,
         )
         a_raw = paths.a
         a = (np.asarray(a_raw[0]) + 1j * np.asarray(a_raw[1])) if isinstance(a_raw, (tuple, list)) else np.asarray(a_raw)

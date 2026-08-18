@@ -12,7 +12,8 @@ Job (written by app.services.engines.run_paths_job):
       "xml_path": "...generated_scene.xml",
       "manifest_path": "...compile_manifest.json" | null,
       "frequency_hz": float, "max_depth": int, "seed": int,
-      "num_samples": int, "synthetic_array": bool,
+      "num_samples": int, "max_num_paths_per_src": int,
+      "synthetic_array": bool,
       "flags": {"los": bool, "reflection": bool, "scattering": bool,
                  "refraction": bool, "diffraction": bool,
                  "edge_diffraction": bool, "diffraction_lit_region": bool},
@@ -160,6 +161,7 @@ def _solver_kwargs(solver, job, warnings: list) -> dict:
         "synthetic_array": job.get("synthetic_array", True),
         "seed": job.get("seed", 42),
         "samples_per_src": job.get("num_samples") or 1_000_000,
+        "max_num_paths_per_src": job.get("max_num_paths_per_src") or 1_000_000,
     }
     kwargs = {}
     for key, value in wanted.items():
