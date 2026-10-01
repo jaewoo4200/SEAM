@@ -47,6 +47,7 @@ export default function Toolbar() {
   const exportRfdata = useAppStore((s) => s.exportRfdata);
   const exportChannelNpz = useAppStore((s) => s.exportChannelNpz);
   const runBeamforming = useAppStore((s) => s.runBeamforming);
+  const runSensing = useAppStore((s) => s.runSensing);
   const deleteCurrentProject = useAppStore((s) => s.deleteCurrentProject);
   const notify = useAppStore((s) => s.notify);
 
@@ -202,6 +203,13 @@ export default function Toolbar() {
               title:
                 "4x4 MIMO beamforming gain (TX-MRT and both-ends SVD) over the first TX→RX link",
               onClick: () => void runBeamforming(),
+            },
+            {
+              label: "Sensing solve",
+              title:
+                "Radar (RCS) solve over every actor bound as a sensing target " +
+                "(Inspector → Sensing target): echo paths with per-path Doppler",
+              onClick: () => void runSensing(),
             },
             {
               label: "Export RFData",

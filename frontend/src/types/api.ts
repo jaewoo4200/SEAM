@@ -148,7 +148,15 @@ export interface SimulationConfig {
 
 export interface ResultSetRef {
   result_id: string;
-  kind: "paths" | "radio_map" | "mesh_radio_map" | "trajectory" | "scenario" | "channel" | "playback";
+  kind:
+    | "paths"
+    | "radio_map"
+    | "mesh_radio_map"
+    | "trajectory"
+    | "scenario"
+    | "channel"
+    | "playback"
+    | "sensing";
   backend: string;
   simulation_config_id: string;
   uri: string;
@@ -190,6 +198,38 @@ export interface ActorTrajectory {
   mode: "once" | "loop" | "pingpong" | null;
 }
 
+/** TR 38.901 §7.9 sensing-target object types (the only strings sionna-rt 2.2
+ *  accepts; "vehicle"/"agv" alone are rejected). */
+export type TR38901ObjectType =
+  | "uav-small-size"
+  | "uav-large-size"
+  | "human"
+  | "vehicle-single-sp"
+  | "vehicle-multi-sp"
+  | "agv-single-sp"
+  | "agv-multi-sp";
+
+/** Binds an actor as a radar sensing target (POST /simulate/sensing). Fields
+ *  of the other model must stay null/false — the backend rejects them. */
+export interface SensingTargetSpec {
+  model: "tr38901" | "constant";
+  /** tr38901: null = derived from the actor kind (custom: required). */
+  object_type: TR38901ObjectType | null;
+  /** tr38901: null = the highest model type the object type defines. */
+  model_type: 1 | 2 | null;
+  /** constant: null = 0 dBsm (1 m²). */
+  rcs_dbsm: number | null;
+  /** constant: null = the scattering point does not depolarize. */
+  xpr_db: number | null;
+  /** tr38901: draw σ_S, XPR and initial phases per direction pair. */
+  random_components: boolean;
+  /** Target cuboid (length, width, height) m; null = actor.shape.size_m. */
+  size_m: Vec3 | null;
+  /** World-frame m/s; null = the trajectory tangent at t=0 (static: 0). */
+  velocity_m_s: Vec3 | null;
+  enabled: boolean;
+}
+
 export interface Actor {
   id: string;
   name: string;
@@ -201,6 +241,8 @@ export interface Actor {
   trajectory: ActorTrajectory | null;
   attached_device_ids: string[];
   color: string | null;
+  /** Radar sensing-target binding; null/absent = not a target. */
+  sensing?: SensingTargetSpec | null;
 }
 
 export type Environment = "auto" | "indoor" | "outdoor";
@@ -337,10 +379,12 @@ export type PathType =
   | "diffraction"
   | "scattering"
   | "transmission"
-  | "mixed";
+  | "mixed"
+  | "sensing";
 
 export interface PathInteraction {
-  type: "reflection" | "diffraction" | "scattering" | "transmission";
+  type: "reflection" | "diffraction" | "scattering" | "transmission" | "sensing";
+  /** For type "sensing": the ACTOR id of the target (rf_material_id null). */
   prim_id: string | null;
   rf_material_id: string | null;
   point: Vec3;
@@ -364,6 +408,11 @@ export interface RayPath {
   aod_deg: [number, number] | null;
   aoa_deg: [number, number] | null;
   interactions: PathInteraction[];
+  /** Per-path Doppler [Hz], positive when closing (target approaching).
+   *  Filled on sensing results; paths solves keep metadata.doppler_hz. */
+  doppler_hz?: number | null;
+  /** Actor id of the sensing target this path scatters off (sensing only). */
+  target_id?: string | null;
 }
 
 export interface PathResultSet {
@@ -577,6 +626,8 @@ export interface RFDataExportSummary {
   has_paths: boolean;
   has_radio_map: boolean;
   has_trajectory: boolean;
+  /** sensing.json written (a stored sensing result with paths existed). */
+  has_sensing?: boolean;
 }
 
 /** Where POST /export/channel-npz takes its UE grid from. */
@@ -599,6 +650,11 @@ export interface ChannelNpzExportRequest {
   batch?: number;
   ue_ids?: number[] | null;
   time_idx?: number[] | null;
+  /** Append a stored sensing result's echo paths to the UE x TX link whose
+   *  UE sits at the echo's RX (1 mm match). */
+  include_sensing?: boolean;
+  /** Which sensing result; null = latest. Ignored unless include_sensing. */
+  sensing_result_id?: string | null;
 }
 
 export interface ChannelNpzExportSummary {
@@ -614,6 +670,8 @@ export interface ChannelNpzExportSummary {
   size_bytes: number;
   elapsed_s: number;
   warnings: string[];
+  /** Sensing echo paths matched into links (include_sensing). */
+  sensing_path_count?: number;
 }
 
 // ------------------------------------------------------- scenario / live
@@ -1713,4 +1771,54 @@ export interface PlaybackBuildRequest {
   sweep_stop_deg?: number;
   sweep_step_deg?: number;
   max_paths_per_frame?: number;
+}
+
+// --------------------------------------------------------------- sensing
+
+export interface SensingTargetSummary {
+  actor_id: string;
+  model: "tr38901" | "constant";
+  object_type: string | null;
+  model_type: number | null;
+  num_scattering_points: number;
+  /** World xyz of every scattering point (markers in the viewer). */
+  scattering_points: Vec3[];
+  /** World center of the target cuboid (actor base + height/2). */
+  position: Vec3;
+  /** Cuboid [yaw, pitch, roll] deg (yaw from the trajectory at t=0 when the velocity is). */
+  orientation_deg?: Vec3;
+  velocity_m_s: Vec3;
+  size_m: Vec3;
+  /** constant: the bound value; tr38901: the spec's mean monostatic σ_M. */
+  rcs_dbsm: number | null;
+  path_count: number;
+}
+
+export interface SensingResultSet {
+  result_id: string;
+  kind: "sensing";
+  backend: string;
+  simulation_config_id: string;
+  created_at: string | null;
+  /** Sensing paths first (path_type "sensing", target_id set), then the comm
+   *  paths when the request set include_comm_paths. */
+  paths: RayPath[];
+  targets: SensingTargetSummary[];
+  warnings: string[];
+  metadata: Record<string, unknown>;
+}
+
+/** Body for POST /projects/{pid}/simulate/sensing. */
+export interface SensingSimulateRequest {
+  config_id?: string | null;
+  config?: SimulationConfig | null;
+  tx_ids?: string[] | null;
+  rx_ids?: string[] | null;
+  /** null = every actor whose sensing binding is enabled. */
+  target_actor_ids?: string[] | null;
+  /** Also run the normal paths solve and append its RayPaths. */
+  include_comm_paths?: boolean;
+  samples_per_sp?: number;
+  /** RCSSolver depth (counts the scattering event); null = max(1, config). */
+  max_depth?: number | null;
 }

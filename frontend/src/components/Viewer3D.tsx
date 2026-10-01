@@ -17,6 +17,7 @@ import type { RadioMapColormap } from "../viewportSettings";
 import ViewportPanel from "./ViewportPanel";
 import MeshRadioMapOverlay from "./MeshRadioMapOverlay";
 import BeamLobeOverlay, { beamSweepAxisDeg } from "./BeamLobeOverlay";
+import SensingOverlay, { SensingDopplerLegend } from "./SensingOverlay";
 import { captureAgentViews } from "./AgentCapture";
 import { segmentationClassColor } from "../types/api";
 import type {
@@ -2687,6 +2688,8 @@ export default function Viewer3D() {
   const showBeamLobe = useAppStore((s) => s.showBeamLobe);
   const playback = useAppStore((s) => s.playback);
   const showPlayback = useAppStore((s) => s.showPlayback);
+  const sensing = useAppStore((s) => s.sensing);
+  const showSensing = useAppStore((s) => s.showSensing);
   const showPaths = useAppStore((s) => s.showPaths);
   const showRadioMapToggle = useAppStore((s) => s.showRadioMap);
   const clearSelection = useAppStore((s) => s.clearSelection);
@@ -2922,6 +2925,7 @@ export default function Viewer3D() {
   const trajActive = trajectory !== null && mode === "results" && !scenarioActive;
   const playbackActive =
     playback !== null && playback.frames.length > 0 && mode === "results" && showPlayback;
+  const sensingActive = sensing !== null && showSensing && mode === "results";
   // Static beamforming lobe: the sweep row of the SELECTED RX beam, drawn at
   // the TX. Only codebook_sweep produces a curve — tx_mrt/svd report a scalar
   // gain, and a lobe invented from a scalar would be exactly the static shape
@@ -3139,11 +3143,15 @@ export default function Viewer3D() {
           />
         )}
         {playbackActive && <PlaybackOverlay playback={playback} />}
+        {sensingActive && (
+          <SensingOverlay result={sensing} markerRadius={0.25 * envScale(resolvedEnv)} />
+        )}
         {povVisible && povSourceId && (
           <EntityPovInset sourceId={povSourceId} targetId={povTargetId} />
         )}
       </Canvas>
       {showRadioMap && <RadioMapLegend radioMap={radioMap} />}
+      {sensingActive && <SensingDopplerLegend result={sensing} stacked={!!showRadioMap} />}
       {pickActive && (
         <div className="viewer-banner pick-banner">
           <span>

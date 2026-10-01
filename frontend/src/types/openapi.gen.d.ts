@@ -1042,6 +1042,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{project_id}/results/sensing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Sensing Result */
+        get: operations["get_sensing_result_api_projects__project_id__results_sensing_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{project_id}/results/trajectory": {
         parameters: {
             query?: never;
@@ -1644,6 +1661,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{project_id}/simulate/sensing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Simulate Sensing
+         * @description Radar (RCS) solve over every actor bound as a sensing target: echo paths
+         *     TX -> target scattering point -> RX with per-path Doppler. Place an RX at
+         *     the TX for monostatic sensing.
+         */
+        post: operations["simulate_sensing_api_projects__project_id__simulate_sensing_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{project_id}/simulate/trajectory": {
         parameters: {
             query?: never;
@@ -1814,6 +1853,7 @@ export interface components {
             position: number[];
             /** Rf Material Id */
             rf_material_id?: string | null;
+            sensing?: components["schemas"]["SensingTargetSpec"] | null;
             shape?: components["schemas"]["ActorShape"];
             trajectory?: components["schemas"]["ActorTrajectory"] | null;
         };
@@ -2105,8 +2145,10 @@ export interface components {
          *
          *     ``source`` picks what becomes the time axis: "paths" writes ONE snapshot
          *     (time_idx 0) from a stored path result, "playback" writes one time index
-         *     per frame of a stored playback pack. ``result_id`` selects a specific
-         *     stored result of that kind; None takes the latest.
+         *     per frame of a stored playback pack, "sensing" writes ONE snapshot from a
+         *     stored sensing result (all its paths, comm paths included when the solve
+         *     requested them). ``result_id`` selects a specific stored result of that
+         *     kind; None takes the latest.
          */
         AodtExportRequest: {
             /** Config Id */
@@ -2123,7 +2165,7 @@ export interface components {
              * @default paths
              * @enum {string}
              */
-            source: "paths" | "playback";
+            source: "paths" | "playback" | "sensing";
             /**
              * Subcarrier Spacing Hz
              * @default 30000
@@ -2636,6 +2678,11 @@ export interface components {
             /** Config Id */
             config_id?: string | null;
             /**
+             * Include Sensing
+             * @default false
+             */
+            include_sensing: boolean;
+            /**
              * Max Paths
              * @default 500
              */
@@ -2645,6 +2692,8 @@ export interface components {
              * @default 0
              */
             normalization_db: number;
+            /** Sensing Result Id */
+            sensing_result_id?: string | null;
             /** Time Idx */
             time_idx?: number[] | null;
             /** Tx Ids */
@@ -2701,6 +2750,11 @@ export interface components {
              * @default 0
              */
             path_count: number;
+            /**
+             * Sensing Path Count
+             * @default 0
+             */
+            sensing_path_count: number;
             /** Shapes */
             shapes?: {
                 [key: string]: number[];
@@ -3743,7 +3797,7 @@ export interface components {
              * Type
              * @enum {string}
              */
-            type: "reflection" | "diffraction" | "scattering" | "transmission";
+            type: "reflection" | "diffraction" | "scattering" | "transmission" | "sensing";
         };
         /** PathLossModelResult */
         PathLossModelResult: {
@@ -4119,6 +4173,11 @@ export interface components {
              */
             has_radio_map: boolean;
             /**
+             * Has Sensing
+             * @default false
+             */
+            has_sensing: boolean;
+            /**
              * Has Trajectory
              * @default false
              */
@@ -4295,6 +4354,8 @@ export interface components {
             aod_deg?: number[] | null;
             /** Delay Ns */
             delay_ns: number;
+            /** Doppler Hz */
+            doppler_hz?: number | null;
             /** Interactions */
             interactions?: components["schemas"]["PathInteraction"][];
             /** Path Gain Db */
@@ -4305,7 +4366,7 @@ export interface components {
              * Path Type
              * @enum {string}
              */
-            path_type: "los" | "reflection" | "diffraction" | "scattering" | "transmission" | "mixed";
+            path_type: "los" | "reflection" | "diffraction" | "scattering" | "transmission" | "mixed" | "sensing";
             /**
              * Phase Rad
              * @default 0
@@ -4315,6 +4376,8 @@ export interface components {
             power_dbm: number;
             /** Rx Id */
             rx_id: string;
+            /** Target Id */
+            target_id?: string | null;
             /** Tx Id */
             tx_id: string;
             /** Vertices */
@@ -4365,7 +4428,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "paths" | "radio_map" | "mesh_radio_map" | "trajectory" | "scenario" | "channel" | "playback";
+            kind: "paths" | "radio_map" | "mesh_radio_map" | "trajectory" | "scenario" | "channel" | "playback" | "sensing";
             /** Label */
             label?: string | null;
             /** Result Id */
@@ -4392,7 +4455,7 @@ export interface components {
              */
             keep_latest: number;
             /** Kinds */
-            kinds?: ("paths" | "radio_map" | "mesh_radio_map" | "trajectory" | "scenario" | "channel" | "playback")[] | null;
+            kinds?: ("paths" | "radio_map" | "mesh_radio_map" | "trajectory" | "scenario" | "channel" | "playback" | "sensing")[] | null;
         };
         /** RuleGenerationRequest */
         RuleGenerationRequest: {
@@ -4681,6 +4744,130 @@ export interface components {
             removed_prim_ids: string[];
             /** Restored Prim Id */
             restored_prim_id: string;
+        };
+        /** SensingResultSet */
+        SensingResultSet: {
+            /** Backend */
+            backend: string;
+            /** Created At */
+            created_at?: string | null;
+            /**
+             * Kind
+             * @default sensing
+             * @constant
+             */
+            kind: "sensing";
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            };
+            /** Paths */
+            paths?: components["schemas"]["RayPath"][];
+            /** Result Id */
+            result_id: string;
+            /** Simulation Config Id */
+            simulation_config_id: string;
+            /** Targets */
+            targets?: components["schemas"]["SensingTargetSummary"][];
+            /** Warnings */
+            warnings?: string[];
+        };
+        /**
+         * SensingSimulateRequest
+         * @description Body for POST /projects/{id}/simulate/sensing.
+         */
+        SensingSimulateRequest: {
+            config?: components["schemas"]["SimulationConfig"] | null;
+            /** Config Id */
+            config_id?: string | null;
+            /**
+             * Include Comm Paths
+             * @default false
+             */
+            include_comm_paths: boolean;
+            /** Max Depth */
+            max_depth?: number | null;
+            /** Rx Ids */
+            rx_ids?: string[] | null;
+            /**
+             * Samples Per Sp
+             * @default 1000000
+             */
+            samples_per_sp: number;
+            /** Target Actor Ids */
+            target_actor_ids?: string[] | null;
+            /** Tx Ids */
+            tx_ids?: string[] | null;
+        };
+        /**
+         * SensingTargetSpec
+         * @description Binds an actor as a radar sensing target (sionna.rt.rcs).
+         */
+        SensingTargetSpec: {
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /**
+             * Model
+             * @default tr38901
+             * @enum {string}
+             */
+            model: "tr38901" | "constant";
+            /** Model Type */
+            model_type?: (1 | 2) | null;
+            /** Object Type */
+            object_type?: ("uav-small-size" | "uav-large-size" | "human" | "vehicle-single-sp" | "vehicle-multi-sp" | "agv-single-sp" | "agv-multi-sp") | null;
+            /**
+             * Random Components
+             * @default false
+             */
+            random_components: boolean;
+            /** Rcs Dbsm */
+            rcs_dbsm?: number | null;
+            /** Size M */
+            size_m?: number[] | null;
+            /** Velocity M S */
+            velocity_m_s?: number[] | null;
+            /** Xpr Db */
+            xpr_db?: number | null;
+        };
+        /** SensingTargetSummary */
+        SensingTargetSummary: {
+            /** Actor Id */
+            actor_id: string;
+            /**
+             * Model
+             * @enum {string}
+             */
+            model: "tr38901" | "constant";
+            /** Model Type */
+            model_type?: number | null;
+            /**
+             * Num Scattering Points
+             * @default 0
+             */
+            num_scattering_points: number;
+            /** Object Type */
+            object_type?: string | null;
+            /** Orientation Deg */
+            orientation_deg?: number[];
+            /**
+             * Path Count
+             * @default 0
+             */
+            path_count: number;
+            /** Position */
+            position: number[];
+            /** Rcs Dbsm */
+            rcs_dbsm?: number | null;
+            /** Scattering Points */
+            scattering_points?: number[][];
+            /** Size M */
+            size_m: number[];
+            /** Velocity M S */
+            velocity_m_s?: number[];
         };
         /**
          * SensorChannel
@@ -7162,6 +7349,39 @@ export interface operations {
             };
         };
     };
+    get_sensing_result_api_projects__project_id__results_sensing_get: {
+        parameters: {
+            query?: {
+                result_id?: string | null;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SensingResultSet"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_trajectory_result_api_projects__project_id__results_trajectory_get: {
         parameters: {
             query?: {
@@ -8235,6 +8455,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ScenarioResultSet"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    simulate_sensing_api_projects__project_id__simulate_sensing_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["SensingSimulateRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SensingResultSet"];
                 };
             };
             /** @description Validation Error */

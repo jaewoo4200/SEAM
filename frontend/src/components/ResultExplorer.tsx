@@ -25,10 +25,12 @@ import type {
   ResultSetRef,
   RFMaterialLibrary,
   ScenarioResultSet,
+  SensingResultSet,
   TrajectoryResultSet,
   UERoute,
   Vec3,
 } from "../types/api";
+import { dopplerColor, sensingDopplerRange } from "../utils/dopplerColor";
 
 const SELECTED_COLOR = SELECTED_PATH_COLOR;
 
@@ -38,7 +40,7 @@ const SELECTED_COLOR = SELECTED_PATH_COLOR;
 export function StaleChip({
   kind,
 }: {
-  kind: "paths" | "channel" | "trajectory" | "beamforming" | "mesh_radio_map";
+  kind: "paths" | "channel" | "trajectory" | "beamforming" | "mesh_radio_map" | "sensing";
 }) {
   const sceneEpoch = useAppStore((st) => st.sceneEpoch);
   const at = useAppStore((st) => st.resultEpochs[kind]);
@@ -1892,6 +1894,112 @@ function BeamformingCard({ beamforming: b }: { beamforming: BeamformingResult })
   );
 }
 
+// ----------------------------------------------------------- sensing card
+
+/** Sensing (RCS) result card: per-target summary and the strongest echo
+ *  paths with their Doppler (same diverging colors as the viewport rays). */
+function SensingCard({ sensing }: { sensing: SensingResultSet }) {
+  const echoes = useMemo(
+    () => sensing.paths.filter((p) => p.target_id != null),
+    [sensing],
+  );
+  const strongest = useMemo(
+    () => [...echoes].sort((a, b) => b.power_dbm - a.power_dbm).slice(0, 10),
+    [echoes],
+  );
+  const maxAbs = useMemo(() => sensingDopplerRange(sensing.paths), [sensing]);
+  const commCount = sensing.paths.length - echoes.length;
+  const fmt = (v: number | null | undefined, digits: number) =>
+    v == null || !Number.isFinite(v) ? "—" : v.toFixed(digits);
+
+  return (
+    <div className="beamforming-card sensing-card">
+      <h4>
+        Sensing (RCS)
+        <span className="mono">
+          {" "}
+          · {sensing.result_id} · {sensing.backend}
+        </span>{" "}
+        <StaleChip kind="sensing" />
+      </h4>
+      <div className="results-meta">
+        {sensing.targets.length} target(s) · {echoes.length} echo path(s)
+        {commCount > 0 && <> · {commCount} comm path(s)</>}
+      </div>
+      {sensing.targets.length > 0 && (
+        <table className="results-table">
+          <thead>
+            <tr>
+              <th>actor</th>
+              <th>model</th>
+              <th title="Scattering points">SPs</th>
+              <th title="constant: bound RCS · TR 38.901: mean monostatic σ_M">σ dBsm</th>
+              <th>paths</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sensing.targets.map((t) => (
+              <tr key={t.actor_id}>
+                <td className="mono">{t.actor_id}</td>
+                <td className="mono">
+                  {t.model === "tr38901"
+                    ? `${t.object_type ?? "?"}${t.model_type != null ? ` (m${t.model_type})` : ""}`
+                    : "constant"}
+                </td>
+                <td className="mono">{t.num_scattering_points}</td>
+                <td className="mono">{fmt(t.rcs_dbsm, 2)}</td>
+                <td className="mono">{t.path_count}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {strongest.length > 0 && (
+        <>
+          <div className="results-meta">
+            strongest {strongest.length} echo path(s) · Doppler + = approaching
+          </div>
+          <table className="results-table">
+            <thead>
+              <tr>
+                <th>path</th>
+                <th>tx→rx</th>
+                <th>target</th>
+                <th>dBm</th>
+                <th>ns</th>
+                <th>Doppler Hz</th>
+              </tr>
+            </thead>
+            <tbody>
+              {strongest.map((p) => (
+                <tr key={p.path_id}>
+                  <td className="mono">{p.path_id}</td>
+                  <td className="mono">
+                    {p.tx_id}→{p.rx_id}
+                  </td>
+                  <td className="mono">{p.target_id}</td>
+                  <td className="mono">{fmt(p.power_dbm, 1)}</td>
+                  <td className="mono">{fmt(p.delay_ns, 1)}</td>
+                  <td className="mono" style={{ color: dopplerColor(p.doppler_hz, maxAbs) }}>
+                    {p.doppler_hz != null && p.doppler_hz > 0 ? "+" : ""}
+                    {fmt(p.doppler_hz, 1)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+      {sensing.warnings.length > 0 && (
+        <p className="hint" title={sensing.warnings.join("\n")}>
+          {sensing.warnings[0]}
+          {sensing.warnings.length > 1 && ` (+${sensing.warnings.length - 1} more)`}
+        </p>
+      )}
+    </div>
+  );
+}
+
 // ------------------------------------------------- filtered-paths CSV export
 
 /** Export the CURRENT filtered path set as CSV (same download helper as the
@@ -3119,12 +3227,14 @@ const RUN_HISTORY_KINDS: ResultSetRef["kind"][] = [
   "scenario",
   "channel",
   "playback",
+  "sensing",
 ];
 
 /** Group headings that read better than the raw kind string. Kinds missing
  *  here fall back to their own name (paths, channel, …). */
 const RUN_HISTORY_LABELS: Partial<Record<ResultSetRef["kind"], string>> = {
   playback: "playback (GT vs DT)",
+  sensing: "sensing (RCS)",
 };
 
 /** One run row with an inline-editable label. Committing (blur/Enter) PATCHes
@@ -3342,6 +3452,8 @@ export default function ResultExplorer() {
   const playback = useAppStore((s) => s.playback);
   const showPlayback = useAppStore((s) => s.showPlayback);
   const showBeamLobe = useAppStore((s) => s.showBeamLobe);
+  const sensing = useAppStore((s) => s.sensing);
+  const showSensing = useAppStore((s) => s.showSensing);
   const toggleOverlay = useAppStore((s) => s.toggleOverlay);
   const projectId = useAppStore((s) => s.projectId);
   const busy = useAppStore((s) => s.busy);
@@ -3375,7 +3487,7 @@ export default function ResultExplorer() {
   // leaving a stale result — and its "selected path" if the paths set vanished.
   const refreshAfterPrune = async (removed: number) => {
     if (!projectId) return;
-    const [paths, rmap, mesh, traj, scen] = await Promise.all([
+    const [paths, rmap, mesh, traj, scen, sens] = await Promise.all([
       api.getPathResults(projectId).catch(() => null),
       api.getRadioMap(projectId).catch(() => null),
       // Fetch mesh directly (not the store's best-effort fetch, which never
@@ -3383,6 +3495,7 @@ export default function ResultExplorer() {
       api.getMeshRadioMapResult(projectId).catch(() => null),
       api.getTrajectory(projectId).catch(() => null),
       api.getScenario(projectId).catch(() => null),
+      api.getSensingResult(projectId).catch(() => null),
     ]);
     // Guard against a project switch racing the prune refresh.
     if (useAppStore.getState().projectId !== projectId) return;
@@ -3396,6 +3509,8 @@ export default function ResultExplorer() {
       scenario: scen,
       scenarioFrame: 0,
       showScenario: scen ? st.showScenario : false,
+      sensing: sens,
+      showSensing: sens ? st.showSensing : false,
       notice: removed > 0 ? `Pruned ${removed} result file(s)` : "No results to prune",
     }));
   };
@@ -3609,9 +3724,22 @@ export default function ResultExplorer() {
           />{" "}
           Beam lobe
         </label>
+        <label
+          className={sensing ? "" : "disabled"}
+          title="Radar echo paths colored by Doppler + scattering points"
+        >
+          <input
+            type="checkbox"
+            checked={showSensing}
+            disabled={!sensing}
+            onChange={() => toggleOverlay("sensing")}
+          />{" "}
+          Sensing
+        </label>
       </div>
 
       {beamforming && showBeamforming && <BeamformingCard beamforming={beamforming} />}
+      {sensing && showSensing && <SensingCard sensing={sensing} />}
 
       {!pathResults ? (
         <div className="empty-state">

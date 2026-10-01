@@ -75,6 +75,8 @@ import type {
   ResultLabelRequest,
   ResultSetRef,
   SceneImportResult,
+  SensingResultSet,
+  SensingSimulateRequest,
   ScenarioResultSet,
   ScenarioSimulateRequest,
   Scene,
@@ -463,6 +465,15 @@ export const api = {
     request<PlaybackResultSet>(
       "GET",
       `/projects/${pid}/results/playback${resultId ? `?result_id=${encodeURIComponent(resultId)}` : ""}`,
+    ),
+
+  // Radar sensing (RCS): echo paths off every actor bound as a sensing target.
+  simulateSensing: (pid: string, req: SensingSimulateRequest = {}) =>
+    request<SensingResultSet>("POST", `/projects/${pid}/simulate/sensing`, req),
+  getSensingResult: (pid: string, resultId?: string) =>
+    request<SensingResultSet>(
+      "GET",
+      `/projects/${pid}/results/sensing${resultId ? `?result_id=${encodeURIComponent(resultId)}` : ""}`,
     ),
 
   // static project assets (GLB, textures)

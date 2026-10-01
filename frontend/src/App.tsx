@@ -260,6 +260,7 @@ function solveProgressLabel(kind: string): string {
     beamforming: "Computing beamforming",
     playback: "Building playback pack",
     channel_npz_export: "Exporting channel dataset",
+    sensing: "Running sensing solve",
   };
   return map[kind] ?? "Solving";
 }

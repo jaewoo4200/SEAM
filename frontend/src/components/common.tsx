@@ -20,7 +20,8 @@ export type ResultKind =
   | "beamforming"
   | "mesh_radio_map"
   | "radio_map"
-  | "scenario";
+  | "scenario"
+  | "sensing";
 
 /** "Scene changed since this was computed" badge. Mirrors ResultExplorer's
  *  StaleChip (same class/markup) but covers every result kind, so it can mount
@@ -51,6 +52,8 @@ export const PATH_COLORS: Record<PathType, string> = {
   scattering: "#00e676",
   transmission: "#ff80ab",
   mixed: "#b0bec5",
+  // Sionna RT's own SENSING_COLOR (1.0, 0.8, 0.2).
+  sensing: "#ffcc33",
 };
 
 export const SELECTED_PATH_COLOR = "#ffee58";

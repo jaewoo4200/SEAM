@@ -11,12 +11,24 @@ import {
   materialById,
   rgbaToCss,
 } from "./common";
+import {
+  DEFAULT_OBJECT_TYPE_BY_KIND,
+  OBJECT_TYPE_LABELS,
+  TR38901_MODEL_TYPES,
+  TR38901_NOMINAL_RCS_DBSM,
+  TR38901_OBJECT_TYPES,
+  defaultSensingSpec,
+  resolveModelType,
+  resolveObjectType,
+} from "../sensingDefaults";
 import type {
   Actor,
   ActorTrajectory,
   Antenna,
   Device,
   Prim,
+  SensingTargetSpec,
+  TR38901ObjectType,
   Vec3,
 } from "../types/api";
 
@@ -704,10 +716,266 @@ function ActorCard({ actor }: { actor: Actor }) {
 
       <ActorTrajectoryEditor actor={actor} />
 
+      <ActorSensingEditor actor={actor} />
+
       <Row label="Color">
         <Swatch color={actor.color ?? "#a78bfa"} />{" "}
         <span className="mono">{actor.color ?? "—"}</span>
       </Row>
+    </div>
+  );
+}
+
+interface SensingDraft {
+  rcs: string;
+  xpr: string;
+  vx: string;
+  vy: string;
+  vz: string;
+}
+
+const numStr = (v: number | null | undefined): string => (v == null ? "" : String(v));
+
+function sensingDraftFrom(spec: SensingTargetSpec | null | undefined): SensingDraft {
+  const v = spec?.velocity_m_s ?? null;
+  return {
+    rcs: numStr(spec?.rcs_dbsm),
+    xpr: numStr(spec?.xpr_db),
+    vx: numStr(v?.[0]),
+    vy: numStr(v?.[1]),
+    vz: numStr(v?.[2]),
+  };
+}
+
+const MODEL_TYPE_LABELS: Record<1 | 2, string> = {
+  1: "1 — aspect-independent",
+  2: "2 — angular lobes",
+};
+
+/** Radar sensing-target binding (actor.sensing) for POST /simulate/sensing.
+ *  Selects and checkboxes commit immediately; the numeric fields (RCS, XPR,
+ *  velocity) commit on Apply like the pose editor. Switching the model resets
+ *  the model-specific fields (the backend rejects fields of the other model)
+ *  and keeps velocity, size and enabled. */
+function ActorSensingEditor({ actor }: { actor: Actor }) {
+  const updateActor = useAppStore((s) => s.updateActor);
+  const busy = useAppStore((s) => s.busy);
+  const disabled = busy !== null;
+  const spec = actor.sensing ?? null;
+  const [draft, setDraft] = useState<SensingDraft>(() => sensingDraftFrom(spec));
+  const [err, setErr] = useState<string | null>(null);
+
+  const specKey = JSON.stringify(spec);
+  useEffect(() => {
+    setDraft(sensingDraftFrom(actor.sensing));
+    setErr(null);
+    // Re-seed on actor switch or when the binding changes outside the draft.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [actor.id, specKey]);
+
+  const commit = (patch: Partial<SensingTargetSpec>) => {
+    if (!spec) return;
+    void updateActor(actor.id, { sensing: { ...spec, ...patch } });
+  };
+
+  const setModel = (value: string) => {
+    if (value === (spec?.model ?? "none")) return;
+    void updateActor(actor.id, {
+      sensing:
+        value === "tr38901" || value === "constant"
+          ? {
+              ...defaultSensingSpec(value, actor.kind),
+              // Model-agnostic fields survive a model switch.
+              velocity_m_s: spec?.velocity_m_s ?? null,
+              size_m: spec?.size_m ?? null,
+              enabled: spec?.enabled ?? true,
+            }
+          : null,
+    });
+  };
+
+  const apply = () => {
+    if (!spec) return;
+    const opt = (raw: string, name: string): number | null => {
+      if (raw.trim() === "") return null;
+      const n = Number(raw);
+      if (!Number.isFinite(n)) throw new Error(`${name} is not a number`);
+      return n;
+    };
+    try {
+      const patch: Partial<SensingTargetSpec> = {};
+      if (spec.model === "constant") {
+        const rcs = opt(draft.rcs, "RCS");
+        if (rcs !== null && (rcs < -80 || rcs > 80)) {
+          throw new Error("RCS must be within -80…80 dBsm");
+        }
+        patch.rcs_dbsm = rcs;
+        patch.xpr_db = opt(draft.xpr, "XPR");
+      }
+      const v = [opt(draft.vx, "vx"), opt(draft.vy, "vy"), opt(draft.vz, "vz")];
+      const blanks = v.filter((x) => x === null).length;
+      if (blanks !== 0 && blanks !== 3) {
+        throw new Error("velocity needs vx, vy and vz (or all blank = from trajectory)");
+      }
+      patch.velocity_m_s = blanks === 3 ? null : (v as Vec3);
+      setErr(null);
+      commit(patch);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const draftInput = (key: keyof SensingDraft, label: string, placeholder: string, title: string) => (
+    <label title={title}>
+      {label}
+      <input
+        type="number"
+        step={key === "rcs" || key === "xpr" ? 1 : 0.5}
+        value={draft[key]}
+        placeholder={placeholder}
+        disabled={disabled}
+        onChange={(e) => setDraft({ ...draft, [key]: e.target.value })}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") apply();
+        }}
+      />
+    </label>
+  );
+
+  const kindDefault = DEFAULT_OBJECT_TYPE_BY_KIND[actor.kind];
+  const resolvedType: TR38901ObjectType | null = resolveObjectType(actor);
+
+  return (
+    <div className="mat-editor" style={{ marginTop: 12 }}>
+      <h4>Sensing target</h4>
+      <label style={{ display: "flex", flexDirection: "column", gap: 2, marginBottom: 6 }}>
+        Model
+        <select
+          value={spec?.model ?? "none"}
+          disabled={disabled}
+          title="Bind this actor as a radar sensing target (Actions ▾ → Sensing solve)"
+          onChange={(e) => setModel(e.target.value)}
+        >
+          <option value="none">none — not a target</option>
+          <option value="tr38901">TR 38.901</option>
+          <option value="constant">Constant RCS</option>
+        </select>
+      </label>
+
+      {spec && spec.model === "tr38901" && (
+        <>
+          <div className="field-grid">
+            <label title="TR 38.901 §7.9 object type: sets the scattering-point layout and RCS tables">
+              Object type
+              <select
+                value={spec.object_type ?? ""}
+                disabled={disabled}
+                onChange={(e) =>
+                  commit({
+                    object_type: (e.target.value || null) as TR38901ObjectType | null,
+                    model_type: null,
+                  })
+                }
+              >
+                {kindDefault !== null ? (
+                  <option value="">auto ({kindDefault})</option>
+                ) : (
+                  spec.object_type === null && (
+                    <option value="" disabled>
+                      — pick object type —
+                    </option>
+                  )
+                )}
+                {TR38901_OBJECT_TYPES.map((ot) => (
+                  <option key={ot} value={ot}>
+                    {OBJECT_TYPE_LABELS[ot]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {resolvedType && (
+              <label title="TR 38.901 RCS model: 1 = aspect-independent σ_M, 2 = angle-dependent lobes">
+                RCS model
+                <select
+                  value={spec.model_type === null ? "" : String(spec.model_type)}
+                  disabled={disabled}
+                  onChange={(e) =>
+                    commit({
+                      model_type: e.target.value === "" ? null : (Number(e.target.value) as 1 | 2),
+                    })
+                  }
+                >
+                  <option value="">
+                    auto ({resolveModelType(resolvedType, { ...spec, model_type: null })})
+                  </option>
+                  {TR38901_MODEL_TYPES[resolvedType].map((m) => (
+                    <option key={m} value={m}>
+                      {MODEL_TYPE_LABELS[m]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </div>
+          {resolvedType && (
+            <p className="hint">
+              Nominal σ<sub>M</sub>: {TR38901_NOMINAL_RCS_DBSM[resolvedType].toFixed(2)} dBsm
+              (spec mean monostatic RCS of {resolvedType}).
+            </p>
+          )}
+          <label className="solver-check" style={{ marginTop: 4 }}>
+            <input
+              type="checkbox"
+              checked={spec.random_components}
+              disabled={disabled}
+              onChange={(e) => commit({ random_components: e.target.checked })}
+            />
+            Random components (σ<sub>S</sub>, XPR, phases)
+          </label>
+        </>
+      )}
+
+      {spec && spec.model === "constant" && (
+        <div className="field-grid">
+          {draftInput("rcs", "RCS (dBsm)", "0", "Constant radar cross-section; blank = 0 dBsm (1 m²)")}
+          {draftInput(
+            "xpr",
+            "XPR (dB)",
+            "none",
+            "Cross-polarization ratio of the scattering point; blank = no depolarization",
+          )}
+        </div>
+      )}
+
+      {spec && (
+        <>
+          <label className="solver-check" style={{ marginTop: 4 }}>
+            <input
+              type="checkbox"
+              checked={spec.enabled}
+              disabled={disabled}
+              onChange={(e) => commit({ enabled: e.target.checked })}
+            />
+            Enabled
+          </label>
+          <div className="field-grid" style={{ marginTop: 4 }}>
+            {draftInput("vx", "vx (m/s)", "auto", "World-frame target velocity; blank = trajectory tangent at t=0")}
+            {draftInput("vy", "vy (m/s)", "auto", "World-frame target velocity; blank = trajectory tangent at t=0")}
+            {draftInput("vz", "vz (m/s)", "auto", "World-frame target velocity; blank = trajectory tangent at t=0")}
+          </div>
+          <div className="editor-actions">
+            <button className="primary" onClick={apply} disabled={disabled}>
+              Apply
+            </button>
+            {err && <span className="field-error">{err}</span>}
+          </div>
+          <p className="hint">
+            Target cuboid = actor size; position = actor base + height/2. Velocity blank = from the
+            trajectory (static: 0), and then the pose is the trajectory's t = 0 pose too. Place an RX
+            at the TX for monostatic sensing.
+          </p>
+        </>
+      )}
     </div>
   );
 }

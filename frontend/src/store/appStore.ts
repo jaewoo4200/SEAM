@@ -42,6 +42,7 @@ import type {
   ScenarioResultSet,
   Scene,
   SceneBounds,
+  SensingResultSet,
   SegmentationPreviewRequest,
   SegmentationPreviewResponse,
   SegmentationRegion,
@@ -311,6 +312,16 @@ interface AppState {
   setPlaybackSpeed: (v: number) => void;
   setPlaybackSegment: (i: number) => void;
 
+  // --- radar sensing (RCS) ---
+  /** Latest / activated sensing result (echo paths + target summaries). */
+  sensing: SensingResultSet | null;
+  /** Viewport overlay: scattering points + Doppler-colored echo paths. */
+  showSensing: boolean;
+  /** Sensing solve over every actor whose sensing binding is enabled. */
+  runSensing: (opts?: { includeCommPaths?: boolean }) => Promise<void>;
+  /** Best-effort silent fetch of the latest stored sensing result. */
+  loadSensing: (resultId?: string) => Promise<void>;
+
   // --- channel analysis ---
   channelResult: ChannelAnalysisResult | null;
 
@@ -332,6 +343,7 @@ interface AppState {
     mesh_radio_map?: number;
     radio_map?: number;
     scenario?: number;
+    sensing?: number;
   };
 
   // --- viewport pick mode (click-to-place) ---
@@ -475,7 +487,8 @@ interface AppState {
       | "beamforming"
       | "trajectoryRays"
       | "playback"
-      | "beamLobe",
+      | "beamLobe"
+      | "sensing",
   ) => void;
   /** Per-frame trajectory rays overlay (include_paths results). Independent of
    *  the static Rays toggle: computing a trajectory turns it ON, computing
@@ -899,7 +912,8 @@ export const useAppStore = create<AppState>()((set, get) => {
       | "beamforming"
       | "mesh_radio_map"
       | "radio_map"
-      | "scenario",
+      | "scenario"
+      | "sensing",
   ): void {
     set({ resultEpochs: { ...get().resultEpochs, [kind]: get().sceneEpoch } });
   }
@@ -1321,6 +1335,9 @@ export const useAppStore = create<AppState>()((set, get) => {
     showPlayback: false,
     showBeamLobe: true,
 
+    sensing: null,
+    showSensing: false,
+
     channelResult: null,
     abBaseline: null,
 
@@ -1496,6 +1513,9 @@ export const useAppStore = create<AppState>()((set, get) => {
           playbackPlaying: false,
           playbackSegment: -1,
           showPlayback: false,
+          // Sensing echoes belong to one project's targets (refetched below).
+          sensing: null,
+          showSensing: false,
           // A pinned A/B baseline belongs to the previous project's scene.
           abBaseline: null,
           // The surfaced export paths belong to the previous project.
@@ -1625,6 +1645,8 @@ export const useAppStore = create<AppState>()((set, get) => {
       // playback panel only appears when the project carries sensor_data/).
       void get().loadSensors();
       void get().loadPlayback();
+      // Latest stored sensing result: data only, the overlay stays OFF.
+      void get().loadSensing();
       // Latest stored mesh radio map + live-event socket: both out-of-band and
       // fully best-effort so a missing endpoint (this wave still landing on the
       // backend) never blocks or breaks project open.
@@ -1934,6 +1956,7 @@ export const useAppStore = create<AppState>()((set, get) => {
         set({ showTrajectoryRays: !get().showTrajectoryRays });
       else if (kind === "playback") set({ showPlayback: !get().showPlayback });
       else if (kind === "beamLobe") set({ showBeamLobe: !get().showBeamLobe });
+      else if (kind === "sensing") set({ showSensing: !get().showSensing });
       else set({ showBeamforming: !get().showBeamforming });
     },
 
@@ -2083,6 +2106,10 @@ export const useAppStore = create<AppState>()((set, get) => {
             showPlayback: true,
             ...resultsMode(),
           });
+        } else if (ref.kind === "sensing") {
+          const result = await api.getSensingResult(pid, ref.result_id);
+          set({ sensing: result, showSensing: true, ...resultsMode() });
+          stampResult("sensing");
         } else {
           set({ error: `Cannot activate result of kind ${ref.kind}` });
           return;
@@ -2158,6 +2185,47 @@ export const useAppStore = create<AppState>()((set, get) => {
       }
     },
 
+    runSensing: async (opts) => {
+      const pid = get().projectId;
+      if (!pid) return;
+      const bound = (get().scene?.actors ?? []).some(
+        (a) => a.sensing && a.sensing.enabled !== false,
+      );
+      if (!bound) {
+        set({ error: "Bind an actor as a sensing target first (Inspector → Sensing target)" });
+        return;
+      }
+      await run("Running sensing solve…", async () => {
+        const result = await api.simulateSensing(pid, {
+          config: get().pathsConfig,
+          include_comm_paths: opts?.includeCommPaths ?? false,
+        });
+        const n = result.paths.filter((p) => p.target_id != null).length;
+        set({
+          sensing: result,
+          showSensing: true,
+          ...resultsMode(),
+          notice:
+            `Sensing: ${n} echo path(s) from ${result.targets.length} target(s) via ` +
+            `${result.backend}` +
+            (result.warnings[0] ? ` · ${result.warnings[0]}` : ""),
+        });
+        stampResult("sensing");
+        await refetchSceneInner(); // a ResultSetRef (kind 'sensing') was appended
+      });
+    },
+
+    loadSensing: async (resultId) => {
+      const pid = get().projectId;
+      if (!pid) return;
+      try {
+        const result = await api.getSensingResult(pid, resultId);
+        if (get().projectId === pid) set({ sensing: result });
+      } catch {
+        // no stored sensing result yet (or endpoint absent): ignore silently
+      }
+    },
+
     setPlaybackFrame: (i) => {
       const pb = get().playback;
       const max = pb ? Math.max(0, pb.frames.length - 1) : 0;
@@ -2193,7 +2261,9 @@ export const useAppStore = create<AppState>()((set, get) => {
       await run("Exporting RFData…", async () => {
         const summary = await api.exportRfdata(pid, {});
         set({
-          notice: `Exported ${summary.files.length} RFData files to ${summary.export_dir}`,
+          notice:
+            `Exported ${summary.files.length} RFData files to ${summary.export_dir}` +
+            (summary.has_sensing ? " (incl. sensing.json)" : ""),
           lastRfdataExport: { export_dir: summary.export_dir, files: summary.files },
         });
       });
