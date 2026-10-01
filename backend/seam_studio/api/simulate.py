@@ -2,8 +2,10 @@
 
 POST /projects/{project_id}/simulate/paths      -> PathResultSet
 POST /projects/{project_id}/simulate/radio-map  -> RadioMapResultSet
+POST /projects/{project_id}/simulate/sensing    -> SensingResultSet
 GET  /projects/{project_id}/results/paths       -> stored PathResultSet
 GET  /projects/{project_id}/results/radio-map   -> stored RadioMapResultSet
+GET  /projects/{project_id}/results/sensing     -> stored SensingResultSet
 
 Storage convention: results/<result_id>.json inside the project folder, with
 result_id = "<backend>_<kind>_<nnn>" (nnn = highest existing suffix + 1,
@@ -34,9 +36,11 @@ from seam_studio.schemas.results import (
     PathResultSet,
     PlaybackResultSet,
     RadioMapResultSet,
+    SensingResultSet,
     TrajectoryResultSet,
 )
 from seam_studio.schemas.scene import ResultSetRef, Scene
+from seam_studio.schemas.sensing import SensingSimulateRequest
 from seam_studio.schemas.simulation import (
     BeamformingRequest,
     MeshRadioMapRequest,
@@ -46,7 +50,12 @@ from seam_studio.schemas.simulation import (
     TrajectorySimulateRequest,
 )
 from seam_studio.services import solve_ctx
-from seam_studio.services.simulation_backends import BackendUnavailableError, resolve_backend
+from seam_studio.services.simulation_backends import (
+    BackendUnavailableError,
+    RayTracingBackend,
+    get_backend,
+    resolve_backend,
+)
 
 router = APIRouter(tags=["simulate"])
 
@@ -105,7 +114,7 @@ def _solve_guard(project_id: str, kind: str) -> Iterator[None]:
 
 ResultKind = Literal[
     "paths", "radio_map", "mesh_radio_map", "trajectory", "scenario",
-    "channel", "playback",
+    "channel", "playback", "sensing",
 ]
 RESULT_KINDS: tuple[str, ...] = (
     "paths",
@@ -115,6 +124,7 @@ RESULT_KINDS: tuple[str, ...] = (
     "scenario",
     "channel",
     "playback",
+    "sensing",
 )
 AnyResult = Union[
     PathResultSet,
@@ -124,6 +134,7 @@ AnyResult = Union[
     ScenarioResultSet,
     ChannelAnalysisResult,
     PlaybackResultSet,
+    SensingResultSet,
 ]
 
 
@@ -159,6 +170,11 @@ def _provenance_hashes(scene: Scene, config: Optional[SimulationConfig]) -> dict
     scene_payload = scene.model_dump(mode="json")
     scene_payload.pop("result_sets", None)
     scene_payload.pop("revision", None)
+    # An unbound actor hashes exactly as it did before Actor.sensing existed,
+    # so results solved before that field landed stay comparable.
+    for actor in scene_payload.get("actors", []):
+        if actor.get("sensing") is None:
+            actor.pop("sensing", None)
     assignment = sorted(
         (p.id, p.rf.material_id or "", p.rf.assignment_status) for p in scene.prims
     )
@@ -207,6 +223,11 @@ def _persist_result(
     result.created_at = datetime.now(timezone.utc).isoformat()
     # Reproducibility stamp: content hashes + the exact solver knobs used.
     result.metadata.update(_provenance_hashes(scene, config))
+    # Sensing-only knobs (targets, max_depth, samples_per_sp, comm paths) live
+    # in the request, not the config: without this two different sensing runs
+    # would share every hash.
+    if kind == "sensing" and "sensing_request" in result.metadata:
+        result.metadata["request_hash"] = _sha256(result.metadata["sensing_request"])
     if config is not None:
         result.metadata.setdefault("config_snapshot", config.model_dump(mode="json"))
 
@@ -595,6 +616,116 @@ def get_playback_result(
 ) -> PlaybackResultSet:
     return PlaybackResultSet.model_validate(
         _load_result(project_id, "playback", result_id)
+    )
+
+
+def _resolve_sensing_backend(
+    config: SimulationConfig,
+) -> tuple[RayTracingBackend, list[str]]:
+    """Backend for a sensing solve plus warnings to prepend to the result.
+
+    "auto" keeps its "sionna when usable, else mock" meaning: a sionna-rt
+    without the RCS module (< 2.2) falls back to the mock with a note instead
+    of blocking the solve. An explicit backend without sensing raises
+    BackendUnavailableError (the route answers 409)."""
+    if config.backend == "auto":
+        sionna = get_backend("sionna")
+        if sionna.is_available() and sionna.capabilities().get("sensing"):
+            return sionna, []
+        note = (
+            ["sionna-rt has no RCS solver (needs >=2.2); the sensing solve used the mock backend"]
+            if sionna.is_available()
+            else []
+        )
+        return get_backend("mock"), note
+    backend = resolve_backend(config)
+    if not backend.capabilities().get("sensing", False):
+        raise BackendUnavailableError(
+            "sensing requires sionna-rt>=2.2 (sionna.rt.rcs not found)"
+        )
+    return backend, []
+
+
+@router.post(
+    "/projects/{project_id}/simulate/sensing", response_model=SensingResultSet
+)
+def simulate_sensing(
+    project_id: str, request: Optional[SensingSimulateRequest] = None
+) -> SensingResultSet:
+    """Radar (RCS) solve over every actor bound as a sensing target: echo paths
+    TX -> target scattering point -> RX with per-path Doppler. Place an RX at
+    the TX for monostatic sensing."""
+    from seam_studio.services.sensing import SensingRequestError, run_sensing, select_targets
+
+    request = request or SensingSimulateRequest()
+    store = get_store()
+    scene = load_scene_live(store, project_id)
+    library = store.load_materials(project_id)
+    config = _resolve_config(
+        scene, SimulateRequest(config_id=request.config_id, config=request.config)
+    )
+    overrides = {
+        key: value
+        for key, value in (("tx_ids", request.tx_ids), ("rx_ids", request.rx_ids))
+        if value is not None
+    }
+    if overrides:
+        config = config.model_copy(update=overrides)
+    # Validation stays outside the guard so a 4xx never announces a solve.
+    for kind, wanted in (("tx", request.tx_ids), ("rx", request.rx_ids)):
+        for device_id in wanted or []:
+            if not any(d.id == device_id and d.kind == kind for d in scene.devices):
+                raise HTTPException(
+                    status_code=400, detail=f"{kind} device not found: {device_id}"
+                )
+    selected = {
+        kind: [
+            d
+            for d in scene.devices
+            if d.kind == kind and (ids is None or d.id in ids)
+        ]
+        for kind, ids in (("tx", config.tx_ids), ("rx", config.rx_ids))
+    }
+    if not selected["tx"] or not selected["rx"]:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "sensing needs at least one tx and one rx device (place an rx at "
+                "the tx for monostatic sensing)"
+            ),
+        )
+    try:
+        targets = select_targets(scene, request.target_actor_ids)
+    except SensingRequestError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    try:
+        backend, notes = _resolve_sensing_backend(config)
+    except BackendUnavailableError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    project_dir = store.resolve(project_id)
+
+    with _solve_guard(project_id, "sensing"):
+        try:
+            result = run_sensing(
+                backend, project_dir, scene, library, config, request, targets,
+                tick=solve_ctx.tick, extra_warnings=notes,
+            )
+        except BackendUnavailableError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+        return _persist_result(
+            project_id, scene, project_dir, "sensing", backend.name, config.id,
+            result, config=config,
+        )
+
+
+@router.get(
+    "/projects/{project_id}/results/sensing", response_model=SensingResultSet
+)
+def get_sensing_result(
+    project_id: str, result_id: Optional[str] = Query(default=None)
+) -> SensingResultSet:
+    return SensingResultSet.model_validate(
+        _load_result(project_id, "sensing", result_id)
     )
 
 

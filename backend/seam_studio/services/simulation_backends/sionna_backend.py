@@ -28,13 +28,23 @@ from seam_studio.schemas.results import (
     RadioMapGrid,
     RadioMapResultSet,
     RayPath,
+    SensingResultSet,
 )
 from seam_studio.schemas.scene import Scene
+from seam_studio.schemas.sensing import SensingSimulateRequest
 from seam_studio.schemas.simulation import BeamformingRequest, SimulationConfig
 from seam_studio.services import atmosphere
+from seam_studio.services.sensing import (
+    SENSING_PATH_PREFIX,
+    SENSING_TARGET_PREFIX,
+    ResolvedSensingTarget,
+    dbsm_to_m2,
+    target_summary,
+)
 
 from .base import (
     UNSAVED_RESULT_ID,
+    BackendUnavailableError,
     RayTracingBackend,
     geometric_departure_arrival_deg,
 )
@@ -262,7 +272,17 @@ def _codebook_sweep(base, H, h00: float, request, np, tx_y_norm, rx_y_norm) -> N
 # SPECULAR=1, DIFFUSE=2, REFRACTION=4, DIFFRACTION=8. The old {3: transmission,
 # 4: diffraction} table mislabeled every glass-penetration interaction as
 # "diffraction" (QA a1i15 — transmission looked like it never happened).
-_INTERACTION_TYPES = {1: "reflection", 2: "scattering", 4: "transmission", 8: "diffraction"}
+# sionna-rt 2.2 adds SENSING=16 (constants.py:33): the scattering event on an
+# RCS sensing target, whose objects/primitives slots hold the TARGET index (in
+# scene.sensing_targets order) and the scattering-point index, not a mesh id.
+_SENSING_CODE = 16
+_INTERACTION_TYPES = {
+    1: "reflection",
+    2: "scattering",
+    4: "transmission",
+    8: "diffraction",
+    _SENSING_CODE: "sensing",
+}
 
 # sionna.rt.PlanarArray patterns/polarizations we validate against (verified via
 # the antenna_pattern / polarization registries in sionna-rt 2.0.1). Unknown
@@ -361,6 +381,23 @@ def _reset_scene_devices(rt_scene) -> None:
         rt_scene.remove(name)
     for name in list(rt_scene.receivers.keys()):
         rt_scene.remove(name)
+
+
+def _reset_sensing_targets(rt_scene) -> None:
+    """Strip every sensing target (and the absorber material Sionna creates for
+    it) from a possibly cached scene and re-add the actor meshes a sensing
+    solve hid, so the cache is identical to a plain load afterwards."""
+    targets = list(getattr(rt_scene, "sensing_targets", {}).values())
+    hidden = list(getattr(rt_scene, "_seam_hidden_actor_objects", None) or [])
+    if targets or hidden:
+        rt_scene.edit(add=hidden or None, remove=targets or None)
+    # Each target auto-creates "<name>-material" that outlives the target; a
+    # later target with the same name would otherwise fail "name already used".
+    for st in targets:
+        name = f"{st.name}-material"
+        if name in rt_scene.radio_materials:
+            rt_scene.remove(name)
+    rt_scene._seam_hidden_actor_objects = []
 
 
 def _make_planar_array(antenna: Antenna, warnings: list[str], *, num_rows=None, num_cols=None):
@@ -545,6 +582,31 @@ def apply_actor_states(
     return warnings
 
 
+def _sync_actor_velocities(rt_scene, actor_ids, velocities: Optional[dict]) -> None:
+    """Write every addressable actor's SceneObject.velocity: its entry in
+    ``velocities``, else zero. The attribute persists on the cached scene, so
+    an actor a previous solve set moving (a scenario frame) would otherwise
+    keep Doppler-shifting this solve's paths. A never-set velocity already
+    reads zero and is left alone (setting one adds a mesh attribute)."""
+    import mitsuba as mi  # type: ignore[import-not-found]
+    import numpy as np
+
+    for actor_id in actor_ids:
+        key = _actor_object_key(rt_scene, actor_id)
+        if key is None:
+            continue
+        obj = rt_scene.objects[key]
+        try:
+            want = (velocities or {}).get(actor_id)
+            if want is None:
+                if not np.any(np.array(obj.velocity).reshape(-1)[:3]):
+                    continue
+                want = (0.0, 0.0, 0.0)
+            obj.velocity = mi.Vector3f(float(want[0]), float(want[1]), float(want[2]))
+        except Exception:  # noqa: BLE001 - velocity is best-effort (as in apply_actor_states)
+            pass
+
+
 def noise_floor_dbm(config: SimulationConfig) -> float:
     """Thermal noise floor + receiver noise figure, in dBm.
 
@@ -607,6 +669,9 @@ class SionnaBackend(RayTracingBackend):
             "edge_diffraction": True,
             "engines": True,  # alternate sionna-rt venvs via subprocess worker
         }
+        from seam_studio.services.availability import sionna_rcs_available
+
+        caps["sensing"] = sionna_rcs_available()
         # Honest GPU probe: report gpu=True ONLY when a CUDA Mitsuba variant is
         # actually available (an active cuda_* variant, or a cuda_* offered by
         # this build). A drjit import alone is NOT enough — the macOS/LLVM CPU
@@ -645,6 +710,8 @@ class SionnaBackend(RayTracingBackend):
         config: SimulationConfig,
         actor_states: Optional[list] = None,
         actor_velocities: Optional[dict] = None,
+        *,
+        sensing_targets: Optional[list[ResolvedSensingTarget]] = None,
     ) -> PathResultSet:
         try:
             # Alternate engine venvs (config.engine) run through the subprocess
@@ -655,7 +722,8 @@ class SionnaBackend(RayTracingBackend):
                 )
             try:
                 return self._simulate_paths_impl(
-                    project_dir, scene, library, config, actor_states, actor_velocities
+                    project_dir, scene, library, config, actor_states, actor_velocities,
+                    sensing_targets=sensing_targets,
                 )
             finally:
                 _release_solver_memory()
@@ -675,6 +743,29 @@ class SionnaBackend(RayTracingBackend):
                     "engine": config.engine or "builtin",
                 },
             )
+
+    def simulate_paths_with_targets(
+        self,
+        project_dir: Path,
+        scene: Scene,
+        library: RFMaterialLibrary,
+        config: SimulationConfig,
+        targets: list[ResolvedSensingTarget],
+    ) -> PathResultSet:
+        """PathSolver with the sensing targets added as absorbers and their
+        actor meshes hidden, as in the echo solve. Always the builtin engine
+        (the subprocess worker cannot place targets), with the same t = 0
+        actor velocities, so both halves of a sensing result match."""
+        from seam_studio.services.sensing import actor_velocities_t0
+
+        return self.simulate_paths(
+            project_dir,
+            scene,
+            library,
+            config.model_copy(update={"engine": None}),
+            actor_velocities=actor_velocities_t0(scene) or None,
+            sensing_targets=targets,
+        )
 
     def _simulate_paths_engine(
         self,
@@ -807,6 +898,8 @@ class SionnaBackend(RayTracingBackend):
         config: SimulationConfig,
         actor_states: Optional[list] = None,
         actor_velocities: Optional[dict] = None,
+        *,
+        sensing_targets: Optional[list[ResolvedSensingTarget]] = None,
     ) -> PathResultSet:
         import numpy as np
 
@@ -820,11 +913,7 @@ class SionnaBackend(RayTracingBackend):
         # sionna.rt with these names; 0.x had solver methods on the scene
         # object instead of PathSolver. We target 1.x and let the outer
         # try/except absorb anything older/newer.
-        from sionna.rt import (  # type: ignore[import-not-found]
-            PathSolver,
-            Receiver,
-            Transmitter,
-        )
+        from sionna.rt import PathSolver  # type: ignore[import-not-found]
 
         # Compiled RF projection: compile when missing or stale (material edit).
         xml_path = self._ensure_projection(project_dir, scene, library, warnings)
@@ -856,123 +945,74 @@ class SionnaBackend(RayTracingBackend):
         # Per-device antenna arrays: first selected TX/RX device drives the
         # scene's tx_array/rx_array (pattern/polarization/geometry).
         _apply_arrays(rt_scene, txs, rxs, warnings)
-
-        # Device velocity -> per-path Doppler. RadioDevice.velocity is a
-        # world-frame m/s vector (radio_device.py:109-119); None on our schema
-        # means stationary, so we only pass it through when set. Velocity leaves
-        # the static geometry/ray tracing unchanged (verified sionna-rt 2.0.1).
-        any_velocity = False
-        for dev in txs:
-            vel = dev.velocity_m_s
-            if vel is not None:
-                any_velocity = True
-            rt_scene.add(
-                Transmitter(
-                    name=dev.id,
-                    position=list(dev.position),
-                    orientation=[math.radians(a) for a in dev.orientation_deg],
-                    power_dbm=dev.power_dbm,
-                    velocity=[float(c) for c in vel] if vel is not None else None,
-                )
-            )
-        for dev in rxs:
-            vel = dev.velocity_m_s
-            if vel is not None:
-                any_velocity = True
-            rt_scene.add(
-                Receiver(
-                    name=dev.id,
-                    position=list(dev.position),
-                    orientation=[math.radians(a) for a in dev.orientation_deg],
-                    velocity=[float(c) for c in vel] if vel is not None else None,
-                )
-            )
+        any_velocity = self._add_devices(rt_scene, txs, rxs)
 
         self._apply_custom_materials(project_dir, rt_scene, warnings)
+        if self._place_actors(
+            project_dir, scene, rt_scene, warnings, actor_states, actor_velocities
+        ):
+            any_velocity = True
+        if sensing_targets:
+            from seam_studio.services.availability import sionna_rcs_available
 
-        # Actor placement: the actor mesh is baked into the XML at the pose it
-        # had at COMPILE time, and the fingerprint deliberately excludes actor
-        # pose (so editor moves don't force recompiles). Deltas must therefore
-        # be measured from the manifest's baked pose, not the (possibly since
-        # moved) authored pose — and every solve repositions every baked actor
-        # to its current pose, so editor drags and live-overlay moves reach the
-        # ray tracer instead of silently solving against stale geometry.
-        baked_poses = _baked_actor_poses(project_dir)
-        base_actors = {}
-        for a in scene.actors:
-            bp = baked_poses.get(a.id)
-            base_actors[a.id] = (
-                a.model_copy(
-                    update={"position": list(bp[0]), "orientation_deg": list(bp[1])}
+            add_targets = sionna_rcs_available()
+            if not add_targets:
+                warnings.append(
+                    "sionna-rt < 2.2 has no sensing targets: the target actors' "
+                    "meshes were removed, not replaced by absorbers"
                 )
-                if bp
-                else a
-            )
-        states = list(actor_states) if actor_states else []
-        explicit = {s.id for s in states}
-        for a in scene.actors:
-            if a.id in explicit or a.id not in baked_poses:
-                continue
-            pos, orient = baked_poses[a.id]
-            if [float(v) for v in a.position] != pos or [
-                float(v) for v in a.orientation_deg
-            ] != orient:
-                states.append(
-                    SimpleNamespace(
-                        id=a.id,
-                        position=list(a.position),
-                        orientation_deg=list(a.orientation_deg),
-                    )
-                )
-        if states:
-            if actor_velocities:
-                any_velocity = True
-            warnings.extend(
-                apply_actor_states(
-                    rt_scene, states, base_actors, actor_velocities
-                )
+            _reset_sensing_targets(rt_scene)
+            self._install_sensing_targets(
+                rt_scene, sensing_targets, warnings, add_targets=add_targets
             )
 
-        # Map Sionna's per-interaction object ids back to canonical prims.
-        # Shape names are "shape-<rf_material_id>" (the compiler's convention),
-        # so the object id -> rf material id, and (when a material group holds
-        # exactly one prim) -> a single canonical prim id.
-        objid_to_material: dict[int, str] = {}
-        for name, obj in rt_scene.objects.items():
-            mat_id = name[len("shape-"):] if name.startswith("shape-") else name
-            objid_to_material[int(obj.object_id)] = mat_id
-        material_to_prims: dict[str, list[str]] = {}
-        for prim in scene.prims:
-            if prim.rf.material_id:
-                material_to_prims.setdefault(prim.rf.material_id, []).append(prim.id)
+        try:
+            # Map Sionna's per-interaction object ids back to canonical prims.
+            # Shape names are "shape-<rf_material_id>" (the compiler's
+            # convention), so the object id -> rf material id, and (when a
+            # material group holds exactly one prim) -> a single canonical prim.
+            target_names = set(getattr(rt_scene, "sensing_targets", None) or {})
+            objid_to_material: dict[int, str] = {}
+            for name, obj in rt_scene.objects.items():
+                if name in target_names:
+                    continue
+                mat_id = name[len("shape-"):] if name.startswith("shape-") else name
+                objid_to_material[int(obj.object_id)] = mat_id
+            material_to_prims: dict[str, list[str]] = {}
+            for prim in scene.prims:
+                if prim.rf.material_id:
+                    material_to_prims.setdefault(prim.rf.material_id, []).append(prim.id)
 
-        solver = PathSolver()
-        # Full solver passthrough: every SimulationConfig interaction/mechanics
-        # flag maps to the matching PathSolver kwarg (verified against
-        # sionna-rt 2.0.1 PathSolver.__call__).
-        solved = solver(
-            rt_scene,
-            max_depth=config.max_depth,
-            los=config.los,
-            specular_reflection=config.reflection,
-            diffuse_reflection=config.scattering,
-            refraction=config.refraction,
-            diffraction=config.diffraction,
-            edge_diffraction=config.edge_diffraction,
-            diffraction_lit_region=config.diffraction_lit_region,
-            synthetic_array=config.synthetic_array,
-            seed=config.seed,
-            samples_per_src=config.num_samples or 1_000_000,
-            max_num_paths_per_src=config.max_num_paths_per_src,
-        )
+            solver = PathSolver()
+            # Full solver passthrough: every SimulationConfig interaction/
+            # mechanics flag maps to the matching PathSolver kwarg (verified
+            # against sionna-rt 2.0.1 PathSolver.__call__).
+            solved = solver(
+                rt_scene,
+                max_depth=config.max_depth,
+                los=config.los,
+                specular_reflection=config.reflection,
+                diffuse_reflection=config.scattering,
+                refraction=config.refraction,
+                diffraction=config.diffraction,
+                edge_diffraction=config.edge_diffraction,
+                diffraction_lit_region=config.diffraction_lit_region,
+                synthetic_array=config.synthetic_array,
+                seed=config.seed,
+                samples_per_src=config.num_samples or 1_000_000,
+                max_num_paths_per_src=config.max_num_paths_per_src,
+            )
 
-        absorption_alpha, absorption_warning = atmosphere.absorption_db_per_km(config)
-        if absorption_warning:
-            warnings.append(absorption_warning)
-        paths, doppler_hz = self._convert_paths(
-            solved, txs, rxs, objid_to_material, material_to_prims, warnings, np,
-            config.frequency_hz, absorption_alpha,
-        )
+            absorption_alpha, absorption_warning = atmosphere.absorption_db_per_km(config)
+            if absorption_warning:
+                warnings.append(absorption_warning)
+            paths, doppler_hz = self._convert_paths(
+                solved, txs, rxs, objid_to_material, material_to_prims, warnings, np,
+                config.frequency_hz, absorption_alpha,
+            )
+        finally:
+            if sensing_targets:
+                _reset_sensing_targets(rt_scene)
         metadata = {
             "frequency_hz": config.frequency_hz,
             "num_tx": len(txs),
@@ -991,6 +1031,210 @@ class SionnaBackend(RayTracingBackend):
             paths=paths,
             warnings=warnings,
             metadata=metadata,
+        )
+
+    # ------------------------------------------------------------ sensing
+
+    def simulate_sensing(
+        self,
+        project_dir: Path,
+        scene: Scene,
+        library: RFMaterialLibrary,
+        config: SimulationConfig,
+        request: SensingSimulateRequest,
+        targets: list[ResolvedSensingTarget],
+    ) -> SensingResultSet:
+        """Radar (RCS) solve with sionna-rt 2.2's RCSSolver; a solver failure
+        degrades to an empty result with a warning, like simulate_paths."""
+        from seam_studio.services.availability import sionna_rcs_available
+
+        if not sionna_rcs_available():
+            raise BackendUnavailableError(
+                "sensing requires sionna-rt>=2.2 (sionna.rt.rcs not found)"
+            )
+        try:
+            try:
+                return self._simulate_sensing_impl(
+                    project_dir, scene, library, config, request, targets
+                )
+            finally:
+                _release_solver_memory()
+        except Exception as exc:  # noqa: BLE001 - graceful degradation contract
+            clear_scene_cache()
+            return SensingResultSet(
+                result_id=UNSAVED_RESULT_ID,
+                backend=self.name,
+                simulation_config_id=config.id,
+                paths=[],
+                targets=[target_summary(t, [], 0) for t in targets],
+                warnings=self._frequency_warnings(scene, library, config)
+                + [_enrich_solve_failure(f"sionna sensing solve failed: {exc}; see logs")],
+                metadata={
+                    "frequency_hz": config.frequency_hz,
+                    "engine": "sionna",
+                    "solver": "RCSSolver",
+                },
+            )
+
+    def _simulate_sensing_impl(
+        self,
+        project_dir: Path,
+        scene: Scene,
+        library: RFMaterialLibrary,
+        config: SimulationConfig,
+        request: SensingSimulateRequest,
+        targets: list[ResolvedSensingTarget],
+    ) -> SensingResultSet:
+        warnings: list[str] = self._frequency_warnings(scene, library, config)
+        _ensure_sionna_variant(warnings)
+
+        import numpy as np
+
+        try:
+            from sionna.rt import __version__ as rt_version  # type: ignore[import-not-found]
+        except ImportError:
+            rt_version = "unknown"
+        from sionna.rt.rcs import RCSSolver  # type: ignore[import-not-found]
+
+        from seam_studio.services.channel_npz_export import local_frame_matrix
+        from seam_studio.services.sensing import actor_velocities_t0
+
+        if config.engine and config.engine != "builtin":
+            warnings.append(
+                "sensing (echoes and include_comm_paths alike) always runs on the "
+                "builtin sionna-rt engine; config.engine ignored"
+            )
+        if config.scattering or config.diffraction or config.edge_diffraction:
+            warnings.append(
+                "RCSSolver traces LoS/specular/refraction legs only; diffuse "
+                "scattering and diffraction were not applied to the sensing solve"
+            )
+        if request.max_depth is not None:
+            depth = request.max_depth
+        else:
+            depth = max(1, config.max_depth)
+            if config.max_depth < 1:
+                warnings.append(
+                    "max_depth 0 raised to 1 (the scattering event counts as one "
+                    "interaction)"
+                )
+
+        xml_path = self._ensure_projection(project_dir, scene, library, warnings)
+        rt_scene = _load_scene_cached(xml_path, warnings)
+        _reset_scene_devices(rt_scene)
+        _reset_sensing_targets(rt_scene)
+        rt_scene.frequency = config.frequency_hz
+
+        txs = [
+            d for d in scene.devices
+            if d.kind == "tx" and (config.tx_ids is None or d.id in config.tx_ids)
+        ]
+        rxs = [
+            d for d in scene.devices
+            if d.kind == "rx" and (config.rx_ids is None or d.id in config.rx_ids)
+        ]
+        if not txs or not rxs:
+            return SensingResultSet(
+                result_id=UNSAVED_RESULT_ID,
+                backend=self.name,
+                simulation_config_id=config.id,
+                paths=[],
+                targets=[target_summary(t, [], 0) for t in targets],
+                warnings=warnings
+                + ["scene has no matching tx/rx devices; no sensing paths computed"],
+                metadata={
+                    "frequency_hz": config.frequency_hz,
+                    "engine": "sionna",
+                    "solver": "RCSSolver",
+                },
+            )
+
+        _apply_arrays(rt_scene, txs, rxs, warnings)
+        self._add_devices(rt_scene, txs, rxs)
+        self._apply_custom_materials(project_dir, rt_scene, warnings)
+        # Non-target actor meshes stay in the scene and move as at t = 0;
+        # without this they would keep whatever velocity the cache last held.
+        self._place_actors(
+            project_dir, scene, rt_scene, warnings,
+            actor_velocities=actor_velocities_t0(scene) or None,
+        )
+        sionna_targets = self._install_sensing_targets(rt_scene, targets, warnings)
+        try:
+            target_names = set(rt_scene.sensing_targets.keys())
+            objid_to_material: dict[int, str] = {}
+            for name, obj in rt_scene.objects.items():
+                if name in target_names:
+                    continue
+                mat_id = name[len("shape-"):] if name.startswith("shape-") else name
+                objid_to_material[int(obj.object_id)] = mat_id
+            material_to_prims: dict[str, list[str]] = {}
+            for prim in scene.prims:
+                if prim.rf.material_id:
+                    material_to_prims.setdefault(prim.rf.material_id, []).append(prim.id)
+
+            actor_by_name = {SENSING_TARGET_PREFIX + t.actor_id: t.actor_id for t in targets}
+            # Index-aligned with the solver's list(scene.sensing_targets).
+            sensing_actor_ids = [actor_by_name.get(n) for n in rt_scene.sensing_targets]
+
+            scattering_points: dict[str, list[list[float]]] = {}
+            for t, st in zip(targets, sionna_targets):
+                lcs = np.array(st.scattering_model.spst.lcs_positions, dtype=float)
+                lcs = lcs.reshape(3, -1)
+                rot = np.asarray(local_frame_matrix(t.orientation_deg))
+                center = np.asarray(t.center, dtype=float)
+                scattering_points[t.actor_id] = [
+                    [float(c) for c in center + rot @ lcs[:, i]]
+                    for i in range(lcs.shape[1])
+                ]
+
+            solved = RCSSolver(deterministic=False)(
+                rt_scene,
+                max_depth=int(depth),
+                buffer_size_per_sp=int(config.max_num_paths_per_src),
+                samples_per_sp=int(request.samples_per_sp),
+                synthetic_array=bool(config.synthetic_array),
+                los=bool(config.los),
+                specular_reflection=bool(config.reflection),
+                refraction=bool(config.refraction),
+                seed=int(config.seed),
+            )
+
+            absorption_alpha, absorption_warning = atmosphere.absorption_db_per_km(config)
+            if absorption_warning:
+                warnings.append(absorption_warning)
+            paths, _ = self._convert_paths(
+                solved, txs, rxs, objid_to_material, material_to_prims, warnings, np,
+                config.frequency_hz, absorption_alpha,
+                sensing_actor_ids=sensing_actor_ids,
+            )
+        finally:
+            _reset_sensing_targets(rt_scene)
+
+        return SensingResultSet(
+            result_id=UNSAVED_RESULT_ID,
+            backend=self.name,
+            simulation_config_id=config.id,
+            paths=paths,
+            targets=[
+                target_summary(
+                    t,
+                    scattering_points[t.actor_id],
+                    sum(1 for p in paths if p.target_id == t.actor_id),
+                )
+                for t in targets
+            ],
+            warnings=warnings,
+            metadata={
+                "frequency_hz": config.frequency_hz,
+                "num_tx": len(txs),
+                "num_rx": len(rxs),
+                "num_targets": len(targets),
+                "engine": "sionna",
+                "solver": "RCSSolver",
+                "sionna_rt_version": rt_version,
+                "max_depth": int(depth),
+                "samples_per_sp": request.samples_per_sp,
+            },
         )
 
     # ------------------------------------------------------ beamforming
@@ -1243,6 +1487,172 @@ class SionnaBackend(RayTracingBackend):
         return out
 
     @staticmethod
+    def _add_devices(rt_scene, txs: list[Device], rxs: list[Device]) -> bool:
+        """Add the selected devices as Transmitters/Receivers; True when any
+        of them carries a velocity.
+
+        Device velocity -> per-path Doppler. RadioDevice.velocity is a
+        world-frame m/s vector (radio_device.py:109-119); None on our schema
+        means stationary, so we only pass it through when set. Velocity leaves
+        the static geometry/ray tracing unchanged (verified sionna-rt 2.0.1).
+        """
+        from sionna.rt import Receiver, Transmitter  # type: ignore[import-not-found]
+
+        any_velocity = False
+        for dev in txs:
+            vel = dev.velocity_m_s
+            if vel is not None:
+                any_velocity = True
+            rt_scene.add(
+                Transmitter(
+                    name=dev.id,
+                    position=list(dev.position),
+                    orientation=[math.radians(a) for a in dev.orientation_deg],
+                    power_dbm=dev.power_dbm,
+                    velocity=[float(c) for c in vel] if vel is not None else None,
+                )
+            )
+        for dev in rxs:
+            vel = dev.velocity_m_s
+            if vel is not None:
+                any_velocity = True
+            rt_scene.add(
+                Receiver(
+                    name=dev.id,
+                    position=list(dev.position),
+                    orientation=[math.radians(a) for a in dev.orientation_deg],
+                    velocity=[float(c) for c in vel] if vel is not None else None,
+                )
+            )
+        return any_velocity
+
+    @staticmethod
+    def _install_sensing_targets(
+        rt_scene,
+        targets: list[ResolvedSensingTarget],
+        warnings: list[str],
+        *,
+        add_targets: bool = True,
+    ) -> list:
+        """Add one sionna sensing target per resolved target (``add_targets``)
+        and take each target actor's compiled mesh out of the scene, in ONE
+        scene edit; ``_reset_sensing_targets`` undoes both. Returns the sionna
+        targets in ``targets`` order.
+
+        The scattering model fully describes a target, so its own box leaves
+        the scene: kept, it would add specular legs off the box (double
+        counting) and could occlude its own scattering points."""
+        sionna_targets = []
+        if add_targets:
+            from sionna.rt.rcs import (  # type: ignore[import-not-found]
+                ConstantRCSSensingTarget,
+                TR38901SensingTarget,
+            )
+
+            for t in targets:
+                common = dict(
+                    length=t.size_m[0],
+                    width=t.size_m[1],
+                    height=t.size_m[2],
+                    position=list(t.center),
+                    orientation=[math.radians(a) for a in t.orientation_deg],
+                    velocity=list(t.velocity_m_s),
+                )
+                name = SENSING_TARGET_PREFIX + t.actor_id
+                if t.model == "tr38901":
+                    rand = (
+                        {"random_sigma_s": True, "random_phases": True, "random_xpr": True}
+                        if t.random_components
+                        else {}
+                    )
+                    st = TR38901SensingTarget(
+                        name=name,
+                        object_type=t.object_type,
+                        model_type=t.model_type,
+                        **common,
+                        **rand,
+                    )
+                else:
+                    st = ConstantRCSSensingTarget(
+                        name=name, sigma=dbsm_to_m2(t.rcs_dbsm), xpr_db=t.xpr_db, **common
+                    )
+                sionna_targets.append(st)
+
+        hidden = []
+        for t in targets:
+            key = _actor_object_key(rt_scene, t.actor_id)
+            if key is None:
+                warnings.append(
+                    f"actor {t.actor_id!r} mesh not individually addressable; it "
+                    "stays in the scene next to its sensing target and may shadow "
+                    "its own scattering points or reflect what its RCS model "
+                    "already describes"
+                )
+                continue
+            hidden.append(rt_scene.objects[key])
+        # Recorded on the (cached) scene so _reset_sensing_targets - after the
+        # solve, and again before the next one - re-adds exactly these.
+        rt_scene._seam_hidden_actor_objects = hidden
+        if sionna_targets or hidden:
+            rt_scene.edit(add=sionna_targets or None, remove=hidden or None)
+        return sionna_targets
+
+    @staticmethod
+    def _place_actors(
+        project_dir: Path,
+        scene: Scene,
+        rt_scene,
+        warnings: list[str],
+        actor_states: Optional[list] = None,
+        actor_velocities: Optional[dict] = None,
+    ) -> bool:
+        """Move every baked actor to its current pose and give every actor its
+        velocity (``actor_velocities``, zero when absent); True when actor
+        velocities were applied.
+
+        The actor mesh is baked into the XML at the pose it had at COMPILE
+        time, and the fingerprint deliberately excludes actor pose (so editor
+        moves don't force recompiles). Deltas must therefore be measured from
+        the manifest's baked pose, not the (possibly since moved) authored pose
+        — and every solve repositions every baked actor to its current pose, so
+        editor drags and live-overlay moves reach the ray tracer instead of
+        silently solving against stale geometry.
+        """
+        baked_poses = _baked_actor_poses(project_dir)
+        base_actors = {}
+        for a in scene.actors:
+            bp = baked_poses.get(a.id)
+            base_actors[a.id] = (
+                a.model_copy(
+                    update={"position": list(bp[0]), "orientation_deg": list(bp[1])}
+                )
+                if bp
+                else a
+            )
+        states = list(actor_states) if actor_states else []
+        explicit = {s.id for s in states}
+        for a in scene.actors:
+            if a.id in explicit or a.id not in baked_poses:
+                continue
+            pos, orient = baked_poses[a.id]
+            if [float(v) for v in a.position] != pos or [
+                float(v) for v in a.orientation_deg
+            ] != orient:
+                states.append(
+                    SimpleNamespace(
+                        id=a.id,
+                        position=list(a.position),
+                        orientation_deg=list(a.orientation_deg),
+                    )
+                )
+        if states:
+            warnings.extend(
+                apply_actor_states(rt_scene, states, base_actors, actor_velocities)
+            )
+        _sync_actor_velocities(rt_scene, [a.id for a in scene.actors], actor_velocities)
+        return bool(actor_velocities)
+
+    @staticmethod
     def _apply_custom_materials(project_dir: Path, rt_scene, warnings: list[str]) -> None:
         """Push library material parameters onto loaded RadioMaterials.
 
@@ -1365,8 +1775,14 @@ class SionnaBackend(RayTracingBackend):
         np,
         frequency_hz: float,
         absorption_db_per_km: float = 0.0,
+        *,
+        sensing_actor_ids: Optional[list] = None,
     ) -> tuple[list[RayPath], Optional[list[float]]]:
         """Normalize a sionna-rt 2.x Paths object into schema RayPath entries.
+
+        ``sensing_actor_ids`` (RCSSolver output only) switches on the sensing
+        fields: ids "sensing_NNNN", per-path ``doppler_hz`` and ``target_id``.
+        Left None, the output is exactly the plain-paths conversion.
 
         Verified tensor layout (synthetic 1x1 arrays, synthetic_array=True):
         - solved.a:            tuple(real, imag), each
@@ -1489,6 +1905,7 @@ class SionnaBackend(RayTracingBackend):
                     bounce, interactions = SionnaBackend._path_interactions(
                         r, t, p, vertices, objects, itypes,
                         objid_to_material, material_to_prims, np,
+                        sensing_actor_ids=sensing_actor_ids,
                     )
                     verts = [list(txs[t].position)] + bounce + [list(rxs[r].position)]
                     # AoD/AoA as [azimuth_deg, elevation_deg]: solver tensors
@@ -1509,35 +1926,42 @@ class SionnaBackend(RayTracingBackend):
                     else:
                         aoa = geometric_departure_arrival_deg(verts)[1]
                     counter += 1
-                    paths.append(
-                        RayPath(
-                            path_id=f"path_{counter:04d}",
-                            tx_id=txs[t].id,
-                            rx_id=rxs[r].id,
-                            path_type=SionnaBackend._path_type(interactions),
-                            vertices=verts,
-                            power_dbm=power_dbm,
-                            path_gain_db=power_dbm - txs[t].power_dbm,
-                            delay_ns=tau_s * 1e9,
-                            # RayPath convention: TOTAL passband phase at the
-                            # carrier = interaction phase (angle of a) plus the
-                            # propagation term -2*pi*f_c*tau. Sionna's Paths.a
-                            # deliberately EXCLUDES the propagation phase
-                            # (verified: LoS angle(a) == 0.0 at any distance),
-                            # so without this term every coherent consumer
-                            # (CFR/CIR/spectrogram, coherent RSS) mis-cancels
-                            # sparse multipath (DeepVerse DT31 GT: band-mean
-                            # deficit -5.85 dB vs GT -0.96 dB).
-                            phase_rad=math.remainder(
-                                math.atan2(amp.imag, amp.real)
-                                - 2.0 * math.pi * frequency_hz * tau_s,
-                                2.0 * math.pi,
-                            ),
-                            aod_deg=aod,
-                            aoa_deg=aoa,
-                            interactions=interactions,
-                        )
+                    path = RayPath(
+                        path_id=f"path_{counter:04d}",
+                        tx_id=txs[t].id,
+                        rx_id=rxs[r].id,
+                        path_type=SionnaBackend._path_type(interactions),
+                        vertices=verts,
+                        power_dbm=power_dbm,
+                        path_gain_db=power_dbm - txs[t].power_dbm,
+                        delay_ns=tau_s * 1e9,
+                        # RayPath convention: TOTAL passband phase at the
+                        # carrier = interaction phase (angle of a) plus the
+                        # propagation term -2*pi*f_c*tau. Sionna's Paths.a
+                        # deliberately EXCLUDES the propagation phase
+                        # (verified: LoS angle(a) == 0.0 at any distance),
+                        # so without this term every coherent consumer
+                        # (CFR/CIR/spectrogram, coherent RSS) mis-cancels
+                        # sparse multipath (DeepVerse DT31 GT: band-mean
+                        # deficit -5.85 dB vs GT -0.96 dB).
+                        phase_rad=math.remainder(
+                            math.atan2(amp.imag, amp.real)
+                            - 2.0 * math.pi * frequency_hz * tau_s,
+                            2.0 * math.pi,
+                        ),
+                        aod_deg=aod,
+                        aoa_deg=aoa,
+                        interactions=interactions,
                     )
+                    if sensing_actor_ids is not None:
+                        path.path_id = f"{SENSING_PATH_PREFIX}{counter:04d}"
+                        if doppler is not None and doppler.ndim == 3:
+                            path.doppler_hz = float(doppler[r, t, p])
+                        path.target_id = next(
+                            (i.prim_id for i in interactions if i.type == "sensing"),
+                            None,
+                        )
+                    paths.append(path)
                     if doppler is not None and doppler.ndim == 3:
                         doppler_hz.append(float(doppler[r, t, p]))
         # Only return a doppler list when it lines up with every kept path;
@@ -1547,9 +1971,14 @@ class SionnaBackend(RayTracingBackend):
 
     @staticmethod
     def _path_interactions(
-        r, t, p, vertices, objects, itypes, objid_to_material, material_to_prims, np
+        r, t, p, vertices, objects, itypes, objid_to_material, material_to_prims, np,
+        sensing_actor_ids: Optional[list] = None,
     ) -> tuple[list[list[float]], list[PathInteraction]]:
-        """Extract a path's bounce points and per-interaction prim/material."""
+        """Extract a path's bounce points and per-interaction prim/material.
+
+        ``sensing_actor_ids`` maps a SENSING slot's target index (the solver's
+        ``list(scene.sensing_targets)`` order) to the actor id it represents.
+        """
         bounce: list[list[float]] = []
         interactions: list[PathInteraction] = []
         if vertices is None or vertices.ndim != 5:
@@ -1564,6 +1993,20 @@ class SionnaBackend(RayTracingBackend):
             point = [float(x) for x in v]
             bounce.append(point)
             code = int(itypes[d, r, t, p]) if itypes is not None else 1
+            if code == _SENSING_CODE:
+                # A target index can equal a real mesh object id, so the code
+                # decides — never consult objid_to_material here.
+                actor_id = (
+                    sensing_actor_ids[obj_id]
+                    if sensing_actor_ids and 0 <= obj_id < len(sensing_actor_ids)
+                    else None
+                )
+                interactions.append(
+                    PathInteraction(
+                        type="sensing", prim_id=actor_id, rf_material_id=None, point=point
+                    )
+                )
+                continue
             mat_id = objid_to_material.get(obj_id)
             prims = material_to_prims.get(mat_id, []) if mat_id else []
             interactions.append(
@@ -1582,6 +2025,8 @@ class SionnaBackend(RayTracingBackend):
     def _path_type(interactions: list[PathInteraction]) -> str:
         if not interactions:
             return "los"
+        if any(i.type == "sensing" for i in interactions):
+            return "sensing"
         kinds = {i.type for i in interactions}
         return next(iter(kinds)) if len(kinds) == 1 else "mixed"
 

@@ -32,7 +32,7 @@ SEAM Studio는 **로컬 우선(local-first)** 워크벤치입니다. GPU도, Sio
 
 | 항목 | 무엇 | 언제 필요 |
 |---|---|---|
-| **`sionna-rt` 패키지** | 실제 레이 트레이싱 엔진 (Mitsuba 3 / Dr.Jit 포함, 수백 MB) | **자동 설치됨** — 소스 설치와 pip 패키지 모두의 기본 의존성 (과거의 `backend[sionna]` extra는 호환용 no-op으로 유지). 검증 버전 `sionna-rt 2.0.x`. → [아래 섹션](#실제-sionna-rt-엔진-자동-설치됨) |
+| **`sionna-rt` 패키지** | 실제 레이 트레이싱 엔진 (Mitsuba 3 / Dr.Jit 포함, 수백 MB) | **자동 설치됨** — 소스 설치와 pip 패키지 모두의 기본 의존성 (과거의 `backend[sionna]` extra는 호환용 no-op으로 유지). 검증 버전 `sionna-rt 2.2.x` (레이더 센싱은 2.2 이상 필요). → [아래 섹션](#실제-sionna-rt-엔진-자동-설치됨) |
 | **NVIDIA GPU + 드라이버** | `sionna-rt`의 CUDA(Dr.Jit) 가속 | *패키지 설치 위에 얹는* 추가 레이어. 없으면 Sionna는 CPU/LLVM으로 동작(정상, 다만 느림). macOS는 Metal/MPS 백엔드가 없어 **항상 CPU/LLVM** |
 | **로컬 LLM 서버** | LM Studio(`:1234`) 또는 Ollama(`:11434`) + (VLM) 모델 | AI 재질 어시스트 / SEAM-Agent용. 없으면 규칙 기반으로 폴백. → [로컬 LLM 설정](#선택-로컬-llmvlm--ai-재질-제안) |
 
@@ -255,8 +255,8 @@ npm run dev
 
 `sionna-rt`(Mitsuba 3 / Dr.Jit 포함, 수백 MB)는 **기본 의존성**입니다 — 경로 A와
 경로 B 모두 자동으로 함께 설치되며, 따로 실행할 것이 없습니다. 검증 버전은
-`sionna-rt 2.0.x`이고, 과거의 `backend[sionna]` extra는 무해한 no-op 별칭으로
-남아 있습니다.
+`sionna-rt 2.2.x`(레이더 센싱에 필요한 RCS 솔버가 2.2부터 포함)이고, 과거의
+`backend[sionna]` extra는 무해한 no-op 별칭으로 남아 있습니다.
 
 Sionna가 정상 로드되면 툴바 우측 상태칩이 (**Mock only** 대신) **Sionna**로 표시되고,
 Simulation 패널의 **Backend** 셀렉트에서 `auto`/`sionna`를 고를 수 있습니다. 임포트가
@@ -265,8 +265,8 @@ Simulation 패널의 **Backend** 셀렉트에서 `auto`/`sionna`를 고를 수 �
 
 ```powershell
 # Windows                                   # Linux/macOS
-backend\.venv\Scripts\python.exe -m pip install --force-reinstall "sionna-rt>=2.0"
-backend/.venv/bin/python -m pip install --force-reinstall "sionna-rt>=2.0"
+backend\.venv\Scripts\python.exe -m pip install --force-reinstall "sionna-rt>=2.2"
+backend/.venv/bin/python -m pip install --force-reinstall "sionna-rt>=2.2"
 ```
 
 > **GPU / OS별 백엔드 요약**
@@ -394,7 +394,7 @@ cd frontend && npm run build
 | **GPU 미탐지 / CUDA 없음** | 정상입니다. 앱이 자동으로 **Mock 백엔드**로 동작합니다. 실제 Sionna를 쓰려면 NVIDIA 드라이버+CUDA(또는 Sionna의 LLVM CPU 백엔드)가 필요합니다. |
 | **`LLVM ... ` 경고 로그** | 무해합니다. Sionna의 Dr.Jit가 CPU(LLVM) 백엔드를 초기화할 때 나오는 정보성 경고이며 동작에 영향 없습니다. |
 | **macOS: 솔브 시 "the LLVM backend is inactive … libLLVM.dylib could not be found"** | macOS용 drjit 휠에는 LLVM이 동봉되지 않습니다. 실행 전에 `DRJIT_LIBLLVM_PATH`를 libLLVM으로 지정하세요: Xcode CLT에 `/Library/Developer/CommandLineTools/usr/lib/libLLVM.dylib`가 있으면 그 경로, 없으면 `brew install llvm` 후 `"$(brew --prefix llvm)/lib/libLLVM.dylib"`. |
-| **상태칩이 "Mock only"** | `sionna-rt` 임포트가 깨졌거나(불완전 설치 — 백엔드 venv에서 `pip install --force-reinstall "sionna-rt>=2.0"`로 재설치), CUDA/LLVM 백엔드가 없어서 Sionna가 스스로 비활성화된 상태입니다. Mock으로 전체 워크플로는 그대로 사용 가능합니다. |
+| **상태칩이 "Mock only"** | `sionna-rt` 임포트가 깨졌거나(불완전 설치 — 백엔드 venv에서 `pip install --force-reinstall "sionna-rt>=2.2"`로 재설치), CUDA/LLVM 백엔드가 없어서 Sionna가 스스로 비활성화된 상태입니다. Mock으로 전체 워크플로는 그대로 사용 가능합니다. |
 | **상태칩이 "AI off"** | AI 서버(Ollama/LM Studio)에 연결되지 않은 상태. 규칙 기반 제안은 여전히 동작합니다. 로컬 LLM을 켜려면 위 [로컬 LLM/VLM](#선택-로컬-llmvlm--ai-재질-제안) 참조. |
 | **프로젝트 목록이 비어 있음** | 데모 3종은 리포에 **기본 포함**되어 있어 보통 바로 보입니다. 백엔드는 두 곳을 순서대로 탐색합니다 — 먼저 리포 루트의 `projects/`(루트 #1, UI에서 임포트한 프로젝트가 저장되는 곳; 새 클론에서는 비어 있거나 없을 수 있음), 그다음 커밋된 데모가 있는 `examples/demo_project/`. 비어 있다면 백엔드가 이 둘을 찾지 못한 것 — 리포 루트에서 서버를 실행했는지, `SEAM_PROJECT_ROOTS`(레거시 `SIONNATWIN_PROJECT_ROOTS`)를 덮어써 기본 루트를 가리지 않았는지 확인하세요. [3. (선택) 데모 프로젝트 재생성](#3-선택-데모-프로젝트-재생성) 스크립트는 데모를 *재생성*할 때만 필요합니다. |
 | **`import sionna.rt` 콜드 임포트가 느림** | 대체 엔진 첫 프로브는 수십 초 걸릴 수 있습니다(프로세스당 1회 캐시). 이후는 빨라집니다. |

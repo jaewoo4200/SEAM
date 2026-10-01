@@ -123,9 +123,9 @@ bash scripts/start.sh     # 2. 백엔드+프론트 실행
   `SINR = SNR`로 되돌아갑니다.
 - **결정론적 Mock 백엔드** — GPU/Sionna 없이 Friis + 이미지법 반사로 예제
   경로/라디오맵을 계산. 프론트엔드·테스트가 하드웨어 없이 돌아갑니다.
-- **실제 Sionna RT 경로** — `sionna-rt`(검증 2.0.x) 설치 시 컴파일된
-  `generated_scene.xml`이 그대로 로드되어 GPU(Dr.Jit CUDA) 또는 CPU(LLVM)에서
-  경로/라디오맵을 계산하고, 같은 스키마로 정규화됩니다.
+- **실제 Sionna RT 경로** — `sionna-rt`(2.2 이상 필요, 2.0.x·2.2.x 검증) 설치 시
+  컴파일된 `generated_scene.xml`이 그대로 로드되어 GPU(Dr.Jit CUDA) 또는
+  CPU(LLVM)에서 경로/라디오맵을 계산하고, 같은 스키마로 정규화됩니다.
 - **AODT 정렬** — 28 GHz 기본 + ITU-R P.2040 재질 세트(+`human_body`), AODT 스타일
   다크 뷰어(LOS 시안 / 반사 마젠타 / 회절 주황), RFData 내보내기 컨트랙트.
 - **선택적 로컬 AI** — 강제 제공자 → Ollama → 규칙 기반 폴백 체인. 엄격한 JSON
@@ -179,6 +179,10 @@ bash scripts/start.sh     # 2. 백엔드+프론트 실행
   따라 움직입니다(UAV의 z는 비행 고도라 제자리 호버링과 3D 비행 경로 모두 가능).
   TX/RX/액터를 클릭하면 그 엔티티 시점에서 링크 상대를 바라보는 실시간 PiP 뷰가
   열리고, 레이 오버레이도 그대로 보입니다 — BS 관점에서 UE를 보는 화면입니다.
+- **레이더 센싱(RCS)** — 차량/사람/UAV를 TR 38.901 또는 고정 RCS 타깃으로
+  바인딩하고, Sionna RT의 `RCSSolver`(sionna-rt 2.2 이상)로 모노스태틱/바이스태틱
+  에코를 풉니다. 경로별 도플러, 도플러 색으로 칠한 뷰포트 레이, RFData / AODT /
+  채널 npz 내보내기를 지원합니다. [docs/guides/sensing.md](docs/guides/sensing.ko.md) 참조.
 - **AI 모델 픽커** — LM Studio/Ollama에 로드된 모델을 자동 발견해 제안·에이전트에
   쓸 모델을 UI에서 바꿉니다. 어떤 모델이 답했는지 provenance에 기록됩니다.
 
@@ -235,6 +239,7 @@ curl/스크립트로 프로그래매틱하게** 호출한다(백엔드는 기본
 | [docs/guides/simulation.md](docs/guides/simulation.ko.md) | 그림 가이드: 경로, 라디오맵, 빔포밍, 채널 분석 |
 | [docs/guides/trajectory_uav.md](docs/guides/trajectory_uav.ko.md) | 그림 가이드: 궤적, UAV 액터, 재생, POV 뷰 |
 | [docs/guides/datasets_export.md](docs/guides/datasets_export.ko.md) | 그림 가이드: ML 데이터셋과 내보내기 |
+| [docs/guides/sensing.md](docs/guides/sensing.ko.md) | 가이드: 레이더 센싱 타깃, RCS 솔브, 도플러 |
 | [docs/architecture.md](docs/architecture.ko.md) | 통합 씬 그래프와 이중 프로젝션 아키텍처 |
 | [docs/scene_format.md](docs/scene_format.ko.md) | 씬·프로젝트 폴더 포맷과 스키마 |
 | [docs/rf_materials.md](docs/rf_materials.ko.md) | RF 재질 라이브러리와 모델 |

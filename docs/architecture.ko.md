@@ -126,6 +126,9 @@ GET /api/projects/{id}/results/paths         latest = last ref of that kind
 ```
 
 `simulate/radio-map`도 `RadioMapResultSet`으로 같은 형태를 따릅니다.
+`simulate/sensing`(`actor.sensing`으로 바인딩한 액터에 대한 레이더 RCS 솔브,
+[guides/sensing.ko.md](guides/sensing.ko.md) 참고)도 `SensingResultSet`(kind `"sensing"`,
+`GET /results/sensing`)으로 같은 형태를 따릅니다.
 
 ## 결과 스키마, 재현성, 이벤트
 
@@ -187,11 +190,15 @@ GET /api/projects/{id}/results/paths         latest = last ref of that kind
 - `scene_hash` — 정규 씬에서 `result_sets`와 `revision`을 **뺀** 값. 둘 다 결과를
   저장하는 행위 자체가 건드리는 장부(ref 추가·저장 카운터 증가)이므로, 남겨 두면
   결과가 자기를 만들어 낸 씬의 해시를 흔들게 됩니다. 동일한 솔브를 두 번 돌리면
-  `scene_hash`도 같아야 합니다.
+  `scene_hash`도 같아야 합니다. `sensing`이 `null`인 액터는 `sensing` 키를 **빼고**
+  해시하므로, 이 필드가 생기기 전에 저장한 씬도 해시가 그대로입니다.
 - `rf_assignment_hash` — `(prim_id, material_id, assignment_status)`만 담아, 순수한
   재질 재할당만으로도 변화를 감지할 수 있음.
 - `sim_config_hash` — 정확한 솔버 노브(knob); 전체 `config_snapshot`이
   함께 저장됨.
+- `request_hash`(센싱 결과 전용) — 설정 필드가 아닌 센싱 전용 노브
+  (`target_actor_ids`, `max_depth`, `samples_per_sp`, `include_comm_paths` 등),
+  즉 `metadata.sensing_request`의 해시.
 
 프런트엔드는 결과에 찍힌 해시를 라이브 씬과 대조해, 솔브 이후 씬이나 할당이 바뀌었으면
 결과에 오래됨(stale) 배지를 붙입니다.
@@ -201,7 +208,7 @@ GET /api/projects/{id}/results/paths         latest = last ref of that kind
 `GET /api/backends`는 기능 인식형 UI를 위해 `[{name, available, detail, capabilities}]`를
 반환합니다. `capabilities`는 안정적이고 가산적(additive)인 기능 맵
 (`paths`, `radio_map`, `mesh_radio_map`, `cir`, `beamforming`, `doppler`,
-`diffraction`, `gpu`, …)이며, **프런트엔드는 없는 키를 `false`로 간주합니다**. `mock`
+`diffraction`, `sensing`, `gpu`, …)이며, **프런트엔드는 없는 키를 `false`로 간주합니다**. `mock`
 백엔드는 항상 사용할 수 있고, `sionna`는 Sionna RT를 임포트할 수 없으면
 "not installed (optional)" 상세와 함께 `available: false`를 보고합니다.
 

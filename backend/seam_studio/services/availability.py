@@ -3,6 +3,7 @@
 import pkgutil
 from functools import lru_cache
 from importlib import util
+from pathlib import Path
 
 
 @lru_cache(maxsize=1)
@@ -30,3 +31,36 @@ def sionna_available() -> bool:
         )
     except Exception:
         return False
+
+
+@lru_cache(maxsize=1)
+def sionna_rcs_available() -> bool:
+    """True when the installed sionna-rt ships the RCS module (sionna.rt.rcs,
+    sionna-rt >= 2.2). Import-light: inspects the package tree only.
+
+    Importing sionna here would pin a Dr.Jit variant before
+    ``_ensure_sionna_variant`` gets to choose it, so this never imports."""
+    if not sionna_available():
+        return False
+    try:
+        spec = util.find_spec("sionna")
+        if spec is None or not spec.submodule_search_locations:
+            return False
+        return any(
+            (Path(location) / "rt" / "rcs" / "solver.py").is_file()
+            for location in spec.submodule_search_locations
+        )
+    except Exception:
+        return False
+
+
+def sionna_backend_detail(available: bool) -> str:
+    """Health/backends detail line for the sionna backend (one wording for
+    /api/health and simulation_backends.available_backends)."""
+    if not available:
+        return "sionna-rt not installed (optional)"
+    return (
+        "sensing (RCS) available"
+        if sionna_rcs_available()
+        else "sensing needs sionna-rt>=2.2"
+    )

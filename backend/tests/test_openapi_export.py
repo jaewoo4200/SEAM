@@ -27,6 +27,8 @@ WAVE0_ROUTES = [
     ("POST", "/projects/{project_id}/simulate/mesh-radio-map"),
     ("GET", "/projects/{project_id}/results/mesh-radio-map"),
     ("GET", "/backends"),
+    ("POST", "/projects/{project_id}/simulate/sensing"),
+    ("GET", "/projects/{project_id}/results/sensing"),
 ]
 
 # Being implemented by sibling agents this wave - assert-if-present only.

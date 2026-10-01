@@ -28,6 +28,13 @@ from .common import (
     Vec3,
 )
 from .devices import Device
+from .sensing import (
+    TR38901_MODEL_TYPES,
+    TR38901_OBJECT_TYPES,
+    SensingTargetSpec,
+    model_type_error,
+    resolve_object_type,
+)
 from .simulation import SimulationConfig
 
 
@@ -189,6 +196,8 @@ class Actor(StrictModel):
     # Devices that move with this actor (offsets preserved from scene pose).
     attached_device_ids: list[str] = Field(default_factory=list)
     color: Optional[str] = Field(default=None, pattern=r"^#[0-9a-fA-F]{6}$")
+    # Radar sensing-target binding (POST /simulate/sensing); None = not a target.
+    sensing: Optional[SensingTargetSpec] = None
 
     @model_validator(mode="after")
     def _kind_defaults(self) -> "Actor":
@@ -203,6 +212,23 @@ class Actor(StrictModel):
             object.__setattr__(
                 self.shape, "size_m", [float(v) for v in defaults["size_m"]]
             )
+        return self
+
+    @model_validator(mode="after")
+    def _sensing_consistent(self) -> "Actor":
+        # The kind-derived object type is checked here but never written back:
+        # None stays None so the UI can show the derived value as a placeholder.
+        s = self.sensing
+        if s is None or s.model != "tr38901":
+            return self
+        ot = resolve_object_type(self.kind, s)
+        if ot is None:
+            raise ValueError(
+                f"actor {self.id!r} (kind {self.kind!r}) with sensing model 'tr38901' "
+                f"needs sensing.object_type (one of {', '.join(TR38901_OBJECT_TYPES)})"
+            )
+        if s.model_type is not None and s.model_type not in TR38901_MODEL_TYPES[ot]:
+            raise ValueError(model_type_error(ot, s.model_type))
         return self
 
 
@@ -236,7 +262,7 @@ class ResultSetRef(StrictModel):
     result_id: str
     kind: Literal[
         "paths", "radio_map", "mesh_radio_map", "trajectory", "scenario",
-        "channel", "playback",
+        "channel", "playback", "sensing",
     ]
     backend: str
     simulation_config_id: str

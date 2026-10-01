@@ -182,6 +182,23 @@ measurement_calibrated
 | `antenna` | Antenna | `pattern`(Sionna 이름), `polarization`, `num_rows`, `num_cols` |
 | `color` | `#rrggbb` | 뷰어 마커 색상 |
 
+### Actor
+
+움직이는 RF 객체(`kind`: `"car"` \| `"human"` \| `"uav"` \| `"custom"`)로, 각각
+독립된 Sionna 셰이프로 컴파일됩니다. `position`은 바닥 중심(z = 지면 접점),
+`shape.size_m`은 박스 크기입니다. 여기서 관련된 필드는 다음과 같습니다.
+
+| field | type | notes |
+|---|---|---|
+| `sensing` | SensingTargetSpec \| null | `POST /simulate/sensing`용 레이더 센싱 타깃 바인딩; null = 타깃 아님. [guides/sensing.ko.md](guides/sensing.ko.md) 참고 |
+
+`SensingTargetSpec`: `model`(`"tr38901"` \| `"constant"`), `object_type`
+(TR 38.901 타입; null이면 액터 kind에서 유도, `custom`은 필수),
+`model_type`(1 \| 2 \| null), `rcs_dbsm` / `xpr_db`(constant 전용),
+`random_components`, `size_m`(null = 액터 크기), `velocity_m_s`(null = t=0의
+궤적 접선 속도), `enabled`. 다른 모델의 필드를 넣으면 거부됩니다
+(`PUT /scene`에서 422).
+
 ### SimulationConfig
 
 | field | type | notes |
@@ -200,7 +217,7 @@ measurement_calibrated
 | field | type | notes |
 |---|---|---|
 | `result_id` | str | `{backend}_{kind}_{n:03d}`, 예: `mock_paths_001` |
-| `kind` | `"paths"` \| `"radio_map"` \| `"mesh_radio_map"` \| `"trajectory"` \| `"scenario"` | |
+| `kind` | `"paths"` \| `"radio_map"` \| `"mesh_radio_map"` \| `"trajectory"` \| `"scenario"` \| `"channel"` \| `"playback"` \| `"sensing"` | |
 | `backend` | str | 이를 생성한 백엔드 |
 | `simulation_config_id` | str | |
 | `uri` | str | 프로젝트 상대 경로, `results/<result_id>.json` |

@@ -33,7 +33,7 @@ when you need them.
 
 | Item | What | When needed |
 |---|---|---|
-| **`sionna-rt` package** | The real ray tracing engine (includes Mitsuba 3 / Dr.Jit, several hundred MB) | **Installed automatically** — it is a base dependency of both the source install and the pip package (the old `backend[sionna]` extra remains as a no-op alias). Verified version `sionna-rt 2.0.x`. → [section below](#the-real-sionna-rt-engine-installed-automatically) |
+| **`sionna-rt` package** | The real ray tracing engine (includes Mitsuba 3 / Dr.Jit, several hundred MB) | **Installed automatically** — it is a base dependency of both the source install and the pip package (the old `backend[sionna]` extra remains as a no-op alias). Verified version `sionna-rt 2.2.x` (2.2+ is required for radar sensing). → [section below](#the-real-sionna-rt-engine-installed-automatically) |
 | **NVIDIA GPU + driver** | CUDA (Dr.Jit) acceleration for `sionna-rt` | An additional layer *on top of the package install*. Without it Sionna runs on CPU/LLVM (works fine, just slower). macOS has no Metal/MPS backend, so it is **always CPU/LLVM** |
 | **Local LLM server** | LM Studio (`:1234`) or Ollama (`:11434`) + a (VLM) model | For AI material assist / SEAM-Agent. Falls back to rule-based without it. → [Local LLM setup](#optional-local-llmvlm--ai-material-suggestions) |
 
@@ -260,8 +260,9 @@ provider availability).
 
 `sionna-rt` (includes Mitsuba 3 / Dr.Jit, several hundred MB) is a **base
 dependency** — both Route A and Route B install it for you; there is nothing
-extra to run. The verified version is `sionna-rt 2.0.x`, and the old
-`backend[sionna]` extra remains as a harmless no-op alias.
+extra to run. The verified version is `sionna-rt 2.2.x` (2.2+ adds the RCS
+solver radar sensing needs), and the old `backend[sionna]` extra remains as a
+harmless no-op alias.
 
 When Sionna loaded correctly, the status chip at the top-right of the toolbar shows
 **Sionna** (instead of **Mock only**) and you can choose `auto`/`sionna` in the Simulation
@@ -271,8 +272,8 @@ reinstall into the backend venv:
 
 ```powershell
 # Windows                                   # Linux/macOS
-backend\.venv\Scripts\python.exe -m pip install --force-reinstall "sionna-rt>=2.0"
-backend/.venv/bin/python -m pip install --force-reinstall "sionna-rt>=2.0"
+backend\.venv\Scripts\python.exe -m pip install --force-reinstall "sionna-rt>=2.2"
+backend/.venv/bin/python -m pip install --force-reinstall "sionna-rt>=2.2"
 ```
 
 > **GPU / OS backend summary**
@@ -398,7 +399,7 @@ cd frontend && npm run build
 | **GPU not detected / no CUDA** | This is normal. The app automatically runs on the **Mock backend**. To use real Sionna you need an NVIDIA driver+CUDA (or Sionna's LLVM CPU backend). |
 | **`LLVM ... ` warning log** | Harmless. It is an informational warning emitted when Sionna's Dr.Jit initializes the CPU (LLVM) backend, and does not affect operation. |
 | **macOS: solve fails with "the LLVM backend is inactive … libLLVM.dylib could not be found"** | The macOS drjit wheels do not bundle LLVM. Set `DRJIT_LIBLLVM_PATH` to a libLLVM before launching: Xcode CLT ships `/Library/Developer/CommandLineTools/usr/lib/libLLVM.dylib`; otherwise `brew install llvm` and use `"$(brew --prefix llvm)/lib/libLLVM.dylib"`. |
-| **Status chip shows "Mock only"** | The `sionna-rt` import failed (broken/partial install — reinstall with `pip install --force-reinstall "sionna-rt>=2.0"` in the backend venv) or Sionna disabled itself because there is no CUDA/LLVM backend. The entire workflow remains usable with Mock. |
+| **Status chip shows "Mock only"** | The `sionna-rt` import failed (broken/partial install — reinstall with `pip install --force-reinstall "sionna-rt>=2.2"` in the backend venv) or Sionna disabled itself because there is no CUDA/LLVM backend. The entire workflow remains usable with Mock. |
 | **Status chip shows "AI off"** | Not connected to an AI server (Ollama/LM Studio). Rule-based suggestions still work. To turn on a local LLM see [Local LLM/VLM](#optional-local-llmvlm--ai-material-suggestions) above. |
 | **Project list is empty** | The 3 demos are **included by default** in the repo, so they usually appear right away. The backend searches two locations in order — first the repo root's `projects/` (root #1, where projects imported from the UI are saved; may be empty or absent in a fresh clone), then `examples/demo_project/` which has the committed demos. If it is empty, the backend did not find these two — check that you ran the server from the repo root and did not override `SEAM_PROJECT_ROOTS` (legacy `SIONNATWIN_PROJECT_ROOTS`) in a way that hides the default roots. The [3. (Optional) Regenerate the demo projects](#3-optional-regenerate-the-demo-projects) scripts are only needed to *regenerate* the demos. |
 | **`import sionna.rt` cold import is slow** | The first probe of an alternative engine can take tens of seconds (cached once per process). Subsequent ones are fast. |

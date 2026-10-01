@@ -128,6 +128,9 @@ GET /api/projects/{id}/results/paths         latest = last ref of that kind
 ```
 
 `simulate/radio-map` follows the same shape with `RadioMapResultSet`.
+`simulate/sensing` (radar RCS solve over actors bound via `actor.sensing`,
+see [guides/sensing.md](guides/sensing.md)) follows the same shape with
+`SensingResultSet` (kind `"sensing"`, `GET /results/sensing`).
 
 ## Result schemas, reproducibility, and events
 
@@ -193,11 +196,16 @@ result is detectable (`simulate.py::_provenance_hashes`):
 - `scene_hash` — the canonical scene **minus** `result_sets` and `revision`
   (both are bookkeeping that persisting a result mutates, so leaving either in
   would churn the hash of the scene that produced them; two identical solves
-  must record the same `scene_hash`).
+  must record the same `scene_hash`). An actor whose `sensing` is `null` is
+  hashed **without** the `sensing` key, so scenes saved before the field
+  existed keep their hash.
 - `rf_assignment_hash` — just `(prim_id, material_id, assignment_status)`, so a
   pure material re-assignment is detectable on its own.
 - `sim_config_hash` — the exact solver knobs; the full `config_snapshot` is
   stored alongside.
+- `request_hash` (sensing results only) — the sensing-only knobs that are not
+  config fields (`target_actor_ids`, `max_depth`, `samples_per_sp`,
+  `include_comm_paths`, …): the hash of `metadata.sensing_request`.
 
 The frontend compares a result's stamped hashes against the live scene to badge
 results as stale when the scene or assignments have moved on since the solve.
@@ -207,7 +215,7 @@ results as stale when the scene or assignments have moved on since the solve.
 `GET /api/backends` returns `[{name, available, detail, capabilities}]` for
 capability-aware UIs. `capabilities` is a stable, additive feature map
 (`paths`, `radio_map`, `mesh_radio_map`, `cir`, `beamforming`, `doppler`,
-`diffraction`, `gpu`, …); **frontends treat a missing key as `false`**. The
+`diffraction`, `sensing`, `gpu`, …); **frontends treat a missing key as `false`**. The
 `mock` backend is always available; `sionna` reports `available: false` with a
 "not installed (optional)" detail when Sionna RT is not importable.
 

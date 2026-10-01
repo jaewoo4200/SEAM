@@ -183,6 +183,23 @@ state: `/terrain/ground` is `user_confirmed`, `/roads/r01/surface` is
 | `antenna` | Antenna | `pattern` (Sionna name), `polarization`, `num_rows`, `num_cols` |
 | `color` | `#rrggbb` | viewer marker color |
 
+### Actor
+
+Movable RF objects (`kind`: `"car"` \| `"human"` \| `"uav"` \| `"custom"`), each
+compiled as its own Sionna shape. `position` is the base center (z = ground
+contact) and `shape.size_m` the box extents. The field relevant here:
+
+| field | type | notes |
+|---|---|---|
+| `sensing` | SensingTargetSpec \| null | radar sensing-target binding for `POST /simulate/sensing`; null = not a target. See [guides/sensing.md](guides/sensing.md) |
+
+`SensingTargetSpec`: `model` (`"tr38901"` \| `"constant"`), `object_type`
+(TR 38.901 type; null = derived from the actor kind, required for `custom`),
+`model_type` (1 \| 2 \| null), `rcs_dbsm` / `xpr_db` (constant only),
+`random_components`, `size_m` (null = actor size), `velocity_m_s` (null =
+trajectory tangent at t=0), `enabled`. Fields of the other model are rejected
+(422 on `PUT /scene`).
+
 ### SimulationConfig
 
 | field | type | notes |
@@ -201,7 +218,7 @@ state: `/terrain/ground` is `user_confirmed`, `/roads/r01/surface` is
 | field | type | notes |
 |---|---|---|
 | `result_id` | str | `{backend}_{kind}_{n:03d}`, e.g. `mock_paths_001` |
-| `kind` | `"paths"` \| `"radio_map"` \| `"mesh_radio_map"` \| `"trajectory"` \| `"scenario"` | |
+| `kind` | `"paths"` \| `"radio_map"` \| `"mesh_radio_map"` \| `"trajectory"` \| `"scenario"` \| `"channel"` \| `"playback"` \| `"sensing"` | |
 | `backend` | str | backend that produced it |
 | `simulation_config_id` | str | |
 | `uri` | str | project-relative, `results/<result_id>.json` |

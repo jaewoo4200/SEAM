@@ -54,7 +54,7 @@ dependencies = [
     # ship an LLVM CPU backend, so no GPU is required to install or run).
     # The app still degrades gracefully to the Mock backend if the import
     # fails at runtime (HANDOFF rule: never break when Sionna is missing).
-    "sionna-rt>=2.0",
+    "sionna-rt>=2.2",
 ]
 
 [project.scripts]
@@ -70,7 +70,7 @@ dev = ["pytest>=8.2"]
 # Back-compat alias from when sionna-rt was opt-in; it is a base dependency
 # now, so this extra is a no-op kept so `pip install "seam-studio[sionna]"`
 # instructions keep working.
-sionna = ["sionna-rt>=2.0"]
+sionna = ["sionna-rt>=2.2"]
 # Future columnar result schemas (paths.parquet, radio_map.parquet, cir.zarr).
 results = ["duckdb>=1.0", "pyarrow>=16", "zarr>=2.18"]
 

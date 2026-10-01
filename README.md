@@ -125,9 +125,10 @@ Studio builds on the same Sionna RT engine and adds:
 - **Deterministic Mock backend** — Friis + image-method reflections compute
   example paths/radio maps with no GPU/Sionna, so the frontend and tests run
   anywhere.
-- **Real Sionna RT path** — with `sionna-rt` installed (validated on 2.0.x) the
-  compiled `generated_scene.xml` loads directly on GPU (Dr.Jit CUDA) or CPU
-  (LLVM) and results normalize into the same schema.
+- **Real Sionna RT path** — with `sionna-rt` installed (2.2+ required;
+  validated on 2.0.x and 2.2.x) the compiled `generated_scene.xml` loads
+  directly on GPU (Dr.Jit CUDA) or CPU (LLVM) and results normalize into the
+  same schema.
 - **AODT alignment** — 28 GHz defaults, ITU-R P.2040 material set (+`human_body`),
   AODT-style dark viewer (LOS cyan / reflection magenta / diffraction orange),
   RFData export contract.
@@ -195,6 +196,11 @@ Studio builds on the same Sionna RT engine and adds:
   in place or fly a 3D path); clicking any TX/RX/actor opens a live
   picture-in-picture view from that entity toward a selectable link partner,
   with ray overlays visible in it — a BS-perspective look at the UE.
+- **Radar sensing (RCS)** — bind cars / humans / UAVs as TR 38.901 or
+  constant-RCS targets and solve monostatic/bistatic echoes with Sionna RT's
+  `RCSSolver` (sionna-rt ≥ 2.2): per-path Doppler, Doppler-colored viewport
+  rays, exports to RFData / AODT / channel npz. See
+  [docs/guides/sensing.md](docs/guides/sensing.md).
 - **AI model picker** — models loaded in LM Studio / Ollama are auto-discovered
   and switchable in the UI; the responding model is recorded in provenance.
 
@@ -252,6 +258,7 @@ curl/scripts (backend defaults to `http://127.0.0.1:8000`):
 | [docs/guides/simulation.md](docs/guides/simulation.md) | illustrated guide: paths, radio maps, beamforming, channel analysis |
 | [docs/guides/trajectory_uav.md](docs/guides/trajectory_uav.md) | illustrated guide: trajectories, UAV actors, playback, POV views |
 | [docs/guides/datasets_export.md](docs/guides/datasets_export.md) | illustrated guide: ML datasets and exports |
+| [docs/guides/sensing.md](docs/guides/sensing.md) | guide: radar sensing targets, RCS solve, Doppler |
 | [docs/architecture.md](docs/architecture.md) | unified scene graph & dual-projection architecture |
 | [docs/scene_format.md](docs/scene_format.md) | scene/project folder format and schemas |
 | [docs/rf_materials.md](docs/rf_materials.md) | RF material library and models |

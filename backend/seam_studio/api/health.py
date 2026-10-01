@@ -10,7 +10,7 @@ from seam_studio.core.config import APP_VERSION, get_settings
 from seam_studio.schemas.ai import AIProviderStatus
 from seam_studio.schemas.common import SCHEMA_VERSION, StrictModel
 from seam_studio.schemas.projects import HealthBackendStatus, HealthResponse
-from seam_studio.services.availability import sionna_available
+from seam_studio.services.availability import sionna_available, sionna_backend_detail
 
 router = APIRouter(tags=["health"])
 
@@ -70,7 +70,7 @@ def health() -> HealthResponse:
             HealthBackendStatus(
                 name="sionna",
                 available=sionna_ok,
-                detail="" if sionna_ok else "sionna-rt not installed (optional)",
+                detail=sionna_backend_detail(sionna_ok),
             ),
         ],
         ai_providers=ai_statuses,

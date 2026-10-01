@@ -10,13 +10,22 @@ and the caller can stamp storage metadata afterwards.
 import abc
 import math
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from seam_studio.schemas.compile import CompileResult
 from seam_studio.schemas.materials import RFMaterialLibrary
-from seam_studio.schemas.results import BeamformingResult, PathResultSet, RadioMapResultSet
+from seam_studio.schemas.results import (
+    BeamformingResult,
+    PathResultSet,
+    RadioMapResultSet,
+    SensingResultSet,
+)
 from seam_studio.schemas.scene import Scene
 from seam_studio.schemas.simulation import BeamformingRequest, SimulationConfig
+
+if TYPE_CHECKING:
+    from seam_studio.schemas.sensing import SensingSimulateRequest
+    from seam_studio.services.sensing import ResolvedSensingTarget
 
 # Placeholder result_id used by backends; the API layer replaces it with the
 # canonical "<backend>_<kind>_<nnn>" id when the result is stored.
@@ -81,6 +90,7 @@ class RayTracingBackend(abc.ABC):
             "beamforming": False,
             "doppler": False,
             "diffraction": False,
+            "sensing": False,
             "gpu": False,
         }
 
@@ -141,3 +151,30 @@ class RayTracingBackend(abc.ABC):
             rx_array=[request.rx_rows, request.rx_cols],
             warnings=[f"beamforming not supported by the {self.name} backend"],
         )
+
+    def simulate_paths_with_targets(
+        self,
+        project_dir: Path,
+        scene: Scene,
+        library: RFMaterialLibrary,
+        config: SimulationConfig,
+        targets: list["ResolvedSensingTarget"],
+    ) -> PathResultSet:
+        """Paths solve with sensing targets in the scene (the comm half of a
+        sensing result, channel-npz include_sensing). Like Sionna's PathSolver,
+        each target is an absorber standing in for its actor, so no path also
+        reflects off the actor's own mesh next to its RCS echoes. Default: a
+        plain solve, for backends that trace no actor geometry (the mock)."""
+        return self.simulate_paths(project_dir, scene, library, config)
+
+    def simulate_sensing(
+        self,
+        project_dir: Path,
+        scene: Scene,
+        library: RFMaterialLibrary,
+        config: SimulationConfig,
+        request: "SensingSimulateRequest",
+        targets: list["ResolvedSensingTarget"],
+    ) -> SensingResultSet:
+        """Radar (RCS) solve over resolved sensing targets. Default: unsupported."""
+        raise BackendUnavailableError(f"sensing is not supported by the {self.name} backend")

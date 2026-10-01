@@ -7,6 +7,7 @@ the app must work with no Sionna and no GPU (HANDOFF.md section 7).
 
 from seam_studio.schemas.projects import HealthBackendStatus
 from seam_studio.schemas.simulation import SimulationConfig
+from seam_studio.services.availability import sionna_backend_detail
 
 from .base import BackendUnavailableError, RayTracingBackend
 from .mock_backend import MockBackend
@@ -58,6 +59,6 @@ def available_backends() -> list[HealthBackendStatus]:
         HealthBackendStatus(
             name=sionna.name,
             available=sionna_ok,
-            detail="" if sionna_ok else "sionna-rt not installed (optional)",
+            detail=sionna_backend_detail(sionna_ok),
         ),
     ]

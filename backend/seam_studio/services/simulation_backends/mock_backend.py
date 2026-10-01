@@ -20,10 +20,18 @@ from seam_studio.schemas.results import (
     RadioMapGrid,
     RadioMapResultSet,
     RayPath,
+    SensingResultSet,
 )
 from seam_studio.schemas.scene import Prim, Scene
+from seam_studio.schemas.sensing import SensingSimulateRequest
 from seam_studio.schemas.simulation import BeamformingRequest, SimulationConfig
 from seam_studio.services import atmosphere
+from seam_studio.services.sensing import (
+    SENSING_PATH_PREFIX,
+    ResolvedSensingTarget,
+    dbsm_to_m2,
+    target_summary,
+)
 
 from .base import (
     UNSAVED_RESULT_ID,
@@ -37,6 +45,8 @@ ENGINE = "mock-deterministic-v2"
 MAX_RADIO_MAP_CELLS = 40_000
 GROUND_REFLECTION_LOSS_DB = 10.0
 WALL_REFLECTION_LOSS_DB = 18.0
+# TX/RX closer than this [m] are co-located: no LoS path between them.
+_COLOCATED_M = 1e-6
 
 
 def friis_dbm(p_tx_dbm: float, freq_hz: float, dist_m: float) -> float:
@@ -139,6 +149,26 @@ def _finish_path(path: RayPath, tx_power_dbm: float) -> RayPath:
     return path
 
 
+def _unit(a: list[float], b: list[float]) -> list[float]:
+    """Unit vector from a to b; the zero vector when the points coincide."""
+    d = [bi - ai for ai, bi in zip(a, b)]
+    n = math.sqrt(sum(c * c for c in d))
+    if n <= 1e-12:
+        return [0.0, 0.0, 0.0]
+    return [c / n for c in d]
+
+
+def _dot(a: list[float], b: list[float]) -> float:
+    return sum(ai * bi for ai, bi in zip(a, b))
+
+
+_MOCK_TR38901_WARNING = (
+    "mock sensing: TR 38.901 targets use one scattering point at the target "
+    "center with the spec's mean monostatic RCS (sigma_M); lobes and "
+    "multi-point layouts need the sionna backend"
+)
+
+
 class MockBackend(RayTracingBackend):
     name = "mock"
 
@@ -149,6 +179,7 @@ class MockBackend(RayTracingBackend):
         return {
             **super().capabilities(),
             "beamforming": True,  # analytic array-gain stub
+            "sensing": True,  # bistatic radar equation, one point per target
             "deterministic": True,
         }
 
@@ -189,7 +220,10 @@ class MockBackend(RayTracingBackend):
 
         for tx in txs:
             for rx in rxs:
-                if config.los:
+                # A co-located (monostatic) TX/RX has no direct path; Sionna
+                # drops it too, while friis_dbm's 0.1 m clamp would make it
+                # a delay-0 tap that swamps every echo.
+                if config.los and _dist(tx.position, rx.position) > _COLOCATED_M:
                     paths.append(
                         _finish_path(self._los_path(next_id(), tx, rx, config), tx.power_dbm)
                     )
@@ -361,6 +395,124 @@ class MockBackend(RayTracingBackend):
             phase_rad=_phase_rad(total, config.frequency_hz),
             interactions=[interaction],
         )
+
+    # ------------------------------------------------------------ sensing
+
+    def simulate_sensing(
+        self,
+        project_dir: Path,
+        scene: Scene,
+        library: RFMaterialLibrary,
+        config: SimulationConfig,
+        request: SensingSimulateRequest,
+        targets: list[ResolvedSensingTarget],
+    ) -> SensingResultSet:
+        """Bistatic radar equation over one scattering point at each target
+        center: LoS legs only, no occlusion, isotropic antennas (Gt = Gr = 1).
+
+        Doppler is Sionna's per-path expression (paths.py) for a single
+        scattering point, positive when the path is closing."""
+        txs = _select_devices(scene, "tx", config.tx_ids)
+        rxs = _select_devices(scene, "rx", config.rx_ids)
+        lam = SPEED_OF_LIGHT / config.frequency_hz
+
+        warnings: list[str] = []
+        _, absorption_warning = atmosphere.absorption_db_per_km(config)
+        if absorption_warning:
+            warnings.append(absorption_warning)
+        if any(t.model == "tr38901" for t in targets):
+            warnings.append(_MOCK_TR38901_WARNING)
+        if not txs or not rxs:
+            warnings.append("scene has no matching tx/rx devices; no sensing paths computed")
+
+        paths: list[RayPath] = []
+        if not config.los:
+            warnings.append(
+                "los=False: the mock sensing model only traces unobstructed legs; "
+                "no sensing paths computed"
+            )
+        else:
+            for tx in txs:
+                for t in targets:
+                    for rx in rxs:
+                        paths.append(
+                            self._sensing_path(len(paths) + 1, tx, t, rx, config, lam)
+                        )
+
+        summaries = [
+            target_summary(
+                t,
+                [list(t.center)],
+                sum(1 for p in paths if p.target_id == t.actor_id),
+            )
+            for t in targets
+        ]
+        return SensingResultSet(
+            result_id=UNSAVED_RESULT_ID,
+            backend=self.name,
+            simulation_config_id=config.id,
+            paths=paths,
+            targets=summaries,
+            warnings=warnings,
+            metadata={
+                "frequency_hz": config.frequency_hz,
+                "num_tx": len(txs),
+                "num_rx": len(rxs),
+                "num_targets": len(targets),
+                "engine": ENGINE,
+                "sensing_model": "bistatic-radar-equation",
+            },
+        )
+
+    @staticmethod
+    def _sensing_path(
+        n: int,
+        tx: Device,
+        target: ResolvedSensingTarget,
+        rx: Device,
+        config: SimulationConfig,
+        lam: float,
+    ) -> RayPath:
+        sp = [float(c) for c in target.center]
+        tx_pos = [float(c) for c in tx.position]
+        rx_pos = [float(c) for c in rx.position]
+        # Raw leg lengths drive delay/phase; the gain clamps them like friis_dbm.
+        r1, r2 = _dist(tx_pos, sp), _dist(sp, rx_pos)
+        d1, d2 = max(r1, 0.1), max(r2, 0.1)
+        gain_lin = lam**2 * dbsm_to_m2(target.rcs_dbsm) / (
+            (4.0 * math.pi) ** 3 * d1**2 * d2**2
+        )
+        power_dbm = (
+            tx.power_dbm + 10.0 * math.log10(gain_lin) - _absorption_db(config, r1 + r2)
+        )
+        k_ts = _unit(tx_pos, sp)
+        k_sr = _unit(sp, rx_pos)
+        v_tx = [float(c) for c in tx.velocity_m_s] if tx.velocity_m_s else [0.0] * 3
+        v_rx = [float(c) for c in rx.velocity_m_s] if rx.velocity_m_s else [0.0] * 3
+        v_t = list(target.velocity_m_s)
+        doppler_hz = (
+            _dot(v_tx, k_ts)
+            - _dot(v_rx, k_sr)
+            + _dot(v_t, [k_sr[i] - k_ts[i] for i in range(3)])
+        ) / lam
+        path = RayPath(
+            path_id=f"{SENSING_PATH_PREFIX}{n:04d}",
+            tx_id=tx.id,
+            rx_id=rx.id,
+            path_type="sensing",
+            vertices=[tx_pos, sp, rx_pos],
+            power_dbm=power_dbm,
+            delay_ns=_delay_ns(r1 + r2),
+            phase_rad=_phase_rad(r1 + r2, config.frequency_hz),
+            interactions=[
+                PathInteraction(
+                    type="sensing", prim_id=target.actor_id, rf_material_id=None, point=sp
+                )
+            ],
+            doppler_hz=doppler_hz,
+            target_id=target.actor_id,
+        )
+        return _finish_path(path, tx.power_dbm)
 
     # --------------------------------------------------------- radio map
 

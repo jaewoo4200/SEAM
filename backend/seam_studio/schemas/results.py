@@ -14,13 +14,19 @@ from pydantic import Field, model_validator
 from .common import StrictModel, Vec3
 from .simulation import SimulationConfig
 
-PathType = Literal["los", "reflection", "diffraction", "scattering", "transmission", "mixed"]
-InteractionType = Literal["reflection", "diffraction", "scattering", "transmission"]
+PathType = Literal[
+    "los", "reflection", "diffraction", "scattering", "transmission", "mixed", "sensing"
+]
+InteractionType = Literal[
+    "reflection", "diffraction", "scattering", "transmission", "sensing"
+]
 
 
 class PathInteraction(StrictModel):
     type: InteractionType
     # Canonical prim id of the surface hit; None if the backend could not map it.
+    # For type "sensing" it carries the ACTOR id of the target instead
+    # (rf_material_id None).
     prim_id: Optional[str] = None
     rf_material_id: Optional[str] = None
     point: Vec3
@@ -51,6 +57,12 @@ class RayPath(StrictModel):
     aod_deg: Optional[list[float]] = None
     aoa_deg: Optional[list[float]] = None
     interactions: list[PathInteraction] = Field(default_factory=list)
+    # Per-path Doppler shift [Hz], positive when the path is closing (target
+    # approaching). Filled on sensing results; plain paths solves keep
+    # reporting Doppler in PathResultSet.metadata["doppler_hz"].
+    doppler_hz: Optional[float] = None
+    # Actor id of the sensing target this path scatters off (sensing paths only).
+    target_id: Optional[str] = None
 
 
 class PathResultSet(StrictModel):
@@ -62,6 +74,40 @@ class PathResultSet(StrictModel):
     paths: list[RayPath] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     # Free-form backend metadata (frequency, sample count, timing, ...).
+    metadata: dict = Field(default_factory=dict)
+
+
+class SensingTargetSummary(StrictModel):
+    actor_id: str
+    model: Literal["tr38901", "constant"]
+    object_type: Optional[str] = None
+    model_type: Optional[int] = None
+    num_scattering_points: int = Field(default=0, ge=0)
+    # World xyz of every scattering point (markers in the viewer).
+    scattering_points: list[Vec3] = Field(default_factory=list)
+    # World center of the target cuboid (actor base + height/2).
+    position: Vec3
+    # Cuboid [yaw, pitch, roll] deg (yaw follows the trajectory at t=0 when
+    # the velocity does).
+    orientation_deg: Vec3 = Field(default_factory=lambda: [0.0, 0.0, 0.0])
+    velocity_m_s: Vec3 = Field(default_factory=lambda: [0.0, 0.0, 0.0])
+    size_m: Vec3
+    # constant: the bound value; tr38901: the spec's mean monostatic sigma_M.
+    rcs_dbsm: Optional[float] = None
+    path_count: int = Field(default=0, ge=0)
+
+
+class SensingResultSet(StrictModel):
+    result_id: str
+    kind: Literal["sensing"] = "sensing"
+    backend: str
+    simulation_config_id: str
+    created_at: Optional[str] = None
+    # Sensing paths first (path_type "sensing", ids "sensing_0001"...), then the
+    # comm paths when the request set include_comm_paths (ids "path_0001"...).
+    paths: list[RayPath] = Field(default_factory=list)
+    targets: list[SensingTargetSummary] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
     metadata: dict = Field(default_factory=dict)
 
 
@@ -256,6 +302,7 @@ class RFDataExportSummary(StrictModel):
     has_paths: bool = False
     has_radio_map: bool = False
     has_trajectory: bool = False
+    has_sensing: bool = False
 
 
 class AodtExportRequest(StrictModel):
@@ -263,12 +310,14 @@ class AodtExportRequest(StrictModel):
 
     ``source`` picks what becomes the time axis: "paths" writes ONE snapshot
     (time_idx 0) from a stored path result, "playback" writes one time index
-    per frame of a stored playback pack. ``result_id`` selects a specific
-    stored result of that kind; None takes the latest.
+    per frame of a stored playback pack, "sensing" writes ONE snapshot from a
+    stored sensing result (all its paths, comm paths included when the solve
+    requested them). ``result_id`` selects a specific stored result of that
+    kind; None takes the latest.
     """
 
     config_id: Optional[str] = None
-    source: Literal["paths", "playback"] = "paths"
+    source: Literal["paths", "playback", "sensing"] = "paths"
     result_id: Optional[str] = None
     # Baseband tone count of the cfrs rows (FFT bin grid across bandwidth_hz).
     fft_size: int = Field(default=64, ge=8, le=4096)
@@ -331,6 +380,12 @@ class ChannelNpzExportRequest(StrictModel):
     batch: int = Field(default=0, ge=0)
     ue_ids: Optional[list[int]] = Field(default=None, max_length=MAX_CHANNEL_NPZ_UES)
     time_idx: Optional[list[int]] = Field(default=None, max_length=MAX_CHANNEL_NPZ_UES)
+    # Append the sensing paths (target_id set) of a stored sensing result to each
+    # UE x TX link before strongest-first sorting. A sensing path joins link
+    # (u, t) when its tx_id is TX t and its last vertex lies within 1 mm of UE u.
+    include_sensing: bool = False
+    # Which sensing result; None = the latest. Ignored unless include_sensing.
+    sensing_result_id: Optional[str] = None
 
     @model_validator(mode="after")
     def _explicit_needs_positions(self) -> "ChannelNpzExportRequest":
@@ -354,6 +409,8 @@ class ChannelNpzExportSummary(StrictModel):
     link_count: int = 0
     # Paths actually written across every link (after strongest-first capping).
     path_count: int = 0
+    # Sensing paths matched into links (include_sensing), before capping.
+    sensing_path_count: int = 0
     max_paths: int = 0
     size_bytes: int = 0
     elapsed_s: float = 0.0
