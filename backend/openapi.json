@@ -247,6 +247,16 @@
             ],
             "title": "Rf Material Id"
           },
+          "sensing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SensingTargetSpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "shape": {
             "$ref": "#/components/schemas/ActorShape"
           },
@@ -991,7 +1001,7 @@
       },
       "AodtExportRequest": {
         "additionalProperties": false,
-        "description": "Body for POST /export/aodt (NVIDIA AODT results-schema parquet).\n\n``source`` picks what becomes the time axis: \"paths\" writes ONE snapshot\n(time_idx 0) from a stored path result, \"playback\" writes one time index\nper frame of a stored playback pack. ``result_id`` selects a specific\nstored result of that kind; None takes the latest.",
+        "description": "Body for POST /export/aodt (NVIDIA AODT results-schema parquet).\n\n``source`` picks what becomes the time axis: \"paths\" writes ONE snapshot\n(time_idx 0) from a stored path result, \"playback\" writes one time index\nper frame of a stored playback pack, \"sensing\" writes ONE snapshot from a\nstored sensing result (all its paths, comm paths included when the solve\nrequested them). ``result_id`` selects a specific stored result of that\nkind; None takes the latest.",
         "properties": {
           "config_id": {
             "anyOf": [
@@ -1026,7 +1036,8 @@
             "default": "paths",
             "enum": [
               "paths",
-              "playback"
+              "playback",
+              "sensing"
             ],
             "title": "Source",
             "type": "string"
@@ -2350,6 +2361,11 @@
             ],
             "title": "Config Id"
           },
+          "include_sensing": {
+            "default": false,
+            "title": "Include Sensing",
+            "type": "boolean"
+          },
           "max_paths": {
             "default": 500,
             "maximum": 2000.0,
@@ -2361,6 +2377,17 @@
             "default": 0.0,
             "title": "Normalization Db",
             "type": "number"
+          },
+          "sensing_result_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sensing Result Id"
           },
           "time_idx": {
             "anyOf": [
@@ -2494,6 +2521,11 @@
           "path_count": {
             "default": 0,
             "title": "Path Count",
+            "type": "integer"
+          },
+          "sensing_path_count": {
+            "default": 0,
+            "title": "Sensing Path Count",
             "type": "integer"
           },
           "shapes": {
@@ -5343,7 +5375,8 @@
               "reflection",
               "diffraction",
               "scattering",
-              "transmission"
+              "transmission",
+              "sensing"
             ],
             "title": "Type",
             "type": "string"
@@ -6315,6 +6348,11 @@
             "title": "Has Radio Map",
             "type": "boolean"
           },
+          "has_sensing": {
+            "default": false,
+            "title": "Has Sensing",
+            "type": "boolean"
+          },
           "has_trajectory": {
             "default": false,
             "title": "Has Trajectory",
@@ -6814,6 +6852,17 @@
             "title": "Delay Ns",
             "type": "number"
           },
+          "doppler_hz": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Doppler Hz"
+          },
           "interactions": {
             "items": {
               "$ref": "#/components/schemas/PathInteraction"
@@ -6843,7 +6892,8 @@
               "diffraction",
               "scattering",
               "transmission",
-              "mixed"
+              "mixed",
+              "sensing"
             ],
             "title": "Path Type",
             "type": "string"
@@ -6860,6 +6910,17 @@
           "rx_id": {
             "title": "Rx Id",
             "type": "string"
+          },
+          "target_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Id"
           },
           "tx_id": {
             "title": "Tx Id",
@@ -6994,7 +7055,8 @@
               "trajectory",
               "scenario",
               "channel",
-              "playback"
+              "playback",
+              "sensing"
             ],
             "title": "Kind",
             "type": "string"
@@ -7065,7 +7127,8 @@
                     "trajectory",
                     "scenario",
                     "channel",
-                    "playback"
+                    "playback",
+                    "sensing"
                   ],
                   "type": "string"
                 },
@@ -7822,6 +7885,406 @@
           "removed_prim_ids"
         ],
         "title": "SegmentationUndoResponse",
+        "type": "object"
+      },
+      "SensingResultSet": {
+        "additionalProperties": false,
+        "properties": {
+          "backend": {
+            "title": "Backend",
+            "type": "string"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "kind": {
+            "const": "sensing",
+            "default": "sensing",
+            "title": "Kind",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "paths": {
+            "items": {
+              "$ref": "#/components/schemas/RayPath"
+            },
+            "title": "Paths",
+            "type": "array"
+          },
+          "result_id": {
+            "title": "Result Id",
+            "type": "string"
+          },
+          "simulation_config_id": {
+            "title": "Simulation Config Id",
+            "type": "string"
+          },
+          "targets": {
+            "items": {
+              "$ref": "#/components/schemas/SensingTargetSummary"
+            },
+            "title": "Targets",
+            "type": "array"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "result_id",
+          "backend",
+          "simulation_config_id"
+        ],
+        "title": "SensingResultSet",
+        "type": "object"
+      },
+      "SensingSimulateRequest": {
+        "additionalProperties": false,
+        "description": "Body for POST /projects/{id}/simulate/sensing.",
+        "properties": {
+          "config": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SimulationConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "config_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Config Id"
+          },
+          "include_comm_paths": {
+            "default": false,
+            "title": "Include Comm Paths",
+            "type": "boolean"
+          },
+          "max_depth": {
+            "anyOf": [
+              {
+                "maximum": 12.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Depth"
+          },
+          "rx_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rx Ids"
+          },
+          "samples_per_sp": {
+            "default": 1000000,
+            "maximum": 100000000.0,
+            "minimum": 1.0,
+            "title": "Samples Per Sp",
+            "type": "integer"
+          },
+          "target_actor_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Actor Ids"
+          },
+          "tx_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tx Ids"
+          }
+        },
+        "title": "SensingSimulateRequest",
+        "type": "object"
+      },
+      "SensingTargetSpec": {
+        "additionalProperties": false,
+        "description": "Binds an actor as a radar sensing target (sionna.rt.rcs).",
+        "properties": {
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "model": {
+            "default": "tr38901",
+            "enum": [
+              "tr38901",
+              "constant"
+            ],
+            "title": "Model",
+            "type": "string"
+          },
+          "model_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  1,
+                  2
+                ],
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Type"
+          },
+          "object_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "uav-small-size",
+                  "uav-large-size",
+                  "human",
+                  "vehicle-single-sp",
+                  "vehicle-multi-sp",
+                  "agv-single-sp",
+                  "agv-multi-sp"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Object Type"
+          },
+          "random_components": {
+            "default": false,
+            "title": "Random Components",
+            "type": "boolean"
+          },
+          "rcs_dbsm": {
+            "anyOf": [
+              {
+                "maximum": 80.0,
+                "minimum": -80.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rcs Dbsm"
+          },
+          "size_m": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size M"
+          },
+          "velocity_m_s": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Velocity M S"
+          },
+          "xpr_db": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Xpr Db"
+          }
+        },
+        "title": "SensingTargetSpec",
+        "type": "object"
+      },
+      "SensingTargetSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_id": {
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "model": {
+            "enum": [
+              "tr38901",
+              "constant"
+            ],
+            "title": "Model",
+            "type": "string"
+          },
+          "model_type": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Type"
+          },
+          "num_scattering_points": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Num Scattering Points",
+            "type": "integer"
+          },
+          "object_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Object Type"
+          },
+          "orientation_deg": {
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "title": "Orientation Deg",
+            "type": "array"
+          },
+          "path_count": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Path Count",
+            "type": "integer"
+          },
+          "position": {
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "title": "Position",
+            "type": "array"
+          },
+          "rcs_dbsm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rcs Dbsm"
+          },
+          "scattering_points": {
+            "items": {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "title": "Scattering Points",
+            "type": "array"
+          },
+          "size_m": {
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "title": "Size M",
+            "type": "array"
+          },
+          "velocity_m_s": {
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "title": "Velocity M S",
+            "type": "array"
+          }
+        },
+        "required": [
+          "actor_id",
+          "model",
+          "position",
+          "size_m"
+        ],
+        "title": "SensingTargetSummary",
         "type": "object"
       },
       "SensorChannel": {
@@ -12349,6 +12812,64 @@
         ]
       }
     },
+    "/api/projects/{project_id}/results/sensing": {
+      "get": {
+        "operationId": "get_sensing_result_api_projects__project_id__results_sensing_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "result_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Result Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SensingResultSet"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Sensing Result",
+        "tags": [
+          "simulate"
+        ]
+      }
+    },
     "/api/projects/{project_id}/results/trajectory": {
       "get": {
         "operationId": "get_trajectory_result_api_projects__project_id__results_trajectory_get",
@@ -14016,6 +14537,66 @@
         "summary": "Simulate Scenario",
         "tags": [
           "scenario"
+        ]
+      }
+    },
+    "/api/projects/{project_id}/simulate/sensing": {
+      "post": {
+        "description": "Radar (RCS) solve over every actor bound as a sensing target: echo paths\nTX -> target scattering point -> RX with per-path Doppler. Place an RX at\nthe TX for monostatic sensing.",
+        "operationId": "simulate_sensing_api_projects__project_id__simulate_sensing_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/SensingSimulateRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Request"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SensingResultSet"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Simulate Sensing",
+        "tags": [
+          "simulate"
         ]
       }
     },

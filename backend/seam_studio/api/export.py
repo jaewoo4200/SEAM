@@ -13,6 +13,7 @@ position and writes a per-link channel dataset npz in the AODT/HYRAY layout
 under export/channel_npz/.
 """
 
+import math
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -29,6 +30,7 @@ from seam_studio.schemas.results import (
     PlaybackResultSet,
     RadioMapResultSet,
     RFDataExportSummary,
+    SensingResultSet,
     TrajectoryResultSet,
 )
 from seam_studio.schemas.scene import Scene
@@ -76,10 +78,12 @@ def export_rfdata_endpoint(
     paths_raw = _latest(store, project_id, scene, "paths")
     rm_raw = _latest(store, project_id, scene, "radio_map")
     traj_raw = _latest(store, project_id, scene, "trajectory")
+    sensing_raw = _latest(store, project_id, scene, "sensing")
 
     paths = PathResultSet.model_validate(paths_raw) if paths_raw else None
     radio_map = RadioMapResultSet.model_validate(rm_raw) if rm_raw else None
     trajectory = TrajectoryResultSet.model_validate(traj_raw) if traj_raw else None
+    sensing = SensingResultSet.model_validate(sensing_raw) if sensing_raw else None
 
     summary = export_rfdata(
         project_dir,
@@ -89,6 +93,7 @@ def export_rfdata_endpoint(
         paths=paths,
         radio_map=radio_map,
         trajectory=trajectory,
+        sensing=sensing,
     )
     store.append_provenance(
         project_id,
@@ -137,10 +142,14 @@ def export_aodt_endpoint(
     project_dir = store.resolve(project_id)
     library = store.load_materials(project_id)
 
-    paths = playback = None
+    paths = playback = sensing = None
     if req.source == "playback":
         playback = PlaybackResultSet.model_validate(
             _load_result_of_kind(store, project_id, scene, "playback", req.result_id)
+        )
+    elif req.source == "sensing":
+        sensing = SensingResultSet.model_validate(
+            _load_result_of_kind(store, project_id, scene, "sensing", req.result_id)
         )
     else:
         paths = PathResultSet.model_validate(
@@ -149,7 +158,8 @@ def export_aodt_endpoint(
 
     try:
         summary = export_aodt(
-            project_dir, scene, library, config, req, paths=paths, playback=playback
+            project_dir, scene, library, config, req,
+            paths=paths, playback=playback, sensing=sensing,
         )
     except AodtExportUnavailable as exc:
         raise HTTPException(status_code=409, detail=str(exc))
@@ -264,6 +274,33 @@ def export_channel_npz_endpoint(
     scene = load_scene_or_404(store, project_id)
     config = request.config or _resolve_config(scene, request.config_id)
     ue_positions = _resolve_ue_positions(store, project_id, scene, request)
+    sensing_paths = sensing_result_id = sensing_targets = None
+    if request.include_sensing:
+        from seam_studio.services.sensing import target_from_summary
+
+        stored = SensingResultSet.model_validate(
+            _load_result_of_kind(
+                store, project_id, scene, "sensing", request.sensing_result_id
+            )
+        )
+        # Echo gain (lambda^2) and carrier phase are frequency-specific: an
+        # echo solved at another carrier cannot join this export's links.
+        solved_hz = stored.metadata.get("frequency_hz")
+        if solved_hz is not None and not math.isclose(
+            float(solved_hz), float(config.frequency_hz), rel_tol=1e-9
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"sensing result {stored.result_id} was solved at "
+                    f"{float(solved_hz):g} Hz but this export runs at "
+                    f"{float(config.frequency_hz):g} Hz; re-run the sensing solve "
+                    "with this config or export with the sensing result's config"
+                ),
+            )
+        sensing_paths = [p for p in stored.paths if p.target_id is not None]
+        sensing_result_id = stored.result_id
+        sensing_targets = [target_from_summary(t) for t in stored.targets]
     try:
         backend = resolve_backend(config)
     except BackendUnavailableError as exc:
@@ -283,6 +320,9 @@ def export_channel_npz_endpoint(
                 request,
                 ue_positions,
                 tick=solve_ctx.tick,
+                sensing_paths=sensing_paths,
+                sensing_result_id=sensing_result_id,
+                sensing_targets=sensing_targets,
             )
         except ChannelNpzExportError as exc:
             raise HTTPException(status_code=400, detail=str(exc))

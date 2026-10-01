@@ -63,9 +63,10 @@ from typing import Callable, Optional
 
 from seam_studio.schemas.devices import Device
 from seam_studio.schemas.materials import RFMaterialLibrary
-from seam_studio.schemas.results import ChannelNpzExportRequest
+from seam_studio.schemas.results import ChannelNpzExportRequest, RayPath
 from seam_studio.schemas.scene import Scene
 from seam_studio.schemas.simulation import SimulationConfig
+from seam_studio.services.sensing import ResolvedSensingTarget
 from seam_studio.services.simulation_backends.base import RayTracingBackend
 
 EXPORT_DIR_REL = "export/channel_npz"
@@ -93,6 +94,9 @@ NPZ_KEYS: tuple[str, ...] = (
 # Base id of the ephemeral receiver walked over the UE positions. It only ever
 # exists inside a per-UE scene COPY, so the stored scene never sees it.
 _PROBE_ID = "seam_npz_ue"
+
+# A sensing echo belongs to UE u when its RX end lies this close to u [m].
+_SENSING_MATCH_M = 1e-3
 
 
 class ChannelNpzExportError(ValueError):
@@ -162,6 +166,10 @@ def export_channel_npz(
     request: ChannelNpzExportRequest,
     ue_positions: list[list[float]],
     tick: Optional[Callable[[int, int], None]] = None,
+    *,
+    sensing_paths: Optional[list[RayPath]] = None,
+    sensing_result_id: Optional[str] = None,
+    sensing_targets: Optional[list[ResolvedSensingTarget]] = None,
 ) -> dict:
     """Solve every (UE, TX) link and write the npz. Returns a summary dict.
 
@@ -169,6 +177,13 @@ def export_channel_npz(
     DEEP COPY of the scene whose devices are the selected TXs plus one
     ephemeral RX probe, exactly like ``mesh_radio_map``'s probe receivers, so
     ``scene.seam.json`` and ``results/`` are never touched.
+
+    ``sensing_paths`` (radar echoes of a stored sensing result) join link
+    (u, t) when their tx is TX t, their TX end still lies within 1 mm of TX t
+    and their RX end within 1 mm of UE u; they are sorted with the link's
+    paths but never change ``is_nlos``. ``sensing_targets`` (that result's
+    targets) stand in for their actors in every per-UE comm solve, so a link
+    never holds both an echo and a reflection off the same actor's mesh.
     """
     import numpy as np
 
@@ -198,6 +213,18 @@ def export_channel_npz(
     truncated_links = 0
     empty_links = 0
     total_paths = 0
+    tx_position = {t.id: [float(c) for c in t.position] for t in txs}
+    sensing_by_tx: dict[str, list[RayPath]] = {}
+    tx_moved = 0
+    for p in sensing_paths or []:
+        origin = tx_position.get(p.tx_id)
+        if origin is not None and math.dist(p.vertices[0], origin) > _SENSING_MATCH_M:
+            tx_moved += 1
+            continue
+        sensing_by_tx.setdefault(p.tx_id, []).append(p)
+    matched_sensing: set[str] = set()
+    rx_differs: set[str] = set()
+    sensing_path_count = 0
     started = time.monotonic()
 
     for u, position in enumerate(ue_positions):
@@ -208,7 +235,12 @@ def export_channel_npz(
         cfg = config.model_copy(
             update={"tx_ids": [t.id for t in txs], "rx_ids": [probe.id]}
         )
-        result = backend.simulate_paths(project_dir, step, library, cfg)
+        if sensing_targets:
+            result = backend.simulate_paths_with_targets(
+                project_dir, step, library, cfg, sensing_targets
+            )
+        else:
+            result = backend.simulate_paths(project_dir, step, library, cfg)
         for w in result.warnings:
             if u == 0 or w not in warnings:
                 warnings.append(w)
@@ -220,7 +252,24 @@ def export_channel_npz(
             per_tx.setdefault(p.tx_id, []).append(p)
 
         for t, tx in enumerate(txs):
-            link = per_tx.get(tx.id, [])
+            comm_link = per_tx.get(tx.id, [])
+            extra = [
+                p
+                for p in sensing_by_tx.get(tx.id, [])
+                if math.dist(p.vertices[-1], position) <= _SENSING_MATCH_M
+            ]
+            matched_sensing.update(p.path_id for p in extra)
+            sensing_path_count += len(extra)
+            for p in extra:
+                # The echo was received with its own RX device's orientation
+                # and antenna; the comm paths with the probe's.
+                rx_dev = scene.device_by_id(p.rx_id)
+                if rx_dev is not None and (
+                    list(rx_dev.orientation_deg) != list(probe.orientation_deg)
+                    or rx_dev.antenna != probe.antenna
+                ):
+                    rx_differs.add(p.path_id)
+            link = comm_link + extra
             if not link:
                 empty_links += 1
                 continue
@@ -269,7 +318,7 @@ def export_channel_npz(
             azimuth[u, t, :k] = np.asarray(azs, dtype=np.float32)[order]
             elevation[u, t, :k] = np.asarray(els, dtype=np.float32)[order]
             toa[u, t, :k] = np.asarray(tas, dtype=np.float32)[order]
-            is_nlos[u, t] = not any(p.path_type == "los" for p in link)
+            is_nlos[u, t] = not any(p.path_type == "los" for p in comm_link)
 
         if tick is not None:
             tick(u + 1, n_ue)
@@ -296,6 +345,30 @@ def export_channel_npz(
         warnings.append(
             f"{empty_links} of {n_ue * n_tx} link(s) produced no path; their "
             "rows are zero-padded and flagged is_nlos=True"
+        )
+    if sensing_paths is not None and not sensing_paths:
+        warnings.append(
+            f"sensing result {sensing_result_id} has no echo paths; no echoes were appended"
+        )
+    if tx_moved:
+        warnings.append(
+            f"{tx_moved} sensing path(s) leave from where their TX no longer is "
+            "(the TX moved since the sensing solve); they were not written — "
+            "re-run the sensing solve"
+        )
+    unmatched = (
+        sum(1 for p in sensing_paths or [] if p.path_id not in matched_sensing) - tx_moved
+    )
+    if unmatched:
+        warnings.append(
+            f"{unmatched} sensing path(s) matched no exported link (their RX was "
+            "not at any UE, or their TX was not exported); they were not written"
+        )
+    if rx_differs:
+        warnings.append(
+            f"{len(rx_differs)} sensing path(s) were received with an RX "
+            "orientation/antenna that differs from the UE probe's (cloned from "
+            "the first rx device); their links mix two receive arrays"
         )
 
     out_dir = project_dir / EXPORT_DIR_REL
@@ -353,7 +426,13 @@ def export_channel_npz(
                 "R = Rz(yaw) Ry(pitch) Rx(roll) from Device.orientation_deg, "
                 "matching sionna-rt's rotation_matrix; world -> local uses R.T"
             ),
+            "sensing": (
+                "sensing echoes (target_id set) appended to links whose UE is "
+                "the echo's RX (1 mm match); is_nlos ignores them"
+            ),
         },
+        "include_sensing": sensing_paths is not None,
+        "sensing_result_id": sensing_result_id,
         "config": config.model_dump(mode="json"),
         "elapsed_s": round(elapsed_s, 3),
         "warnings": warnings,
@@ -376,6 +455,7 @@ def export_channel_npz(
         "num_ue": n_ue,
         "link_count": n_ue * n_tx,
         "path_count": total_paths,
+        "sensing_path_count": sensing_path_count,
         "max_paths": n_path,
         "size_bytes": npz_path.stat().st_size,
         "elapsed_s": round(elapsed_s, 3),

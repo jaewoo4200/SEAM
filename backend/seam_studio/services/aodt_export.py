@@ -18,7 +18,11 @@ produces; emitting empty ones would claim coverage SEAM does not have.
 Fidelity caveats, all deliberate:
 - ``normals`` are zeros - SEAM records the interaction point and the prim it
   belongs to, never the surface normal there;
-- ``object_ids`` repeat ``prim_ids``: SEAM has no separate USD object table;
+- ``object_ids`` repeat ``prim_ids``: SEAM has no separate USD object table.
+  The exception is a sensing-target vertex (source="sensing"): prim id -1,
+  object id ``SENSING_OBJECT_ID_BASE + i`` (i in sorted actor-id order, not
+  target order) with the actor mapping in
+  ``id_map.json`` ``sensing_targets``, interaction token "scattering";
 - one antenna element per end - ``ru_ant_el``/``ue_ant_el`` are (0, 0[, 0]) and
   every amplitude list holds a single entry, because the path solver resolves
   per-LINK coefficients, not per-element ones;
@@ -51,6 +55,7 @@ from ..schemas.results import (
     PathResultSet,
     PlaybackResultSet,
     RayPath,
+    SensingResultSet,
 )
 from ..schemas.scene import Scene
 from ..schemas.simulation import SimulationConfig
@@ -72,6 +77,16 @@ TABLES: tuple[str, ...] = (
     "cirs",
     "raypaths",
 )
+
+
+# AODT's raypaths vocabulary has no RCS/sensing token; the closest mechanism is
+# scattering, and it round-trips through aodt_import (which only accepts
+# los/reflection/diffraction/scattering/transmission/mixed).
+_AODT_INTERACTION_TOKENS = {"sensing": "scattering"}
+
+# Sensing targets are actors, not prims: their raypaths object ids start here
+# (sorted actor id order) so they can never collide with a prim index.
+SENSING_OBJECT_ID_BASE = 1_000_000
 
 
 class AodtExportUnavailable(RuntimeError):
@@ -333,12 +348,20 @@ def _snapshots(
     request: AodtExportRequest,
     paths: Optional[PathResultSet],
     playback: Optional[PlaybackResultSet],
+    sensing: Optional[SensingResultSet] = None,
 ) -> list[tuple[int, float, list[RayPath]]]:
     """(time_idx, time_s, paths) per exported time step.
 
-    source="paths" is a single t=0 snapshot; source="playback" yields one time
-    index per pack frame, each carrying that frame's (capped) ray list.
+    source="paths" and source="sensing" are a single t=0 snapshot;
+    source="playback" yields one time index per pack frame, each carrying that
+    frame's (capped) ray list.
     """
+    if request.source == "sensing":
+        if sensing is None:
+            raise AodtExportError(
+                "AODT export source='sensing' needs a stored sensing result"
+            )
+        return [(0, 0.0, list(sensing.paths))]
     if request.source == "playback":
         if playback is None:
             raise AodtExportError(
@@ -570,18 +593,27 @@ def _raypath_row(
     ue_id: int,
     prim_index: dict[str, int],
     tx_power_dbm: Optional[float],
+    sensing_object_ids: Optional[dict[str, int]] = None,
 ) -> dict:
     points = [_vec3(v) for v in path.vertices]
-    types = ["emission"] + [i.type for i in path.interactions]
+    types = ["emission"] + [
+        _AODT_INTERACTION_TOKENS.get(i.type, i.type) for i in path.interactions
+    ]
     # prim/object ids are parallel to points; the emission and arrival
-    # endpoints belong to no surface (-1).
+    # endpoints belong to no surface (-1). A sensing vertex is an actor, not a
+    # prim: no prim id, and its object id comes from the sensing id table.
     prim_ids = [-1] * len(points)
+    object_ids = [-1] * len(points)
     for k, inter in enumerate(path.interactions, start=1):
         if k >= len(points) - 1:
             break
+        if inter.type == "sensing":
+            object_ids[k] = (sensing_object_ids or {}).get(inter.prim_id or "", -1)
+            continue
         prim_ids[k] = (
             prim_index.get(inter.prim_id, -1) if inter.prim_id is not None else -1
         )
+        object_ids[k] = prim_ids[k]
     a_re, a_im = _amplitude(path, tx_power_dbm)
     return {
         "time_idx": time_idx,
@@ -595,7 +627,7 @@ def _raypath_row(
         "ampl_re": [a_re],
         "ampl_im": [a_im],
         "prim_ids": prim_ids,
-        "object_ids": list(prim_ids),
+        "object_ids": object_ids,
         "vegetation_depths": [0.0 for _ in points],
     }
 
@@ -611,6 +643,7 @@ def export_aodt(
     request: AodtExportRequest,
     paths: Optional[PathResultSet] = None,
     playback: Optional[PlaybackResultSet] = None,
+    sensing: Optional[SensingResultSet] = None,
 ) -> dict:
     """Write the AODT results-schema parquet set; return a summary dict.
 
@@ -622,7 +655,15 @@ def export_aodt(
     pa, pq = _require_pyarrow()
 
     warnings: list[str] = []
-    snapshots = _snapshots(request, paths, playback)
+    snapshots = _snapshots(request, paths, playback, sensing)
+    sensing_object_ids = (
+        {
+            aid: SENSING_OBJECT_ID_BASE + i
+            for i, aid in enumerate(sorted({t.actor_id for t in sensing.targets}))
+        }
+        if sensing is not None and request.source == "sensing"
+        else {}
+    )
 
     tx_devices = sorted([d for d in scene.devices if d.kind == "tx"], key=lambda d: d.id)
     rx_devices = sorted([d for d in scene.devices if d.kind == "rx"], key=lambda d: d.id)
@@ -664,7 +705,8 @@ def export_aodt(
                 continue
             raypath_rows.append(
                 _raypath_row(
-                    path, time_idx, ru, ue, prim_index, tx_power.get(path.tx_id)
+                    path, time_idx, ru, ue, prim_index, tx_power.get(path.tx_id),
+                    sensing_object_ids,
                 )
             )
             a_re, a_im = _amplitude(path, tx_power.get(path.tx_id))
@@ -744,6 +786,8 @@ def export_aodt(
         "prims": prim_index,
         "scatterers": scatterer_ids,
         "panels": panel_by_device,
+        "sensing_targets": sensing_object_ids,
+        "sensing_interaction_token": _AODT_INTERACTION_TOKENS["sensing"],
         "source": request.source,
         "omitted_tables": ["telemetry", "ran_config"],
     }

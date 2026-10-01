@@ -9,6 +9,8 @@ Produces the exact file set the FTC AODT viewer guide specifies, under
     trajectory.csv         per-waypoint UE metrics
     radio_map.csv          plane heatmap samples
     calibration_points.json 3 coordinate-check reference points
+    sensing.json           radar sensing targets + echo paths (only when a
+                           sensing result exists)
 
 All positions are meters, Z-up (our canonical frame). The viewer converts to
 Unreal centimeters via the coordinate_transform (scale 100).
@@ -23,6 +25,8 @@ from typing import Optional
 from seam_studio.schemas.results import (
     PathResultSet,
     RadioMapResultSet,
+    RayPath,
+    SensingResultSet,
     TrajectoryResultSet,
 )
 from seam_studio.schemas.scene import Scene
@@ -39,6 +43,7 @@ _PATH_TYPE_MAP = {
     "scattering": "SCATTERING",
     "transmission": "TRANSMISSION",
     "mixed": "REFLECTION",
+    "sensing": "SENSING",
 }
 
 
@@ -91,34 +96,44 @@ def _devices(scene: Scene, config: SimulationConfig) -> dict:
     }
 
 
-def _paths_json(paths: Optional[PathResultSet]) -> dict:
+def _path_frames(paths_list: list[RayPath], *, sensing_fields: bool = False) -> list[dict]:
+    """A single snapshot at t=0, grouped per receiver (ue). Sensing frames add
+    each path's Doppler and target actor id."""
     frames: list[dict] = []
-    if paths and paths.paths:
-        # A single snapshot at t=0, grouped per receiver (ue).
-        by_rx: dict[str, list] = {}
-        for p in paths.paths:
-            by_rx.setdefault(p.rx_id, []).append(p)
-        for ue_id, plist in by_rx.items():
-            frames.append(
-                {
-                    "time_s": 0.0,
-                    "ue_id": ue_id,
-                    "paths": [
-                        {
-                            "path_id": idx,
-                            "type": _PATH_TYPE_MAP.get(p.path_type, "UNKNOWN"),
-                            "power_db": round(p.power_dbm, 3),
-                            "delay_ns": round(p.delay_ns, 4),
-                            "points_m": [list(v) for v in p.vertices],
-                            "object_ids": [
-                                i.prim_id for i in p.interactions if i.prim_id
-                            ],
-                        }
-                        for idx, p in enumerate(plist)
-                    ],
-                }
-            )
+    by_rx: dict[str, list] = {}
+    for p in paths_list:
+        by_rx.setdefault(p.rx_id, []).append(p)
+    for ue_id, plist in by_rx.items():
+        rows = []
+        for idx, p in enumerate(plist):
+            row = {
+                "path_id": idx,
+                "type": _PATH_TYPE_MAP.get(p.path_type, "UNKNOWN"),
+                "power_db": round(p.power_dbm, 3),
+                "delay_ns": round(p.delay_ns, 4),
+                "points_m": [list(v) for v in p.vertices],
+                "object_ids": [i.prim_id for i in p.interactions if i.prim_id],
+            }
+            if sensing_fields:
+                row["doppler_hz"] = p.doppler_hz
+                row["target_id"] = p.target_id
+            rows.append(row)
+        frames.append({"time_s": 0.0, "ue_id": ue_id, "paths": rows})
+    return frames
+
+
+def _paths_json(paths: Optional[PathResultSet]) -> dict:
+    frames = _path_frames(paths.paths) if paths and paths.paths else []
     return {"schema_version": "1.0", "paths_by_time": frames}
+
+
+def _sensing_json(sensing: SensingResultSet) -> dict:
+    return {
+        "schema_version": "1.0",
+        "result_id": sensing.result_id,
+        "targets": [t.model_dump(mode="json") for t in sensing.targets],
+        "paths_by_time": _path_frames(sensing.paths, sensing_fields=True),
+    }
 
 
 def _trajectory_csv(
@@ -249,6 +264,7 @@ def export_rfdata(
     paths: Optional[PathResultSet] = None,
     radio_map: Optional[RadioMapResultSet] = None,
     trajectory: Optional[TrajectoryResultSet] = None,
+    sensing: Optional[SensingResultSet] = None,
 ) -> dict:
     out = project_dir / EXPORT_DIR_REL
     out.mkdir(parents=True, exist_ok=True)
@@ -277,6 +293,11 @@ def export_rfdata(
     write_text("trajectory.csv", _trajectory_csv(trajectory, scene, paths, config))
     write_text("radio_map.csv", _radio_map_csv(radio_map, config))
     write_json("calibration_points.json", _calibration_points(scene))
+    if sensing is not None:
+        write_json("sensing.json", _sensing_json(sensing))
+    else:
+        # A previous export's sensing.json must not read as current data.
+        (out / "sensing.json").unlink(missing_ok=True)
 
     return {
         "export_dir": EXPORT_DIR_REL,
@@ -284,4 +305,5 @@ def export_rfdata(
         "has_paths": bool(paths and paths.paths),
         "has_radio_map": radio_map is not None,
         "has_trajectory": bool(trajectory and trajectory.samples),
+        "has_sensing": bool(sensing is not None and sensing.paths),
     }
