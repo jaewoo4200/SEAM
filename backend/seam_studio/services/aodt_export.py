@@ -22,18 +22,22 @@ Fidelity caveats, all deliberate:
   The exception is a sensing-target vertex (source="sensing"): prim id -1,
   object id ``SENSING_OBJECT_ID_BASE + i`` (i in sorted actor-id order, not
   target order) with the actor mapping in
-  ``id_map.json`` ``sensing_targets``, interaction token "scattering";
+  ``id_map.json`` ``sensing_targets``, interaction token "diffuse";
 - one antenna element per end - ``ru_ant_el``/``ue_ant_el`` are (0, 0[, 0]) and
   every amplitude list holds a single entry, because the path solver resolves
   per-LINK coefficients, not per-element ones;
 - ``patterns`` is a single isotropic placeholder row.
 
 ``raypaths`` list alignment: ``points`` is the whole polyline (TX, every
-interaction, RX), so ``normals``/``prim_ids``/``object_ids``/
-``vegetation_depths`` are parallel to it, while ``interaction_types`` is
-"emission" plus one entry per bounce (``len(points) - 1``) - the arrival at the
-RX is not an interaction and AODT's vocabulary has no token for it. Endpoints
-carry prim/object id -1.
+interaction, RX) and ``interaction_types``/``normals``/``prim_ids``/
+``object_ids``/``vegetation_depths`` are all parallel to it - AODT types the
+endpoints too ("emission" at the RU, "reception" at the UE; its EM solver sizes
+every per-point array MAX_NUM_INTERACTIONS_WITH_TRANSMISSION + 2). Interior
+tokens come from AODT's documented vocabulary only (reflection, diffraction,
+diffuse, transmission): SEAM "scattering" and sensing echoes both become
+"diffuse". A path whose interior vertices cannot all be typed is left out of
+``raypaths`` (its tap still feeds cirs/cfrs) with a warning. Endpoints carry
+prim/object id -1.
 
 Amplitudes are CHANNEL coefficients (not received power): magnitude
 10^(path_gain_db/20), phase from the path's carrier phase. cirs/cfrs are built
@@ -79,10 +83,18 @@ TABLES: tuple[str, ...] = (
 )
 
 
-# AODT's raypaths vocabulary has no RCS/sensing token; the closest mechanism is
-# scattering, and it round-trips through aodt_import (which only accepts
-# los/reflection/diffraction/scattering/transmission/mixed).
-_AODT_INTERACTION_TOKENS = {"sensing": "scattering"}
+# SEAM interaction/path type -> AODT raypaths token. AODT documents
+# "emission, reflection, diffraction, diffuse, reception, and transmission"; it
+# has no RCS/sensing token, so an echo off a target is diffuse scattering too.
+_AODT_INTERACTION_TOKENS = {
+    "reflection": "reflection",
+    "diffraction": "diffraction",
+    "scattering": "diffuse",
+    "transmission": "transmission",
+    "sensing": "diffuse",
+}
+AODT_EMISSION = "emission"
+AODT_RECEPTION = "reception"
 
 # Sensing targets are actors, not prims: their raypaths object ids start here
 # (sorted actor id order) so they can never collide with a prim index.
@@ -586,6 +598,20 @@ def _pattern_rows() -> list[dict]:
     ]
 
 
+def _interior_tokens(path: RayPath, n_interior: int) -> Optional[list[str]]:
+    """One AODT token per interior vertex, or None if any cannot be typed.
+
+    ``interactions`` is authoritative when it lines up with the interior
+    vertices; otherwise a single-mechanism ``path_type`` stands in for all of
+    them (an imported result may carry geometry but no interactions).
+    """
+    if len(path.interactions) == n_interior:
+        tokens = [_AODT_INTERACTION_TOKENS.get(i.type) for i in path.interactions]
+    else:
+        tokens = [_AODT_INTERACTION_TOKENS.get(path.path_type)] * n_interior
+    return None if None in tokens else tokens
+
+
 def _raypath_row(
     path: RayPath,
     time_idx: int,
@@ -594,26 +620,28 @@ def _raypath_row(
     prim_index: dict[str, int],
     tx_power_dbm: Optional[float],
     sensing_object_ids: Optional[dict[str, int]] = None,
-) -> dict:
+) -> Optional[dict]:
+    """One raypaths row, or None when the path's vertices cannot all be typed."""
     points = [_vec3(v) for v in path.vertices]
-    types = ["emission"] + [
-        _AODT_INTERACTION_TOKENS.get(i.type, i.type) for i in path.interactions
-    ]
-    # prim/object ids are parallel to points; the emission and arrival
-    # endpoints belong to no surface (-1). A sensing vertex is an actor, not a
-    # prim: no prim id, and its object id comes from the sensing id table.
+    n_interior = len(points) - 2
+    interior = _interior_tokens(path, n_interior)
+    if interior is None:
+        return None
+    types = [AODT_EMISSION, *interior, AODT_RECEPTION]
+    # The emission and reception endpoints belong to no surface (-1). A sensing
+    # vertex is an actor, not a prim: no prim id, and its object id comes from
+    # the sensing id table.
     prim_ids = [-1] * len(points)
     object_ids = [-1] * len(points)
-    for k, inter in enumerate(path.interactions, start=1):
-        if k >= len(points) - 1:
-            break
-        if inter.type == "sensing":
-            object_ids[k] = (sensing_object_ids or {}).get(inter.prim_id or "", -1)
-            continue
-        prim_ids[k] = (
-            prim_index.get(inter.prim_id, -1) if inter.prim_id is not None else -1
-        )
-        object_ids[k] = prim_ids[k]
+    if len(path.interactions) == n_interior:
+        for k, inter in enumerate(path.interactions, start=1):
+            if inter.type == "sensing":
+                object_ids[k] = (sensing_object_ids or {}).get(inter.prim_id or "", -1)
+                continue
+            prim_ids[k] = (
+                prim_index.get(inter.prim_id, -1) if inter.prim_id is not None else -1
+            )
+            object_ids[k] = prim_ids[k]
     a_re, a_im = _amplitude(path, tx_power_dbm)
     return {
         "time_idx": time_idx,
@@ -686,6 +714,7 @@ def export_aodt(
     cir_rows: list[dict] = []
     cfr_rows: list[dict] = []
     unmapped: set[str] = set()
+    untyped = 0
 
     for time_idx, _time_s, snapshot_paths in snapshots:
         time_rows.append(
@@ -703,12 +732,14 @@ def export_aodt(
             if ru is None or ue is None:
                 unmapped.add(path.tx_id if ru is None else path.rx_id)
                 continue
-            raypath_rows.append(
-                _raypath_row(
-                    path, time_idx, ru, ue, prim_index, tx_power.get(path.tx_id),
-                    sensing_object_ids,
-                )
+            row = _raypath_row(
+                path, time_idx, ru, ue, prim_index, tx_power.get(path.tx_id),
+                sensing_object_ids,
             )
+            if row is None:
+                untyped += 1
+            else:
+                raypath_rows.append(row)
             a_re, a_im = _amplitude(path, tx_power.get(path.tx_id))
             taps_by_link.setdefault((ru, ue), []).append(
                 (a_re, a_im, path.delay_ns * 1e-9)
@@ -746,7 +777,14 @@ def export_aodt(
             "paths reference device ids that are not in the scene "
             f"({', '.join(sorted(unmapped))}); those rows were skipped"
         )
-    if not raypath_rows:
+    if untyped:
+        warnings.append(
+            f"{untyped} ray path(s) have interaction vertices with no known "
+            "mechanism (no aligned interactions and a path_type that is not a "
+            "single mechanism); "
+            "left out of raypaths, still counted in cirs/cfrs"
+        )
+    if not raypath_rows and not untyped:
         warnings.append("no ray paths matched a scene tx/rx pair; raypaths is empty")
 
     rows_by_table = {

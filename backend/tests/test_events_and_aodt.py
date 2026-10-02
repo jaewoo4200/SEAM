@@ -212,6 +212,40 @@ def test_aodt_paths_roundtrip(tmp_path):
 
 
 @pytest.mark.skipif(not HAS_PYARROW, reason="pyarrow not installed")
+def test_aodt_raypaths_interaction_types_rebuild_interactions(tmp_path):
+    """AODT types every point (emission ... reception), so the interior tokens
+    become per-vertex interactions; "diffuse" is SEAM's scattering. SEAM's
+    pre-fix layout (no reception, "scattering") still reads, and a list that
+    cannot be paired with the points keeps its path_type but no interactions."""
+    a, b, c, d = [0.0, 0.0, 10.0], [5.0, 5.0, 0.0], [9.0, 2.0, 4.0], [20.0, 0.0, 1.5]
+    table = pa.table(
+        {
+            "ru_id": [0] * 5,
+            "ue_id": [0] * 5,
+            "interaction_types": [
+                ["emission", "reception"],
+                ["emission", "diffuse", "reception"],
+                ["emission", "reflection", "diffraction", "reception"],
+                ["emission", "scattering"],
+                ["emission", "reflection", "reception"],
+            ],
+            "points": [[a, d], [a, b, d], [a, b, c, d], [a, b, d], [a, b, c, d]],
+        }
+    )
+    pq.write_table(table, tmp_path / "raypaths.parquet")
+
+    result = aodt_import.import_aodt_results(tmp_path, "paths")
+    assert [p.path_type for p in result.paths] == [
+        "los", "scattering", "mixed", "scattering", "reflection",
+    ]
+    assert [[i.type for i in p.interactions] for p in result.paths] == [
+        [], ["scattering"], ["reflection", "diffraction"], ["scattering"], [],
+    ]
+    assert [i.point for i in result.paths[2].interactions] == [b, c]
+    assert all(i.prim_id is None for p in result.paths for i in p.interactions)
+
+
+@pytest.mark.skipif(not HAS_PYARROW, reason="pyarrow not installed")
 def test_aodt_paths_straight_line_fallback(tmp_path):
     # No points column: reconstruct a straight tx->rx line from positions.
     table = pa.table(

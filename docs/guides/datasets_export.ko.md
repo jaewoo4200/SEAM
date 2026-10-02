@@ -127,7 +127,8 @@ POST /api/projects/{project_id}/export/aodt
 `source: "paths"` 는 저장된 paths 결과에서 스냅숏 하나(`time_idx` 0)를 쓰고,
 `source: "playback"` 은 저장된 playback 팩의 프레임마다 `time_idx` 를 하나씩
 써서 `time_info`·`raypaths`·`cirs`·`cfrs` 가 주행 구간 전체를 덮고 UE 의
-`route_*` 컬럼에 프레임 위치가 담깁니다.
+`route_*` 컬럼에 프레임 위치가 담깁니다. `source: "sensing"` 은 저장된 센싱
+결과를 스냅숏 하나로 씁니다([sensing.ko.md](sensing.ko.md)).
 
 AODT 테이블 중 `telemetry` 와 `ran_config` 는 **쓰지 않습니다**. 둘 다
 RAN 시뮬레이션 산출물(스케줄러/PHY KPI, gNB 설정)이라 레이 트레이싱
@@ -142,7 +143,9 @@ RAN 시뮬레이션 산출물(스케줄러/PHY KPI, gNB 설정)이라 레이 트
 
 - `normals` 는 전부 0 입니다 — SEAM 은 상호작용 지점과 그 prim 만 기록하고
   표면 법선은 기록하지 않습니다. `object_ids` 는 `prim_ids` 와 같습니다(별도
-  USD object 테이블이 없습니다).
+  USD object 테이블이 없습니다). 예외는 센싱 타깃 꼭짓점으로, object id 가
+  1 000 000 + 액터 id 정렬 순서에서의 위치입니다(`id_map.json` 의
+  `sensing_targets`).
 - `ru_ant_el`/`ue_ant_el` 는 `(0, 0[, 0])` 이고 `ampl_*` 리스트는 항목이
   하나입니다: 경로 솔버는 링크 단위 계수를 풀지, 소자 단위 계수를 풀지
   않습니다.
@@ -150,15 +153,23 @@ RAN 시뮬레이션 산출물(스케줄러/PHY KPI, gNB 설정)이라 레이 트
 - 진폭(그리고 `cirs`/`cfrs`)은 수신 전력이 아니라 채널 계수입니다 —
   |a| = 10^(path_gain_dB/20), 위상은 경로의 반송파 위상. `cir_delay` 는 AODT
   스키마대로 **초(second)** 단위입니다.
-- `raypaths` 의 `points` 는 폴리라인 전체(TX, 모든 상호작용, RX)라
-  `normals`/`prim_ids`/`object_ids`/`vegetation_depths` 가 여기에 나란히
-  대응하고, `interaction_types` 는 `"emission"` 뒤에 반사마다 한 항목입니다 —
-  RX 도달은 상호작용이 아닙니다.
+- `raypaths` 의 `points` 는 폴리라인 전체(TX, 모든 상호작용, RX)이고,
+  `interaction_types`/`normals`/`prim_ids`/`object_ids`/`vegetation_depths`
+  도 점마다 한 항목씩 같은 길이입니다. `interaction_types` 는 `"emission"`,
+  상호작용마다 토큰 하나, `"reception"` 순서이며 AODT 문서에 있는 토큰
+  (`reflection`, `diffraction`, `diffuse`, `transmission`)만 씁니다. SEAM 의
+  `scattering` 과 센싱 에코는 `diffuse` 로 기록됩니다. 양 끝점의 prim/object
+  id 는 −1 입니다.
+- 상호작용 지점을 전부 타입으로 표시할 수 없는 경로(상호작용 기록이 없고
+  경로 타입이 `mixed` 처럼 단일 메커니즘이 아닌 경우)는 경고와 함께
+  `raypaths` 에서 빠집니다. 그 탭은
+  `cirs`/`cfrs` 에는 그대로 들어갑니다.
 
 이 내보내기는 `pyarrow` 가 필요합니다(`pip install "seam-studio[results]"`).
 없으면 엔드포인트가 **409** 를, 요청한 source 종류의 결과가 프로젝트에 없으면
 **404** 를 돌려줍니다. 기록된 `raypaths.parquet` 는 SEAM 자체 AODT
-임포터(`POST /results/import-aodt`)로 다시 읽어들일 수 있습니다.
+임포터(`POST /results/import-aodt`)로 다시 읽어들일 수 있고, 임포터는 내부
+지점마다 상호작용을 하나씩 되살립니다(`diffuse` 는 `scattering` 으로).
 
 ---
 

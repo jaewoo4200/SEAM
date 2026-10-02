@@ -14,7 +14,10 @@ File naming: ray paths are read from ``paths.parquet`` or, when the export
 follows AODT's ClickHouse table names (what :mod:`aodt_export` writes),
 ``raypaths.parquet``. A raypaths table carries geometry and mechanisms only -
 per-path power and delay live in the ``cirs`` table, so imported paths from
-that layout have power/delay 0.
+that layout have power/delay 0. Its ``interaction_types`` types every point
+(``"emission"``, one token per interaction, ``"reception"``), so the interior
+tokens are rebuilt into per-vertex :class:`PathInteraction` entries; AODT's
+``"diffuse"`` is SEAM's ``"scattering"``.
 
 pyarrow is imported LAZILY inside the reader and, when missing, we raise the
 typed :class:`AodtImportUnavailable` so the API layer can answer 409 instead of
@@ -27,6 +30,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..schemas.results import (
+    PathInteraction,
     PathResultSet,
     RadioMapGrid,
     RadioMapResultSet,
@@ -43,11 +47,20 @@ _POWER_COLS = ("power_dbm", "power_dB", "power_db", "rx_power_dbm")
 _GAIN_COLS = ("path_gain_db", "gain_db", "channel_gain_db")
 _DELAY_COLS = ("delay_ns", "cir_delay", "delay")  # cir_delay is seconds in AODT
 _PHASE_COLS = ("phase_rad", "phase")
-# interaction_types is AODT's per-bounce list ("emission" then the mechanisms);
-# a scalar type column still wins when both are present.
+# interaction_types is AODT's per-point list ("emission", the mechanisms,
+# "reception"); a scalar type column still wins when both are present.
 _PATHTYPE_COLS = ("path_type", "interaction_type", "type", "interaction_types")
 # Tokens in interaction_types that mark the ray's ends, not a mechanism.
 _ENDPOINT_INTERACTIONS = {"emission", "reception", "arrival"}
+# AODT mechanism token -> SEAM interaction type. "scattering" is what SEAM
+# exports wrote before they switched to AODT's documented "diffuse".
+_AODT_TO_SEAM_INTERACTION = {
+    "reflection": "reflection",
+    "diffraction": "diffraction",
+    "diffuse": "scattering",
+    "scattering": "scattering",
+    "transmission": "transmission",
+}
 # Per-vertex polyline of the ray, when present (list<list<float>> column).
 _POINTS_COLS = ("points", "vertices", "path_points", "interaction_points")
 # Straight tx->rx fallback endpoints.
@@ -114,9 +127,9 @@ def _normalize_path_type(raw) -> str:
         # otherwise empty list is a direct ray and a single mechanism repeated
         # is that mechanism; anything heterogeneous is "mixed".
         kinds = {
-            str(t).strip().lower()
-            for t in raw
-            if str(t).strip().lower() not in _ENDPOINT_INTERACTIONS
+            _AODT_TO_SEAM_INTERACTION.get(tok, tok)
+            for tok in (str(t).strip().lower() for t in raw)
+            if tok not in _ENDPOINT_INTERACTIONS
         }
         if not kinds:
             return "los"
@@ -125,7 +138,41 @@ def _normalize_path_type(raw) -> str:
             return only if only in _VALID_PATH_TYPES else "mixed"
         return "mixed"
     t = str(raw).strip().lower()
+    t = _AODT_TO_SEAM_INTERACTION.get(t, t)
     return t if t in _VALID_PATH_TYPES else "mixed"
+
+
+def _interactions_for_row(
+    raw_types, vertices: list[list[float]]
+) -> list[PathInteraction]:
+    """Per-interior-vertex interactions from an ``interaction_types`` list.
+
+    AODT types every point, so the tokens between "emission" and "reception"
+    pair 1:1 with the interior vertices; SEAM exports from before that wrote
+    "emission" plus the bounces only (one shorter). Any other length, or a
+    token with no SEAM mechanism, cannot be paired safely and yields none.
+    """
+    if not isinstance(raw_types, (list, tuple)) or not raw_types:
+        return []
+    tokens = [str(t).strip().lower() for t in raw_types]
+    n = len(vertices)
+    if (
+        len(tokens) == n
+        and tokens[0] in _ENDPOINT_INTERACTIONS
+        and tokens[-1] in _ENDPOINT_INTERACTIONS
+    ):
+        interior = tokens[1:-1]
+    elif len(tokens) == n - 1 and tokens[0] in _ENDPOINT_INTERACTIONS:
+        interior = tokens[1:]
+    else:
+        return []
+    kinds = [_AODT_TO_SEAM_INTERACTION.get(t) for t in interior]
+    if None in kinds:
+        return []
+    return [
+        PathInteraction(type=kind, point=list(point))
+        for kind, point in zip(kinds, vertices[1:-1])
+    ]
 
 
 def _vertices_for_row(row: dict) -> Optional[list[list[float]]]:
@@ -204,6 +251,9 @@ def import_paths(project_dir_source: Path, warnings: list[str]) -> PathResultSet
                 path_gain_db=float(gain) if gain is not None else None,
                 delay_ns=_delay_ns(delay) if delay is not None else 0.0,
                 phase_rad=float(phase) if phase is not None else 0.0,
+                interactions=_interactions_for_row(
+                    row.get("interaction_types"), vertices
+                ),
             )
         )
     if skipped:

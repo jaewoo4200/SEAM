@@ -16,7 +16,14 @@ from pathlib import Path
 import pytest
 
 from seam_studio.schemas.devices import Antenna, Device
-from seam_studio.schemas.results import AodtExportRequest
+from seam_studio.schemas.results import (
+    AodtExportRequest,
+    PathInteraction,
+    PathResultSet,
+    RayPath,
+    SensingResultSet,
+    SensingTargetSummary,
+)
 from seam_studio.schemas.scene import (
     Actor,
     ActorTrajectory,
@@ -28,7 +35,11 @@ from seam_studio.schemas.scene import (
 from seam_studio.schemas.sensors import SensorFrame, SensorFramePose, SensorManifest
 from seam_studio.schemas.simulation import PlaybackBuildRequest, SimulationConfig
 from seam_studio.services import aodt_import
-from seam_studio.services.aodt_export import EXPORT_DIR_REL, export_aodt
+from seam_studio.services.aodt_export import (
+    EXPORT_DIR_REL,
+    SENSING_OBJECT_ID_BASE,
+    export_aodt,
+)
 from seam_studio.services.playback import build_playback
 from seam_studio.services.project_store import load_default_library
 from seam_studio.services.simulation_backends.mock_backend import MockBackend
@@ -91,6 +102,30 @@ EXPECTED_COLUMNS = {
         "vegetation_depths",
     ],
 }
+
+# raypaths.interaction_types vocabulary, verbatim from the AODT results schema:
+# "emission, reflection, diffraction, diffuse, reception, and transmission".
+AODT_INTERIOR_TOKENS = {"reflection", "diffraction", "diffuse", "transmission"}
+# Every raypaths list that describes the interaction points (AODT's EM solver
+# sizes each MAX_NUM_INTERACTIONS_WITH_TRANSMISSION + 2, endpoints included).
+PER_POINT_COLUMNS = (
+    "interaction_types", "normals", "prim_ids", "object_ids", "vegetation_depths",
+)
+
+
+def _assert_raypaths_contract(rows: list[dict]) -> None:
+    """Every row types every point: emission, documented mechanisms, reception."""
+    assert rows
+    for row in rows:
+        n = len(row["points"])
+        assert n >= 2
+        for column in PER_POINT_COLUMNS:
+            assert len(row[column]) == n, (column, row)
+        types = row["interaction_types"]
+        assert types[0] == "emission" and types[-1] == "reception"
+        assert set(types[1:-1]) <= AODT_INTERIOR_TOKENS, types
+        assert row["prim_ids"][0] == row["prim_ids"][-1] == -1
+        assert row["object_ids"][0] == row["object_ids"][-1] == -1
 
 
 # ------------------------------------------------------------------ fixtures
@@ -287,31 +322,53 @@ def test_raypaths_round_trip_through_the_aodt_importer(tmp_path: Path):
         assert len(got.vertices) == len(want.vertices)
         for v_got, v_want in zip(got.vertices, want.vertices):
             assert v_got == pytest.approx(v_want, rel=1e-6, abs=1e-4)
+        # Per-vertex typing comes back too, one interaction per interior point.
+        assert [i.type for i in got.interactions] == [
+            i.type for i in want.interactions
+        ]
+        for i_got, v_got in zip(got.interactions, got.vertices[1:-1]):
+            assert i_got.point == v_got
     # The importer also accepts the export directory through the public entry.
     assert aodt_import.import_aodt_results(out, "paths").backend == "aodt_import"
+
+
+def test_reimported_paths_re_export_identical_raypaths(tmp_path: Path):
+    """export -> import -> export reproduces every interaction_types list: the
+    importer's rebuilt interactions are enough to type each vertex again."""
+    _summary, out = _export(tmp_path)
+    first = _rows(out, "raypaths")
+    imported = aodt_import.import_paths(out, [])
+    # A raypaths row names devices by integer index only; re-attach the ids.
+    relinked = PathResultSet(
+        result_id="reimport",
+        backend="aodt_import",
+        simulation_config_id="default",
+        paths=[
+            p.model_copy(update={"tx_id": "tx_001", "rx_id": "rx_001"})
+            for p in imported.paths
+        ],
+    )
+    again = tmp_path / "again"
+    again.mkdir()
+    export_aodt(
+        again, _scene(), load_default_library(), _cfg(), AodtExportRequest(),
+        paths=relinked,
+    )
+    second = _rows(again / EXPORT_DIR_REL, "raypaths")
+    _assert_raypaths_contract(second)
+    assert [r["interaction_types"] for r in second] == [
+        r["interaction_types"] for r in first
+    ]
 
 
 def test_raypaths_rows_carry_aligned_geometry_lists(tmp_path: Path):
     _summary, out = _export(tmp_path)
     rows = _rows(out, "raypaths")
-    assert rows
+    _assert_raypaths_contract(rows)
 
     for row in rows:
-        n = len(row["points"])
-        assert n >= 2
-        # interaction_types is emission + one per bounce; the RX arrival is not
-        # an interaction, so it is exactly one shorter than points.
-        assert len(row["interaction_types"]) == n - 1
-        assert row["interaction_types"][0] == "emission"
-        assert all(
-            t in {"reflection", "diffraction", "scattering", "transmission"}
-            for t in row["interaction_types"][1:]
-        )
-        assert len(row["normals"]) == n
         assert all(v == [0.0, 0.0, 0.0] for v in row["normals"])
-        assert len(row["vegetation_depths"]) == n
-        assert len(row["prim_ids"]) == n and row["object_ids"] == row["prim_ids"]
-        assert row["prim_ids"][0] == -1 and row["prim_ids"][-1] == -1
+        assert row["object_ids"] == row["prim_ids"]
         assert len(row["ampl_re"]) == 1 and len(row["ampl_im"]) == 1
         assert row["ru_ant_el"] == {"h": 0, "v": 0}
         assert row["ue_ant_el"] == {"h": 0, "v": 0}
@@ -320,6 +377,270 @@ def test_raypaths_rows_carry_aligned_geometry_lists(tmp_path: Path):
     # The reflection path bounces off /ground, which is prim index 0.
     bounced = [r for r in rows if len(r["points"]) > 2]
     assert bounced and all(r["prim_ids"][1] == 0 for r in bounced)
+    assert all(
+        r["interaction_types"] == ["emission", "reflection", "reception"]
+        for r in bounced
+    )
+    direct = [r for r in rows if len(r["points"]) == 2]
+    assert direct and all(
+        r["interaction_types"] == ["emission", "reception"] for r in direct
+    )
+
+
+# ------------------------------------------------------------------- sensing
+
+
+_TX = [0.0, 0.0, 10.0]
+_RX = [20.0, 0.0, 1.5]
+
+
+def _echo(n: int, actor_id: str, center: list[float]) -> RayPath:
+    return RayPath(
+        path_id=f"sensing_{n:04d}",
+        tx_id="tx_001",
+        rx_id="rx_001",
+        path_type="sensing",
+        vertices=[_TX, center, _RX],
+        power_dbm=-95.0 - n,
+        delay_ns=120.0 + n,
+        interactions=[PathInteraction(type="sensing", prim_id=actor_id, point=center)],
+        target_id=actor_id,
+        doppler_hz=10.0 * n,
+    )
+
+
+def _sensing_result() -> SensingResultSet:
+    """Two echoes (targets listed OUT of actor-id order) plus one comm path,
+    as a solve with include_comm_paths stores them."""
+    ground = [10.0, 0.0, 0.0]
+    comm = RayPath(
+        path_id="path_0001",
+        tx_id="tx_001",
+        rx_id="rx_001",
+        path_type="reflection",
+        vertices=[_TX, ground, _RX],
+        power_dbm=-70.0,
+        delay_ns=75.0,
+        interactions=[
+            PathInteraction(type="reflection", prim_id="/ground", point=ground)
+        ],
+    )
+    targets = [
+        SensingTargetSummary(
+            actor_id=actor_id, model="constant", position=center, size_m=[4.0, 2.0, 1.5]
+        )
+        for actor_id, center in (("truck_b", [8.0, 6.0, 1.0]), ("car_a", [12.0, -4.0, 0.8]))
+    ]
+    return SensingResultSet(
+        result_id="sensing_001",
+        backend="mock",
+        simulation_config_id="default",
+        paths=[
+            _echo(1, "truck_b", [8.0, 6.0, 1.0]),
+            _echo(2, "car_a", [12.0, -4.0, 0.8]),
+            comm,
+        ],
+        targets=targets,
+    )
+
+
+def test_sensing_source_rows_satisfy_the_contract(tmp_path: Path):
+    scene = _scene()
+    library = load_default_library()
+    sensing = _sensing_result()
+    export_aodt(
+        tmp_path, scene, library, _cfg(), AodtExportRequest(source="sensing"),
+        sensing=sensing,
+    )
+    out = tmp_path / EXPORT_DIR_REL
+    rows = _rows(out, "raypaths")
+    _assert_raypaths_contract(rows)
+    assert len(rows) == 3
+
+    # Echoes use AODT's diffuse token; their object id follows SORTED actor
+    # ids (car_a before truck_b), not the order of targets.
+    truck, car, comm = rows
+    assert truck["interaction_types"] == ["emission", "diffuse", "reception"]
+    assert truck["object_ids"] == [-1, SENSING_OBJECT_ID_BASE + 1, -1]
+    assert car["object_ids"] == [-1, SENSING_OBJECT_ID_BASE, -1]
+    assert truck["prim_ids"] == car["prim_ids"] == [-1, -1, -1]
+    assert comm["interaction_types"] == ["emission", "reflection", "reception"]
+    assert comm["prim_ids"] == comm["object_ids"] == [-1, 0, -1]
+
+    id_map = json.loads((out / "id_map.json").read_text())
+    assert id_map["sensing_targets"] == {
+        "car_a": SENSING_OBJECT_ID_BASE,
+        "truck_b": SENSING_OBJECT_ID_BASE + 1,
+    }
+    assert id_map["sensing_interaction_token"] == "diffuse"
+
+    # Round trip: an echo reads back as a scattering bounce at the target.
+    imported = aodt_import.import_paths(out, [])
+    assert [p.path_type for p in imported.paths] == [
+        "scattering", "scattering", "reflection",
+    ]
+    assert [[i.type for i in p.interactions] for p in imported.paths] == [
+        ["scattering"], ["scattering"], ["reflection"],
+    ]
+    assert imported.paths[0].interactions[0].point == pytest.approx([8.0, 6.0, 1.0])
+
+
+def test_untypable_path_is_left_out_of_raypaths_but_kept_in_cirs(tmp_path: Path):
+    """No interactions: a single-mechanism path_type still types the interior
+    vertices; a "mixed" one cannot, so the row is dropped (never given an
+    invented token) while its tap still reaches cirs."""
+    base = dict(tx_id="tx_001", rx_id="rx_001", power_dbm=-80.0)
+    paths = PathResultSet(
+        result_id="hand",
+        backend="mock",
+        simulation_config_id="default",
+        paths=[
+            RayPath(path_id="p0", path_type="los", vertices=[_TX, _RX],
+                    delay_ns=67.0, **base),
+            RayPath(path_id="p1", path_type="diffraction",
+                    vertices=[_TX, [10.0, 3.0, 5.0], _RX], delay_ns=70.0, **base),
+            RayPath(path_id="p2", path_type="mixed",
+                    vertices=[_TX, [5.0, 5.0, 0.0], [15.0, 5.0, 4.0], _RX],
+                    delay_ns=90.0, **base),
+        ],
+    )
+    summary = export_aodt(
+        tmp_path, _scene(), load_default_library(), _cfg(), AodtExportRequest(),
+        paths=paths,
+    )
+    out = tmp_path / EXPORT_DIR_REL
+    rows = _rows(out, "raypaths")
+    _assert_raypaths_contract(rows)
+    assert [r["interaction_types"] for r in rows] == [
+        ["emission", "reception"],
+        ["emission", "diffraction", "reception"],
+    ]
+    assert rows[1]["prim_ids"] == [-1, -1, -1]
+    assert len(_rows(out, "cirs")[0]["cir_delay"]) == 3
+    assert any("left out of raypaths" in w for w in summary["warnings"])
+
+
+def test_scattering_and_transmission_use_documented_aodt_tokens(tmp_path: Path):
+    """SEAM "scattering" is AODT "diffuse" (never the undocumented
+    "scattering"), and each transmission vertex is "transmission"."""
+    base = dict(tx_id="tx_001", rx_id="rx_001", power_dbm=-85.0)
+    ground = [10.0, 0.0, 0.0]
+    wall_in, wall_out = [8.0, 0.0, 6.0], [12.0, 0.0, 4.0]
+    paths = PathResultSet(
+        result_id="hand",
+        backend="mock",
+        simulation_config_id="default",
+        paths=[
+            RayPath(
+                path_id="scat", path_type="scattering", vertices=[_TX, ground, _RX],
+                delay_ns=80.0,
+                interactions=[
+                    PathInteraction(type="scattering", prim_id="/ground", point=ground)
+                ],
+                **base,
+            ),
+            RayPath(
+                path_id="trans", path_type="transmission",
+                vertices=[_TX, wall_in, wall_out, _RX], delay_ns=70.0,
+                interactions=[
+                    PathInteraction(type="transmission", point=wall_in),
+                    PathInteraction(type="transmission", point=wall_out),
+                ],
+                **base,
+            ),
+        ],
+    )
+    export_aodt(
+        tmp_path, _scene(), load_default_library(), _cfg(), AodtExportRequest(),
+        paths=paths,
+    )
+    out = tmp_path / EXPORT_DIR_REL
+    rows = _rows(out, "raypaths")
+    _assert_raypaths_contract(rows)
+    scat, trans = rows
+    assert scat["interaction_types"] == ["emission", "diffuse", "reception"]
+    assert scat["prim_ids"] == scat["object_ids"] == [-1, 0, -1]
+    assert trans["interaction_types"] == [
+        "emission", "transmission", "transmission", "reception",
+    ]
+
+    imported = aodt_import.import_paths(out, [])
+    assert [p.path_type for p in imported.paths] == ["scattering", "transmission"]
+    assert [[i.type for i in p.interactions] for p in imported.paths] == [
+        ["scattering"], ["transmission", "transmission"],
+    ]
+
+
+def test_interactions_type_each_vertex_not_the_path_type(tmp_path: Path):
+    """Aligned interactions win over path_type: a "mixed" path keeps its row,
+    and an echo that bounces before the target types the bounce as a
+    reflection and only the target vertex as diffuse."""
+    ground = [10.0, 0.0, 0.0]
+    edge = [15.0, 2.0, 5.0]
+    mixed = RayPath(
+        path_id="mixed", tx_id="tx_001", rx_id="rx_001", path_type="mixed",
+        vertices=[_TX, ground, edge, _RX], power_dbm=-90.0, delay_ns=95.0,
+        interactions=[
+            PathInteraction(type="reflection", prim_id="/ground", point=ground),
+            PathInteraction(type="diffraction", point=edge),
+        ],
+    )
+    export_aodt(
+        tmp_path, _scene(), load_default_library(), _cfg(), AodtExportRequest(),
+        paths=PathResultSet(
+            result_id="hand", backend="mock", simulation_config_id="default",
+            paths=[mixed],
+        ),
+    )
+    out = tmp_path / EXPORT_DIR_REL
+    rows = _rows(out, "raypaths")
+    _assert_raypaths_contract(rows)
+    (row,) = rows
+    assert row["interaction_types"] == [
+        "emission", "reflection", "diffraction", "reception",
+    ]
+    assert row["prim_ids"] == [-1, 0, -1, -1]
+
+    imported = aodt_import.import_paths(out, [])
+    (back,) = imported.paths
+    assert back.path_type == "mixed"
+    assert [i.type for i in back.interactions] == ["reflection", "diffraction"]
+
+    center = [12.0, -4.0, 0.8]
+    echo = RayPath(
+        path_id="sensing_0001", tx_id="tx_001", rx_id="rx_001", path_type="sensing",
+        vertices=[_TX, ground, center, _RX], power_dbm=-100.0, delay_ns=130.0,
+        interactions=[
+            PathInteraction(type="reflection", prim_id="/ground", point=ground),
+            PathInteraction(type="sensing", prim_id="car_a", point=center),
+        ],
+        target_id="car_a",
+        doppler_hz=5.0,
+    )
+    sensing = SensingResultSet(
+        result_id="sensing_bounce", backend="mock", simulation_config_id="default",
+        paths=[echo],
+        targets=[
+            SensingTargetSummary(
+                actor_id="car_a", model="constant", position=center,
+                size_m=[4.0, 2.0, 1.5],
+            )
+        ],
+    )
+    sensing_dir = tmp_path / "sensing"
+    sensing_dir.mkdir()
+    export_aodt(
+        sensing_dir, _scene(), load_default_library(), _cfg(),
+        AodtExportRequest(source="sensing"), sensing=sensing,
+    )
+    rows = _rows(sensing_dir / EXPORT_DIR_REL, "raypaths")
+    _assert_raypaths_contract(rows)
+    (row,) = rows
+    assert row["interaction_types"] == [
+        "emission", "reflection", "diffuse", "reception",
+    ]
+    assert row["prim_ids"] == [-1, 0, -1, -1]
+    assert row["object_ids"] == [-1, 0, SENSING_OBJECT_ID_BASE, -1]
 
 
 # ------------------------------------------------------------------ cir / cfr
@@ -378,6 +699,7 @@ def test_playback_source_writes_one_time_index_per_frame(tmp_path: Path):
     assert summary["tables"]["time_info"] == 3
 
     raypaths = _rows(out, "raypaths")
+    _assert_raypaths_contract(raypaths)
     assert {r["time_idx"] for r in raypaths} == {0, 1, 2}
     assert {r["time_idx"] for r in _rows(out, "cirs")} == {0, 1, 2}
     assert {r["time_idx"] for r in _rows(out, "cfrs")} == {0, 1, 2}
