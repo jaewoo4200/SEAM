@@ -98,13 +98,12 @@ def _sample_positions(
                     f"actor '{sampling.actor_id}' has no trajectory to sample"
                 )
             pts = resample_polyline(traj.waypoints, sampling.num_samples)
-            # Preserve the actor's authored speed: the authored duration
-            # dt_s * (num_waypoints - 1) is re-spread over the resampled steps.
-            if sampling.num_samples > 1:
-                sample_dt = (
-                    traj.dt_s * (len(traj.waypoints) - 1)
-                    / (sampling.num_samples - 1)
-                )
+            # Preserve the actor's authored pace: one pass's duration is
+            # re-spread over the resampled steps. A zero-length path has no
+            # duration and keeps the request's step.
+            duration = traj.duration_s()
+            if sampling.num_samples > 1 and duration > 0.0:
+                sample_dt = duration / (sampling.num_samples - 1)
         else:
             if not sampling.start_m or not sampling.end_m:
                 raise ValueError(
@@ -443,7 +442,8 @@ def generate_dataset(
         "duration_s": round(time.monotonic() - started, 2),
         "num_zero_path_samples": zero_count,
         # Trajectory sample step [s] behind the ue_velocity finite differences
-        # (actor_id sampling derives it from the actor's authored dt_s); None
+        # (actor_id sampling derives it from the actor's authored dt_s or
+        # speed_m_s); None
         # for random/grid, whose ue_velocity is all zeros.
         "sample_dt_s": sample_dt,
         # Whether the .npz carries the optional doppler_spread_hz array (only

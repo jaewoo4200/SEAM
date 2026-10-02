@@ -1892,6 +1892,8 @@ export interface components {
             loop: boolean;
             /** Mode */
             mode?: ("once" | "loop" | "pingpong") | null;
+            /** Speed M S */
+            speed_m_s?: number | null;
             /** Waypoints */
             waypoints?: number[][];
         };

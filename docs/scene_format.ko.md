@@ -190,7 +190,22 @@ measurement_calibrated
 
 | field | type | notes |
 |---|---|---|
+| `trajectory` | ActorTrajectory \| null | 시나리오에서 액터가 따라가는 웨이포인트 경로; null = 정지 |
 | `sensing` | SensingTargetSpec \| null | `POST /simulate/sensing`용 레이더 센싱 타깃 바인딩; null = 타깃 아님. [guides/sensing.ko.md](guides/sensing.ko.md) 참고 |
+
+`ActorTrajectory`:
+
+| field | type | notes |
+|---|---|---|
+| `waypoints` | [e,n,u][] | 바닥 위치, Z-up ENU 미터; 액터는 그 사이를 직선으로 이동 |
+| `dt_s` | float > 0 | 웨이포인트 한 스텝에 걸리는 시간(초). **스텝 길이와 무관**(기본 0.1). `speed_m_s`가 있으면 쓰지 않음 |
+| `speed_m_s` | float > 0 \| null | 일정한 이동 속력: 구간마다 길이 / 속력만큼 걸림. null이면 `dt_s`로 진행(이 필드가 없는 씬은 동작과 해시가 이전과 똑같음) |
+| `mode` | `"once"` \| `"loop"` \| `"pingpong"` \| null | once는 마지막 웨이포인트에서 멈추고, loop는 처음으로 돌아가며, pingpong은 방향을 뒤집음; null이면 `loop`를 따름 |
+| `loop` | bool | 폐기 예정, `mode`로 대체 |
+
+`dt_s`로 진행하면 속력은 구간 길이 / `dt_s`입니다. 웨이포인트를 50 m 간격으로
+찍고 `dt_s`가 0.25 s면 200 m/s가 되고, 도플러도 이 속력으로 계산됩니다.
+웨이포인트 간격과 속력을 떼어 놓으려면 `speed_m_s`를 지정하세요.
 
 `SensingTargetSpec`: `model`(`"tr38901"` \| `"constant"`), `object_type`
 (TR 38.901 타입; null이면 액터 kind에서 유도, `custom`은 필수),

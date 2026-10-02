@@ -21,6 +21,7 @@ import {
   resolveModelType,
   resolveObjectType,
 } from "../sensingDefaults";
+import { DEFAULT_SPEED_M_S_BY_KIND } from "../actorDefaults";
 import type {
   Actor,
   ActorTrajectory,
@@ -980,8 +981,16 @@ function ActorSensingEditor({ actor }: { actor: Actor }) {
   );
 }
 
-/** Waypoint list editor with per-row XYZ, add/remove, dt_s and loop, plus a
- *  "Record current pos" that appends the actor's current position. */
+function segmentLengths(waypoints: Vec3[]): number[] {
+  return waypoints
+    .slice(1)
+    .map((b, i) => Math.hypot(b[0] - waypoints[i][0], b[1] - waypoints[i][1], b[2] - waypoints[i][2]));
+}
+
+const fmtShort = (v: number): string => (v < 10 ? v.toFixed(1) : v.toFixed(0));
+
+/** Waypoint list editor with per-row XYZ, add/remove, dt_s / speed and mode,
+ *  plus a "Record current pos" that appends the actor's current position. */
 function ActorTrajectoryEditor({ actor }: { actor: Actor }) {
   const updateActor = useAppStore((s) => s.updateActor);
   const requestPick = useAppStore((s) => s.requestPick);
@@ -1000,6 +1009,7 @@ function ActorTrajectoryEditor({ actor }: { actor: Actor }) {
   const traj: ActorTrajectory = actor.trajectory ?? {
     waypoints: [],
     dt_s: 0.1,
+    speed_m_s: null,
     loop: false,
     mode: "once",
   };
@@ -1009,6 +1019,32 @@ function ActorTrajectoryEditor({ actor }: { actor: Actor }) {
   const mode: NonNullable<ActorTrajectory["mode"]> = traj.mode ?? (traj.loop ? "loop" : "once");
 
   const commit = (next: ActorTrajectory | null) => void updateActor(actor.id, { trajectory: next });
+
+  const lengths = segmentLengths(traj.waypoints);
+  const pathLength = lengths.reduce((a, b) => a + b, 0);
+  const speed = traj.speed_m_s ?? null;
+  // dt-paced: every segment takes dt_s however long it is, so widely spaced
+  // waypoints silently mean a very fast actor (and a large Doppler).
+  const impliedAvg =
+    speed === null && pathLength > 0 ? pathLength / (traj.dt_s * lengths.length) : null;
+  const impliedPeak = impliedAvg !== null ? Math.max(...lengths) / traj.dt_s : null;
+  const kindSpeed = DEFAULT_SPEED_M_S_BY_KIND[actor.kind];
+
+  // Commits on blur/Enter: per-keystroke commits would PUT "0" mid-typing,
+  // which speed_m_s > 0 rejects.
+  const [speedDraft, setSpeedDraft] = useState(numStr(speed));
+  useEffect(() => {
+    setSpeedDraft(numStr(speed));
+  }, [actor.id, speed]);
+  const commitSpeed = () => {
+    const raw = speedDraft.trim();
+    const next = raw === "" ? null : Number(raw);
+    if (next !== null && !(Number.isFinite(next) && next > 0)) {
+      setSpeedDraft(numStr(speed));
+      return;
+    }
+    if (next !== speed) commit({ ...traj, speed_m_s: next });
+  };
 
   // Set the playback mode, keeping the legacy `loop` bool in sync so backends
   // that only read `loop` still behave (loop stays true for loop/pingpong).
@@ -1068,7 +1104,13 @@ function ActorTrajectoryEditor({ actor }: { actor: Actor }) {
       heightOffset: 0,
       onComplete: ([p]) => {
         const cur = useAppStore.getState().scene?.actors.find((a) => a.id === actor.id);
-        const base: ActorTrajectory = cur?.trajectory ?? { waypoints: [], dt_s: 0.1, loop: false, mode: "once" };
+        const base: ActorTrajectory = cur?.trajectory ?? {
+          waypoints: [],
+          dt_s: 0.1,
+          speed_m_s: null,
+          loop: false,
+          mode: "once",
+        };
         void updateActor(actor.id, { trajectory: { ...base, waypoints: [...base.waypoints, p] } });
       },
     });
@@ -1084,7 +1126,7 @@ function ActorTrajectoryEditor({ actor }: { actor: Actor }) {
           onChange={(e) =>
             commit(
               e.target.checked
-                ? { waypoints: [[...actor.position]], dt_s: 0.1, loop: false, mode: "once" }
+                ? { waypoints: [[...actor.position]], dt_s: 0.1, speed_m_s: null, loop: false, mode: "once" }
                 : null,
             )
           }
@@ -1202,6 +1244,7 @@ function ActorTrajectoryEditor({ actor }: { actor: Actor }) {
                 // The attached RX flies the actor's authored waypoints: one
                 // solve per step with per-step rays (same engine as the UE
                 // trajectory panel), so an actor path-simulates like a device.
+                const numPoints = Math.min(48, Math.max(12, traj.waypoints.length * 3));
                 void simulateTrajectory({
                   routes: [
                     {
@@ -1209,8 +1252,13 @@ function ActorTrajectoryEditor({ actor }: { actor: Actor }) {
                       waypoints: traj.waypoints.map((w) => [...w]),
                     },
                   ],
-                  num_points: Math.min(48, Math.max(12, traj.waypoints.length * 3)),
-                  dt_s: traj.dt_s,
+                  num_points: numPoints,
+                  // Routes are resampled to equal arc-length steps, so a
+                  // constant speed splits one pass's duration evenly.
+                  dt_s:
+                    speed !== null && pathLength > 0
+                      ? pathLength / speed / (numPoints - 1)
+                      : traj.dt_s,
                 });
               }}
             >
@@ -1220,7 +1268,15 @@ function ActorTrajectoryEditor({ actor }: { actor: Actor }) {
           <p className="hint" style={{ marginTop: 6 }}>
             Animates in Results → Scenario playback.
           </p>
-          <label className="solver-field" style={{ marginTop: 6 }}>
+          <label
+            className="solver-field"
+            style={{ marginTop: 6, opacity: speed !== null ? 0.55 : undefined }}
+            title={
+              speed !== null
+                ? "Unused while a speed is set (kept for when the speed is cleared)"
+                : "Seconds per waypoint step, however far apart the waypoints are"
+            }
+          >
             <span className="solver-field-label">dt</span>
             <span className="solver-field-input">
               <input
@@ -1234,6 +1290,42 @@ function ActorTrajectoryEditor({ actor }: { actor: Actor }) {
               <span className="solver-unit">s</span>
             </span>
           </label>
+          <label
+            className="solver-field"
+            style={{ marginTop: 6 }}
+            title="Constant travel speed: each segment takes length / speed. Blank = paced by dt instead."
+          >
+            <span className="solver-field-label">Speed</span>
+            <span className="solver-field-input">
+              <input
+                type="number"
+                min={0}
+                step={0.5}
+                value={speedDraft}
+                placeholder={`e.g. ${kindSpeed}`}
+                disabled={disabled}
+                onChange={(e) => setSpeedDraft(e.target.value)}
+                onBlur={commitSpeed}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") commitSpeed();
+                }}
+              />
+              <span className="solver-unit">m/s</span>
+            </span>
+          </label>
+          {impliedAvg !== null && impliedPeak !== null && (
+            <p
+              className="hint"
+              style={impliedPeak > 3 * kindSpeed ? { color: "var(--amber)" } : undefined}
+              title="Paced by dt: each segment's speed is its length / dt. Enter a speed to move at a constant pace instead."
+            >
+              implied {fmtShort(impliedAvg)} m/s
+              {impliedPeak > impliedAvg * 1.05 && ` (peak ${fmtShort(impliedPeak)})`} from dt
+            </p>
+          )}
+          {speed !== null && pathLength > 0 && (
+            <p className="hint">one pass ≈ {fmtShort(pathLength / speed)} s · dt unused</p>
+          )}
           <label className="solver-field" style={{ marginTop: 6 }}>
             <span className="solver-field-label">Mode</span>
             <select

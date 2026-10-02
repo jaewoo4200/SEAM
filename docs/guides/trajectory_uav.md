@@ -102,10 +102,27 @@ flight path. Each waypoint row has:
 
 Below the table: **+ Waypoint** appends the actor's position, **⌖ Pick
 waypoint** appends a clicked point from the viewport, and **Record current
-pos** captures the pose you just dragged to. **dt** (s) and **Mode**
-(`once` / `loop` / `pingpong`) control the animation, which plays in
-**Results → Scenario playback** (`Simulate scenario` animates every actor
-along its own waypoints).
+pos** captures the pose you just dragged to. **dt** (s), **Speed** (m/s)
+and **Mode** (`once` / `loop` / `pingpong`) control the animation, which
+plays in **Results → Scenario playback** (`Simulate scenario` animates every
+actor along its own waypoints).
+
+**Pacing: dt or Speed.** By default the path is paced by **dt**: every
+segment takes `dt` seconds, however long it is. Waypoints placed far apart
+then mean a very fast actor. A drone with waypoints 50 m apart at
+`dt = 0.25 s` flies at 200 m/s, and its Doppler follows that speed. Below the
+Speed field the inspector shows the speed this implies (*implied N m/s from
+dt*, plus the peak when legs differ; amber when the peak is over 3× the
+kind's typical speed). Enter a **Speed** to move at that constant pace
+instead: each segment then takes its length / speed, so unequal legs take
+proportionally longer. The placeholder is a typical speed for the kind (car
+10, human 1.4, UAV 10, custom 5 m/s). It is only a suggestion, and the field
+stays blank (dt pacing) until you type a value. While a speed is set, **dt**
+is dimmed and unused but kept, and clearing the speed returns to dt pacing.
+The same pacing drives scenario frames, the sensing target's t = 0 velocity,
+datasets that sample the actor (`actor_id`), the AODT scatterer route, and
+**⚡ Simulate paths along trajectory**. Stored as `trajectory.speed_m_s`
+(see [../scene_format.md](../scene_format.md)).
 
 A trajectory also gives the actor a velocity for Doppler (Sionna backend).
 `Simulate scenario` applies each frame's velocity. Every other paths solve

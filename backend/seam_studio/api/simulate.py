@@ -170,11 +170,15 @@ def _provenance_hashes(scene: Scene, config: Optional[SimulationConfig]) -> dict
     scene_payload = scene.model_dump(mode="json")
     scene_payload.pop("result_sets", None)
     scene_payload.pop("revision", None)
-    # An unbound actor hashes exactly as it did before Actor.sensing existed,
-    # so results solved before that field landed stay comparable.
+    # An unbound actor (and a dt-paced trajectory) hashes exactly as it did
+    # before Actor.sensing / ActorTrajectory.speed_m_s existed, so results
+    # solved before those fields landed stay comparable.
     for actor in scene_payload.get("actors", []):
         if actor.get("sensing") is None:
             actor.pop("sensing", None)
+        traj = actor.get("trajectory")
+        if traj is not None and traj.get("speed_m_s") is None:
+            traj.pop("speed_m_s", None)
     assignment = sorted(
         (p.id, p.rf.material_id or "", p.rf.assignment_status) for p in scene.prims
     )

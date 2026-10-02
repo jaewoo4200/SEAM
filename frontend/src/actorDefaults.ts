@@ -23,3 +23,13 @@ export const ACTOR_DEFAULTS: Record<ActorKind, ActorKindDefaults> = {
   custom: { rf_material_id: "unknown_rf", size_m: [1.0, 1.0, 1.0], color: "#a78bfa" },
   uav: { rf_material_id: "metal", size_m: [0.6, 0.6, 0.25], color: "#38bdf8" },
 };
+
+/** Typical travel speed per kind [m/s], shown as the trajectory editor's
+ *  Speed placeholder. Frontend-only: the backend never applies it — a
+ *  trajectory without speed_m_s keeps its dt_s pacing. */
+export const DEFAULT_SPEED_M_S_BY_KIND: Record<ActorKind, number> = {
+  car: 10,
+  human: 1.4,
+  uav: 10,
+  custom: 5,
+};

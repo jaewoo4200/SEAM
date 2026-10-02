@@ -211,6 +211,19 @@ def test_actor_trajectory_resolution(project_dir, library):
     assert np.allclose(z["ue_velocity"], [[40.0, 0.0, 0.0]] * 5, atol=1e-3)
 
 
+def test_actor_trajectory_speed_sets_sample_step(project_dir, library):
+    scene = _scene_with_uav()
+    scene.actors[0].trajectory.speed_m_s = 8.0  # dt_s 0.5 stays, but unused
+    info = _gen(
+        project_dir, library,
+        DatasetSampling(mode="trajectory", num_samples=5, actor_id="uav_1"),
+        scene=scene, num_cfr_points=8,
+    )
+    # 20 m at 8 m/s = 2.5 s, over 4 resampled steps.
+    assert _meta(project_dir, info)["sample_dt_s"] == pytest.approx(0.625)
+    assert np.allclose(_arrays(project_dir, info)["ue_velocity"], [[8.0, 0.0, 0.0]] * 5, atol=1e-3)
+
+
 def test_actor_trajectory_errors(project_dir, library):
     scene = _scene_with_uav()
     with pytest.raises(ValueError, match="unknown actor"):

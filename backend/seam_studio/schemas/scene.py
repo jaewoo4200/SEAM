@@ -13,6 +13,7 @@ Key invariants enforced here:
   prim level.
 """
 
+import math
 from typing import Literal, Optional
 
 from pydantic import Field, field_validator, model_validator
@@ -164,7 +165,12 @@ class ActorShape(StrictModel):
 
 class ActorTrajectory(StrictModel):
     waypoints: list[Vec3] = Field(default_factory=list)
+    # Seconds per waypoint step, whatever the step's length. Ignored while
+    # speed_m_s is set.
     dt_s: float = Field(default=0.1, gt=0.0)
+    # Constant travel speed [m/s]: each segment takes length / speed. None
+    # keeps the dt_s pacing (and the scene hash of scenes without the field).
+    speed_m_s: Optional[float] = Field(default=None, gt=0.0)
     # Deprecated boolean kept for older scenes; superseded by mode.
     loop: bool = False
     # once: clamp at the last waypoint; loop: wrap to the start; pingpong:
@@ -175,6 +181,15 @@ class ActorTrajectory(StrictModel):
         if self.mode is not None:
             return self.mode
         return "loop" if self.loop else "once"
+
+    def segment_lengths_m(self) -> list[float]:
+        return [math.dist(a, b) for a, b in zip(self.waypoints, self.waypoints[1:])]
+
+    def duration_s(self) -> float:
+        """Time of one pass from the first waypoint to the last."""
+        if self.speed_m_s is None:
+            return self.dt_s * max(len(self.waypoints) - 1, 0)
+        return sum(self.segment_lengths_m()) / self.speed_m_s
 
 
 class Actor(StrictModel):

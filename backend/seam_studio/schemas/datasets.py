@@ -48,8 +48,8 @@ class DatasetSampling(StrictModel):
     actor_id: Optional[str] = None
     # Time between consecutive trajectory samples [s] - the finite-difference
     # step behind the ue_velocity labels. actor_id sampling instead derives
-    # the step from the actor's authored trajectory dt_s so the authored
-    # speed is preserved across resampling.
+    # the step from the actor's authored trajectory (dt_s, or speed_m_s when
+    # set) so the authored speed is preserved across resampling.
     dt_s: float = Field(default=0.1, gt=0.0)
     seed: int = Field(default=0, ge=0)
     # Snap each sampled position's z to the scene surface underneath it

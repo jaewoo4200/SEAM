@@ -554,16 +554,30 @@ def _scatterer_rows(scene: Scene, scatterer_ids: dict[str, int]) -> list[dict]:
         if traj is None or not traj.waypoints:
             continue
         pts = [_vec3(p) for p in traj.waypoints]
-        dt = traj.dt_s
-        times = [i * dt for i in range(len(pts))]
-        speeds: list[float] = []
-        for i in range(len(pts)):
-            j = min(i + 1, len(pts) - 1)
-            if j == i:
-                speeds.append(speeds[-1] if speeds else 0.0)
-                continue
-            d = math.dist(pts[i], pts[j])
-            speeds.append(d / dt)
+        if traj.speed_m_s is not None:
+            # Zero-length legs are crossed instantly (as in scenario.py), so a
+            # repeated waypoint is dropped to keep route_times strictly
+            # increasing; with no leg left the actor is at rest.
+            kept = [pts[0]]
+            for p in pts[1:]:
+                if math.dist(kept[-1], p) > 0.0:
+                    kept.append(p)
+            pts = kept
+            times = [0.0]
+            for a, b in zip(pts, pts[1:]):
+                times.append(times[-1] + math.dist(a, b) / traj.speed_m_s)
+            speeds = [traj.speed_m_s if len(pts) > 1 else 0.0] * len(pts)
+        else:
+            dt = traj.dt_s
+            times = [i * dt for i in range(len(pts))]
+            speeds = []
+            for i in range(len(pts)):
+                j = min(i + 1, len(pts) - 1)
+                if j == i:
+                    speeds.append(speeds[-1] if speeds else 0.0)
+                    continue
+                d = math.dist(pts[i], pts[j])
+                speeds.append(d / dt)
         rows.append(
             {
                 "ID": scatterer_ids[actor.id],

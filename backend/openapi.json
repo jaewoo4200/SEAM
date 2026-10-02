@@ -376,6 +376,18 @@
             ],
             "title": "Mode"
           },
+          "speed_m_s": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Speed M S"
+          },
           "waypoints": {
             "items": {
               "items": {

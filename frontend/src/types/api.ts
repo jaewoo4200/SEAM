@@ -193,7 +193,10 @@ export interface ActorShape {
 
 export interface ActorTrajectory {
   waypoints: Vec3[];
+  /** Seconds per waypoint step; ignored while speed_m_s is set. */
   dt_s: number;
+  /** Constant travel speed [m/s]: each segment takes length / speed. */
+  speed_m_s: number | null;
   loop: boolean;
   mode: "once" | "loop" | "pingpong" | null;
 }

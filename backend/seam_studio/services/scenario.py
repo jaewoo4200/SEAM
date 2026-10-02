@@ -39,28 +39,53 @@ from seam_studio.services.simulation_backends.base import RayTracingBackend
 from seam_studio.services.simulation_backends.sionna_backend import noise_floor_dbm
 
 
+def _wrap_progress(u: float, span: float, mode: str) -> float:
+    """Fold unbounded progress ``u`` into [0, span] for a trajectory mode:
+    - once:     clamp at the ends;
+    - loop:     wrap - traversal jumps back to the start (no closing segment);
+    - pingpong: reflect at both ends (0..span..0..).
+    """
+    if mode == "once":
+        return max(0.0, min(u, span))
+    if mode == "loop":
+        return u % span
+    # pingpong: triangle wave with period 2*span.
+    period = 2.0 * span
+    phase = u % period
+    return phase if phase <= span else period - phase
+
+
+def _param_at_distance(lengths: list[float], d: float) -> float:
+    """Waypoint parameter s at arc length ``d``; zero-length segments are
+    crossed instantly."""
+    acc = 0.0
+    for k, seg in enumerate(lengths):
+        if seg > 0.0 and d <= acc + seg:
+            return k + (d - acc) / seg
+        acc += seg
+    return float(len(lengths))
+
+
 def _trajectory_param(traj, time_s: float) -> float:
     """Continuous waypoint parameter s in [0, n-1] at ``time_s``.
 
-    s advances by 1 per trajectory dt. Modes:
-    - once:     clamp at the ends;
-    - loop:     wrap (…, n-2, n-1, 0, 1, …) - traversal jumps back to start;
-    - pingpong: reflect at both ends (0..n-1..0..).
+    Without a speed, s advances by 1 per trajectory dt_s (every segment takes
+    dt_s, however long). With ``speed_m_s`` the arc length advances at that
+    speed, so each segment takes length / speed; the mode then folds the
+    distance over the polyline length instead of the waypoint count.
     """
     n = len(traj.waypoints)
     if n <= 1:
         return 0.0
-    s = time_s / traj.dt_s
     mode = traj.resolved_mode()
-    span = float(n - 1)
-    if mode == "once":
-        return max(0.0, min(s, span))
-    if mode == "loop":
-        return s % span
-    # pingpong: triangle wave with period 2*span.
-    period = 2.0 * span
-    phase = s % period
-    return phase if phase <= span else period - phase
+    if traj.speed_m_s is None:
+        return _wrap_progress(time_s / traj.dt_s, float(n - 1), mode)
+    lengths = traj.segment_lengths_m()
+    total = sum(lengths)
+    if total <= 0.0:
+        return 0.0
+    d = _wrap_progress(time_s * traj.speed_m_s, total, mode)
+    return _param_at_distance(lengths, d)
 
 
 def actor_position_at(actor: Actor, time_s: float) -> list[float]:

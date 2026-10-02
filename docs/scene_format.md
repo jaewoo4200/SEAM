@@ -187,11 +187,26 @@ state: `/terrain/ground` is `user_confirmed`, `/roads/r01/surface` is
 
 Movable RF objects (`kind`: `"car"` \| `"human"` \| `"uav"` \| `"custom"`), each
 compiled as its own Sionna shape. `position` is the base center (z = ground
-contact) and `shape.size_m` the box extents. The field relevant here:
+contact) and `shape.size_m` the box extents. The fields relevant here:
 
 | field | type | notes |
 |---|---|---|
+| `trajectory` | ActorTrajectory \| null | waypoint path the actor follows in scenarios; null = static |
 | `sensing` | SensingTargetSpec \| null | radar sensing-target binding for `POST /simulate/sensing`; null = not a target. See [guides/sensing.md](guides/sensing.md) |
+
+`ActorTrajectory`:
+
+| field | type | notes |
+|---|---|---|
+| `waypoints` | [e,n,u][] | base positions, Z-up ENU meters; the actor moves linearly between them |
+| `dt_s` | float > 0 | seconds per waypoint step, **however long the step is** (default 0.1). Ignored while `speed_m_s` is set |
+| `speed_m_s` | float > 0 \| null | constant travel speed: each segment takes length / speed. null = paced by `dt_s` (scenes without the field behave and hash exactly as before) |
+| `mode` | `"once"` \| `"loop"` \| `"pingpong"` \| null | once clamps at the last waypoint, loop jumps back to the first, pingpong reverses; null = from `loop` |
+| `loop` | bool | deprecated, superseded by `mode` |
+
+With `dt_s` pacing the speed is segment length / `dt_s`, so waypoints 50 m
+apart at `dt_s` 0.25 s mean 200 m/s, and that speed drives the Doppler. Set
+`speed_m_s` to decouple speed from waypoint spacing.
 
 `SensingTargetSpec`: `model` (`"tr38901"` \| `"constant"`), `object_type`
 (TR 38.901 type; null = derived from the actor kind, required for `custom`),
