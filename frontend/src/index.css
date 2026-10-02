@@ -235,6 +235,18 @@ h4 {
   color: var(--muted);
   white-space: nowrap;
 }
+/* /health and /ai/status land seconds after the workspace is interactive;
+   reserving the widest label ("Mock only", "local_openai") keeps the wrapping
+   toolbar from reflowing a row and shifting the panels under a pending click. */
+.health-chip .chip-text {
+  text-align: center;
+}
+.health-chip .chip-text.backend {
+  min-width: 9.5ch;
+}
+.health-chip .chip-text.ai {
+  min-width: 11ch;
+}
 
 .busy-indicator {
   color: var(--accent);

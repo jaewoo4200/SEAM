@@ -158,7 +158,7 @@ export default function Toolbar() {
           className="dot"
           style={{ background: sionnaAvailable ? "var(--ok)" : "var(--off)" }}
         />
-        {sionnaAvailable ? "Sionna" : "Mock only"}
+        <span className="chip-text backend">{sionnaAvailable ? "Sionna" : "Mock only"}</span>
       </span>
       <span
         className="health-chip"
@@ -173,7 +173,7 @@ export default function Toolbar() {
           className="dot"
           style={{ background: aiOff ? "var(--off)" : "var(--ok)" }}
         />
-        {aiOff ? "AI off" : activeProvider!.name}
+        <span className="chip-text ai">{aiOff ? "AI off" : activeProvider!.name}</span>
       </span>
       <button
         title="AI settings — LM Studio / Ollama endpoint and default model"

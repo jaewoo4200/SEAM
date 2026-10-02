@@ -593,6 +593,46 @@ function GizmoWrapped({
   );
 }
 
+/** Name label of a selectable entity. drei mounts <Html> inside r3f's event
+ *  source div, so a click on the label bubbles into r3f with offsetX/Y relative
+ *  to the LABEL: it raycasts near the canvas corner, misses the entity and the
+ *  click fires onPointerMissed (clearSelection). The label therefore selects
+ *  its entity itself and stops the native event before r3f sees it — except
+ *  while a gizmo axis is hovered, so an arrow under the label stays grabbable. */
+function EntityLabel({
+  id,
+  text,
+  selected,
+  onSelect,
+}: {
+  id: string;
+  text: string;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <div
+      className={"device-label" + (selected ? " selected" : "")}
+      title={id}
+      style={{ pointerEvents: "auto" }}
+      onPointerDown={(e) => {
+        if (gizmoBusy) return;
+        e.stopPropagation();
+        if (!useAppStore.getState().pick) onSelect(); // pick owns clicks
+      }}
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+    >
+      {text}
+    </div>
+  );
+}
+
+/** Pass-through style for <Html> labels of entities that are NOT selectable
+ *  there: the click reaches the canvas itself (correct raycast position)
+ *  instead of bubbling into r3f with label-relative offsets. */
+const LABEL_PASS_THROUGH = { pointerEvents: "none" } as const;
+
 function Devices() {
   const scene = useAppStore((s) => s.scene);
   const env = useAppStore((s) => s.resolvedEnvironment);
@@ -624,9 +664,12 @@ function Devices() {
               />
             </mesh>
             <Html position={[0, 0, radius * 2.4]} center zIndexRange={[10, 0]}>
-              <div className={"device-label" + (selected ? " selected" : "")} title={d.id}>
-                {d.name || d.id}
-              </div>
+              <EntityLabel
+                id={d.id}
+                text={d.name || d.id}
+                selected={selected}
+                onSelect={() => selectDevice(d.id)}
+              />
             </Html>
           </>
         );
@@ -758,9 +801,12 @@ function Actors({ frameStates }: { frameStates?: Map<string, { position: Vec3; o
               center
               zIndexRange={[10, 0]}
             >
-              <div className={"device-label" + (selected ? " selected" : "")} title={a.id}>
-                {a.name || a.id}
-              </div>
+              <EntityLabel
+                id={a.id}
+                text={a.name || a.id}
+                selected={selected}
+                onSelect={() => selectActor(a.id)}
+              />
             </Html>
           </>
         );
@@ -1085,7 +1131,12 @@ function UeMarker({
           <sphereGeometry args={[radius, 24, 16]} />
           <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.6} />
         </mesh>
-        <Html position={[0, 0, radius * 2.4]} center zIndexRange={[10, 0]}>
+        <Html
+          position={[0, 0, radius * 2.4]}
+          center
+          zIndexRange={[10, 0]}
+          style={LABEL_PASS_THROUGH}
+        >
           <div className="device-label selected">{ueId}</div>
         </Html>
       </group>
@@ -1187,7 +1238,12 @@ function PlaybackOverlay({ playback }: { playback: PlaybackResultSet }) {
             emissiveIntensity={0.6}
           />
         </mesh>
-        <Html position={[0, 0, radius * 2.4]} center zIndexRange={[10, 0]}>
+        <Html
+          position={[0, 0, radius * 2.4]}
+          center
+          zIndexRange={[10, 0]}
+          style={LABEL_PASS_THROUGH}
+        >
           <div className="device-label selected">{playback.rx_id}</div>
         </Html>
       </group>
@@ -1230,7 +1286,12 @@ function ScenarioDevices({ states }: { states: Map<string, Vec3> }) {
               <sphereGeometry args={[radius, 24, 16]} />
               <meshStandardMaterial color={d.color} />
             </mesh>
-            <Html position={[0, 0, radius * 2.4]} center zIndexRange={[10, 0]}>
+            <Html
+              position={[0, 0, radius * 2.4]}
+              center
+              zIndexRange={[10, 0]}
+              style={LABEL_PASS_THROUGH}
+            >
               <div className="device-label">{d.id}</div>
             </Html>
           </group>

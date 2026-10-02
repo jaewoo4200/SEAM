@@ -1131,6 +1131,23 @@ export const useAppStore = create<AppState>()((set, get) => {
   // 45s rides the server-side 30s probe cache, so offline machines pay at
   // most one ~3s probe per cycle server-side and nothing in the UI blocks.
   let aiStatusTimer: ReturnType<typeof setInterval> | null = null;
+  // /ai/status and /health replies resolve out of order: a cold ~6 s provider
+  // probe can land after saveAiSettings' fresh refetch and revert the chip.
+  // Each request takes a ticket; a reply older than the last applied is dropped.
+  const replyOrder = () => {
+    let issued = 0;
+    let applied = 0;
+    return () => {
+      const seq = ++issued;
+      return () => {
+        if (seq < applied) return false;
+        applied = seq;
+        return true;
+      };
+    };
+  };
+  const aiStatusTicket = replyOrder();
+  const healthTicket = replyOrder();
 
   function stopAgentPoll(): void {
     if (agentPollTimer) {
@@ -1386,10 +1403,20 @@ export const useAppStore = create<AppState>()((set, get) => {
     importOpen: false,
 
     init: async () => {
+      // Health loads out-of-band: it probes the local AI providers, ~6 s while
+      // LM Studio/Ollama are offline and the 30 s probe cache is cold. Awaiting
+      // it kept the whole workspace on "Loading projects…" that long, so early
+      // scene-tree/viewer clicks landed on nothing.
+      const freshHealth = healthTicket();
+      void api
+        .health()
+        .then((health) => {
+          if (freshHealth()) set({ health });
+        })
+        .catch(() => undefined);
       const projects = await run("Loading projects…", async () => {
-        const health = await api.health().catch(() => null);
         const list = await api.listProjects();
-        set({ health, projects: list });
+        set({ projects: list });
         return list;
       });
       // Engine registry loads out-of-band: probing alternate venvs can take
@@ -1592,21 +1619,30 @@ export const useAppStore = create<AppState>()((set, get) => {
         }
         setLastChannelArgs(null);
         // Provider statuses: prefer the dedicated endpoint, fall back to health.
-        try {
-          set({ aiStatuses: await api.aiStatus(projectId) });
-        } catch {
-          set({ aiStatuses: get().health?.ai_providers ?? [] });
-        }
+        // Out-of-band for the same cold-probe reason as health in init(): held
+        // inside run() it kept busy set, disabling every inspector control.
+        const freshStatus = aiStatusTicket();
+        void api
+          .aiStatus(projectId)
+          .then((statuses) => {
+            if (get().projectId === projectId && freshStatus()) set({ aiStatuses: statuses });
+          })
+          .catch(() => {
+            if (get().projectId === projectId && freshStatus()) {
+              set({ aiStatuses: get().health?.ai_providers ?? [] });
+            }
+          });
         // Keep them fresh so the header chip reflects a local LLM starting or
         // stopping mid-session (silent refresh; failures keep the last list).
         if (aiStatusTimer) clearInterval(aiStatusTimer);
         aiStatusTimer = setInterval(() => {
           const pid = get().projectId;
           if (!pid) return;
+          const fresh = aiStatusTicket();
           api
             .aiStatus(pid)
             .then((statuses) => {
-              if (get().projectId === pid) set({ aiStatuses: statuses });
+              if (get().projectId === pid && fresh()) set({ aiStatuses: statuses });
             })
             .catch(() => undefined);
         }, 45_000);
@@ -2437,8 +2473,10 @@ export const useAppStore = create<AppState>()((set, get) => {
       // reflects the new endpoints instead of waiting for the 45s poll.
       const pid = get().projectId;
       if (pid) {
+        const fresh = aiStatusTicket();
         try {
-          set({ aiStatuses: await api.aiStatus(pid) });
+          const statuses = await api.aiStatus(pid);
+          if (get().projectId === pid && fresh()) set({ aiStatuses: statuses });
         } catch {
           // keep the last known statuses
         }
@@ -2446,8 +2484,9 @@ export const useAppStore = create<AppState>()((set, get) => {
       } else {
         // No project open: /ai/status is project-scoped, so fall back to the
         // global health payload that also carries ai_providers.
+        const fresh = healthTicket();
         const health = await api.health().catch(() => null);
-        if (health) set({ health });
+        if (health && fresh()) set({ health });
       }
       return true;
     },
