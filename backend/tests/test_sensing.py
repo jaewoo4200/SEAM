@@ -659,12 +659,12 @@ def test_aodt_source_sensing(client):
     out = _project_dir() / "export" / "aodt"
     rows = pq.read_table(out / "raypaths.parquet").to_pylist()
     assert len(rows) == 1
-    assert rows[0]["interaction_types"] == ["emission", "scattering"]
+    assert rows[0]["interaction_types"] == ["emission", "diffuse", "reception"]
     assert rows[0]["object_ids"][1] == 1_000_000
     assert rows[0]["prim_ids"][1] == -1
     id_map = json.loads((out / "id_map.json").read_text(encoding="utf-8"))
     assert id_map["sensing_targets"] == {"car_01": 1_000_000}
-    assert id_map["sensing_interaction_token"] == "scattering"
+    assert id_map["sensing_interaction_token"] == "diffuse"
     assert id_map["source"] == "sensing"
 
 

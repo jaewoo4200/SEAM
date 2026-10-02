@@ -72,7 +72,8 @@ the direction of travel, exactly as playback shows the first frame, so the
 scattering lobes and the Doppler describe the same motion. An explicit
 `velocity_m_s` keeps the authored pose. Other actors with a trajectory keep
 their authored pose in the solve but move at their t = 0 velocity, so legs
-that reflect off them carry their Doppler.
+that reflect off them carry their Doppler. Plain paths solves follow the
+same rule (§4).
 
 ## 3. Running a sensing solve
 
@@ -124,14 +125,49 @@ legend, and every scattering point gets a marker. The **sensing card** lists
 each target (model, scattering points, σ, path count) and the strongest
 echoes (power, delay, Doppler).
 
+**Comm paths.** On the Sionna backend, paths solves give actors a velocity
+too, so a communication path that reflects off a moving actor is
+Doppler-shifted even when the TX and RX are static. Each bounce off an actor
+moving at v adds `v · (k̂_out − k̂_in) / λ`, with k̂_in the unit vector into
+the bounce and k̂_out the one leaving it. For example, a
+car 20 m out, driving away at 10 m/s from a static TX/RX pair 8 m apart,
+gives about −228 Hz at 3.5 GHz on its face reflection and 0 Hz on the LoS
+and ground paths. Which velocity an actor gets:
+
+- **Simulate scenario**: the actor's velocity at each frame's time.
+- **Every other paths solve** (Simulate paths, channel analysis, datasets,
+  UE trajectories, GT playback, `include_comm_paths`): the trajectory
+  velocity at t = 0. These solves do not move actors between steps, so each
+  actor stays at its authored pose for the whole run.
+- **An actor without a trajectory** is at rest.
+- **The actor whose path a dataset samples** (`sampling.actor_id`) is at
+  rest as well: the UE travels that path while the actor's mesh stays
+  parked at its authored pose.
+
+A device attached to a moving actor (`attached_device_ids`) moves with it
+at the actor's velocity, in every solve above and in a sensing solve.
+Outside Simulate scenario, a device's own `velocity_m_s` takes precedence.
+A UE riding a car is therefore Doppler-shifted on every path, the LoS
+included.
+
+A plain solve reports this Doppler in `metadata.doppler_hz`, a list aligned
+with `paths`. The list is present when the TX or RX has a velocity or any
+actor in the scene moves at t = 0, even if no path touches that actor (the
+paths then read 0 Hz); an all-static solve has no Doppler field, as before.
+The comm paths of a sensing result also carry it per path, in
+`doppler_hz`. The mock backend has
+no Doppler on paths solves, and alternate `engine`s (subprocess worker) apply
+no velocities.
+
 ## 5. Export
 
 - **RFData** (`POST /export/rfdata`) writes `export/rfdata/sensing.json` when a
   sensing result exists: target summaries plus the echo paths
   (`type: "SENSING"`, `doppler_hz`, `target_id`); `has_sensing` in the summary.
 - **AODT parquet** (`POST /export/aodt` with `"source": "sensing"`) writes one
-  snapshot of the stored sensing result. AODT has no sensing token, so the
-  target vertex uses `"scattering"`; its `object_ids` entry is
+  snapshot of the stored sensing result. Each row runs `"emission"` …
+  `"reception"`; AODT has no sensing token, so the target vertex uses its
+  documented diffuse-scattering token `"diffuse"`; its `object_ids` entry is
   1 000 000 + the target's position in **sorted actor-id order** (not the
   order of `targets`); map it back with `sensing_targets` in `id_map.json`.
 - **Channel npz** (`POST /export/channel-npz` with `"include_sensing": true`)

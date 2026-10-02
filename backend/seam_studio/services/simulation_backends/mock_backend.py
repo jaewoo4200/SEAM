@@ -29,8 +29,10 @@ from seam_studio.services import atmosphere
 from seam_studio.services.sensing import (
     SENSING_PATH_PREFIX,
     ResolvedSensingTarget,
+    actor_velocities_t0,
     dbsm_to_m2,
     target_summary,
+    with_rider_velocities,
 )
 
 from .base import (
@@ -411,7 +413,9 @@ class MockBackend(RayTracingBackend):
         center: LoS legs only, no occlusion, isotropic antennas (Gt = Gr = 1).
 
         Doppler is Sionna's per-path expression (paths.py) for a single
-        scattering point, positive when the path is closing."""
+        scattering point, positive when the path is closing. A radar riding a
+        moving actor moves at its t = 0 velocity, as on Sionna."""
+        scene = with_rider_velocities(scene, actor_velocities_t0(scene))
         txs = _select_devices(scene, "tx", config.tx_ids)
         rxs = _select_devices(scene, "rx", config.rx_ids)
         lam = SPEED_OF_LIGHT / config.frequency_hz

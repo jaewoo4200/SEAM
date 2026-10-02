@@ -131,9 +131,11 @@ def target_from_summary(s: SensingTargetSummary) -> ResolvedSensingTarget:
 def actor_velocities_t0(scene: Scene) -> dict[str, list[float]]:
     """Trajectory velocity at t = 0 of every moving actor (static ones omitted).
 
-    A sensing solve is a t = 0 snapshot: the actor meshes that stay in the
-    scene move like this, so legs reflecting off them carry the Doppler of
-    playback's first frame rather than whatever the cached scene last held."""
+    A sensing solve, and a paths solve without per-frame actor states, is a
+    t = 0 snapshot: the actor meshes in the scene move like this (and the
+    devices riding them, ``with_rider_velocities``), so legs reflecting off
+    them carry the Doppler of playback's first frame rather than whatever the
+    cached scene last held."""
     from seam_studio.services.scenario import actor_velocity_at
 
     out: dict[str, list[float]] = {}
@@ -142,6 +144,27 @@ def actor_velocities_t0(scene: Scene) -> dict[str, list[float]]:
         if any(abs(c) >= 1e-9 for c in v):
             out[actor.id] = [float(c) for c in v]
     return out
+
+
+def with_rider_velocities(scene: Scene, actor_velocities: dict[str, list[float]]) -> Scene:
+    """``scene`` with every device attached to a moving actor given that
+    actor's velocity, as in a scenario frame, unless the device sets its own
+    ``velocity_m_s``. Returns ``scene`` itself when no device needs one."""
+    rider_v = {
+        dev_id: v
+        for actor in scene.actors
+        if (v := actor_velocities.get(actor.id)) is not None
+        for dev_id in actor.attached_device_ids
+    }
+    if not any(d.id in rider_v and d.velocity_m_s is None for d in scene.devices):
+        return scene
+    devices = [
+        d.model_copy(update={"velocity_m_s": [float(c) for c in rider_v[d.id]]})
+        if d.id in rider_v and d.velocity_m_s is None
+        else d
+        for d in scene.devices
+    ]
+    return scene.model_copy(update={"devices": devices})
 
 
 def select_targets(

@@ -163,7 +163,11 @@ Results 패널의 **Show:** 줄에서 오버레이를 각각 켜고 끕니다 �
 - **Link budget** — **RSS**, **SNR**, **SINR**, **Interference**(다중 TX
   씬에서는 간섭 TX 수 포함), **Shannon** 용량, **K-factor**, **RMS DS**
   (지연확산), **Coh. BW**, 그리고 시변 채널이면 **Doppler spread**·
-  **Coh. time**.
+  **Coh. time**. TX나 RX에 속도가 있거나(움직이는 액터에 타고 있는 경우
+  포함), 씬에 t = 0에 움직이는 궤적을 가진 액터가 하나라도 있으면 시변
+  채널로 봅니다(Sionna 백엔드, [sensing.ko.md](sensing.ko.md) 4절 참고).
+  움직이는 액터에 닿는 경로가 하나도 없어도 마찬가지이며, 이때 Doppler
+  spread는 0 Hz로 나오고 Coh. time은 표시되지 않습니다.
 - **CIR (power delay profile)** — 탭마다 경로 종류 색으로 그린 스템 플롯.
 - **CFR magnitude** — 대역에 걸친 |H| (dB).
 - **Path-loss models vs RT** — 3GPP 모델 예측과 레이 트레이싱 기준 대비

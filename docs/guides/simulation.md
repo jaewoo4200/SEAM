@@ -167,7 +167,12 @@ Below it:
 - **Link budget** — **RSS**, **SNR**, **SINR**, **Interference** (with the
   interfering-TX count in multi-TX scenes), **Shannon** capacity,
   **K-factor**, **RMS DS** (delay spread), **Coh. BW**, and, when the channel
-  is time-varying, **Doppler spread** and **Coh. time**.
+  is time-varying, **Doppler spread** and **Coh. time**. The channel counts
+  as time-varying when the TX or RX has a velocity (or rides a moving
+  actor), or when any actor in the scene has a trajectory that moves at
+  t = 0 (Sionna backend; see [sensing.md](sensing.md) §4). That holds even
+  when no path touches the moving actor: the Doppler spread then reads 0 Hz
+  and Coh. time is not shown.
 - **CIR (power delay profile)** — one stem per tap, colored by path type.
 - **CFR magnitude** — |H| in dB across the band.
 - **Path-loss models vs RT** — 3GPP model predictions with their delta

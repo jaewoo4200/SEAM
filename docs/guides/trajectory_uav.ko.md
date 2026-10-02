@@ -105,6 +105,15 @@ waypoint** 는 뷰포트에서 클릭한 점을 추가하며, **Record current p
 에서 합니다(`Simulate scenario` 가 모든 액터를 각자의 웨이포인트를 따라
 움직입니다).
 
+궤적은 도플러 계산에 쓰이는 액터 속도도 정합니다(Sionna 백엔드).
+`Simulate scenario` 는 프레임마다 그 시점의 속도를 씁니다. 그 밖의 경로
+솔브(Simulate paths, 채널 분석, 데이터셋, **⚡ Simulate paths along trajectory**를
+포함한 UE 궤적, GT 재생)에서는 액터가
+작성한 자세에 그대로 있되 t = 0의 궤적 속도로 움직입니다. 그래서 TX와 RX가 정지해
+있어도 그 액터에서 반사되는 경로에는 액터의 도플러가 붙고, 액터에 붙은 디바이스도
+함께 움직입니다. 예외는 액터 자신의 경로를 샘플링하는 데이터셋으로, 이때 그 액터는
+정지 상태입니다([sensing.ko.md](sensing.ko.md) 4절 참고).
+
 ### ⚡ Simulate paths along trajectory
 
 **`⚡ Simulate paths along trajectory`** 버튼(웨이포인트 2개 이상 *그리고*

@@ -280,6 +280,35 @@ def test_sionna_sensing_ignores_stale_actor_velocities(project: Path):
     assert rest and all(abs(p.doppler_hz) < 1e-3 for p in rest)
 
 
+def test_sionna_radar_riding_a_moving_actor_moves_with_it(project: Path):
+    # Monostatic radar mounted on an ego car driving +x at 10 m/s toward a
+    # static target: the echo carries the ego motion (closing, ~ +223 Hz at
+    # 3.5 GHz), on Sionna and the mock alike, though no device sets a velocity.
+    scene = _scene({"model": "constant", "rcs_dbsm": 20.0})
+    scene.actors.append(
+        Actor(
+            id="ego_01",
+            kind="car",
+            position=[0.0, 0.0, 0.0],
+            trajectory=ActorTrajectory(waypoints=[[0.0, 0.0, 0.0], [10.0, 0.0, 0.0]], dt_s=1.0),
+            attached_device_ids=["tx_001", "rx_001"],
+        )
+    )
+    config = _config()
+
+    result = _run(SionnaBackend(), project, scene, config)
+    mock = _run(MockBackend(), project, scene, config)
+
+    sensing = [p for p in result.paths if p.target_id is not None]
+    assert len(sensing) == 1, (result.paths, result.warnings)
+    lam = 299_792_458.0 / FREQ
+    leg = [30.0, 0.0, 0.75 - 10.0]
+    expected = 2.0 * 10.0 * leg[0] / math.sqrt(sum(c * c for c in leg)) / lam
+    assert sensing[0].doppler_hz == pytest.approx(expected, abs=1.0)
+    assert mock.paths[0].doppler_hz == pytest.approx(expected, abs=1e-6)
+    assert all(d.velocity_m_s is None for d in scene.devices)
+
+
 def test_sionna_channel_npz_sensing_targets_absorb(project: Path):
     # With include_sensing the per-UE comm solve gets the stored targets as
     # absorbers, exactly like the sensing result's own comm paths.

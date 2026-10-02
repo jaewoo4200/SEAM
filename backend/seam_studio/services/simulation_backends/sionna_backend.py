@@ -38,8 +38,10 @@ from seam_studio.services.sensing import (
     SENSING_PATH_PREFIX,
     SENSING_TARGET_PREFIX,
     ResolvedSensingTarget,
+    actor_velocities_t0,
     dbsm_to_m2,
     target_summary,
+    with_rider_velocities,
 )
 
 from .base import (
@@ -720,6 +722,15 @@ class SionnaBackend(RayTracingBackend):
                 return self._simulate_paths_engine(
                     project_dir, scene, library, config, actor_states
                 )
+            if actor_states is None and actor_velocities is None:
+                # No per-frame actor state: the solve is the t = 0 snapshot, as
+                # a sensing solve is, so legs off a moving actor carry its
+                # trajectory Doppler and a device riding it moves with it. A
+                # caller passing actor_states (scenario frame, live pose) owns
+                # the velocities, absent meaning at rest.
+                actor_velocities = actor_velocities_t0(scene)
+                scene = with_rider_velocities(scene, actor_velocities)
+                actor_velocities = actor_velocities or None
             try:
                 return self._simulate_paths_impl(
                     project_dir, scene, library, config, actor_states, actor_velocities,
@@ -754,16 +765,14 @@ class SionnaBackend(RayTracingBackend):
     ) -> PathResultSet:
         """PathSolver with the sensing targets added as absorbers and their
         actor meshes hidden, as in the echo solve. Always the builtin engine
-        (the subprocess worker cannot place targets), with the same t = 0
-        actor velocities, so both halves of a sensing result match."""
-        from seam_studio.services.sensing import actor_velocities_t0
-
+        (the subprocess worker cannot place targets); like every plain solve
+        it applies the t = 0 actor velocities, so both halves of a sensing
+        result match."""
         return self.simulate_paths(
             project_dir,
             scene,
             library,
             config.model_copy(update={"engine": None}),
-            actor_velocities=actor_velocities_t0(scene) or None,
             sensing_targets=targets,
         )
 
@@ -1097,7 +1106,6 @@ class SionnaBackend(RayTracingBackend):
         from sionna.rt.rcs import RCSSolver  # type: ignore[import-not-found]
 
         from seam_studio.services.channel_npz_export import local_frame_matrix
-        from seam_studio.services.sensing import actor_velocities_t0
 
         if config.engine and config.engine != "builtin":
             warnings.append(
@@ -1125,6 +1133,10 @@ class SionnaBackend(RayTracingBackend):
         _reset_sensing_targets(rt_scene)
         rt_scene.frequency = config.frequency_hz
 
+        # The t = 0 snapshot, as in a plain paths solve: a radar riding a
+        # moving actor moves with it.
+        actor_velocities = actor_velocities_t0(scene)
+        scene = with_rider_velocities(scene, actor_velocities)
         txs = [
             d for d in scene.devices
             if d.kind == "tx" and (config.tx_ids is None or d.id in config.tx_ids)
@@ -1156,7 +1168,7 @@ class SionnaBackend(RayTracingBackend):
         # without this they would keep whatever velocity the cache last held.
         self._place_actors(
             project_dir, scene, rt_scene, warnings,
-            actor_velocities=actor_velocities_t0(scene) or None,
+            actor_velocities=actor_velocities or None,
         )
         sionna_targets = self._install_sensing_targets(rt_scene, targets, warnings)
         try:

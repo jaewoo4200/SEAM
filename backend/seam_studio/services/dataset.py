@@ -305,6 +305,26 @@ def generate_dataset(
     delays_per_sample: list = []
     paths_dump = [] if request.include_paths else None
 
+    solve_scene = scene
+    if (
+        sampling_actor is not None
+        and request.sampling.mode == "trajectory"
+        and not request.sampling.waypoints
+    ):
+        # The UE travels the actor's path but the actor's own mesh stays parked
+        # at its authored pose. Without its trajectory that parked copy is also
+        # at rest (no t = 0 velocity), so its reflections carry no Doppler.
+        solve_scene = scene.model_copy(
+            update={
+                "actors": [
+                    a.model_copy(update={"trajectory": None})
+                    if a.id == sampling_actor.id
+                    else a
+                    for a in scene.actors
+                ]
+            }
+        )
+
     started = time.monotonic()
     for i, pos in enumerate(positions):
         solve_ctx.tick(i, len(positions))
@@ -316,9 +336,9 @@ def generate_dataset(
             update["velocity_m_s"] = [float(v) for v in ue_velocity[i]]
         ue_i = ue.model_copy(update=update)
         # Only the fixed TX and the swept UE take part in the solve; the rest
-        # of the scene (prims, actors) is untouched and the compiled XML is
-        # reused via the backend's scene cache.
-        scene_i = scene.model_copy(update={"devices": [tx, ue_i]})
+        # of the scene (prims, actor poses) is untouched and the compiled XML
+        # is reused via the backend's scene cache.
+        scene_i = solve_scene.model_copy(update={"devices": [tx, ue_i]})
         result = backend.simulate_paths(project_dir, scene_i, library, config)
         if i == 0:
             warnings.extend(result.warnings)

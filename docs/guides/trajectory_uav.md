@@ -107,6 +107,17 @@ pos** captures the pose you just dragged to. **dt** (s) and **Mode**
 **Results → Scenario playback** (`Simulate scenario` animates every actor
 along its own waypoints).
 
+A trajectory also gives the actor a velocity for Doppler (Sionna backend).
+`Simulate scenario` applies each frame's velocity. Every other paths solve
+(Simulate paths, channel analysis, datasets, UE trajectories including
+**⚡ Simulate paths along trajectory**, GT playback) leaves the actor at its
+authored pose but moves it at its
+trajectory velocity at t = 0. A path that reflects off the actor therefore
+carries its Doppler even when the TX and RX are static, and a device
+attached to the actor moves with it. The exception is a dataset that
+samples the actor's own path: that actor stays at rest (see §4 of
+[sensing.md](sensing.md)).
+
 ### ⚡ Simulate paths along trajectory
 
 The **`⚡ Simulate paths along trajectory`** button (enabled with ≥ 2
