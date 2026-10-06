@@ -3296,6 +3296,42 @@
         "title": "DatasetSampling",
         "type": "object"
       },
+      "DetectorOptions": {
+        "additionalProperties": false,
+        "description": "Square-law detector on the coherently integrated sample. ``model`` is\nthe target fluctuation (Swerling 0 = steady, 1 = Rayleigh scan-to-scan,\n3 = one dominant scatterer); swerling1 reproduces the v0.1.12 numbers.",
+        "properties": {
+          "empirical_threshold": {
+            "default": false,
+            "title": "Empirical Threshold",
+            "type": "boolean"
+          },
+          "model": {
+            "default": "swerling1",
+            "enum": [
+              "swerling0",
+              "swerling1",
+              "swerling3"
+            ],
+            "title": "Model",
+            "type": "string"
+          },
+          "monte_carlo_trials": {
+            "default": 0,
+            "maximum": 2000000.0,
+            "minimum": 0.0,
+            "title": "Monte Carlo Trials",
+            "type": "integer"
+          },
+          "seed": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Seed",
+            "type": "integer"
+          }
+        },
+        "title": "DetectorOptions",
+        "type": "object"
+      },
       "Device": {
         "additionalProperties": false,
         "properties": {
@@ -3884,9 +3920,31 @@
             "title": "Detected",
             "type": "boolean"
           },
+          "elevation_deg": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Elevation Deg"
+          },
           "pd": {
             "title": "Pd",
             "type": "number"
+          },
+          "pd_mc": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pd Mc"
           },
           "sensing_snr_db": {
             "anyOf": [
@@ -3918,6 +3976,27 @@
             "title": "Target Best Rx Angle Deg",
             "type": "object"
           },
+          "target_best_rx_elevation_deg": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Best Rx Elevation Deg"
+          },
           "target_snr_db": {
             "additionalProperties": {
               "anyOf": [
@@ -3932,6 +4011,27 @@
             "title": "Target Snr Db",
             "type": "object"
           },
+          "ue_interference_dbm": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ue Interference Dbm"
+          },
           "ue_sinr_db": {
             "additionalProperties": {
               "anyOf": [
@@ -3945,6 +4045,27 @@
             },
             "title": "Ue Sinr Db",
             "type": "object"
+          },
+          "ue_snr_db": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ue Snr Db"
           }
         },
         "required": [
@@ -4055,6 +4176,17 @@
             "title": "Pd",
             "type": "number"
           },
+          "pd_mc": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pd Mc"
+          },
           "rho": {
             "title": "Rho",
             "type": "number"
@@ -4129,9 +4261,55 @@
             "title": "Cpi S",
             "type": "number"
           },
+          "detector": {
+            "$ref": "#/components/schemas/DetectorOptions"
+          },
+          "elevation_start_deg": {
+            "anyOf": [
+              {
+                "maximum": 90.0,
+                "minimum": -90.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Elevation Start Deg"
+          },
+          "elevation_step_deg": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Elevation Step Deg"
+          },
+          "elevation_stop_deg": {
+            "anyOf": [
+              {
+                "maximum": 90.0,
+                "minimum": -90.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Elevation Stop Deg"
+          },
           "include_paths": {
             "default": false,
             "title": "Include Paths",
+            "type": "boolean"
+          },
+          "interference": {
+            "default": false,
+            "title": "Interference",
             "type": "boolean"
           },
           "max_depth": {
@@ -4495,6 +4673,17 @@
             ],
             "title": "Comm Beam Angle Deg"
           },
+          "comm_beam_elevation_deg": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comm Beam Elevation Deg"
+          },
           "comm_beam_idx": {
             "anyOf": [
               {
@@ -4505,6 +4694,31 @@
               }
             ],
             "title": "Comm Beam Idx"
+          },
+          "elevation_gap_deg": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Elevation Gap Deg"
+          },
+          "elevations_deg": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Elevations Deg"
           },
           "pareto": {
             "$ref": "#/components/schemas/ISACParetoSummary"
@@ -4539,6 +4753,17 @@
               }
             ],
             "title": "Sensing Beam Angle Deg"
+          },
+          "sensing_beam_elevation_deg": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sensing Beam Elevation Deg"
           },
           "sensing_beam_idx": {
             "anyOf": [
@@ -4595,6 +4820,27 @@
             },
             "title": "Ue Ids",
             "type": "array"
+          },
+          "ue_interference_sensing_dbm": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ue Interference Sensing Dbm"
           },
           "ue_single_element_rss_dbm": {
             "additionalProperties": {
@@ -6263,6 +6509,337 @@
           "simulation_config_id"
         ],
         "title": "PathResultSet",
+        "type": "object"
+      },
+      "PdCurveModel": {
+        "additionalProperties": false,
+        "properties": {
+          "mc_max_abs_deviation": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mc Max Abs Deviation"
+          },
+          "mc_within_ci_fraction": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mc Within Ci Fraction"
+          },
+          "model": {
+            "enum": [
+              "swerling0",
+              "swerling1",
+              "swerling3"
+            ],
+            "title": "Model",
+            "type": "string"
+          },
+          "pd": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Pd",
+            "type": "array"
+          },
+          "pd_mc": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pd Mc"
+          },
+          "pd_mc_ci_high": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pd Mc Ci High"
+          },
+          "pd_mc_ci_low": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pd Mc Ci Low"
+          },
+          "snr_for_pd_target_db": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snr For Pd Target Db"
+          }
+        },
+        "required": [
+          "model"
+        ],
+        "title": "PdCurveModel",
+        "type": "object"
+      },
+      "PdCurveRequest": {
+        "additionalProperties": false,
+        "description": "Body for POST /projects/{id}/analysis/pd-curve (pure, not persisted).\nsnr_db is the post-integration SNR, as in every Pd SEAM reports, and\nthe Monte Carlo draws that integrated sample directly, so cpi_pulses\nchanges no number.",
+        "properties": {
+          "cpi_pulses": {
+            "default": 1,
+            "maximum": 100000000.0,
+            "minimum": 1.0,
+            "title": "Cpi Pulses",
+            "type": "integer"
+          },
+          "empirical_threshold": {
+            "default": false,
+            "title": "Empirical Threshold",
+            "type": "boolean"
+          },
+          "models": {
+            "items": {
+              "enum": [
+                "swerling0",
+                "swerling1",
+                "swerling3"
+              ],
+              "type": "string"
+            },
+            "maxItems": 3,
+            "minItems": 1,
+            "title": "Models",
+            "type": "array"
+          },
+          "monte_carlo_trials": {
+            "default": 0,
+            "maximum": 2000000.0,
+            "minimum": 0.0,
+            "title": "Monte Carlo Trials",
+            "type": "integer"
+          },
+          "pd_target": {
+            "default": 0.9,
+            "exclusiveMaximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Pd Target",
+            "type": "number"
+          },
+          "pfa": {
+            "default": 1e-06,
+            "exclusiveMaximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Pfa",
+            "type": "number"
+          },
+          "seed": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Seed",
+            "type": "integer"
+          },
+          "snr_max_db": {
+            "default": 30.0,
+            "maximum": 200.0,
+            "minimum": -100.0,
+            "title": "Snr Max Db",
+            "type": "number"
+          },
+          "snr_min_db": {
+            "default": -5.0,
+            "maximum": 200.0,
+            "minimum": -100.0,
+            "title": "Snr Min Db",
+            "type": "number"
+          },
+          "step_db": {
+            "default": 0.5,
+            "exclusiveMinimum": 0.0,
+            "title": "Step Db",
+            "type": "number"
+          }
+        },
+        "title": "PdCurveRequest",
+        "type": "object"
+      },
+      "PdCurveResult": {
+        "additionalProperties": false,
+        "description": "POST /analysis/pd-curve response (not persisted).",
+        "properties": {
+          "cpi_pulses": {
+            "title": "Cpi Pulses",
+            "type": "integer"
+          },
+          "empirical_threshold": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Empirical Threshold"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/PdCurveModel"
+            },
+            "title": "Models",
+            "type": "array"
+          },
+          "monte_carlo_trials": {
+            "title": "Monte Carlo Trials",
+            "type": "integer"
+          },
+          "pd_target": {
+            "title": "Pd Target",
+            "type": "number"
+          },
+          "pfa": {
+            "title": "Pfa",
+            "type": "number"
+          },
+          "pfa_measured": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pfa Measured"
+          },
+          "pfa_measured_ci": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 2,
+                "minItems": 2,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pfa Measured Ci"
+          },
+          "seed": {
+            "title": "Seed",
+            "type": "integer"
+          },
+          "snr_db": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Snr Db",
+            "type": "array"
+          },
+          "threshold": {
+            "title": "Threshold",
+            "type": "number"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "pfa",
+          "pd_target",
+          "cpi_pulses",
+          "monte_carlo_trials",
+          "seed",
+          "threshold"
+        ],
+        "title": "PdCurveResult",
+        "type": "object"
+      },
+      "PdMcSpotCheck": {
+        "additionalProperties": false,
+        "description": "One coverage cell's analytic pd_best against a Monte Carlo of it.",
+        "properties": {
+          "cell": {
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "title": "Cell",
+            "type": "array"
+          },
+          "ci_high": {
+            "title": "Ci High",
+            "type": "number"
+          },
+          "ci_low": {
+            "title": "Ci Low",
+            "type": "number"
+          },
+          "pd": {
+            "title": "Pd",
+            "type": "number"
+          },
+          "pd_mc": {
+            "title": "Pd Mc",
+            "type": "number"
+          },
+          "snr_db": {
+            "title": "Snr Db",
+            "type": "number"
+          }
+        },
+        "required": [
+          "cell",
+          "snr_db",
+          "pd",
+          "pd_mc",
+          "ci_low",
+          "ci_high"
+        ],
+        "title": "PdMcSpotCheck",
         "type": "object"
       },
       "PlaybackBuildRequest": {
@@ -8786,6 +9363,9 @@
             "title": "Cpi Pulses",
             "type": "integer"
           },
+          "detector": {
+            "$ref": "#/components/schemas/DetectorOptions"
+          },
           "height_m": {
             "default": 60.0,
             "maximum": 100000.0,
@@ -9067,6 +9647,20 @@
       "SensingCoverageSummary": {
         "additionalProperties": false,
         "properties": {
+          "mc_spot_check": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/PdMcSpotCheck"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mc Spot Check"
+          },
           "median_best_snr_db": {
             "anyOf": [
               {
@@ -9114,6 +9708,189 @@
         "title": "SensingCoverageSummary",
         "type": "object"
       },
+      "SensingDatasetExportRequest": {
+        "additionalProperties": false,
+        "description": "Body for POST /projects/{id}/export/sensing-dataset.",
+        "properties": {
+          "formats": {
+            "items": {
+              "enum": [
+                "npz",
+                "csv",
+                "parquet"
+              ],
+              "type": "string"
+            },
+            "maxItems": 3,
+            "minItems": 1,
+            "title": "Formats",
+            "type": "array"
+          },
+          "include_echo_paths": {
+            "default": false,
+            "title": "Include Echo Paths",
+            "type": "boolean"
+          },
+          "result_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Ids"
+          },
+          "skip_without_sensing": {
+            "default": false,
+            "title": "Skip Without Sensing",
+            "type": "boolean"
+          },
+          "split": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SensingDatasetSplit"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "SensingDatasetExportRequest",
+        "type": "object"
+      },
+      "SensingDatasetExportResult": {
+        "additionalProperties": false,
+        "description": "POST /export/sensing-dataset response.",
+        "properties": {
+          "detected_fraction": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detected Fraction"
+          },
+          "download_url": {
+            "title": "Download Url",
+            "type": "string"
+          },
+          "elapsed_s": {
+            "default": 0.0,
+            "title": "Elapsed S",
+            "type": "number"
+          },
+          "export_dir": {
+            "title": "Export Dir",
+            "type": "string"
+          },
+          "files": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Files",
+            "type": "array"
+          },
+          "num_echo_rows": {
+            "default": 0,
+            "title": "Num Echo Rows",
+            "type": "integer"
+          },
+          "num_rows": {
+            "default": 0,
+            "title": "Num Rows",
+            "type": "integer"
+          },
+          "result_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Result Ids",
+            "type": "array"
+          },
+          "rows_per_result": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Rows Per Result",
+            "type": "object"
+          },
+          "rows_per_split": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Rows Per Split",
+            "type": "object"
+          },
+          "size_bytes": {
+            "default": 0,
+            "title": "Size Bytes",
+            "type": "integer"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          },
+          "zip_name": {
+            "title": "Zip Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "export_dir",
+          "zip_name",
+          "download_url"
+        ],
+        "title": "SensingDatasetExportResult",
+        "type": "object"
+      },
+      "SensingDatasetSplit": {
+        "additionalProperties": false,
+        "description": "Frame-level train/val/test split: every row of one (result, frame)\nlands in the same split.",
+        "properties": {
+          "seed": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Seed",
+            "type": "integer"
+          },
+          "test": {
+            "default": 0.1,
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Test",
+            "type": "number"
+          },
+          "train": {
+            "default": 0.8,
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Train",
+            "type": "number"
+          },
+          "val": {
+            "default": 0.1,
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Val",
+            "type": "number"
+          }
+        },
+        "title": "SensingDatasetSplit",
+        "type": "object"
+      },
       "SensingFrame": {
         "additionalProperties": false,
         "properties": {
@@ -9137,6 +9914,20 @@
             },
             "title": "Links",
             "type": "array"
+          },
+          "nodes": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SensingNodeState"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nodes"
           }
         },
         "title": "SensingFrame",
@@ -9239,6 +10030,28 @@
             ],
             "title": "Path Id"
           },
+          "pd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pd"
+          },
+          "pd_mc": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pd Mc"
+          },
           "range_bin": {
             "anyOf": [
               {
@@ -9291,6 +10104,40 @@
           "target_id"
         ],
         "title": "SensingLinkReport",
+        "type": "object"
+      },
+      "SensingNodeState": {
+        "additionalProperties": false,
+        "description": "A TX/RX device as one sensing frame used it.",
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "position": {
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "title": "Position",
+            "type": "array"
+          },
+          "velocity": {
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "title": "Velocity",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "position"
+        ],
+        "title": "SensingNodeState",
         "type": "object"
       },
       "SensingResultSet": {
@@ -9711,6 +10558,9 @@
             "title": "Cpi S",
             "type": "number"
           },
+          "detector": {
+            "$ref": "#/components/schemas/DetectorOptions"
+          },
           "enabled": {
             "default": false,
             "title": "Enabled",
@@ -9757,6 +10607,19 @@
             "title": "Noise Seed",
             "type": "integer"
           },
+          "pfa": {
+            "anyOf": [
+              {
+                "exclusiveMaximum": 1.0,
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pfa"
+          },
           "samples_per_sp": {
             "default": 1000000,
             "maximum": 100000000.0,
@@ -9785,6 +10648,16 @@
             "minimum": -30.0,
             "title": "Threshold Db",
             "type": "number"
+          },
+          "tracking": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TrackingOptions"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "title": "SensingTrackOptions",
@@ -10702,6 +11575,113 @@
             "title": "Target Id",
             "type": "string"
           },
+          "track_gated": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Track Gated"
+          },
+          "track_position": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Track Position"
+          },
+          "track_position_error_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Track Position Error M"
+          },
+          "track_position_std_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Track Position Std M"
+          },
+          "track_status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "none",
+                  "init",
+                  "tracking",
+                  "coasting",
+                  "lost"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Track Status"
+          },
+          "track_updates": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Track Updates"
+          },
+          "track_velocity": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Track Velocity"
+          },
+          "track_velocity_error_m_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Track Velocity Error M S"
+          },
           "velocity_error_m_s": {
             "anyOf": [
               {
@@ -10746,6 +11726,57 @@
           "velocity_true"
         ],
         "title": "TargetEstimate",
+        "type": "object"
+      },
+      "TrackingOptions": {
+        "additionalProperties": false,
+        "description": "Constant-velocity EKF over the scenario frames (services/sensing_track).",
+        "properties": {
+          "coast_max_frames": {
+            "default": 10,
+            "maximum": 10000.0,
+            "minimum": 0.0,
+            "title": "Coast Max Frames",
+            "type": "integer"
+          },
+          "enabled": {
+            "default": false,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "gate_chi2": {
+            "default": 16.0,
+            "exclusiveMinimum": 0.0,
+            "maximum": 1000000.0,
+            "title": "Gate Chi2",
+            "type": "number"
+          },
+          "init_from": {
+            "const": "fusion",
+            "default": "fusion",
+            "title": "Init From",
+            "type": "string"
+          },
+          "max_position_std_m": {
+            "default": 25.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Max Position Std M",
+            "type": "number"
+          },
+          "process_accel_sigma_m_s2": {
+            "default": 2.0,
+            "exclusiveMinimum": 0.0,
+            "maximum": 1000.0,
+            "title": "Process Accel Sigma M S2",
+            "type": "number"
+          },
+          "use_as_prior": {
+            "default": true,
+            "title": "Use As Prior",
+            "type": "boolean"
+          }
+        },
+        "title": "TrackingOptions",
         "type": "object"
       },
       "TrajectoryImportRequest": {
@@ -11739,7 +12770,7 @@
   "info": {
     "description": "Unified RF-visual scene authoring, RF material assignment, Sionna RT projection compilation, and simulation result APIs.",
     "title": "SEAM Studio",
-    "version": "0.1.12"
+    "version": "0.1.13"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -12779,6 +13810,66 @@
         ]
       }
     },
+    "/api/projects/{project_id}/analysis/pd-curve": {
+      "post": {
+        "description": "Pd vs post-integration SNR per detector model (Swerling 0/1/3,\nsquare-law), with a Monte Carlo per point when monte_carlo_trials > 0.\nPure math: no solve, no solve guard, not persisted.",
+        "operationId": "analysis_pd_curve_api_projects__project_id__analysis_pd_curve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/PdCurveRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Request"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PdCurveResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Analysis Pd Curve",
+        "tags": [
+          "simulate"
+        ]
+      }
+    },
     "/api/projects/{project_id}/analyze/channel": {
       "post": {
         "operationId": "analyze_channel_api_projects__project_id__analyze_channel_post",
@@ -13786,6 +14877,66 @@
           }
         },
         "summary": "Export Rfdata Endpoint",
+        "tags": [
+          "export"
+        ]
+      }
+    },
+    "/api/projects/{project_id}/export/sensing-dataset": {
+      "post": {
+        "description": "Sensing dataset of the stored scenario results (``result_ids``, else\nevery one with sensing frames): one zip with links (and echoes) tables,\na manifest and a README. Pure post-processing, so no solve guard; the zip\ndownloads through the project assets route (``download_url``).",
+        "operationId": "export_sensing_dataset_endpoint_api_projects__project_id__export_sensing_dataset_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/SensingDatasetExportRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Request"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SensingDatasetExportResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export Sensing Dataset Endpoint",
         "tags": [
           "export"
         ]
@@ -15969,7 +17120,7 @@
     },
     "/api/projects/{project_id}/simulate/isac": {
       "post": {
-        "description": "ISAC beam trade-off: per TX, the azimuth codebook scored for its UEs'\nrate and its targets' echo SNR from one t = 0 echo + comm solve, and the\nPd-rate Pareto front of sharing slots between the comm and sensing beams.",
+        "description": "ISAC beam trade-off: per TX, the azimuth (or azimuth x elevation)\ncodebook scored for its UEs' rate and its targets' echo SNR from one\nt = 0 echo + comm solve, and the Pd-rate Pareto front of sharing slots\nbetween the comm and sensing beams. The Monte Carlo budget is checked\nhere, before the solve guard (400).",
         "operationId": "simulate_isac_api_projects__project_id__simulate_isac_post",
         "parameters": [
           {
