@@ -183,6 +183,10 @@ bash scripts/start.sh     # 2. 백엔드+프론트 실행
   바인딩하고, Sionna RT의 `RCSSolver`(sionna-rt 2.2 이상)로 모노스태틱/바이스태틱
   에코를 풉니다. 경로별 도플러, 도플러 색으로 칠한 뷰포트 레이, RFData / AODT /
   채널 npz 내보내기를 지원합니다. [docs/guides/sensing.md](docs/guides/sensing.ko.md) 참조.
+- **시간에 따른 센싱(ISAC)** — 센싱을 켜고 시나리오를 돌리면 프레임별 에코, 링크별
+  SNR·MTI 탐지, 다중 스태틱 위치·속도 융합을 얻고, 그 결과를 실제 액터 궤적과 비교해
+  오차를 냅니다. FR1과 mmWave 모두 같은 방식으로 동작합니다.
+  [docs/guides/sensing.md](docs/guides/sensing.ko.md) 참조.
 - **AI 모델 픽커** — LM Studio/Ollama에 로드된 모델을 자동 발견해 제안·에이전트에
   쓸 모델을 UI에서 바꿉니다. 어떤 모델이 답했는지 provenance에 기록됩니다.
 

@@ -408,14 +408,20 @@ class MockBackend(RayTracingBackend):
         config: SimulationConfig,
         request: SensingSimulateRequest,
         targets: list[ResolvedSensingTarget],
+        *,
+        actor_states: Optional[list] = None,
+        actor_velocities: Optional[dict[str, list[float]]] = None,
     ) -> SensingResultSet:
         """Bistatic radar equation over one scattering point at each target
         center: LoS legs only, no occlusion, isotropic antennas (Gt = Gr = 1).
 
         Doppler is Sionna's per-path expression (paths.py) for a single
         scattering point, positive when the path is closing. A radar riding a
-        moving actor moves at its t = 0 velocity, as on Sionna."""
-        scene = with_rider_velocities(scene, actor_velocities_t0(scene))
+        moving actor moves at its t = 0 velocity, as on Sionna; in scenario
+        frame mode (``actor_states`` set) ``scene`` already carries the frame's
+        device positions and velocities."""
+        if actor_states is None:
+            scene = with_rider_velocities(scene, actor_velocities_t0(scene))
         txs = _select_devices(scene, "tx", config.tx_ids)
         rxs = _select_devices(scene, "rx", config.rx_ids)
         lam = SPEED_OF_LIGHT / config.frequency_hz

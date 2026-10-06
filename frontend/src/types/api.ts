@@ -707,6 +707,8 @@ export interface ScenarioFrame {
   device_states: DeviceState[];
   links: LinkMetrics[];
   paths: RayPath[] | null;
+  /** Per-frame sensing (request.sensing.enabled); null/absent otherwise. */
+  sensing?: SensingFrame | null;
 }
 
 export interface ScenarioResultSet {
@@ -726,6 +728,8 @@ export interface ScenarioSimulateRequest {
   num_frames?: number;
   dt_s?: number;
   include_paths?: boolean;
+  /** null / absent / enabled=false: no sensing (frames as in v0.1.10). */
+  sensing?: SensingTrackOptions | null;
 }
 
 export interface LiveStateUpdate {
@@ -1824,4 +1828,132 @@ export interface SensingSimulateRequest {
   samples_per_sp?: number;
   /** RCSSolver depth (counts the scattering event); null = max(1, config). */
   max_depth?: number | null;
+}
+
+// ------------------------------------------- sensing over time (scenario)
+
+/** ScenarioSimulateRequest.sensing: a sensing solve in every scenario frame,
+ *  turned into per-link detections and a fused target estimate. */
+export interface SensingTrackOptions {
+  enabled?: boolean;
+  /** Detection threshold on the post-integration SNR [dB]. */
+  threshold_db?: number;
+  /** Coherent processing interval [s]; Doppler resolution = 1 / cpi_s. */
+  cpi_s?: number;
+  /** Coherently integrated pulses / OFDM samples: gain 10*log10(cpi_pulses). */
+  cpi_pulses?: number;
+  /** MTI notch: |f_D| below this is rejected. null = 1 / cpi_s; 0 = MTI off. */
+  mti_min_doppler_hz?: number | null;
+  /** Also solve the comm paths (targets as absorbers) into echoes (target_id null). */
+  include_comm_paths?: boolean;
+  /** null = every actor whose sensing binding is enabled. */
+  target_actor_ids?: string[] | null;
+  samples_per_sp?: number;
+  max_depth?: number | null;
+  /** Gaussian noise (sigma = cell / sqrt(2 SNR)) on the fused range / Doppler. */
+  measurement_noise?: boolean;
+  noise_seed?: number;
+}
+
+export type SensingDetectionReason = "detected" | "no_echo" | "below_threshold" | "mti_rejected";
+
+/** Detection of one target on one TX->RX link in one scenario frame. */
+export interface SensingLinkReport {
+  tx_id: string;
+  rx_id: string;
+  target_id: string;
+  /** Strongest DIRECT echo; without one, the strongest echo of any kind. */
+  path_id: string | null;
+  num_echoes: number;
+  /** The reported echo is not a direct one (excluded from fusion). */
+  multipath: boolean;
+  /** c * tau of the reported echo (|TX - p| + |p - RX| when direct) [m]. */
+  bistatic_range_m: number | null;
+  doppler_hz: number | null;
+  echo_power_dbm: number | null;
+  /** echo_power - noise_floor + integration_gain [dB]. */
+  snr_db: number | null;
+  /** What fusion consumed (exact values plus noise when measurement_noise). */
+  measured_range_m: number | null;
+  measured_doppler_hz: number | null;
+  range_bin: number | null;
+  doppler_bin: number | null;
+  detected: boolean;
+  reason: SensingDetectionReason;
+}
+
+export type TargetEstimateStatus = "ok" | "insufficient_links" | "diverged";
+
+/** Multistatic position/velocity estimate of one target in one frame. */
+export interface TargetEstimate {
+  target_id: string;
+  status: TargetEstimateStatus;
+  n_links_detected: number;
+  /** Geometrically distinct detected direct echoes that entered the fusion. */
+  n_links_used: number;
+  /** "tx_id>rx_id" of each fused link, highest SNR first. */
+  links_used: string[];
+  /** Ground truth: target cuboid center + velocity the solve used. */
+  position_true: Vec3;
+  velocity_true: Vec3;
+  position_est: Vec3 | null;
+  velocity_est: Vec3 | null;
+  position_error_m: number | null;
+  velocity_error_m_s: number | null;
+  /** Position error per metre of range error at the estimate. */
+  gdop: number | null;
+  rms_residual_m: number | null;
+  iterations: number;
+}
+
+export interface SensingFrame {
+  /** Echo paths (path_type "sensing", target_id set), then comm paths when
+   *  include_comm_paths (target_id null). */
+  echoes: RayPath[];
+  links: SensingLinkReport[];
+  estimates: TargetEstimate[];
+}
+
+/** Per-target run summary in ScenarioResultSet.metadata.sensing.targets. */
+export interface ScenarioSensingTargetSummary {
+  frames: number;
+  detected_frames: number;
+  detection_rate: number;
+  link_detection_rate: number;
+  frames_ge3_links: number;
+  frames_ge3_links_rate: number;
+  ok_frames: number;
+  median_position_error_m: number | null;
+  p90_position_error_m: number | null;
+  median_velocity_error_m_s: number | null;
+  median_gdop: number | null;
+}
+
+/** ScenarioResultSet.metadata.sensing (present only when sensing ran). */
+export interface ScenarioSensingSummary {
+  options: SensingTrackOptions;
+  frequency_hz: number;
+  wavelength_m: number;
+  bandwidth_hz: number;
+  noise_figure_db: number;
+  noise_floor_dbm: number;
+  integration_gain_db: number;
+  threshold_db: number;
+  cpi_s: number;
+  mti_min_doppler_hz: number;
+  /** c / 2B (monostatic range cell). */
+  range_resolution_m: number;
+  /** c / B (bistatic range-sum cell). */
+  bistatic_range_resolution_m: number;
+  doppler_resolution_hz: number;
+  velocity_resolution_m_s: number;
+  /** Monostatic radial speed at the MTI notch edge: lambda * f_min / 2. */
+  mti_blind_speed_m_s: number;
+  num_links: number;
+  target_ids: string[];
+  targets: Record<string, ScenarioSensingTargetSummary>;
+  detection_rate: number;
+  frames_ge3_links_rate: number;
+  median_position_error_m: number | null;
+  median_velocity_error_m_s: number | null;
 }

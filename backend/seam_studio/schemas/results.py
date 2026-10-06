@@ -111,6 +111,71 @@ class SensingResultSet(StrictModel):
     metadata: dict = Field(default_factory=dict)
 
 
+DetectionReason = Literal["detected", "no_echo", "below_threshold", "mti_rejected"]
+TargetEstimateStatus = Literal["ok", "insufficient_links", "diverged"]
+
+
+class SensingLinkReport(StrictModel):
+    """Detection of one target on one TX->RX link in one scenario frame."""
+
+    tx_id: str
+    rx_id: str
+    target_id: str
+    # Echo this report is built from: the strongest DIRECT echo (interactions
+    # == [sensing]); without one, the strongest echo of any kind (multipath).
+    path_id: Optional[str] = None
+    num_echoes: int = Field(default=0, ge=0)
+    multipath: bool = False
+    # c * tau of the reported echo: |TX - p| + |p - RX| for a direct echo [m].
+    bistatic_range_m: Optional[float] = None
+    doppler_hz: Optional[float] = None
+    echo_power_dbm: Optional[float] = None
+    # echo_power - noise_floor + integration_gain [dB].
+    snr_db: Optional[float] = None
+    # What fusion consumed: the values above, plus noise when the request set
+    # measurement_noise.
+    measured_range_m: Optional[float] = None
+    measured_doppler_hz: Optional[float] = None
+    # Range-sum cell floor(R / (c / B)) and Doppler cell round(f_D * cpi_s).
+    range_bin: Optional[int] = None
+    doppler_bin: Optional[int] = None
+    detected: bool = False
+    reason: DetectionReason = "no_echo"
+
+
+class TargetEstimate(StrictModel):
+    """Multistatic position/velocity estimate of one target in one frame."""
+
+    target_id: str
+    status: TargetEstimateStatus
+    # Detected links of this target (direct or multipath echo).
+    n_links_detected: int = Field(default=0, ge=0)
+    # Geometrically distinct detected DIRECT echoes that entered the fusion.
+    n_links_used: int = Field(default=0, ge=0)
+    # "tx_id>rx_id" of each fused link, highest SNR first.
+    links_used: list[str] = Field(default_factory=list)
+    # Ground truth: the target cuboid center and velocity the solve used.
+    position_true: Vec3
+    velocity_true: Vec3
+    position_est: Optional[Vec3] = None
+    velocity_est: Optional[Vec3] = None
+    position_error_m: Optional[float] = None
+    velocity_error_m_s: Optional[float] = None
+    # sqrt(trace((J^T J)^-1)) at the estimate: position error per metre of
+    # range error.
+    gdop: Optional[float] = None
+    rms_residual_m: Optional[float] = None
+    iterations: int = Field(default=0, ge=0)
+
+
+class SensingFrame(StrictModel):
+    # Echo paths of this frame (path_type "sensing", doppler_hz, target_id),
+    # then the comm paths when include_comm_paths (target_id None).
+    echoes: list[RayPath] = Field(default_factory=list)
+    links: list[SensingLinkReport] = Field(default_factory=list)
+    estimates: list[TargetEstimate] = Field(default_factory=list)
+
+
 class BeamformingResult(StrictModel):
     """MIMO beamforming gain summary for one TX->RX link.
 

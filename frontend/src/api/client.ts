@@ -385,8 +385,11 @@ export const api = {
   // scenario playback (V2X): actors + devices moved per frame, links + optional paths.
   simulateScenario: (pid: string, req: ScenarioSimulateRequest = {}) =>
     request<ScenarioResultSet>("POST", `/projects/${pid}/simulate/scenario`, req),
-  getScenario: (pid: string) =>
-    request<ScenarioResultSet>("GET", `/projects/${pid}/results/scenario`),
+  getScenario: (pid: string, resultId?: string) =>
+    request<ScenarioResultSet>(
+      "GET",
+      `/projects/${pid}/results/scenario${resultId ? `?result_id=${encodeURIComponent(resultId)}` : ""}`,
+    ),
 
   // channel analysis: link budget + CIR/CFR + 38.901 path-loss comparison.
   analyzeChannel: (pid: string, req: ChannelAnalysisRequest = {}) =>

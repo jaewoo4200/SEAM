@@ -159,12 +159,19 @@ class RayTracingBackend(abc.ABC):
         library: RFMaterialLibrary,
         config: SimulationConfig,
         targets: list["ResolvedSensingTarget"],
+        *,
+        actor_states: Optional[list] = None,
+        actor_velocities: Optional[dict[str, list[float]]] = None,
     ) -> PathResultSet:
         """Paths solve with sensing targets in the scene (the comm half of a
         sensing result, channel-npz include_sensing). Like Sionna's PathSolver,
         each target is an absorber standing in for its actor, so no path also
         reflects off the actor's own mesh next to its RCS echoes. Default: a
-        plain solve, for backends that trace no actor geometry (the mock)."""
+        plain solve, for backends that trace no actor geometry (the mock).
+
+        ``actor_states`` set = scenario frame mode: the caller owns every
+        actor pose/velocity (absent = at rest) and has already moved the
+        devices in ``scene``; None = the t = 0 snapshot."""
         return self.simulate_paths(project_dir, scene, library, config)
 
     def simulate_sensing(
@@ -175,6 +182,10 @@ class RayTracingBackend(abc.ABC):
         config: SimulationConfig,
         request: "SensingSimulateRequest",
         targets: list["ResolvedSensingTarget"],
+        *,
+        actor_states: Optional[list] = None,
+        actor_velocities: Optional[dict[str, list[float]]] = None,
     ) -> SensingResultSet:
-        """Radar (RCS) solve over resolved sensing targets. Default: unsupported."""
+        """Radar (RCS) solve over resolved sensing targets (frame mode as in
+        ``simulate_paths_with_targets``). Default: unsupported."""
         raise BackendUnavailableError(f"sensing is not supported by the {self.name} backend")

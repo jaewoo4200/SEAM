@@ -201,6 +201,10 @@ Studio builds on the same Sionna RT engine and adds:
   `RCSSolver` (sionna-rt ≥ 2.2): per-path Doppler, Doppler-colored viewport
   rays, exports to RFData / AODT / channel npz. See
   [docs/guides/sensing.md](docs/guides/sensing.md).
+- **Sensing over time (ISAC)** — run a scenario with sensing on: per-frame
+  echoes, per-link SNR + MTI detection, and multistatic position/velocity
+  fusion scored against the true actor track, at FR1 and mmWave alike. See
+  [docs/guides/sensing.md](docs/guides/sensing.md).
 - **AI model picker** — models loaded in LM Studio / Ollama are auto-discovered
   and switchable in the UI; the responding model is recorded in provenance.
 

@@ -906,6 +906,42 @@ h4 {
   text-align: center;
 }
 
+/* Sensing over time (scenario playback): run summary + per-frame readout. */
+.sensing-readout {
+  font-size: 12px;
+}
+.solver-check.disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.sensing-readout > div.mono {
+  margin: 2px 0;
+  line-height: 1.4;
+}
+.sensing-ok {
+  color: var(--ok);
+}
+.sensing-miss {
+  color: var(--warn);
+}
+/* 3D label of the fused estimate: magenta like its marker and dashed track. */
+.device-label.sensing-ok {
+  border-color: #e040fb;
+  color: #f3b0fb;
+}
+.device-label.sensing-miss {
+  border-color: var(--warn);
+}
+.run-note {
+  display: block;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--accent);
+}
+
 /* ---------------------------------------------------------- inspector */
 
 .insp-columns {

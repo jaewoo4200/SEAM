@@ -17,8 +17,10 @@ import type { RadioMapColormap } from "../viewportSettings";
 import ViewportPanel from "./ViewportPanel";
 import MeshRadioMapOverlay from "./MeshRadioMapOverlay";
 import BeamLobeOverlay, { beamSweepAxisDeg } from "./BeamLobeOverlay";
-import SensingOverlay, { SensingDopplerLegend } from "./SensingOverlay";
+import SensingOverlay, { SensingDopplerLegend, SensingEchoLines } from "./SensingOverlay";
 import { captureAgentViews } from "./AgentCapture";
+import { sensingDopplerRange } from "../utils/dopplerColor";
+import { estimateTrackSegments, scenarioEchoes, trueTrack } from "../utils/scenarioSensing";
 import { segmentationClassColor } from "../types/api";
 import type {
   Actor,
@@ -27,6 +29,7 @@ import type {
   RadioMapResultSet,
   RayPath,
   RFMaterialLibrary,
+  ScenarioResultSet,
   Scene,
   TrajectoryResultSet,
   ValidationReport,
@@ -1305,8 +1308,10 @@ function ScenarioDevices({ states }: { states: Map<string, Vec3> }) {
 function ScenarioOverlay({ showPaths }: { showPaths: boolean }) {
   const scenario = useAppStore((s) => s.scenario);
   const scenarioFrame = useAppStore((s) => s.scenarioFrame);
+  const showScenarioSensing = useAppStore((s) => s.showScenarioSensing);
   if (!scenario || scenario.frames.length === 0) return null;
-  const frame = scenario.frames[Math.max(0, Math.min(scenario.frames.length - 1, scenarioFrame))];
+  const idx = Math.max(0, Math.min(scenario.frames.length - 1, scenarioFrame));
+  const frame = scenario.frames[idx];
 
   const actorStates = new Map(
     frame.actor_states.map((s) => [s.id, { position: s.position, orientation_deg: s.orientation_deg }]),
@@ -1318,6 +1323,106 @@ function ScenarioOverlay({ showPaths }: { showPaths: boolean }) {
       <Actors frameStates={actorStates} />
       <ScenarioDevices states={deviceStates} />
       {showPaths && frame.paths && <PathLines paths={frame.paths} showInteractions={false} />}
+      {showScenarioSensing && frame.sensing && (
+        <ScenarioSensingLayer scenario={scenario} frameIdx={idx} />
+      )}
+    </group>
+  );
+}
+
+/** Magenta: the fused estimate (marker + dashed track) must not read as any
+ *  path type, device or Doppler color. */
+const ESTIMATE_COLOR = "#e040fb";
+const TRUE_TRACK_COLOR = "#e5e7eb";
+
+/** Per-frame sensing of a scenario run: the frame's Doppler-colored echoes
+ *  (one color scale over the whole run), and per target the estimated
+ *  position marker, the dashed estimated track and the thin true track up to
+ *  this frame. */
+function ScenarioSensingLayer({
+  scenario,
+  frameIdx,
+}: {
+  scenario: ScenarioResultSet;
+  frameIdx: number;
+}) {
+  const scene = useAppStore((s) => s.scene);
+  const env = useAppStore((s) => s.resolvedEnvironment);
+  const markerScale = useAppStore((s) => s.viewport.markerScale);
+  const maxAbs = useMemo(() => sensingDopplerRange(scenarioEchoes(scenario)), [scenario]);
+  // Stable point arrays per frame: drei's Line rebuilds its geometry whenever
+  // `points` changes identity, so unrelated re-renders must not recompute them.
+  const tracks = useMemo(
+    () =>
+      new Map(
+        (scenario.frames[frameIdx]?.sensing?.estimates ?? []).map((e) => [
+          e.target_id,
+          {
+            truth: trueTrack(scenario, e.target_id, frameIdx),
+            segments: estimateTrackSegments(scenario, e.target_id, frameIdx).filter(
+              (seg) => seg.length > 1,
+            ),
+          },
+        ]),
+      ),
+    [scenario, frameIdx],
+  );
+  const sensing = scenario.frames[frameIdx]?.sensing;
+  if (!sensing) return null;
+  const r = scene ? deviceMarkerRadius(scene, env, markerScale) * 0.8 : 0.5;
+  const fmt = (v: number | null) => (v == null || !Number.isFinite(v) ? "—" : v.toFixed(2));
+
+  return (
+    <group userData={{ __noFit: true }}>
+      <SensingEchoLines paths={sensing.echoes} maxAbs={maxAbs} />
+      {sensing.estimates.map((e) => {
+        const ok = e.status === "ok" && e.position_est != null;
+        const { truth, segments } = tracks.get(e.target_id) ?? { truth: [], segments: [] };
+        const anchor = ok ? e.position_est! : e.position_true;
+        const label = ok
+          ? `${e.target_id} est · ${fmt(e.position_error_m)} m`
+          : `${e.target_id}: ${e.status === "diverged" ? "diverged" : "insufficient links"}`;
+        return (
+          <group key={e.target_id}>
+            {truth.length > 1 && (
+              <Line points={truth} color={TRUE_TRACK_COLOR} lineWidth={1} />
+            )}
+            {segments.map((seg, i) => (
+              <Line
+                key={i}
+                points={seg}
+                color={ESTIMATE_COLOR}
+                lineWidth={2}
+                dashed
+                dashSize={r}
+                gapSize={r / 2}
+              />
+            ))}
+            {ok && (
+              <mesh position={e.position_est!} renderOrder={999}>
+                <octahedronGeometry args={[r]} />
+                <meshBasicMaterial
+                  color={ESTIMATE_COLOR}
+                  transparent
+                  opacity={0.95}
+                  depthTest={false}
+                />
+              </mesh>
+            )}
+            {/* Screen-space offset below the anchor: a world offset collapses
+                onto the marker when zoomed out, and the actor's own name
+                label already sits above it. */}
+            <Html position={anchor} center zIndexRange={[10, 0]} style={LABEL_PASS_THROUGH}>
+              <div
+                className={"device-label " + (ok ? "sensing-ok" : "sensing-miss")}
+                style={{ transform: "translateY(22px)" }}
+              >
+                {label}
+              </div>
+            </Html>
+          </group>
+        );
+      })}
     </group>
   );
 }
@@ -2987,6 +3092,16 @@ export default function Viewer3D() {
   const playbackActive =
     playback !== null && playback.frames.length > 0 && mode === "results" && showPlayback;
   const sensingActive = sensing !== null && showSensing && mode === "results";
+  const showScenarioSensing = useAppStore((s) => s.showScenarioSensing);
+  const scenarioEchoesAll = useMemo(() => scenarioEchoes(scenario), [scenario]);
+  const scenarioSensingActive =
+    scenarioActive && showScenarioSensing && scenarioEchoesAll.length > 0;
+  // The legend shows the scenario's scale while its layer is on: the stored
+  // sensing echoes are colored on that same scale then.
+  const scenarioDopplerMax = useMemo(
+    () => sensingDopplerRange(scenarioEchoesAll),
+    [scenarioEchoesAll],
+  );
   // Static beamforming lobe: the sweep row of the SELECTED RX beam, drawn at
   // the TX. Only codebook_sweep produces a curve — tx_mrt/svd report a scalar
   // gain, and a lobe invented from a scalar would be exactly the static shape
@@ -3205,14 +3320,24 @@ export default function Viewer3D() {
         )}
         {playbackActive && <PlaybackOverlay playback={playback} />}
         {sensingActive && (
-          <SensingOverlay result={sensing} markerRadius={0.25 * envScale(resolvedEnv)} />
+          <SensingOverlay
+            result={sensing}
+            markerRadius={0.25 * envScale(resolvedEnv)}
+            maxAbs={scenarioSensingActive ? scenarioDopplerMax : undefined}
+          />
         )}
         {povVisible && povSourceId && (
           <EntityPovInset sourceId={povSourceId} targetId={povTargetId} />
         )}
       </Canvas>
       {showRadioMap && <RadioMapLegend radioMap={radioMap} />}
-      {sensingActive && <SensingDopplerLegend result={sensing} stacked={!!showRadioMap} />}
+      {/* One Doppler legend: the scenario run's scale wins while its layer shows. */}
+      {(scenarioSensingActive || sensingActive) && (
+        <SensingDopplerLegend
+          paths={scenarioSensingActive ? scenarioEchoesAll : sensing!.paths}
+          stacked={!!showRadioMap}
+        />
+      )}
       {pickActive && (
         <div className="viewer-banner pick-banner">
           <span>

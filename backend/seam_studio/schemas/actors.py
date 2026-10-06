@@ -10,7 +10,8 @@ from typing import Literal, Optional
 from pydantic import Field
 
 from .common import StrictModel, Vec3
-from .results import RayPath
+from .results import RayPath, SensingFrame
+from .sensing import SensingTrackOptions
 from .simulation import SimulationConfig
 
 
@@ -46,6 +47,8 @@ class ScenarioFrame(StrictModel):
     links: list[LinkMetrics] = Field(default_factory=list)
     # Full ray paths for this frame (heavy; included when requested).
     paths: Optional[list[RayPath]] = None
+    # Per-frame sensing (request.sensing.enabled); None otherwise.
+    sensing: Optional[SensingFrame] = None
 
 
 class ScenarioResultSet(StrictModel):
@@ -65,6 +68,8 @@ class ScenarioSimulateRequest(StrictModel):
     num_frames: int = Field(default=20, ge=1, le=1000)
     dt_s: float = Field(default=0.1, gt=0.0)
     include_paths: bool = True
+    # None or enabled=False: no sensing (frames identical to v0.1.10).
+    sensing: Optional[SensingTrackOptions] = None
 
 
 class LiveStateUpdate(StrictModel):

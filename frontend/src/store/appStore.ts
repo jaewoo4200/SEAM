@@ -43,6 +43,7 @@ import type {
   Scene,
   SceneBounds,
   SensingResultSet,
+  SensingTrackOptions,
   SegmentationPreviewRequest,
   SegmentationPreviewResponse,
   SegmentationRegion,
@@ -54,6 +55,7 @@ import type {
   Vec3,
 } from "../types/api";
 import { trajectorySteps } from "../trajectoryUtils";
+import { formatSensingNotice, scenarioSensingSummary } from "../utils/scenarioSensing";
 import { ACTOR_DEFAULTS } from "../actorDefaults";
 import {
   defaultViewportSettings,
@@ -284,6 +286,9 @@ interface AppState {
   scenarioPlaying: boolean;
   scenarioSpeed: number;
   scenarioLoop: boolean;
+  /** Per-frame sensing layer (echoes, estimate marker/track) of a scenario run
+   *  with sensing. A view preference: survives project switches. */
+  showScenarioSensing: boolean;
 
   // --- multimodal sensors + GT-vs-DT playback (issue #3) ---
   /** sensor_data/manifest.json + detected drive segments; null = project
@@ -711,6 +716,8 @@ interface AppState {
     num_frames: number;
     dt_s: number;
     include_paths: boolean;
+    /** Sensing over time; null/absent = comm-only scenario. */
+    sensing?: SensingTrackOptions | null;
   }) => Promise<void>;
   setScenarioFrame: (frame: number) => void;
   setScenarioPlaying: (playing: boolean) => void;
@@ -1342,6 +1349,7 @@ export const useAppStore = create<AppState>()((set, get) => {
     scenarioPlaying: false,
     scenarioSpeed: 1,
     scenarioLoop: false,
+    showScenarioSensing: true,
 
     sensors: null,
     playback: null,
@@ -2146,6 +2154,16 @@ export const useAppStore = create<AppState>()((set, get) => {
           const result = await api.getSensingResult(pid, ref.result_id);
           set({ sensing: result, showSensing: true, ...resultsMode() });
           stampResult("sensing");
+        } else if (ref.kind === "scenario") {
+          const result = await api.getScenario(pid, ref.result_id);
+          set({
+            scenario: result,
+            showScenario: true,
+            scenarioFrame: 0,
+            scenarioPlaying: false,
+            ...resultsMode(),
+          });
+          stampResult("scenario");
         } else {
           set({ error: `Cannot activate result of kind ${ref.kind}` });
           return;
@@ -3543,23 +3561,28 @@ export const useAppStore = create<AppState>()((set, get) => {
 
     // ---------------------------------------------------- scenario playback
 
-    simulateScenario: async ({ num_frames, dt_s, include_paths }) => {
+    simulateScenario: async ({ num_frames, dt_s, include_paths, sensing }) => {
       const pid = get().projectId;
       if (!pid) return;
-      await run("Simulating scenario…", async () => {
+      await run(sensing ? "Simulating scenario with sensing…" : "Simulating scenario…", async () => {
         const result = await api.simulateScenario(pid, {
           config: get().pathsConfig,
           num_frames,
           dt_s,
           include_paths,
+          // Key omitted when off: a pre-sensing backend rejects unknown keys.
+          ...(sensing ? { sensing } : {}),
         });
+        const summary = scenarioSensingSummary(result);
         set({
           scenario: result,
           showScenario: true,
           scenarioFrame: 0,
           scenarioPlaying: false,
           ...resultsMode(),
-          notice: `Scenario: ${result.frames.length} frame(s) via ${result.backend} backend`,
+          notice:
+            `Scenario: ${result.frames.length} frame(s) via ${result.backend} backend` +
+            (summary ? formatSensingNotice(summary) : ""),
         });
         stampResult("scenario");
         await refetchSceneInner(); // a ResultSetRef (kind 'scenario') was appended

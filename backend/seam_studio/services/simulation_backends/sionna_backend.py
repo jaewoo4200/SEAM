@@ -762,17 +762,22 @@ class SionnaBackend(RayTracingBackend):
         library: RFMaterialLibrary,
         config: SimulationConfig,
         targets: list[ResolvedSensingTarget],
+        *,
+        actor_states: Optional[list] = None,
+        actor_velocities: Optional[dict[str, list[float]]] = None,
     ) -> PathResultSet:
         """PathSolver with the sensing targets added as absorbers and their
         actor meshes hidden, as in the echo solve. Always the builtin engine
         (the subprocess worker cannot place targets); like every plain solve
-        it applies the t = 0 actor velocities, so both halves of a sensing
-        result match."""
+        it applies the t = 0 actor velocities unless a scenario frame passes
+        its own ``actor_states``, so both halves of a sensing result match."""
         return self.simulate_paths(
             project_dir,
             scene,
             library,
             config.model_copy(update={"engine": None}),
+            actor_states=actor_states,
+            actor_velocities=actor_velocities,
             sensing_targets=targets,
         )
 
@@ -1052,6 +1057,9 @@ class SionnaBackend(RayTracingBackend):
         config: SimulationConfig,
         request: SensingSimulateRequest,
         targets: list[ResolvedSensingTarget],
+        *,
+        actor_states: Optional[list] = None,
+        actor_velocities: Optional[dict[str, list[float]]] = None,
     ) -> SensingResultSet:
         """Radar (RCS) solve with sionna-rt 2.2's RCSSolver; a solver failure
         degrades to an empty result with a warning, like simulate_paths."""
@@ -1064,7 +1072,8 @@ class SionnaBackend(RayTracingBackend):
         try:
             try:
                 return self._simulate_sensing_impl(
-                    project_dir, scene, library, config, request, targets
+                    project_dir, scene, library, config, request, targets,
+                    actor_states=actor_states, actor_velocities=actor_velocities,
                 )
             finally:
                 _release_solver_memory()
@@ -1093,6 +1102,9 @@ class SionnaBackend(RayTracingBackend):
         config: SimulationConfig,
         request: SensingSimulateRequest,
         targets: list[ResolvedSensingTarget],
+        *,
+        actor_states: Optional[list] = None,
+        actor_velocities: Optional[dict[str, list[float]]] = None,
     ) -> SensingResultSet:
         warnings: list[str] = self._frequency_warnings(scene, library, config)
         _ensure_sionna_variant(warnings)
@@ -1133,10 +1145,15 @@ class SionnaBackend(RayTracingBackend):
         _reset_sensing_targets(rt_scene)
         rt_scene.frequency = config.frequency_hz
 
-        # The t = 0 snapshot, as in a plain paths solve: a radar riding a
-        # moving actor moves with it.
-        actor_velocities = actor_velocities_t0(scene)
-        scene = with_rider_velocities(scene, actor_velocities)
+        if actor_states is None:
+            # The t = 0 snapshot, as in a plain paths solve: a radar riding a
+            # moving actor moves with it.
+            actor_velocities = actor_velocities_t0(scene)
+            scene = with_rider_velocities(scene, actor_velocities)
+        else:
+            # Scenario frame: the caller moved the devices in ``scene`` and
+            # owns every actor velocity (absent = at rest).
+            actor_velocities = dict(actor_velocities or {})
         txs = [
             d for d in scene.devices
             if d.kind == "tx" and (config.tx_ids is None or d.id in config.tx_ids)
@@ -1164,10 +1181,12 @@ class SionnaBackend(RayTracingBackend):
         _apply_arrays(rt_scene, txs, rxs, warnings)
         self._add_devices(rt_scene, txs, rxs)
         self._apply_custom_materials(project_dir, rt_scene, warnings)
-        # Non-target actor meshes stay in the scene and move as at t = 0;
-        # without this they would keep whatever velocity the cache last held.
+        # Non-target actor meshes stay in the scene and move as at t = 0 (or
+        # as in the scenario frame); without this they would keep whatever
+        # pose/velocity the cache last held.
         self._place_actors(
             project_dir, scene, rt_scene, warnings,
+            actor_states=actor_states,
             actor_velocities=actor_velocities or None,
         )
         sionna_targets = self._install_sensing_targets(rt_scene, targets, warnings)
@@ -1643,11 +1662,15 @@ class SionnaBackend(RayTracingBackend):
             )
         states = list(actor_states) if actor_states else []
         explicit = {s.id for s in states}
+        # Actors an earlier solve moved on this (cached) rt_scene: a scenario
+        # frame leaves them at its pose, so they go back even when the
+        # authored pose equals the baked one.
+        moved = getattr(rt_scene, "_actor_authored_pose", None) or {}
         for a in scene.actors:
             if a.id in explicit or a.id not in baked_poses:
                 continue
             pos, orient = baked_poses[a.id]
-            if [float(v) for v in a.position] != pos or [
+            if a.id in moved or [float(v) for v in a.position] != pos or [
                 float(v) for v in a.orientation_deg
             ] != orient:
                 states.append(

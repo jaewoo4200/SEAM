@@ -1653,7 +1653,13 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Simulate Scenario */
+        /**
+         * Simulate Scenario
+         * @description Time-stepped actor scenario; with ``sensing.enabled`` every frame also
+         *     runs a sensing solve (per-link detection + multistatic fusion). Runs under
+         *     the per-project solve guard: a sensing frame is two or three solves on the
+         *     shared cached scene.
+         */
         post: operations["simulate_scenario_api_projects__project_id__simulate_scenario_post"];
         delete?: never;
         options?: never;
@@ -4489,6 +4495,7 @@ export interface components {
             links?: components["schemas"]["LinkMetrics"][];
             /** Paths */
             paths?: components["schemas"]["RayPath"][] | null;
+            sensing?: components["schemas"]["SensingFrame"] | null;
             /** Time S */
             time_s: number;
         };
@@ -4537,6 +4544,7 @@ export interface components {
              * @default 20
              */
             num_frames: number;
+            sensing?: components["schemas"]["SensingTrackOptions"] | null;
         };
         /** Scene */
         Scene: {
@@ -4747,6 +4755,66 @@ export interface components {
             /** Restored Prim Id */
             restored_prim_id: string;
         };
+        /** SensingFrame */
+        SensingFrame: {
+            /** Echoes */
+            echoes?: components["schemas"]["RayPath"][];
+            /** Estimates */
+            estimates?: components["schemas"]["TargetEstimate"][];
+            /** Links */
+            links?: components["schemas"]["SensingLinkReport"][];
+        };
+        /**
+         * SensingLinkReport
+         * @description Detection of one target on one TX->RX link in one scenario frame.
+         */
+        SensingLinkReport: {
+            /** Bistatic Range M */
+            bistatic_range_m?: number | null;
+            /**
+             * Detected
+             * @default false
+             */
+            detected: boolean;
+            /** Doppler Bin */
+            doppler_bin?: number | null;
+            /** Doppler Hz */
+            doppler_hz?: number | null;
+            /** Echo Power Dbm */
+            echo_power_dbm?: number | null;
+            /** Measured Doppler Hz */
+            measured_doppler_hz?: number | null;
+            /** Measured Range M */
+            measured_range_m?: number | null;
+            /**
+             * Multipath
+             * @default false
+             */
+            multipath: boolean;
+            /**
+             * Num Echoes
+             * @default 0
+             */
+            num_echoes: number;
+            /** Path Id */
+            path_id?: string | null;
+            /** Range Bin */
+            range_bin?: number | null;
+            /**
+             * Reason
+             * @default no_echo
+             * @enum {string}
+             */
+            reason: "detected" | "no_echo" | "below_threshold" | "mti_rejected";
+            /** Rx Id */
+            rx_id: string;
+            /** Snr Db */
+            snr_db?: number | null;
+            /** Target Id */
+            target_id: string;
+            /** Tx Id */
+            tx_id: string;
+        };
         /** SensingResultSet */
         SensingResultSet: {
             /** Backend */
@@ -4870,6 +4938,59 @@ export interface components {
             size_m: number[];
             /** Velocity M S */
             velocity_m_s?: number[];
+        };
+        /**
+         * SensingTrackOptions
+         * @description Sensing over time: run a sensing solve in every scenario frame and turn
+         *     the echoes into per-link detections and a fused target estimate.
+         */
+        SensingTrackOptions: {
+            /**
+             * Cpi Pulses
+             * @default 1
+             */
+            cpi_pulses: number;
+            /**
+             * Cpi S
+             * @default 0.01
+             */
+            cpi_s: number;
+            /**
+             * Enabled
+             * @default false
+             */
+            enabled: boolean;
+            /**
+             * Include Comm Paths
+             * @default false
+             */
+            include_comm_paths: boolean;
+            /** Max Depth */
+            max_depth?: number | null;
+            /**
+             * Measurement Noise
+             * @default false
+             */
+            measurement_noise: boolean;
+            /** Mti Min Doppler Hz */
+            mti_min_doppler_hz?: number | null;
+            /**
+             * Noise Seed
+             * @default 0
+             */
+            noise_seed: number;
+            /**
+             * Samples Per Sp
+             * @default 1000000
+             */
+            samples_per_sp: number;
+            /** Target Actor Ids */
+            target_actor_ids?: string[] | null;
+            /**
+             * Threshold Db
+             * @default 13
+             */
+            threshold_db: number;
         };
         /**
          * SensorChannel
@@ -5217,6 +5338,52 @@ export interface components {
             prim_id: string;
             /** Rf Material Id */
             rf_material_id?: string | null;
+        };
+        /**
+         * TargetEstimate
+         * @description Multistatic position/velocity estimate of one target in one frame.
+         */
+        TargetEstimate: {
+            /** Gdop */
+            gdop?: number | null;
+            /**
+             * Iterations
+             * @default 0
+             */
+            iterations: number;
+            /** Links Used */
+            links_used?: string[];
+            /**
+             * N Links Detected
+             * @default 0
+             */
+            n_links_detected: number;
+            /**
+             * N Links Used
+             * @default 0
+             */
+            n_links_used: number;
+            /** Position Error M */
+            position_error_m?: number | null;
+            /** Position Est */
+            position_est?: number[] | null;
+            /** Position True */
+            position_true: number[];
+            /** Rms Residual M */
+            rms_residual_m?: number | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ok" | "insufficient_links" | "diverged";
+            /** Target Id */
+            target_id: string;
+            /** Velocity Error M S */
+            velocity_error_m_s?: number | null;
+            /** Velocity Est */
+            velocity_est?: number[] | null;
+            /** Velocity True */
+            velocity_true: number[];
         };
         /** TrajectoryImportRequest */
         TrajectoryImportRequest: {

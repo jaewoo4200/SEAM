@@ -119,6 +119,38 @@ class SensingSimulateRequest(StrictModel):
     max_depth: Optional[int] = Field(default=None, ge=1, le=12)
 
 
+class SensingTrackOptions(StrictModel):
+    """Sensing over time: run a sensing solve in every scenario frame and turn
+    the echoes into per-link detections and a fused target estimate."""
+
+    enabled: bool = False
+    # Detection threshold on the post-integration SNR [dB].
+    threshold_db: float = Field(default=13.0, ge=-30.0, le=60.0)
+    # Coherent processing interval [s]: Doppler resolution = 1 / cpi_s.
+    cpi_s: float = Field(default=0.01, gt=0.0, le=10.0)
+    # Coherently integrated pulses / OFDM samples: gain 10*log10(cpi_pulses).
+    cpi_pulses: int = Field(default=1, ge=1, le=100_000_000)
+    # MTI notch: |f_D| below this is rejected as static clutter.
+    # None = 1 / cpi_s (one Doppler cell); 0 disables MTI.
+    mti_min_doppler_hz: Optional[float] = Field(default=None, ge=0.0)
+    # Also solve each frame's comm paths with the targets as absorbers and
+    # append them to SensingFrame.echoes (target_id None): the static returns
+    # MTI removes. One extra solve per frame.
+    include_comm_paths: bool = False
+    # None = every actor whose sensing binding is enabled.
+    target_actor_ids: Optional[list[str]] = Field(default=None, min_length=1)
+    # Passed through to the per-frame sensing solve (SensingSimulateRequest).
+    samples_per_sp: int = Field(default=1_000_000, ge=1, le=100_000_000)
+    max_depth: Optional[int] = Field(default=None, ge=1, le=12)
+    # Perturb the measured bistatic range / Doppler fed to fusion with
+    # Gaussian noise of sigma = resolution cell / sqrt(2 * SNR) (seeded).
+    measurement_noise: bool = False
+    noise_seed: int = Field(default=0, ge=0)
+
+    def resolved_mti_min_doppler_hz(self) -> float:
+        return 1.0 / self.cpi_s if self.mti_min_doppler_hz is None else self.mti_min_doppler_hz
+
+
 def resolve_object_type(kind: str, spec: SensingTargetSpec) -> Optional[str]:
     """TR 38.901 object type of a binding (None for constant / unresolved)."""
     if spec.model != "tr38901":

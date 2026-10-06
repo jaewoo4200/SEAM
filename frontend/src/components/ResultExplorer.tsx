@@ -25,12 +25,17 @@ import type {
   ResultSetRef,
   RFMaterialLibrary,
   ScenarioResultSet,
+  ScenarioSensingSummary,
+  SensingFrame,
+  SensingLinkReport,
   SensingResultSet,
+  TargetEstimate,
   TrajectoryResultSet,
   UERoute,
   Vec3,
 } from "../types/api";
 import { dopplerColor, sensingDopplerRange } from "../utils/dopplerColor";
+import { formatSensingChip, scenarioSensingSummary } from "../utils/scenarioSensing";
 
 const SELECTED_COLOR = SELECTED_PATH_COLOR;
 
@@ -1016,6 +1021,7 @@ function ScenarioPlayback({ scenario }: { scenario: ScenarioResultSet }) {
   const setScenarioPlaying = useAppStore((s) => s.setScenarioPlaying);
   const setScenarioSpeed = useAppStore((s) => s.setScenarioSpeed);
   const setScenarioLoop = useAppStore((s) => s.setScenarioLoop);
+  const sensingSummary = useMemo(() => scenarioSensingSummary(scenario), [scenario]);
 
   const last = scenario.frames.length - 1;
   const frameIdx = Math.min(scenarioFrame, last);
@@ -1097,9 +1103,224 @@ function ScenarioPlayback({ scenario }: { scenario: ScenarioResultSet }) {
         {frame.actor_states.length} actor(s) · {frame.device_states.length} device(s)
         {frame.paths && <> · {frame.paths.length} path(s)</>}
       </div>
+      {sensingSummary && (
+        <ScenarioSensingBlock
+          scenario={scenario}
+          summary={sensingSummary}
+          sensing={frame.sensing ?? null}
+        />
+      )}
       <h4 style={{ marginTop: 8 }}>Link metrics</h4>
       <LinkMetricsTable links={frame.links} />
     </div>
+  );
+}
+
+// ------------------------------------------------- scenario sensing (ISAC)
+
+function fmtOr(v: number | null | undefined, digits: number, unit = ""): string {
+  return v == null || !Number.isFinite(v) ? "—" : `${v.toFixed(digits)}${unit}`;
+}
+
+function fmtPct(v: number | null | undefined): string {
+  return v == null || !Number.isFinite(v) ? "—" : `${Math.round(v * 100)}%`;
+}
+
+const ESTIMATE_STATUS_LABEL: Record<TargetEstimate["status"], string> = {
+  ok: "ok",
+  insufficient_links: "insufficient links",
+  diverged: "diverged",
+};
+
+const LINK_RESULT_LABEL: Record<SensingLinkReport["reason"], string> = {
+  detected: "✓",
+  mti_rejected: "MTI",
+  below_threshold: "<thr",
+  no_echo: "no echo",
+};
+
+/** Sensing part of the scenario playback panel: layer toggle, run summary
+ *  and the current frame's readout. Rendered only for runs with sensing. */
+function ScenarioSensingBlock({
+  scenario,
+  summary,
+  sensing,
+}: {
+  scenario: ScenarioResultSet;
+  summary: ScenarioSensingSummary;
+  sensing: SensingFrame | null;
+}) {
+  const showScenarioSensing = useAppStore((s) => s.showScenarioSensing);
+  const sensingWarnings = scenario.warnings.filter((w) => w.startsWith("sensing"));
+  return (
+    <div className="sensing-readout">
+      <h4 style={{ marginTop: 8 }}>Sensing (ISAC)</h4>
+      <label
+        className="solver-check"
+        title="Per-frame echoes (Doppler colors), estimated position marker, dashed estimated track and the true track"
+      >
+        <input
+          type="checkbox"
+          checked={showScenarioSensing}
+          onChange={() => useAppStore.setState({ showScenarioSensing: !showScenarioSensing })}
+        />
+        Sensing layer
+      </label>
+      <ScenarioSensingSummaryTable summary={summary} />
+      <h4 style={{ marginTop: 8 }}>This frame</h4>
+      {sensing ? (
+        <ScenarioSensingReadout sensing={sensing} />
+      ) : (
+        <p className="hint">No sensing in this frame.</p>
+      )}
+      {sensingWarnings.length > 0 && (
+        <p className="hint" title={sensingWarnings.join("\n")}>
+          {sensingWarnings[0]}
+          {sensingWarnings.length > 1 && ` (+${sensingWarnings.length - 1} more)`}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** Whole-run sensing statistics per target, plus the run's detection constants. */
+function ScenarioSensingSummaryTable({ summary }: { summary: ScenarioSensingSummary }) {
+  return (
+    <>
+      <table className="results-table">
+        <thead>
+          <tr>
+            <th>target</th>
+            <th title="Frames with at least one detected link">det</th>
+            <th title="Frames with ≥3 geometrically distinct direct-echo links fused">≥3 links</th>
+            <th title="Median position error over frames with an ok estimate">med err</th>
+            <th title="90th-percentile position error over ok frames">p90 err</th>
+            <th title="Median velocity error over ok frames">med v err</th>
+            <th title="Median GDOP: position error per metre of range error">GDOP</th>
+          </tr>
+        </thead>
+        <tbody>
+          {summary.target_ids.map((id) => {
+            const t = summary.targets[id];
+            if (!t) return null;
+            return (
+              <tr key={id}>
+                <td className="mono">{id}</td>
+                <td
+                  className="mono"
+                  title={`${t.detected_frames}/${t.frames} frames · per-link detection ${fmtPct(t.link_detection_rate)}`}
+                >
+                  {fmtPct(t.detection_rate)}
+                </td>
+                <td
+                  className="mono"
+                  title={`${t.frames_ge3_links}/${t.frames} frames · ${t.ok_frames} ok estimate(s)`}
+                >
+                  {fmtPct(t.frames_ge3_links_rate)}
+                </td>
+                <td className="mono">{fmtOr(t.median_position_error_m, 2, " m")}</td>
+                <td className="mono">{fmtOr(t.p90_position_error_m, 2, " m")}</td>
+                <td className="mono">{fmtOr(t.median_velocity_error_m_s, 2, " m/s")}</td>
+                <td className="mono">{fmtOr(t.median_gdop, 2)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <div
+        className="results-meta"
+        title={
+          `${summary.num_links} link(s) · range cell ${fmtOr(summary.bistatic_range_resolution_m, 2, " m")} (range sum)` +
+          ` · Doppler cell ${fmtOr(summary.doppler_resolution_hz, 1, " Hz")}`
+        }
+      >
+        noise <span className="mono">{fmtOr(summary.noise_floor_dbm, 1, " dBm")}</span> · gain{" "}
+        <span className="mono">+{fmtOr(summary.integration_gain_db, 1, " dB")}</span> · thr{" "}
+        <span className="mono">{fmtOr(summary.threshold_db, 1, " dB")}</span> · MTI{" "}
+        <span className="mono">|f_D| &lt; {fmtOr(summary.mti_min_doppler_hz, 1, " Hz")}</span> (blind{" "}
+        <span className="mono">{fmtOr(summary.mti_blind_speed_m_s, 2, " m/s")}</span>) · λ{" "}
+        <span className="mono">
+          {fmtOr(summary.wavelength_m != null ? summary.wavelength_m * 1000 : null, 1, " mm")}
+        </span>
+      </div>
+    </>
+  );
+}
+
+/** Current frame: one line per target plus the collapsible link table. */
+function ScenarioSensingReadout({ sensing }: { sensing: SensingFrame }) {
+  const multiTarget = new Set(sensing.links.map((l) => l.target_id)).size > 1;
+  return (
+    <>
+      {sensing.estimates.length === 0 && <p className="hint">No target estimates this frame.</p>}
+      {sensing.estimates.map((e) => {
+        const n = sensing.links.filter((l) => l.target_id === e.target_id).length;
+        return (
+          <div
+            key={e.target_id}
+            className={"mono " + (e.status === "ok" ? "sensing-ok" : "sensing-miss")}
+            title={e.links_used.length > 0 ? `fused: ${e.links_used.join(", ")}` : undefined}
+          >
+            {e.target_id}: {e.n_links_detected}/{n} links · {e.n_links_used} fused ·{" "}
+            {ESTIMATE_STATUS_LABEL[e.status] ?? e.status} · err {fmtOr(e.position_error_m, 2, " m")} · v
+            err {fmtOr(e.velocity_error_m_s, 2, " m/s")} · GDOP {fmtOr(e.gdop, 2)}
+          </div>
+        );
+      })}
+      <Collapsible title={`Link detections (${sensing.links.length})`}>
+        <SensingLinkTable links={sensing.links} showTarget={multiTarget} />
+      </Collapsible>
+    </>
+  );
+}
+
+/** Per-link detection table of one frame (exact solver values; the noisy
+ *  measurement fusion used is in the cell tooltip). */
+function SensingLinkTable({
+  links,
+  showTarget,
+}: {
+  links: SensingLinkReport[];
+  showTarget: boolean;
+}) {
+  if (links.length === 0) return <p className="hint">No sensing links this frame.</p>;
+  return (
+    <table className="results-table">
+      <thead>
+        <tr>
+          <th>tx</th>
+          <th>rx</th>
+          {showTarget && <th>target</th>}
+          <th title="Bistatic range sum c·τ of the reported echo">R m</th>
+          <th title="Doppler, + = closing">f_D Hz</th>
+          <th title="Post-integration SNR">SNR dB</th>
+          <th title="✓ detected · MTI rejected by the MTI notch · <thr below threshold · mp = multipath echo (not fused)">
+            result
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        {links.map((l, i) => (
+          <tr key={`${l.tx_id}_${l.rx_id}_${l.target_id}_${i}`}>
+            <td className="mono">{l.tx_id}</td>
+            <td className="mono">{l.rx_id}</td>
+            {showTarget && <td className="mono">{l.target_id}</td>}
+            <td className="mono" title={`measured ${fmtOr(l.measured_range_m, 2, " m")}`}>
+              {fmtOr(l.bistatic_range_m, 2)}
+            </td>
+            <td className="mono" title={`measured ${fmtOr(l.measured_doppler_hz, 1, " Hz")}`}>
+              {l.doppler_hz != null && l.doppler_hz > 0 ? "+" : ""}
+              {fmtOr(l.doppler_hz, 1)}
+            </td>
+            <td className="mono">{fmtOr(l.snr_db, 1)}</td>
+            <td className={"mono " + (l.detected ? "sensing-ok" : "sensing-miss")}>
+              {LINK_RESULT_LABEL[l.reason] ?? l.reason}
+              {l.multipath && " mp"}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   );
 }
 
@@ -1176,6 +1397,14 @@ function ScenarioOverlayToggle() {
   );
 }
 
+const SENSING_TRACK_HINT =
+  "MTI rejects |f_D| < 1/CPI; needs ≥1 actor bound as sensing target";
+
+/** Clamp a number input on commit (live clamping fights partial typing). */
+function clampNum(v: number, lo: number, hi: number, fallback: number): number {
+  return Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : fallback;
+}
+
 export function ScenarioSection() {
   const scenario = useAppStore((s) => s.scenario);
   const simulateScenario = useAppStore((s) => s.simulateScenario);
@@ -1188,6 +1417,33 @@ export function ScenarioSection() {
   const [numFrames, setNumFrames] = useState(20);
   const [dt, setDt] = useState(0.1);
   const [includePaths, setIncludePaths] = useState(false);
+
+  const scene = useAppStore((s) => s.scene);
+  const sensingAvailable = (scene?.actors ?? []).some(
+    (a) => a.sensing != null && a.sensing.enabled !== false,
+  );
+  const [sensingOn, setSensingOn] = useState(false);
+  const [thresholdDb, setThresholdDb] = useState(13);
+  const [cpiMs, setCpiMs] = useState(10);
+  const [cpiPulses, setCpiPulses] = useState(1);
+  const [measurementNoise, setMeasurementNoise] = useState(false);
+  const sensingActive = sensingOn && sensingAvailable;
+
+  const simulate = () =>
+    void simulateScenario({
+      num_frames: numFrames,
+      dt_s: dt,
+      include_paths: includePaths,
+      sensing: sensingActive
+        ? {
+            enabled: true,
+            threshold_db: clampNum(thresholdDb, -30, 60, 13),
+            cpi_s: clampNum(cpiMs, 0.1, 10000, 10) / 1000,
+            cpi_pulses: Math.round(clampNum(cpiPulses, 1, 1e8, 1)),
+            measurement_noise: measurementNoise,
+          }
+        : null,
+    });
 
   return (
     <div className="traj-section">
@@ -1234,14 +1490,89 @@ export function ScenarioSection() {
         />
         Include paths (per frame)
       </label>
+      <label
+        className={"solver-check" + (sensingAvailable ? "" : " disabled")}
+        title={
+          sensingAvailable
+            ? "Run a sensing solve in every frame: per-link SNR + MTI detection and a multistatic position/velocity estimate"
+            : SENSING_TRACK_HINT
+        }
+      >
+        <input
+          type="checkbox"
+          checked={sensingActive}
+          disabled={disabled || !sensingAvailable}
+          onChange={(e) => setSensingOn(e.target.checked)}
+        />
+        Sensing (ISAC)
+        {!sensingAvailable && <span className="solver-unit">needs a sensing target</span>}
+      </label>
+      {sensingActive && (
+        <>
+          <label className="solver-field">
+            <span className="solver-field-label">Threshold</span>
+            <span className="solver-field-input">
+              <input
+                type="number"
+                min={-30}
+                max={60}
+                step={1}
+                value={thresholdDb}
+                disabled={disabled}
+                onChange={(e) => setThresholdDb(Number(e.target.value))}
+                onBlur={() => setThresholdDb(clampNum(thresholdDb, -30, 60, 13))}
+              />
+              <span className="solver-unit">dB</span>
+            </span>
+          </label>
+          <label className="solver-field">
+            <span className="solver-field-label">CPI</span>
+            <span className="solver-field-input">
+              <input
+                type="number"
+                // No min: it would be the step base (0.1, 1.1, …); clampNum keeps ≥ 0.1 ms.
+                max={10000}
+                step={1}
+                value={cpiMs}
+                disabled={disabled}
+                onChange={(e) => setCpiMs(Number(e.target.value))}
+                onBlur={() => setCpiMs(clampNum(cpiMs, 0.1, 10000, 10))}
+              />
+              <span className="solver-unit">ms</span>
+            </span>
+          </label>
+          <label className="solver-field" title="Coherent integration gain = 10·log10(pulses)">
+            <span className="solver-field-label">Integrated pulses</span>
+            <span className="solver-field-input">
+              <input
+                type="number"
+                min={1}
+                max={100000000}
+                step={1}
+                value={cpiPulses}
+                disabled={disabled}
+                onChange={(e) => setCpiPulses(Number(e.target.value))}
+                onBlur={() => setCpiPulses(Math.round(clampNum(cpiPulses, 1, 1e8, 1)))}
+              />
+            </span>
+          </label>
+          <label
+            className="solver-check"
+            title="Seeded Gaussian noise (σ = resolution cell / √(2·SNR)) on the range / Doppler fed to fusion"
+          >
+            <input
+              type="checkbox"
+              checked={measurementNoise}
+              disabled={disabled}
+              onChange={(e) => setMeasurementNoise(e.target.checked)}
+            />
+            Measurement noise
+          </label>
+        </>
+      )}
+      {sensingActive && <p className="hint">{SENSING_TRACK_HINT}</p>}
       <div className="panel-actions">
-        <button
-          className="primary"
-          disabled={!projectId || disabled}
-          onClick={() =>
-            void simulateScenario({ num_frames: numFrames, dt_s: dt, include_paths: includePaths })
-          }
-        >
+        <button className="primary" disabled={!projectId || disabled} onClick={simulate}>
           Simulate scenario
         </button>
         {scenario && scenario.frames.length > 0 && (
@@ -3244,11 +3575,14 @@ function RunHistoryRow({
   disabled,
   onLoad,
   onLabel,
+  note,
 }: {
   refItem: ResultSetRef;
   disabled: boolean;
   onLoad: (ref: ResultSetRef) => void;
   onLabel: (ref: ResultSetRef, label: string | null) => void;
+  /** Short metrics chip after the result_id (e.g. the loaded scenario's sensing summary). */
+  note?: string;
 }) {
   const [label, setLabel] = useState(refItem.label ?? "");
   // Re-seed when the underlying ref changes (e.g. after a scene refresh).
@@ -3280,6 +3614,11 @@ function RunHistoryRow({
       </td>
       <td className="mono" title={refItem.result_id}>
         {refItem.result_id}
+        {note && (
+          <span className="run-note" title={note}>
+            {note}
+          </span>
+        )}
       </td>
       <td className="mono">{refItem.backend}</td>
       <td className="mono">{formatCreatedAt(refItem.created_at)}</td>
@@ -3311,6 +3650,12 @@ function RunHistorySection() {
   const notifyError = useAppStore((s) => s.notifyError);
   const busy = useAppStore((s) => s.busy);
   const disabled = !projectId || busy !== null;
+  // A ResultSetRef carries no metrics: only the LOADED scenario gets a chip.
+  const scenario = useAppStore((s) => s.scenario);
+  const scenarioChip = useMemo(() => {
+    const sum = scenarioSensingSummary(scenario);
+    return sum && scenario ? { id: scenario.result_id, text: formatSensingChip(sum) } : null;
+  }, [scenario]);
 
   const [keepN, setKeepN] = useState(3);
   const [pruning, setPruning] = useState(false);
@@ -3398,6 +3743,11 @@ function RunHistorySection() {
                       disabled={disabled}
                       onLoad={(ref) => void activateResult(ref)}
                       onLabel={onLabel}
+                      note={
+                        r.kind === "scenario" && scenarioChip?.id === r.result_id
+                          ? scenarioChip.text
+                          : undefined
+                      }
                     />
                   ))}
                 </tbody>

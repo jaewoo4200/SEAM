@@ -16,6 +16,10 @@ Backend handling (pinned):
 Metrics mirror the moving-RX trajectory service: RSS/path gain/RMS delay
 spread from the per-pair paths, and SINR == SNR = RSS - noise_floor (no
 interference model yet).
+
+With ``request.sensing.enabled`` every frame also runs a sensing solve at the
+frame's poses and records per-link detections plus a fused target estimate
+(services/sensing_track.py) in ``ScenarioFrame.sensing``.
 """
 
 import math
@@ -115,15 +119,39 @@ def actor_heading_at(actor: Actor, time_s: float, eps_s: float = 1e-3) -> float:
     return math.degrees(math.atan2(dy, dx))
 
 
+def _loop_wrap_side(traj, t0: float, t: float, t1: float) -> int:
+    """Where a ``loop`` trajectory's jump back to the start falls in
+    [t0, t1]: -1 in (t0, t] (after it at ``t``), +1 in (t, t1], 0 none."""
+    if traj.resolved_mode() != "loop" or len(traj.waypoints) <= 1:
+        return 0
+    if traj.speed_m_s is None:
+        rate, span = 1.0 / traj.dt_s, float(len(traj.waypoints) - 1)
+    else:
+        rate, span = traj.speed_m_s, sum(traj.segment_lengths_m())
+    if span <= 0.0:
+        return 0
+    # // pairs with the % in _wrap_progress, so the side matches the position.
+    k0, k, k1 = ((x * rate) // span for x in (t0, t, t1))
+    return -1 if k != k0 else (1 if k1 != k else 0)
+
+
 def actor_velocity_at(actor: Actor, time_s: float, eps_s: float = 1e-3) -> list[float]:
     """Actor velocity [m/s] (world frame, Z-up) at ``time_s``, from a central
     finite difference of the interpolated trajectory position (tangent x speed).
-    All-zero for a static actor (no trajectory) or a degenerate step."""
+    Next to a ``loop`` wrap (the jump from the last waypoint back to the
+    first) the difference is one-sided, on the side of ``time_s`` without the
+    jump. All-zero for a static actor (no trajectory) or a degenerate step."""
     if actor.trajectory is None or not actor.trajectory.waypoints:
         return [0.0, 0.0, 0.0]
-    p_before = actor_position_at(actor, max(0.0, time_s - eps_s))
-    p_after = actor_position_at(actor, time_s + eps_s)
-    span = (time_s + eps_s) - max(0.0, time_s - eps_s)
+    t0, t1 = max(0.0, time_s - eps_s), time_s + eps_s
+    wrap = _loop_wrap_side(actor.trajectory, t0, time_s, t1)
+    if wrap < 0:
+        t0 = time_s
+    elif wrap > 0:
+        t1 = time_s
+    p_before = actor_position_at(actor, t0)
+    p_after = actor_position_at(actor, t1)
+    span = t1 - t0
     if span <= 0.0:
         return [0.0, 0.0, 0.0]
     return [(p_after[a] - p_before[a]) / span for a in range(3)]
@@ -261,6 +289,36 @@ def _pair_metrics(
     )
 
 
+def _frame_scene(
+    scene: Scene,
+    actor_states: list[ActorState],
+    device_positions: dict[str, list[float]],
+    device_velocities: dict[str, list[float]],
+    *,
+    move_actors: bool,
+) -> Scene:
+    """The scene as one frame sees it: attached devices at their frame
+    position/velocity and, with ``move_actors`` (backends without a cached
+    scene), actors at their frame pose in a deep copy. Without it (Sionna:
+    actors move as SceneObjects) the scene is only copied when a device moves."""
+    if not move_actors and not (device_positions or device_velocities):
+        return scene
+    frame_scene = scene.model_copy(deep=True)
+    if move_actors:
+        state_by_id = {s.id: s for s in actor_states}
+        for actor in frame_scene.actors:
+            st = state_by_id.get(actor.id)
+            if st is not None:
+                actor.position = [float(c) for c in st.position]
+                actor.orientation_deg = [float(a) for a in st.orientation_deg]
+    for dev in frame_scene.devices:
+        if dev.id in device_positions:
+            dev.position = [float(c) for c in device_positions[dev.id]]
+        if dev.id in device_velocities:
+            dev.velocity_m_s = [float(c) for c in device_velocities[dev.id]]
+    return frame_scene
+
+
 def _solve_frame_paths(
     backend: RayTracingBackend,
     project_dir: Path,
@@ -281,32 +339,32 @@ def _solve_frame_paths(
         # light scene copy (cheap vs. the Mitsuba solve) so the transmitters/
         # receivers are placed correctly, while actors move via SceneObjects.
         # Attached-device velocity rides on the same copy (RadioDevice.velocity).
-        frame_scene = scene
-        if device_positions or device_velocities:
-            frame_scene = scene.model_copy(deep=True)
-            for dev in frame_scene.devices:
-                if dev.id in device_positions:
-                    dev.position = [float(c) for c in device_positions[dev.id]]
-                if dev.id in device_velocities:
-                    dev.velocity_m_s = [float(c) for c in device_velocities[dev.id]]
+        frame_scene = _frame_scene(
+            scene, actor_states, device_positions, device_velocities, move_actors=False
+        )
         return backend.simulate_paths(
             project_dir, frame_scene, library, config,
             actor_states=actor_states, actor_velocities=actor_velocities or None,
         )
     # Mock / other backends: move actor authored positions in a scene copy.
-    frame_scene = scene.model_copy(deep=True)
-    state_by_id = {s.id: s for s in actor_states}
-    for actor in frame_scene.actors:
-        st = state_by_id.get(actor.id)
-        if st is not None:
-            actor.position = [float(c) for c in st.position]
-            actor.orientation_deg = [float(a) for a in st.orientation_deg]
-    for dev in frame_scene.devices:
-        if dev.id in device_positions:
-            dev.position = [float(c) for c in device_positions[dev.id]]
-        if dev.id in device_velocities:
-            dev.velocity_m_s = [float(c) for c in device_velocities[dev.id]]
+    frame_scene = _frame_scene(
+        scene, actor_states, device_positions, device_velocities, move_actors=True
+    )
     return backend.simulate_paths(project_dir, frame_scene, library, config)
+
+
+def _merge_sensing_warnings(
+    warnings: list[str], sensing_warnings: list[str], frame_index: int, seen: set[str]
+) -> None:
+    """Frame 0's sensing warnings as "sensing: ..."; later frames add only
+    messages no earlier frame raised, tagged with their frame index."""
+    for w in sensing_warnings:
+        if w in seen:
+            continue
+        seen.add(w)
+        warnings.append(
+            f"sensing: {w}" if frame_index == 0 else f"sensing frame {frame_index}: {w}"
+        )
 
 
 def run_scenario(
@@ -330,6 +388,18 @@ def run_scenario(
     tx_power = {d.id: d.power_dbm for d in txs}
     noise_floor = noise_floor_dbm(config)
 
+    opts = request.sensing if (request.sensing is not None and request.sensing.enabled) else None
+    tracker = None
+    if opts is not None:
+        # sensing_track imports this module's frame helpers.
+        from seam_studio.services.sensing import select_targets
+        from seam_studio.services.sensing_track import SensingTracker
+
+        target_ids = [t.actor_id for t in select_targets(scene, opts.target_actor_ids)]
+        tracker = SensingTracker(
+            backend, project_dir, scene, library, config, opts, txs, rxs, target_ids
+        )
+
     # Sionna: compile the RF projection ONCE up front so every frame reuses the
     # cached Mitsuba scene (the per-frame apply_actor_states just nudges objects).
     warnings: list[str] = []
@@ -348,6 +418,7 @@ def run_scenario(
 
     frames: list[ScenarioFrame] = []
     frame_doppler_spread: list[Optional[float]] = []
+    seen_sensing_warnings: set[str] = set()
     for i in range(request.num_frames):
         solve_ctx.tick(i, request.num_frames)
         t = i * request.dt_s
@@ -380,6 +451,12 @@ def run_scenario(
             for tx in txs
             for rx in rxs
         ]
+        frame_sensing = None
+        if tracker is not None:
+            frame_sensing, sensing_warnings = tracker.frame(
+                i, t, actor_states, actor_velocities, device_positions, device_velocities
+            )
+            _merge_sensing_warnings(warnings, sensing_warnings, i, seen_sensing_warnings)
         frames.append(
             ScenarioFrame(
                 time_s=t,
@@ -387,8 +464,26 @@ def run_scenario(
                 device_states=device_states,
                 links=links,
                 paths=list(result.paths) if request.include_paths else None,
+                sensing=frame_sensing,
             )
         )
+
+    metadata = {
+        "frequency_hz": config.frequency_hz,
+        "num_frames": request.num_frames,
+        "dt_s": request.dt_s,
+        "num_actors": len(scene.actors),
+        "engine": backend.name,
+        # Per-frame Doppler spread [Hz] aligned to ``frames``. Omitted when
+        # no frame produced a Doppler value (mock output stays unchanged).
+        **(
+            {"doppler_spread_hz": frame_doppler_spread}
+            if any(s is not None for s in frame_doppler_spread)
+            else {}
+        ),
+    }
+    if tracker is not None:
+        metadata["sensing"] = tracker.summary(frames)
 
     return ScenarioResultSet(
         result_id="unsaved",
@@ -396,18 +491,5 @@ def run_scenario(
         simulation_config_id=config.id,
         frames=frames,
         warnings=warnings,
-        metadata={
-            "frequency_hz": config.frequency_hz,
-            "num_frames": request.num_frames,
-            "dt_s": request.dt_s,
-            "num_actors": len(scene.actors),
-            "engine": backend.name,
-            # Per-frame Doppler spread [Hz] aligned to ``frames``. Omitted when
-            # no frame produced a Doppler value (mock output stays unchanged).
-            **(
-                {"doppler_spread_hz": frame_doppler_spread}
-                if any(s is not None for s in frame_doppler_spread)
-                else {}
-            ),
-        },
+        metadata=metadata,
     )

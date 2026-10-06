@@ -8,29 +8,53 @@
 
 import { useMemo } from "react";
 import { Line } from "@react-three/drei";
-import type { SensingResultSet } from "../types/api";
+import type { RayPath, SensingResultSet } from "../types/api";
 import { PATH_COLORS } from "./common";
 import { dopplerColor, dopplerGradientCss, sensingDopplerRange } from "../utils/dopplerColor";
 
+/** Doppler-colored echo rays: one line per path with a target_id (comm
+ *  paths in the same list are skipped). maxAbs is the ±Hz color scale. */
+export function SensingEchoLines({
+  paths,
+  maxAbs,
+  lineWidth = 2,
+}: {
+  paths: RayPath[];
+  maxAbs: number;
+  lineWidth?: number;
+}) {
+  return (
+    <>
+      {paths
+        .filter((p) => p.target_id != null)
+        .map((p) => (
+          <Line
+            key={p.path_id}
+            points={p.vertices}
+            color={dopplerColor(p.doppler_hz, maxAbs)}
+            lineWidth={lineWidth}
+          />
+        ))}
+    </>
+  );
+}
+
+/** ``maxAbs`` overrides the result's own ±Hz scale, so these echoes match
+ *  the one legend on screen (the scenario run's, while its layer shows too). */
 export default function SensingOverlay({
   result,
   markerRadius,
+  maxAbs: sharedMaxAbs,
 }: {
   result: SensingResultSet;
   markerRadius: number;
+  maxAbs?: number;
 }) {
-  const echoes = useMemo(() => result.paths.filter((p) => p.target_id != null), [result]);
-  const maxAbs = useMemo(() => sensingDopplerRange(result.paths), [result]);
+  const ownMaxAbs = useMemo(() => sensingDopplerRange(result.paths), [result]);
+  const maxAbs = sharedMaxAbs ?? ownMaxAbs;
   return (
     <group userData={{ __noFit: true }}>
-      {echoes.map((p) => (
-        <Line
-          key={p.path_id}
-          points={p.vertices}
-          color={dopplerColor(p.doppler_hz, maxAbs)}
-          lineWidth={2}
-        />
-      ))}
+      <SensingEchoLines paths={result.paths} maxAbs={maxAbs} />
       {/* Single-point targets put their SP inside the actor's own
           (translucent) box: draw on top like the pick markers. */}
       {result.targets.flatMap((t) =>
@@ -53,14 +77,14 @@ export default function SensingOverlay({
 /** Doppler colorbar (HTML, outside the Canvas); stacks under the radio-map
  *  legend when that one is visible. Renders nothing without echo paths. */
 export function SensingDopplerLegend({
-  result,
+  paths,
   stacked = true,
 }: {
-  result: SensingResultSet;
+  paths: RayPath[];
   stacked?: boolean;
 }) {
-  if (!result.paths.some((p) => p.target_id != null)) return null;
-  const maxAbs = sensingDopplerRange(result.paths);
+  if (!paths.some((p) => p.target_id != null)) return null;
+  const maxAbs = sensingDopplerRange(paths);
   return (
     <div className={"radiomap-legend sensing-legend" + (stacked ? "" : " solo")}>
       <div className="radiomap-legend-title">Doppler (Hz)</div>

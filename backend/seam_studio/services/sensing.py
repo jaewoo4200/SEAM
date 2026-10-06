@@ -9,8 +9,9 @@ paths solve first, then ``backend.simulate_sensing``.
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Callable, Optional
+from typing import TYPE_CHECKING, Callable, Optional, Sequence
 
+from seam_studio.schemas.actors import ActorState
 from seam_studio.schemas.materials import RFMaterialLibrary
 from seam_studio.schemas.results import SensingResultSet, SensingTargetSummary
 from seam_studio.schemas.scene import Actor, Scene
@@ -70,7 +71,6 @@ def resolve_target(actor: Actor) -> ResolvedSensingTarget:
     spec = actor.sensing
     if spec is None:
         raise SensingRequestError(f"actor {actor.id} has no sensing binding")
-    size = tuple(float(v) for v in (spec.size_m or actor.shape.size_m))
     orientation = [float(v) for v in actor.orientation_deg]
     if spec.velocity_m_s is not None:
         base = [float(v) for v in actor.position]
@@ -79,6 +79,36 @@ def resolve_target(actor: Actor) -> ResolvedSensingTarget:
         base = actor_position_at(actor, 0.0)
         orientation[0] = actor_heading_at(actor, 0.0)  # pitch/roll stay authored
         velocity = actor_velocity_at(actor, 0.0)
+    return _target_from_pose(actor, base, orientation, velocity)
+
+
+def resolve_target_state(
+    actor: Actor, state: ActorState, velocity: Sequence[float]
+) -> ResolvedSensingTarget:
+    """The target at one scenario frame: the frame's base pose (travel yaw
+    included) and trajectory velocity. An explicit sensing.velocity_m_s still
+    overrides the velocity; the pose always follows the frame."""
+    spec = actor.sensing
+    if spec is None:
+        raise SensingRequestError(f"actor {actor.id} has no sensing binding")
+    if spec.velocity_m_s is not None:
+        velocity = spec.velocity_m_s
+    return _target_from_pose(actor, state.position, state.orientation_deg, velocity)
+
+
+def _target_from_pose(
+    actor: Actor,
+    base: Sequence[float],
+    orientation: Sequence[float],
+    velocity: Sequence[float],
+) -> ResolvedSensingTarget:
+    """Pose-independent part of a target: cuboid, center = base + (0, 0, h/2),
+    RCS model fields."""
+    spec = actor.sensing
+    if spec is None:
+        raise SensingRequestError(f"actor {actor.id} has no sensing binding")
+    size = tuple(float(v) for v in (spec.size_m or actor.shape.size_m))
+    base = [float(v) for v in base]
     # Same base-center convention as rf_compiler._actor_box_mesh.
     center = (base[0], base[1], base[2] + size[2] / 2.0)
     if spec.model == "tr38901":
@@ -105,7 +135,7 @@ def resolve_target(actor: Actor) -> ResolvedSensingTarget:
         random_components=bool(spec.random_components),
         size_m=size,  # type: ignore[arg-type]
         center=center,
-        orientation_deg=tuple(orientation),  # type: ignore[arg-type]
+        orientation_deg=tuple(float(v) for v in orientation),  # type: ignore[arg-type]
         velocity_m_s=tuple(float(v) for v in velocity),  # type: ignore[arg-type]
     )
 

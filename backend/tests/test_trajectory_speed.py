@@ -114,6 +114,21 @@ def test_loop_and_pingpong_fold_over_the_path_length():
     assert actor_velocity_at(actor, 5.0) == pytest.approx([0.0, -10.0, 0.0])
 
 
+@pytest.mark.parametrize("pacing", [{"speed_m_s": 10.0}, {"dt_s": 1.0}])
+def test_loop_wrap_velocity_is_one_sided(pacing):
+    # A loop jumps from the last waypoint back to the first: a central
+    # difference across that jump would be a ~10 km/s spike.
+    actor = _actor(ActorTrajectory(waypoints=L_PATH, mode="loop", **pacing))
+    period = 4.0 if "speed_m_s" in pacing else 2.0
+    leg1 = [10.0, 0.0, 0.0]  # 10 m in 1 s either way
+    leg2 = [0.0, 10.0, 0.0] if "speed_m_s" in pacing else [0.0, 30.0, 0.0]
+    assert actor_position_at(actor, period) == pytest.approx([0.0, 0.0, 0.0])
+    assert actor_velocity_at(actor, period) == pytest.approx(leg1)  # on the wrap: first leg
+    assert actor_velocity_at(actor, 2 * period) == pytest.approx(leg1)
+    assert actor_velocity_at(actor, period - 5e-4) == pytest.approx(leg2)  # just before it
+    assert actor_velocity_at(actor, period + 5e-4) == pytest.approx(leg1)  # just after it
+
+
 def test_degenerate_segments():
     # A repeated waypoint is crossed instantly.
     dup = _actor(ActorTrajectory(waypoints=[[0, 0, 0], [0, 0, 0], [10, 0, 0]], speed_m_s=5.0))

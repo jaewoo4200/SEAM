@@ -17,7 +17,12 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 
 from seam_studio.api.deps import get_store, load_scene_or_404
-from seam_studio.api.simulate import _load_result, _persist_result, _resolve_config
+from seam_studio.api.simulate import (
+    _load_result,
+    _persist_result,
+    _resolve_config,
+    _solve_guard,
+)
 from seam_studio.schemas.actors import (
     DeviceState,
     LinkMetrics,
@@ -40,10 +45,13 @@ router = APIRouter(tags=["scenario"])
 def simulate_scenario(
     project_id: str, request: Optional[ScenarioSimulateRequest] = None
 ) -> ScenarioResultSet:
-    from seam_studio.services.events import publish_event
+    """Time-stepped actor scenario; with ``sensing.enabled`` every frame also
+    runs a sensing solve (per-link detection + multistatic fusion). Runs under
+    the per-project solve guard: a sensing frame is two or three solves on the
+    shared cached scene."""
+    from seam_studio.services.sensing import SensingRequestError, select_targets
 
     request = request or ScenarioSimulateRequest()
-    publish_event(project_id, {"type": "simulation_started", "kind": "scenario"})
     store = get_store()
     scene = load_scene_or_404(store, project_id)
     library = store.load_materials(project_id)
@@ -55,12 +63,49 @@ def simulate_scenario(
     except BackendUnavailableError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
 
+    # Validation stays outside the guard so a 4xx never announces a solve.
+    if request.sensing is not None and request.sensing.enabled:
+        selected = {
+            kind: [
+                d for d in scene.devices
+                if d.kind == kind and (ids is None or d.id in ids)
+            ]
+            for kind, ids in (("tx", config.tx_ids), ("rx", config.rx_ids))
+        }
+        if not selected["tx"] or not selected["rx"]:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "sensing needs at least one tx and one rx device (place an rx at "
+                    "the tx for monostatic sensing)"
+                ),
+            )
+        try:
+            select_targets(scene, request.sensing.target_actor_ids)
+        except SensingRequestError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        # No mock fallback under "auto": comm and sensing share one backend.
+        if not backend.capabilities().get("sensing", False):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "sensing over time needs a backend with sensing (sionna-rt>=2.2, "
+                    f"or backend 'mock'); the {backend.name} backend has none"
+                ),
+            )
+
     project_dir = store.resolve(project_id)
-    result = run_scenario(backend, project_dir, scene, library, config, request)
-    return _persist_result(
-        project_id, scene, project_dir, "scenario", backend.name, config.id, result,
-        config=config,
-    )
+    with _solve_guard(project_id, "scenario"):
+        try:
+            result = run_scenario(backend, project_dir, scene, library, config, request)
+        except BackendUnavailableError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+        except SensingRequestError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        return _persist_result(
+            project_id, scene, project_dir, "scenario", backend.name, config.id, result,
+            config=config,
+        )
 
 
 @router.get(
