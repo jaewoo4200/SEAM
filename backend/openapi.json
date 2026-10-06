@@ -7270,6 +7270,16 @@
             ],
             "title": "Paths"
           },
+          "sensing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SensingFrame"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "time_s": {
             "title": "Time S",
             "type": "number"
@@ -7382,6 +7392,16 @@
             "minimum": 1.0,
             "title": "Num Frames",
             "type": "integer"
+          },
+          "sensing": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SensingTrackOptions"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "title": "ScenarioSimulateRequest",
@@ -7899,6 +7919,185 @@
         "title": "SegmentationUndoResponse",
         "type": "object"
       },
+      "SensingFrame": {
+        "additionalProperties": false,
+        "properties": {
+          "echoes": {
+            "items": {
+              "$ref": "#/components/schemas/RayPath"
+            },
+            "title": "Echoes",
+            "type": "array"
+          },
+          "estimates": {
+            "items": {
+              "$ref": "#/components/schemas/TargetEstimate"
+            },
+            "title": "Estimates",
+            "type": "array"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/SensingLinkReport"
+            },
+            "title": "Links",
+            "type": "array"
+          }
+        },
+        "title": "SensingFrame",
+        "type": "object"
+      },
+      "SensingLinkReport": {
+        "additionalProperties": false,
+        "description": "Detection of one target on one TX->RX link in one scenario frame.",
+        "properties": {
+          "bistatic_range_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bistatic Range M"
+          },
+          "detected": {
+            "default": false,
+            "title": "Detected",
+            "type": "boolean"
+          },
+          "doppler_bin": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Doppler Bin"
+          },
+          "doppler_hz": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Doppler Hz"
+          },
+          "echo_power_dbm": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Echo Power Dbm"
+          },
+          "measured_doppler_hz": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measured Doppler Hz"
+          },
+          "measured_range_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measured Range M"
+          },
+          "multipath": {
+            "default": false,
+            "title": "Multipath",
+            "type": "boolean"
+          },
+          "num_echoes": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Num Echoes",
+            "type": "integer"
+          },
+          "path_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path Id"
+          },
+          "range_bin": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Range Bin"
+          },
+          "reason": {
+            "default": "no_echo",
+            "enum": [
+              "detected",
+              "no_echo",
+              "below_threshold",
+              "mti_rejected"
+            ],
+            "title": "Reason",
+            "type": "string"
+          },
+          "rx_id": {
+            "title": "Rx Id",
+            "type": "string"
+          },
+          "snr_db": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snr Db"
+          },
+          "target_id": {
+            "title": "Target Id",
+            "type": "string"
+          },
+          "tx_id": {
+            "title": "Tx Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tx_id",
+          "rx_id",
+          "target_id"
+        ],
+        "title": "SensingLinkReport",
+        "type": "object"
+      },
       "SensingResultSet": {
         "additionalProperties": false,
         "properties": {
@@ -8297,6 +8496,103 @@
           "size_m"
         ],
         "title": "SensingTargetSummary",
+        "type": "object"
+      },
+      "SensingTrackOptions": {
+        "additionalProperties": false,
+        "description": "Sensing over time: run a sensing solve in every scenario frame and turn\nthe echoes into per-link detections and a fused target estimate.",
+        "properties": {
+          "cpi_pulses": {
+            "default": 1,
+            "maximum": 100000000.0,
+            "minimum": 1.0,
+            "title": "Cpi Pulses",
+            "type": "integer"
+          },
+          "cpi_s": {
+            "default": 0.01,
+            "exclusiveMinimum": 0.0,
+            "maximum": 10.0,
+            "title": "Cpi S",
+            "type": "number"
+          },
+          "enabled": {
+            "default": false,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "include_comm_paths": {
+            "default": false,
+            "title": "Include Comm Paths",
+            "type": "boolean"
+          },
+          "max_depth": {
+            "anyOf": [
+              {
+                "maximum": 12.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Depth"
+          },
+          "measurement_noise": {
+            "default": false,
+            "title": "Measurement Noise",
+            "type": "boolean"
+          },
+          "mti_min_doppler_hz": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mti Min Doppler Hz"
+          },
+          "noise_seed": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Noise Seed",
+            "type": "integer"
+          },
+          "samples_per_sp": {
+            "default": 1000000,
+            "maximum": 100000000.0,
+            "minimum": 1.0,
+            "title": "Samples Per Sp",
+            "type": "integer"
+          },
+          "target_actor_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Actor Ids"
+          },
+          "threshold_db": {
+            "default": 13.0,
+            "maximum": 60.0,
+            "minimum": -30.0,
+            "title": "Threshold Db",
+            "type": "number"
+          }
+        },
+        "title": "SensingTrackOptions",
         "type": "object"
       },
       "SensorChannel": {
@@ -9109,6 +9405,152 @@
           "action"
         ],
         "title": "SuggestionDecision",
+        "type": "object"
+      },
+      "TargetEstimate": {
+        "additionalProperties": false,
+        "description": "Multistatic position/velocity estimate of one target in one frame.",
+        "properties": {
+          "gdop": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gdop"
+          },
+          "iterations": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Iterations",
+            "type": "integer"
+          },
+          "links_used": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Links Used",
+            "type": "array"
+          },
+          "n_links_detected": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "N Links Detected",
+            "type": "integer"
+          },
+          "n_links_used": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "N Links Used",
+            "type": "integer"
+          },
+          "position_error_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Position Error M"
+          },
+          "position_est": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Position Est"
+          },
+          "position_true": {
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "title": "Position True",
+            "type": "array"
+          },
+          "rms_residual_m": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rms Residual M"
+          },
+          "status": {
+            "enum": [
+              "ok",
+              "insufficient_links",
+              "diverged"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "target_id": {
+            "title": "Target Id",
+            "type": "string"
+          },
+          "velocity_error_m_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Velocity Error M S"
+          },
+          "velocity_est": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Velocity Est"
+          },
+          "velocity_true": {
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "title": "Velocity True",
+            "type": "array"
+          }
+        },
+        "required": [
+          "target_id",
+          "status",
+          "position_true",
+          "velocity_true"
+        ],
+        "title": "TargetEstimate",
         "type": "object"
       },
       "TrajectoryImportRequest": {
@@ -10102,7 +10544,7 @@
   "info": {
     "description": "Unified RF-visual scene authoring, RF material assignment, Sionna RT projection compilation, and simulation result APIs.",
     "title": "SEAM Studio",
-    "version": "0.1.10"
+    "version": "0.1.11"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -14495,6 +14937,7 @@
     },
     "/api/projects/{project_id}/simulate/scenario": {
       "post": {
+        "description": "Time-stepped actor scenario; with ``sensing.enabled`` every frame also\nruns a sensing solve (per-link detection + multistatic fusion). Runs under\nthe per-project solve guard: a sensing frame is two or three solves on the\nshared cached scene.",
         "operationId": "simulate_scenario_api_projects__project_id__simulate_scenario_post",
         "parameters": [
           {
