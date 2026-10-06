@@ -3871,6 +3871,764 @@
         "title": "HealthResponse",
         "type": "object"
       },
+      "ISACBeam": {
+        "additionalProperties": false,
+        "description": "One codebook beam of one tx, used full time for comm OR sensing (rho = 1).",
+        "properties": {
+          "angle_deg": {
+            "title": "Angle Deg",
+            "type": "number"
+          },
+          "detected": {
+            "default": false,
+            "title": "Detected",
+            "type": "boolean"
+          },
+          "pd": {
+            "title": "Pd",
+            "type": "number"
+          },
+          "sensing_snr_db": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sensing Snr Db"
+          },
+          "sum_rate_bps_hz": {
+            "default": 0.0,
+            "title": "Sum Rate Bps Hz",
+            "type": "number"
+          },
+          "target_best_rx_angle_deg": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Target Best Rx Angle Deg",
+            "type": "object"
+          },
+          "target_snr_db": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Target Snr Db",
+            "type": "object"
+          },
+          "ue_sinr_db": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Ue Sinr Db",
+            "type": "object"
+          }
+        },
+        "required": [
+          "angle_deg",
+          "pd"
+        ],
+        "title": "ISACBeam",
+        "type": "object"
+      },
+      "ISACParetoSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "beam_idx_at_pd_target": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Beam Idx At Pd Target"
+          },
+          "comm_only_rate_bps_hz": {
+            "title": "Comm Only Rate Bps Hz",
+            "type": "number"
+          },
+          "max_pd": {
+            "title": "Max Pd",
+            "type": "number"
+          },
+          "num_pareto_points": {
+            "default": 0,
+            "title": "Num Pareto Points",
+            "type": "integer"
+          },
+          "pd_at_95pct_rate": {
+            "title": "Pd At 95Pct Rate",
+            "type": "number"
+          },
+          "pd_target": {
+            "title": "Pd Target",
+            "type": "number"
+          },
+          "rate_at_pd_target_bps_hz": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate At Pd Target Bps Hz"
+          },
+          "rate_loss_at_pd_target_bps_hz": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Loss At Pd Target Bps Hz"
+          },
+          "rho_at_pd_target": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rho At Pd Target"
+          }
+        },
+        "required": [
+          "comm_only_rate_bps_hz",
+          "max_pd",
+          "pd_target",
+          "pd_at_95pct_rate"
+        ],
+        "title": "ISACParetoSummary",
+        "type": "object"
+      },
+      "ISACPoint": {
+        "additionalProperties": false,
+        "properties": {
+          "beam_idx": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Beam Idx"
+          },
+          "pareto": {
+            "default": false,
+            "title": "Pareto",
+            "type": "boolean"
+          },
+          "pd": {
+            "title": "Pd",
+            "type": "number"
+          },
+          "rho": {
+            "title": "Rho",
+            "type": "number"
+          },
+          "sensing_snr_db": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sensing Snr Db"
+          },
+          "sum_rate_bps_hz": {
+            "title": "Sum Rate Bps Hz",
+            "type": "number"
+          },
+          "ue_rates_bps_hz": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Ue Rates Bps Hz",
+            "type": "object"
+          }
+        },
+        "required": [
+          "rho",
+          "sum_rate_bps_hz",
+          "pd"
+        ],
+        "title": "ISACPoint",
+        "type": "object"
+      },
+      "ISACRequest": {
+        "additionalProperties": false,
+        "description": "Body for POST /projects/{id}/simulate/isac.",
+        "properties": {
+          "config": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SimulationConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "config_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Config Id"
+          },
+          "cpi_pulses": {
+            "default": 4096,
+            "maximum": 100000000.0,
+            "minimum": 1.0,
+            "title": "Cpi Pulses",
+            "type": "integer"
+          },
+          "cpi_s": {
+            "default": 0.01,
+            "exclusiveMinimum": 0.0,
+            "maximum": 10.0,
+            "title": "Cpi S",
+            "type": "number"
+          },
+          "include_paths": {
+            "default": false,
+            "title": "Include Paths",
+            "type": "boolean"
+          },
+          "max_depth": {
+            "anyOf": [
+              {
+                "maximum": 12.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Depth"
+          },
+          "pd_target": {
+            "default": 0.9,
+            "exclusiveMaximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Pd Target",
+            "type": "number"
+          },
+          "pfa": {
+            "default": 1e-06,
+            "exclusiveMaximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Pfa",
+            "type": "number"
+          },
+          "rx_cols": {
+            "anyOf": [
+              {
+                "maximum": 16.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rx Cols"
+          },
+          "rx_rows": {
+            "anyOf": [
+              {
+                "maximum": 16.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rx Rows"
+          },
+          "samples_per_sp": {
+            "default": 1000000,
+            "maximum": 100000000.0,
+            "minimum": 1.0,
+            "title": "Samples Per Sp",
+            "type": "integer"
+          },
+          "sensing_rx_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sensing Rx Ids"
+          },
+          "sharing_mode": {
+            "default": "dual_function",
+            "enum": [
+              "time_sharing",
+              "dual_function"
+            ],
+            "title": "Sharing Mode",
+            "type": "string"
+          },
+          "slot_ratios": {
+            "items": {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            "maxItems": 32,
+            "minItems": 1,
+            "title": "Slot Ratios",
+            "type": "array"
+          },
+          "sweep_start_deg": {
+            "default": -60.0,
+            "maximum": 90.0,
+            "minimum": -90.0,
+            "title": "Sweep Start Deg",
+            "type": "number"
+          },
+          "sweep_step_deg": {
+            "default": 5.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Sweep Step Deg",
+            "type": "number"
+          },
+          "sweep_stop_deg": {
+            "default": 60.0,
+            "maximum": 90.0,
+            "minimum": -90.0,
+            "title": "Sweep Stop Deg",
+            "type": "number"
+          },
+          "target_actor_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Actor Ids"
+          },
+          "threshold_db": {
+            "default": 13.0,
+            "maximum": 60.0,
+            "minimum": -30.0,
+            "title": "Threshold Db",
+            "type": "number"
+          },
+          "tx_cols": {
+            "default": 4,
+            "maximum": 16.0,
+            "minimum": 1.0,
+            "title": "Tx Cols",
+            "type": "integer"
+          },
+          "tx_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tx Ids"
+          },
+          "tx_rows": {
+            "default": 4,
+            "maximum": 16.0,
+            "minimum": 1.0,
+            "title": "Tx Rows",
+            "type": "integer"
+          },
+          "ue_association": {
+            "default": "serving",
+            "enum": [
+              "serving",
+              "all"
+            ],
+            "title": "Ue Association",
+            "type": "string"
+          },
+          "ue_rx_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ue Rx Ids"
+          },
+          "use_device_orientation": {
+            "default": true,
+            "title": "Use Device Orientation",
+            "type": "boolean"
+          }
+        },
+        "title": "ISACRequest",
+        "type": "object"
+      },
+      "ISACResultSet": {
+        "additionalProperties": false,
+        "properties": {
+          "backend": {
+            "title": "Backend",
+            "type": "string"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "frequency_hz": {
+            "title": "Frequency Hz",
+            "type": "number"
+          },
+          "kind": {
+            "const": "isac",
+            "default": "isac",
+            "title": "Kind",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "noise_floor_dbm": {
+            "title": "Noise Floor Dbm",
+            "type": "number"
+          },
+          "paths": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/RayPath"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paths"
+          },
+          "result_id": {
+            "title": "Result Id",
+            "type": "string"
+          },
+          "sharing_mode": {
+            "enum": [
+              "time_sharing",
+              "dual_function"
+            ],
+            "title": "Sharing Mode",
+            "type": "string"
+          },
+          "simulation_config_id": {
+            "title": "Simulation Config Id",
+            "type": "string"
+          },
+          "slot_ratios": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Slot Ratios",
+            "type": "array"
+          },
+          "txs": {
+            "items": {
+              "$ref": "#/components/schemas/ISACTxResult"
+            },
+            "title": "Txs",
+            "type": "array"
+          },
+          "ue_association": {
+            "enum": [
+              "serving",
+              "all"
+            ],
+            "title": "Ue Association",
+            "type": "string"
+          },
+          "ue_serving_tx": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Ue Serving Tx",
+            "type": "object"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "result_id",
+          "backend",
+          "simulation_config_id",
+          "frequency_hz",
+          "sharing_mode",
+          "ue_association",
+          "noise_floor_dbm"
+        ],
+        "title": "ISACResultSet",
+        "type": "object"
+      },
+      "ISACTxResult": {
+        "additionalProperties": false,
+        "properties": {
+          "angle_gap_deg": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Angle Gap Deg"
+          },
+          "angles_deg": {
+            "items": {
+              "type": "number"
+            },
+            "title": "Angles Deg",
+            "type": "array"
+          },
+          "beams": {
+            "items": {
+              "$ref": "#/components/schemas/ISACBeam"
+            },
+            "title": "Beams",
+            "type": "array"
+          },
+          "comm_beam_angle_deg": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comm Beam Angle Deg"
+          },
+          "comm_beam_idx": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comm Beam Idx"
+          },
+          "pareto": {
+            "$ref": "#/components/schemas/ISACParetoSummary"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/ISACPoint"
+            },
+            "title": "Points",
+            "type": "array"
+          },
+          "rx_array": {
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "title": "Rx Array",
+            "type": "array"
+          },
+          "sensing_baseline_m": {
+            "title": "Sensing Baseline M",
+            "type": "number"
+          },
+          "sensing_beam_angle_deg": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sensing Beam Angle Deg"
+          },
+          "sensing_beam_idx": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sensing Beam Idx"
+          },
+          "sensing_rx_id": {
+            "title": "Sensing Rx Id",
+            "type": "string"
+          },
+          "target_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Target Ids",
+            "type": "array"
+          },
+          "target_single_element_snr_db": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Target Single Element Snr Db",
+            "type": "object"
+          },
+          "tx_array": {
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "title": "Tx Array",
+            "type": "array"
+          },
+          "tx_id": {
+            "title": "Tx Id",
+            "type": "string"
+          },
+          "ue_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Ue Ids",
+            "type": "array"
+          },
+          "ue_single_element_rss_dbm": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Ue Single Element Rss Dbm",
+            "type": "object"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "tx_id",
+          "sensing_rx_id",
+          "sensing_baseline_m",
+          "tx_array",
+          "rx_array",
+          "pareto"
+        ],
+        "title": "ISACTxResult",
+        "type": "object"
+      },
       "ImportAodtRequest": {
         "additionalProperties": false,
         "properties": {
@@ -7068,7 +7826,9 @@
               "scenario",
               "channel",
               "playback",
-              "sensing"
+              "sensing",
+              "isac",
+              "sensing_coverage"
             ],
             "title": "Kind",
             "type": "string"
@@ -7140,7 +7900,9 @@
                     "scenario",
                     "channel",
                     "playback",
-                    "sensing"
+                    "sensing",
+                    "isac",
+                    "sensing_coverage"
                   ],
                   "type": "string"
                 },
@@ -7917,6 +8679,439 @@
           "removed_prim_ids"
         ],
         "title": "SegmentationUndoResponse",
+        "type": "object"
+      },
+      "SensingCoverageLink": {
+        "additionalProperties": false,
+        "properties": {
+          "baseline_m": {
+            "title": "Baseline M",
+            "type": "number"
+          },
+          "detected_fraction": {
+            "title": "Detected Fraction",
+            "type": "number"
+          },
+          "geometry_group": {
+            "title": "Geometry Group",
+            "type": "integer"
+          },
+          "los_fraction": {
+            "title": "Los Fraction",
+            "type": "number"
+          },
+          "rx_id": {
+            "title": "Rx Id",
+            "type": "string"
+          },
+          "tx_id": {
+            "title": "Tx Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tx_id",
+          "rx_id",
+          "geometry_group",
+          "baseline_m",
+          "los_fraction",
+          "detected_fraction"
+        ],
+        "title": "SensingCoverageLink",
+        "type": "object"
+      },
+      "SensingCoverageRequest": {
+        "additionalProperties": false,
+        "description": "Body for POST /projects/{id}/simulate/sensing-coverage.",
+        "properties": {
+          "array_gain": {
+            "default": "none",
+            "enum": [
+              "none",
+              "steered"
+            ],
+            "title": "Array Gain",
+            "type": "string"
+          },
+          "cell_size_m": {
+            "default": 10.0,
+            "exclusiveMinimum": 0.0,
+            "maximum": 10000.0,
+            "title": "Cell Size M",
+            "type": "number"
+          },
+          "center_xy": {
+            "anyOf": [
+              {
+                "items": {
+                  "maximum": 10000000.0,
+                  "minimum": -10000000.0,
+                  "type": "number"
+                },
+                "maxItems": 2,
+                "minItems": 2,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Center Xy"
+          },
+          "config": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SimulationConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "config_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Config Id"
+          },
+          "cpi_pulses": {
+            "default": 4096,
+            "maximum": 100000000.0,
+            "minimum": 1.0,
+            "title": "Cpi Pulses",
+            "type": "integer"
+          },
+          "height_m": {
+            "default": 60.0,
+            "maximum": 100000.0,
+            "minimum": -100000.0,
+            "title": "Height M",
+            "type": "number"
+          },
+          "min_links_for_fusion": {
+            "default": 3,
+            "maximum": 64.0,
+            "minimum": 1.0,
+            "title": "Min Links For Fusion",
+            "type": "integer"
+          },
+          "object_type": {
+            "anyOf": [
+              {
+                "enum": [
+                  "uav-small-size",
+                  "uav-large-size",
+                  "human",
+                  "vehicle-single-sp",
+                  "vehicle-multi-sp",
+                  "agv-single-sp",
+                  "agv-multi-sp"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Object Type"
+          },
+          "pfa": {
+            "default": 1e-06,
+            "exclusiveMaximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Pfa",
+            "type": "number"
+          },
+          "rcs_dbsm": {
+            "anyOf": [
+              {
+                "maximum": 80.0,
+                "minimum": -80.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rcs Dbsm"
+          },
+          "rx_cols": {
+            "anyOf": [
+              {
+                "maximum": 16.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rx Cols"
+          },
+          "rx_rows": {
+            "anyOf": [
+              {
+                "maximum": 16.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rx Rows"
+          },
+          "sensing_rx_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sensing Rx Ids"
+          },
+          "size_xy": {
+            "anyOf": [
+              {
+                "items": {
+                  "maximum": 1000000.0,
+                  "type": "number"
+                },
+                "maxItems": 2,
+                "minItems": 2,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size Xy"
+          },
+          "threshold_db": {
+            "default": 13.0,
+            "maximum": 60.0,
+            "minimum": -30.0,
+            "title": "Threshold Db",
+            "type": "number"
+          },
+          "tx_cols": {
+            "default": 4,
+            "maximum": 16.0,
+            "minimum": 1.0,
+            "title": "Tx Cols",
+            "type": "integer"
+          },
+          "tx_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tx Ids"
+          },
+          "tx_rows": {
+            "default": 4,
+            "maximum": 16.0,
+            "minimum": 1.0,
+            "title": "Tx Rows",
+            "type": "integer"
+          }
+        },
+        "title": "SensingCoverageRequest",
+        "type": "object"
+      },
+      "SensingCoverageResultSet": {
+        "additionalProperties": false,
+        "properties": {
+          "array_gain_db": {
+            "title": "Array Gain Db",
+            "type": "number"
+          },
+          "backend": {
+            "title": "Backend",
+            "type": "string"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "frequency_hz": {
+            "title": "Frequency Hz",
+            "type": "number"
+          },
+          "grid": {
+            "$ref": "#/components/schemas/RadioMapGrid"
+          },
+          "kind": {
+            "const": "sensing_coverage",
+            "default": "sensing_coverage",
+            "title": "Kind",
+            "type": "string"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/SensingCoverageLink"
+            },
+            "title": "Links",
+            "type": "array"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "rcs_dbsm": {
+            "title": "Rcs Dbsm",
+            "type": "number"
+          },
+          "result_id": {
+            "title": "Result Id",
+            "type": "string"
+          },
+          "sensing_rx_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Sensing Rx Ids",
+            "type": "array"
+          },
+          "simulation_config_id": {
+            "title": "Simulation Config Id",
+            "type": "string"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/SensingCoverageSummary"
+          },
+          "tx_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tx Ids",
+            "type": "array"
+          },
+          "values": {
+            "additionalProperties": {
+              "items": {
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              "type": "array"
+            },
+            "propertyNames": {
+              "enum": [
+                "best_snr_db",
+                "n_links_detected",
+                "pd_best",
+                "fusion_feasible"
+              ]
+            },
+            "title": "Values",
+            "type": "object"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "result_id",
+          "backend",
+          "simulation_config_id",
+          "frequency_hz",
+          "rcs_dbsm",
+          "array_gain_db",
+          "grid",
+          "values",
+          "summary"
+        ],
+        "title": "SensingCoverageResultSet",
+        "type": "object"
+      },
+      "SensingCoverageSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "median_best_snr_db": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Median Best Snr Db"
+          },
+          "num_cells": {
+            "title": "Num Cells",
+            "type": "integer"
+          },
+          "num_geometries": {
+            "title": "Num Geometries",
+            "type": "integer"
+          },
+          "num_links": {
+            "title": "Num Links",
+            "type": "integer"
+          },
+          "pct_cells_detected": {
+            "title": "Pct Cells Detected",
+            "type": "number"
+          },
+          "pct_cells_fusion_feasible": {
+            "title": "Pct Cells Fusion Feasible",
+            "type": "number"
+          },
+          "pct_cells_los": {
+            "title": "Pct Cells Los",
+            "type": "number"
+          }
+        },
+        "required": [
+          "num_cells",
+          "num_links",
+          "num_geometries",
+          "pct_cells_los",
+          "pct_cells_detected",
+          "pct_cells_fusion_feasible"
+        ],
+        "title": "SensingCoverageSummary",
         "type": "object"
       },
       "SensingFrame": {
@@ -10544,7 +11739,7 @@
   "info": {
     "description": "Unified RF-visual scene authoring, RF material assignment, Sionna RT projection compilation, and simulation result APIs.",
     "title": "SEAM Studio",
-    "version": "0.1.11"
+    "version": "0.1.12"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -12914,6 +14109,64 @@
         ]
       }
     },
+    "/api/projects/{project_id}/results/isac": {
+      "get": {
+        "operationId": "get_isac_result_api_projects__project_id__results_isac_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "result_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Result Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ISACResultSet"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Isac Result",
+        "tags": [
+          "simulate"
+        ]
+      }
+    },
     "/api/projects/{project_id}/results/mesh-radio-map": {
       "get": {
         "operationId": "get_mesh_radio_map_result_api_projects__project_id__results_mesh_radio_map_get",
@@ -13319,6 +14572,64 @@
           }
         },
         "summary": "Get Sensing Result",
+        "tags": [
+          "simulate"
+        ]
+      }
+    },
+    "/api/projects/{project_id}/results/sensing-coverage": {
+      "get": {
+        "operationId": "get_sensing_coverage_result_api_projects__project_id__results_sensing_coverage_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "result_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Result Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SensingCoverageResultSet"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Sensing Coverage Result",
         "tags": [
           "simulate"
         ]
@@ -14656,6 +15967,66 @@
         ]
       }
     },
+    "/api/projects/{project_id}/simulate/isac": {
+      "post": {
+        "description": "ISAC beam trade-off: per TX, the azimuth codebook scored for its UEs'\nrate and its targets' echo SNR from one t = 0 echo + comm solve, and the\nPd-rate Pareto front of sharing slots between the comm and sensing beams.",
+        "operationId": "simulate_isac_api_projects__project_id__simulate_isac_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ISACRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Request"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ISACResultSet"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Simulate Isac",
+        "tags": [
+          "simulate"
+        ]
+      }
+    },
     "/api/projects/{project_id}/simulate/mesh-radio-map": {
       "post": {
         "description": "Per-triangle coverage on the requested prims' surfaces (facades,\nroads, floors) - probe receivers at triangle centers, chunk-solved with\nthe active backend.",
@@ -15050,6 +16421,66 @@
           }
         },
         "summary": "Simulate Sensing",
+        "tags": [
+          "simulate"
+        ]
+      }
+    },
+    "/api/projects/{project_id}/simulate/sensing-coverage": {
+      "post": {
+        "description": "Sensing coverage map: bistatic radar equation of a virtual point target\nover a grid at one height, per TX x sensing-RX link with two-leg LOS, plus\nthe links detected and the multistatic fusion feasibility per cell.",
+        "operationId": "simulate_sensing_coverage_api_projects__project_id__simulate_sensing_coverage_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/SensingCoverageRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Request"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SensingCoverageResultSet"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Simulate Sensing Coverage",
         "tags": [
           "simulate"
         ]
