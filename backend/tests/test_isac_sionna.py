@@ -14,7 +14,11 @@ the mock cannot:
   a building's shadow has no direct echo; segment_los leaves the cached
   scene as a plain load. With tr38901 elements the map's per-leg element
   gain (sensing_coverage.element_gain_db) matches the echo too, and the
-  closed forms equal sionna's own pattern functions.
+  closed forms equal sionna's own pattern functions;
+- L1e: the elevation (2-D) codebook on a 4x1 vertical ULA, TX and RX side:
+  run_isac's path synthesis and echo_beam_matrix's receive factor against
+  the same steering vectors applied to Sionna's synthetic-array channel
+  (PlanarArray(num_rows=4, num_cols=1)), best beam on the LoS elevation.
 """
 
 import math
@@ -36,6 +40,7 @@ from seam_studio.services.availability import sionna_available, sionna_rcs_avail
 from seam_studio.services.isac import (
     codebook_angles,
     codebook_weights,
+    codebook_weights_2d,
     echo_beam_matrix,
     plan_isac_roles,
     planar_positions,
@@ -423,3 +428,174 @@ def test_l2_coverage_matches_echo_with_tr38901(building_site: Path, yaw: float):
         j = int((xy[1] - grid.origin[1]) // grid.cell_size_m)
         echo_snr = max(p.power_dbm for p in direct) - n0
         assert abs(echo_snr - coverage.values["best_snr_db"][j][i]) <= 0.01, (xy, echo_snr)
+
+
+# ------------------------------- L1e: elevation codebook on a vertical ULA
+
+
+@pytest.fixture()
+def keep_flush_counter(monkeypatch):
+    """Leave sionna_backend's solve counter as found: its full cache flush
+    every 32 solves would otherwise move with these extra solves and land
+    inside another test's two-solve cache-hit check."""
+    from seam_studio.services.simulation_backends import sionna_backend
+
+    monkeypatch.setattr(
+        sionna_backend, "_solves_since_full_flush", sionna_backend._solves_since_full_flush
+    )
+
+
+def _capture_beamforming_channel(monkeypatch) -> dict:
+    """Keep the [rx_ant, tx_ant] channel /simulate/beamforming sweeps (the
+    sweep itself still runs)."""
+    from seam_studio.services.simulation_backends import sionna_backend
+
+    captured: dict = {}
+    original = sionna_backend._codebook_sweep
+
+    def spy(base, H, h00, request, np_, tx_y, rx_y):
+        captured["H"] = np.array(H)
+        return original(base, H, h00, request, np_, tx_y, rx_y)
+
+    monkeypatch.setattr(sionna_backend, "_codebook_sweep", spy)
+    return captured
+
+
+def _sionna_positions(rows: int, cols: int) -> np.ndarray:
+    from seam_studio.services.simulation_backends.sionna_backend import _make_planar_array
+
+    array = _make_planar_array(Antenna(), [], num_rows=rows, num_cols=cols)
+    return np.asarray(array.normalized_positions, dtype=float)
+
+
+def _local_elevation_deg(orientation, src, dst) -> float:
+    from seam_studio.services.channel_npz_export import local_frame_matrix
+
+    k = np.asarray(dst, dtype=float) - np.asarray(src, dtype=float)
+    local = np.asarray(local_frame_matrix(orientation)).T @ (k / np.linalg.norm(k))
+    return math.degrees(math.asin(local[2]))
+
+
+ELEVATIONS = codebook_angles(-40.0, 60.0, 5.0)
+
+
+def l1e_tx_cross_check(project: Path, monkeypatch, yaw: float, pitch: float, ue: tuple) -> dict:
+    """Elevation beams of a 4x1 vertical TX ULA: run_isac's path synthesis vs
+    the same manual steering vectors on Sionna's own synthetic-array channel
+    (the L1 harness transposed)."""
+    scene = _l1_scene(yaw, pitch, ue)
+    library = load_default_library()
+    config = _config()
+    backend = SionnaBackend()
+    request = ISACRequest(
+        tx_rows=4, tx_cols=1, rx_rows=4, rx_cols=1, samples_per_sp=SAMPLES,
+        sweep_start_deg=0.0, sweep_stop_deg=0.0, sweep_step_deg=5.0,
+        elevation_start_deg=ELEVATIONS[0], elevation_stop_deg=ELEVATIONS[-1],
+        elevation_step_deg=5.0,
+    )
+    plan = plan_isac_roles(scene, None, None, None)
+    isac = run_isac(
+        backend, project, scene, library, config, request, plan, select_targets(scene, None)
+    )
+    captured = _capture_beamforming_channel(monkeypatch)
+    bf = backend.simulate_beamforming(
+        project, scene, library, config,
+        BeamformingRequest(tx_id="tx", rx_id="ue", tx_rows=4, tx_cols=1, rx_rows=1, rx_cols=1,
+                           use_device_orientation=True),
+    )
+    pos = _sionna_positions(4, 1)
+    w = codebook_weights_2d(pos, [0.0], ELEVATIONS)
+    H = captured["H"]  # [1, 4]
+    curve_bf = 20.0 * np.log10(np.abs(H[0] @ np.conj(w).T)) + 30.0
+    tx = isac.txs[0]
+    n0 = noise_floor_dbm(config)
+    curve_isac = np.array([b.ue_sinr_db["ue"] for b in tx.beams]) + n0
+    main = curve_bf >= curve_bf.max() - 20.0
+    return {
+        "positions_match": bool(np.allclose(pos, planar_positions(4, 1, 0.5, 0.5), atol=1e-6)),
+        "isac_best_el": ELEVATIONS[int(np.argmax(curve_isac))],
+        "bf_best_el": ELEVATIONS[int(np.argmax(curve_bf))],
+        "los_el": _local_elevation_deg([yaw, pitch, 0.0], [0.0, 0.0, 15.0], ue),
+        "comm_beam_el": tx.comm_beam_elevation_deg,
+        "isac_best_dbm": float(curve_isac.max()),
+        "bf_best_dbm": float(curve_bf.max()),
+        "max_main_curve_diff_db": float(np.max(np.abs(curve_isac - curve_bf)[main])),
+        "num_main_beams": int(main.sum()),
+        "single_element_dbm": bf.single_element_dbm,
+        "warnings": isac.warnings,
+    }
+
+
+@pytest.mark.parametrize(
+    "yaw,pitch,ue",
+    [(30.0, 0.0, (40.0, 25.0, 45.0)), (-20.0, -15.0, (60.0, -20.0, 1.5))],
+)
+def test_l1e_vertical_ula_elevation_codebook_matches_sionna(
+    wall_site: Path, monkeypatch, keep_flush_counter, yaw, pitch, ue
+):
+    r = l1e_tx_cross_check(wall_site, monkeypatch, yaw, pitch, ue)
+    assert r["positions_match"], r
+    assert abs(r["isac_best_el"] - r["bf_best_el"]) <= 5.0, r
+    assert r["comm_beam_el"] == r["isac_best_el"]
+    # The best beam sits on the LoS elevation (within one 5 deg step).
+    assert abs(r["isac_best_el"] - r["los_el"]) <= 5.0, r
+    assert abs(r["isac_best_dbm"] - r["bf_best_dbm"]) <= 1.0, r
+    assert r["num_main_beams"] >= 5 and r["max_main_curve_diff_db"] <= 0.1, r
+
+
+def l1e_rx_cross_check(project: Path, monkeypatch, rx_orientation, rx_pos) -> dict:
+    """RX side: echo_beam_matrix's receive factor with 2-D (elevation) beams
+    on a 4x1 vertical RX ULA vs Sionna's channel to that ULA."""
+    scene = Scene(
+        scene_id="isac_l1e_rx",
+        prims=[
+            _prim("ground", "ground", ["ground"]),
+            _prim("wall", "itu_concrete", ["building", "wall"]),
+        ],
+        devices=[
+            Device(id="tx", kind="tx", position=[0.0, 0.0, 15.0], power_dbm=30.0),
+            Device(id="ue", kind="rx", position=list(rx_pos), orientation_deg=list(rx_orientation)),
+        ],
+    )
+    library = load_default_library()
+    config = _config()
+    backend = SionnaBackend()
+    captured = _capture_beamforming_channel(monkeypatch)
+    backend.simulate_beamforming(
+        project, scene, library, config,
+        BeamformingRequest(tx_rows=1, tx_cols=1, rx_rows=4, rx_cols=1, use_device_orientation=True),
+    )
+    paths = backend.simulate_paths(project, scene, library, config).paths
+    assert paths
+    pos = _sionna_positions(4, 1)
+    w = codebook_weights_2d(pos, [0.0], ELEVATIONS)
+    one = planar_positions(1, 1, 0.5, 0.5)
+    tx_dev, rx_dev = scene.devices
+    h = echo_beam_matrix(paths, tx_dev, rx_dev, one, pos, codebook_weights(one, [0.0]), w)[0]
+    synth = 30.0 + 20.0 * np.log10(np.abs(h))
+    H = captured["H"]  # [4, 1]
+    curve_bf = 30.0 + 20.0 * np.log10(np.abs(np.conj(w) @ H[:, 0]))
+    main = curve_bf >= curve_bf.max() - 20.0
+    return {
+        "synth_best_el": ELEVATIONS[int(np.argmax(synth))],
+        "bf_best_el": ELEVATIONS[int(np.argmax(curve_bf))],
+        "los_el": _local_elevation_deg(rx_orientation, rx_pos, [0.0, 0.0, 15.0]),
+        "synth_best_dbm": float(synth.max()),
+        "bf_best_dbm": float(curve_bf.max()),
+        "max_main_curve_diff_db": float(np.max(np.abs(synth - curve_bf)[main])),
+        "num_main_beams": int(main.sum()),
+    }
+
+
+@pytest.mark.parametrize(
+    "orientation,rx_pos",
+    [([200.0, 0.0, 0.0], (40.0, 20.0, 1.5)), ([-150.0, -10.0, 0.0], (50.0, 30.0, 45.0))],
+)
+def test_l1e_vertical_ula_rx_elevation_matches_sionna(
+    wall_site: Path, monkeypatch, keep_flush_counter, orientation, rx_pos
+):
+    r = l1e_rx_cross_check(wall_site, monkeypatch, orientation, rx_pos)
+    assert abs(r["synth_best_el"] - r["bf_best_el"]) <= 5.0, r
+    assert abs(r["synth_best_el"] - r["los_el"]) <= 5.0, r
+    assert abs(r["synth_best_dbm"] - r["bf_best_dbm"]) <= 1.0, r
+    assert r["num_main_beams"] >= 5 and r["max_main_curve_diff_db"] <= 0.1, r

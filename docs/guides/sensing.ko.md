@@ -166,6 +166,8 @@ TX와 RX가 정지해 있어도, 움직이는 액터에서 반사되는 통신 �
   (`include_comm_paths`처럼) 결과의 타깃을 흡수체로 둡니다. 다른 주파수에서 푼
   센싱 결과는 **400**으로 거부되고, 그 뒤로 TX가 움직인 에코는 경고와 함께
   빠집니다.
+- **센싱 데이터셋** (`POST /export/sensing-dataset`) — 시나리오 결과의 센싱
+  프레임을 links와 echoes 표로 펼칩니다(§10).
 
 ## 6. 시간에 따른 센싱: 탐지와 다중 스태틱 융합
 
@@ -208,6 +210,9 @@ RX가 없으면 **400**이고, 바인딩된 액터가 없거나 `target_actor_id
 | `samples_per_sp` / `max_depth` | 1 000 000 / `null` | 프레임별 센싱 솔브에 그대로 넘깁니다(§3과 같음). |
 | `measurement_noise` | `false` | 융합에 들어가는 거리·도플러에 가우스 잡음을 더합니다(아래). |
 | `noise_seed` | 0 | 그 잡음의 시드. 시드가 같으면 숫자도 같습니다. |
+| `tracking` | `null` | 프레임에 걸친 EKF 추적(아래 *추적(EKF)* 참고). `{"enabled": true}`에 `process_accel_sigma_m_s2`(2), `gate_chi2`(16), `coast_max_frames`(10), `max_position_std_m`(25), `use_as_prior`(`true`)를 골라 더합니다. `null`이나 `enabled: false`면 추적하지 않습니다. |
+| `pfa` | `null` | 링크별 `pd`의 오경보 확률(§9). `null`이면 링크 보고에 Pd가 붙지 않습니다. |
+| `detector` | Swerling 1, 몬테카를로 없음 | 그 `pd`의 모델, 그리고 에코가 있는 링크마다 몬테카를로 `pd_mc`를 낼 `monte_carlo_trials`(§9, `pfa` 필요). 탐지 판정 자체는 그대로 `SNR ≥ threshold_db`입니다. |
 
 **탐지.** 링크(TX → RX)와 타깃마다 가장 강한 **직접** 에코(TX → 산란점 → RX,
 다른 반사 없음)를 보고합니다. 직접 에코가 없으면 종류와 상관없이 가장 강한 에코를
@@ -233,8 +238,11 @@ RX가 움직이는 액터에 실려 있으면 정지한 씬의 도플러도 함�
 통신 경로와 클러터는 애초에 타깃 에코가 아니어서 어느 쪽이든 탐지로 세지 않습니다.
 MTI를 끄려면 `mti_min_doppler_hz: 0`으로 두세요.
 
-**융합.** 타깃과 프레임마다, 탐지된 직접 에코를 SNR 순으로 정렬하고 초점이 같은
-링크(서로 뒤바뀐 쌍이나 반복된 링크)는 하나만 남깁니다. 기하가 서로 다른 링크가
+**융합.** 타깃과 프레임마다, 탐지된 직접 에코를 SNR 순으로 정렬하고 같은 두 지점을
+잇는 링크(방향과 상관없이, 서로 뒤바뀐 쌍이나 반복된 링크)는 가장 강한 것 하나만
+남깁니다. 지점은 1 m 안으로 이어지는 TX/RX 위치의 묶음으로, §7과 §8이 쓰는 같은 위치
+규칙입니다. 그래서 TX에서 1 m까지 떨어진 센싱 RX는 같은 초점입니다(v0.1.12는 0.5 m
+안의 초점을 묶었습니다). 기하가 서로 다른 링크가
 **3개** 이상이면 바이스태틱 거리 합
 
 `|p − TX_i| + |p − RX_i| = R_i`,  R_i = c · τ_i
@@ -265,13 +273,17 @@ MTI를 끄려면 `mti_min_doppler_hz: 0`으로 두세요.
   `doppler_hz`, `snr_db`, 융합에 쓴 `measured_*` 값, `range_bin`
   (floor(R / (c/B))), `doppler_bin`(round(f_D · CPI)), 그리고 `reason`이
   있습니다. `reason`은 `detected`, `below_threshold`, `mti_rejected`, `no_echo` 중
-  하나입니다.
+  하나입니다. `pfa`를 정하면 `pd`(와 `pd_mc`)가 `snr_db`의 탐지 확률을 줍니다(§9).
+  에코가 없으면 `pd = pfa`입니다.
 - `estimates[]`는 타깃마다 한 행입니다. `status`는 `ok`, `insufficient_links`(서로
   다른 링크가 3개 미만), `diverged`(수렴 실패, 퇴화한 기하, 모호한 링크 3개 해, 또는
   RMS 잔차가 거리 합 셀 c/B를 넘음) 중 하나입니다. 그 밖에 `links_used`, `position_est` / `velocity_est`,
   참값(`position_true` = 타깃 직육면체 중심, `velocity_true`)과 각각의 오차가
   들어갑니다. `gdop` = sqrt(trace((JᵀJ)⁻¹))이고, 위치 오차는 대략 GDOP × 거리
-  오차입니다.
+  오차입니다. 추적을 켜면 `track_*` 필드도 붙습니다(아래).
+- `nodes[]`에는 선택한 TX 전부, 이어서 RX 전부가 그 프레임에서 쓴 위치·속도와 함께
+  들어갑니다(액터에 탄 디바이스는 액터와 함께 움직입니다). v0.1.13 이전 결과에서는
+  `null`입니다.
 - `metadata.sensing`에는 상수(잡음 바닥, 적분 이득, λ, 거리·도플러 분해능, MTI 노치,
   블라인드 속도)와 타깃별 통계가 들어갑니다. 타깃별로 `detection_rate`(탐지 링크가
   하나 이상인 프레임 비율), `link_detection_rate`, `frames_ge3_links_rate`,
@@ -302,8 +314,71 @@ MTI를 끄려면 `mti_min_doppler_hz: 0`으로 두세요.
 
 그래서 28 GHz의 모노스태틱 탐지 거리는 10^(−18.06/40) = ×0.354로 줄어듭니다. 안테나
 배열이 이 손실을 되찾아 줍니다. 이 절의 프레임별 탐지는 여전히 단일 소자로 계산하지만
-(§9 한계 참고), §7은 실제 코드북 빔을 합성하고 §8의 `steered` 모드는 이상적인 배열
+(§11 한계 참고), §7은 실제 코드북 빔을 합성하고 §8의 `steered` 모드는 이상적인 배열
 이득을 더합니다. 반대로 mmWave의 노치는 속도 기준으로 8배 좁습니다.
+
+### 추적(EKF)
+
+융합에는 한 프레임 안에 서로 다른 링크 세 개가 필요합니다. `sensing` 블록에
+`"tracking": {"enabled": true}`를 넣으면(폼에서는 **Tracking (EKF)**) 타깃마다 등속
+확장 칼만 필터가 추정치를 프레임에서 프레임으로 이어 갑니다. 탐지 링크가 한두 개뿐인
+프레임에서도 추정치를 다듬고, 하나도 없는 프레임에서도 예측은 이어집니다.
+
+- **운동.** 상태 x = [p, v]이고 월드 좌표계입니다. 프레임 사이(dt = 프레임 간격)에는
+  x ← F·x, P ← F·P·Fᵀ + Q입니다. Q는 이산 백색 잡음 가속도 모델
+  Q = σ_a²·[[dt⁴/4·I, dt³/2·I], [dt³/2·I, dt²·I]]이고 σ_a = `process_accel_sigma_m_s2`
+  (2 m/s²)입니다.
+- **측정.** 타깃의 탐지된 직접 링크가 강한 순서대로 스칼라 두 개씩을 냅니다. 거리 합
+  `measured_range_m`(h = |p − TX| + |p − RX|)과 도플러 `measured_doppler_hz`
+  (h = (v_tx · k̂₁ − v_rx · k̂₂ + v · (k̂₂ − k̂₁)) / λ, §4 부호)입니다. 여기서는 기하로
+  묶지 않습니다. 한 타원체의 두 링크도 수신기 입장에서는 서로 독립인 측정이기
+  때문입니다. σ_R = (c/B)/√(2·SNR), σ_f = (1/CPI)/√(2·SNR)(각각 최소 1 mm, 1 mHz)로,
+  잡음을 켰든 껐든 `measurement_noise` 규칙을 그대로 씁니다. 움직이는 TX나 RX는 그
+  프레임의 위치·속도로 들어갑니다.
+- **갱신.** 스칼라를 하나씩, 매번 현재 상태에서 다시 선형화해 반영합니다.
+  ν = z − h(x), S = H·P·Hᵀ + σ²입니다. ν²/S > `gate_chi2`(16 = 4σ, 자유도 1 카이제곱)인
+  스칼라는 버리고 `track_gated`에 셉니다. 아니면 Joseph 형식으로 갱신하고
+  `track_updates`에 셉니다.
+- **시작.** 융합이 처음 `ok`인 프레임에서 융합한 위치·속도(도플러 속도가 없으면 0)로
+  트랙을 시작합니다. P는 위치 축마다 max(GDOP²·σ̄_R²/3, 0.25 m²)(σ̄_R²는 융합한 링크의
+  σ_R² 평균, GDOP가 없으면 100 m²), 속도 축마다 25 (m/s)²(속도가 없으면 400)에서
+  출발합니다. 같은 데이터로 그 프레임에서 또 갱신하지는 않습니다.
+- **재시작.** 두 조건이 함께 맞을 때 그 프레임의 융합에서 트랙을 다시 시작합니다.
+  게이트가 그 프레임의 스칼라를 하나 이상 버렸고, 융합이 `ok`인데 예측한 트랙의 3차원
+  게이트 밖에 있을 때입니다. 이 게이트는 P_pred + 시작 공분산에 대한 마할라노비스
+  거리²이고, 문턱은 `gate_chi2`와 꼬리 확률이 같은 자유도 3 카이제곱 값입니다(16이면
+  22.1). 흔한 경우가 경유점 모서리입니다. 예측은 옛 속도를 유지하고, 그 속도를 바로잡을
+  도플러 스칼라는 게이트에 걸리며, 거리 합만으로는 방향을 틀지 못합니다. 융합 조건만으로는
+  부족합니다. 융합 오차의 꼬리는 그 공분산이 말하는 것보다 두꺼워서, 직선 경로에서도
+  가끔 튀는 융합 하나가 좋은 트랙을 갈아 치울 수 있습니다. 그 프레임의 원시 스칼라가 모두
+  트랙과 맞는데도 말입니다. 그런 프레임은 트랙을 갱신합니다.
+- **관성 비행과 소실.** 받아들인 스칼라가 없는 프레임은 `coasting`입니다(예측만, P가
+  커짐). 이런 프레임이 `coast_max_frames`(10)개 넘게 이어지면 트랙을 버립니다(`lost`).
+  사후 `track_position_std_m`이 `max_position_std_m`(25 m)을 넘어도 버립니다. 링크 한두
+  개뿐인 구간이 길면 트랙은 `tracking`인 채로 그 링크가 보지 못하는 방향으로 표류하기
+  때문입니다. 어느 쪽이든 다음 `ok` 융합에서 다시 시작합니다.
+- **융합 사전값.** `use_as_prior`(기본)이면 그 프레임의 가우스–뉴턴 융합이 마지막 `ok`
+  추정치를 속도만큼 옮긴 값 대신 트랙의 예측에서 출발합니다. `false`면 융합 필드는
+  추적이 없을 때와 정확히 같습니다.
+
+그러면 `estimates[]`의 각 행에 다음이 붙습니다.
+
+| 필드 | 의미 |
+|---|---|
+| `track_status` | `none`(아직 트랙 없음), `init`(이 프레임의 융합에서 시작 또는 재시작), `tracking`(스칼라를 하나 이상 받음), `coasting`(하나도 못 받음), `lost`(버려짐, 다음 시작까지) |
+| `track_position`, `track_velocity` | 사후 상태(`none`과 `lost`에서는 `null`) |
+| `track_position_error_m`, `track_velocity_error_m_s` | `position_true`, `velocity_true`와의 오차 |
+| `track_position_std_m` | sqrt(trace(P_pos)). 필터가 기대하는 3차원 RMS 오차로, `track_position_error_m`과 견줄 수 있습니다 |
+| `track_updates`, `track_gated` | 이 프레임에서 받은 스칼라와 게이트에 걸린 스칼라 수(`init`에서는 0과 0, 트랙을 버린 프레임까지는 세고 그 뒤로는 `null`) |
+
+추적을 끄면 모두 `null`입니다. `metadata.sensing`의 타깃별 통계에는 `tracked_frames`
+(`init`, `tracking`, `coasting`), `coasting_frames`, `lost_frames`,
+`lost_by_std_frames`(`max_position_std_m` 상한으로 버린 횟수. 그 프레임의 융합이 곧바로
+트랙을 다시 시작하면 그 프레임은 `lost`가 아니라 `init`입니다), 트랙 위치 오차
+중앙값과 p90, 트랙 속도 오차 중앙값, `frames_improved_over_fusion`(융합이 `ok`이고
+트랙이 참값에 더 가까운 프레임), `frames_track_without_fusion`(융합이 `ok`가 아닌
+프레임의 트랙)이 더해지고, 실행 전체에는 `median_track_position_error_m`과
+`tracking_model`이 더해집니다.
 
 ## 7. ISAC 트레이드오프: 빔과 슬롯 공유
 
@@ -350,6 +425,9 @@ curl http://127.0.0.1:8000/api/projects/demo/results/isac   # 마지막으로 �
 | `sharing_mode` | `dual_function` | `time_sharing` 또는 `dual_function`(아래). |
 | `samples_per_sp` / `max_depth` | 1 000 000 / `null` | 에코 솔브에 그대로 넘깁니다(§3과 같음). |
 | `include_paths` | `false` | 솔브한 경로를 결과에 저장합니다. 에코가 먼저, 통신 경로가 뒤에 옵니다. |
+| `elevation_start_deg` / `elevation_stop_deg` / `elevation_step_deg` | `null` | 패널 로컬 좌표계에서 2차원 코드북의 고도 스윕(셋 다 주거나 셋 다 비움. 고도는 최대 361개, 빔은 모두 합쳐 최대 4096개). `null`이면 방위각 코드북만 씁니다. *고도 코드북* 참고. |
+| `interference` | `false` | UE SINR에 TX 간 간섭을 넣습니다(`ue_association: serving`일 때만). *간섭* 참고. |
+| `detector` | Swerling 1, 몬테카를로 없음 | P_d 모델, 몬테카를로 시행 수, 경험적 임계값, 시드(§9). |
 
 **역할.** `ue_rx_ids`와 `sensing_rx_ids`를 둘 다 비워 두면, 선택한 TX에서 1 m 안에 있는
 RX가 그 TX의 센싱 수신기(모노스태틱)가 됩니다. 씬의 어느 TX에서도 1 m 안에 있지 않은
@@ -375,7 +453,8 @@ TX 코드북은 `/simulate/beamforming`(`codebook_sweep`, `use_device_orientatio
 
 - `h_k,u = Σ_l α_l · w_kᴴ a_t(l)`, t → u 경로에 대한 합입니다(α_l은 `path_gain_db`와
   `phase_rad`에서 얻음). `SINR_k,u = P_t + 20·log10|h_k,u| − N0`이고
-  N0 = −174 + 10·log10(B) + NF입니다. TX 간 간섭은 넣지 않으므로 SINR = SNR입니다.
+  N0 = −174 + 10·log10(B) + NF입니다. `interference`를 켜지 않으면 TX 간 간섭이
+  없으므로 SINR = SNR입니다(*간섭* 참고).
 - `rate_k,u = log2(1 + SINR_k,u)`이고, `R(k) = Σ_u rate_k,u`는 이 TX가 서비스하는
   UE에 대한 합입니다.
 - 타깃 q의 에코는 TX 빔 k와 RX 빔 m에 대해 t → s → q 에코를 모두 코히어런트하게
@@ -386,13 +465,50 @@ TX 코드북은 `/simulate/beamforming`(`codebook_sweep`, `use_device_orientatio
 
   입니다. 빔의 센싱 SNR은 가장 약한 타깃이 정합니다.
 
+**고도 코드북.** `elevation_*` 세 필드를 주면 코드북은 스윕의 모든 방위각을 모든 고도에서
+조합한 격자가 되고, 고도가 바깥 순서입니다. 빔 번호는 k = i_el · n_az + i_az입니다.
+빔 (φ, θ)는 패널 로컬 방향 [cos θ cos φ, cos θ sin φ, sin θ]를 향합니다.
+
+`w_n(φ, θ) = exp(+j 2π (y_n cos θ sin φ + z_n sin θ)) / sqrt(N)`
+
+평면 격자에서는 kron(w_z(θ), w_y(φ, θ))와 같습니다. 노름은 1이고 자기 방향으로
+10·log10(N)을 모두 내며, θ = 0이면 위의 방위각 빔과 같습니다. 센싱 RX도 같은 격자를 쓰고
+최적 RX 빔을 격자 전체에서 고릅니다. 4×4 패널에서 로컬 고도 32.6°에 있는 드론을 보면
+효과가 드러납니다. 방위각 빔 중 최선은 한쪽 끝당 −9.84 dB이지만 −10…40° / 5° 격자는
+11.98 dB여서, 한쪽 끝마다 약 22 dB를 되찾습니다. sionna에서는 4×1 수직 ULA의 고도 빔
+(TX 쪽과 RX 쪽)이, 같은 조향 벡터를 Sionna 자체 합성 배열 채널에 적용한 값과 맞습니다.
+회귀 테스트에서 최적 빔이 같고 LoS 고도에 놓이며, 최고점에서 20 dB 안의 빔은 모두
+0.1 dB 이내로 맞습니다(실측 0.005 dB 미만). 이 필드를 비우면 방위각 코드북 코드가
+그대로 돕니다.
+
+**간섭.** `interference: true`이면(`ue_association: serving`일 때만) TX t가 서비스하는
+UE는, 그 UE까지 통신 경로가 있는 다른 선택 TX의 신호를 모두 간섭으로 받습니다. 모든
+TX가 ρ와 슬롯 타이밍을 공유합니다(동기 슬롯). 통신 슬롯에서는 다른 TX가 각자 통신 빔 c를
+쏘고(서비스할 UE가 없으면 쏘지 않음), 센싱 슬롯에서는 센싱 빔 s를 쏩니다(에코가 없으면
+쏘지 않음). TX t2의 RSS_t2,u(k) = P_t2 + 20·log10|h_k,u|로 쓰면(mW 단위)
+
+`I_comm(u) = Σ_t2 10^(RSS_t2,u(c_t2)/10)`, `I_sens(u) = Σ_t2 10^(RSS_t2,u(s_t2)/10)`
+
+`SINR_k,u = RSS_t,u(k) − 10·log10(10^(N0/10) + I_comm(u))`
+
+입니다. TX의 통신 빔은 다른 TX의 통신 빔에 따라 달라지므로 반복해서 고릅니다. 0라운드는
+간섭이 없을 때의 선택입니다. 이후 라운드마다 TX가 차례로, 다른 TX의 현재 빔을 고정하고
+간섭을 반영한 합 전송률이 가장 큰 빔을 고릅니다. 한 라운드 동안 아무것도 바뀌지 않으면
+멈추고, 10라운드를 넘기면 경고와 함께 마지막 라운드의 빔을 보고합니다. 센싱 빔은 간섭과
+무관하고 에코 SNR은 계속 잡음 제한입니다. TX를 하나만 고르면 아무것도 바뀌지 않아
+SINR = SNR이 정확히 성립합니다.
+
 **Pd.** 제곱 검파기로 적분 샘플을 판정하는 Swerling-1 타깃은 P_fa = e^(−T),
 P_d = e^(−T / (1 + SNR))이므로
 
 `P_d = P_fa^(1 / (1 + SNR))`
 
 입니다. P_fa = 10⁻⁶에서 P_d = 0.9를 얻으려면 **21.1 dB**가 필요하고, 13 dB 임계값에서는
-P_d = **0.517**입니다. 에코가 없으면 P_d = P_fa입니다.
+P_d = **0.517**입니다. 에코가 없으면 P_d = P_fa입니다. Swerling 1은 `detector.model`의
+기본값이고, Swerling 0·3과 몬테카를로는 §9에 있습니다. `detector.monte_carlo_trials` > 0
+이면 에코가 있는 모든 빔과 ρ > 0인 모든 파레토 점에 `pd_mc`가 붙습니다. 실행 한 번에 쓸 수
+있는 시행은 TX 수 × 빔 수 × (1 + 0이 아닌 슬롯 비율 수) × 시행 수로 세어 최대 2·10⁸입니다
+(TX 4개의 기본 요청이면 시행 250 000). 이를 넘는 요청은 아무것도 풀기 전에 **400**입니다.
 
 **슬롯 공유.** 통신 빔은 k_c = argmax R(k)입니다. 슬롯(또는 펄스)의 비율 ρ를 빔 k로
 센싱에 쓰므로 에코는 ρ · `cpi_pulses`만큼 적분됩니다.
@@ -403,14 +519,32 @@ P_d = **0.517**입니다. 에코가 없으면 P_d = P_fa입니다.
 
 ρ = 0은 통신만 하는 점 하나입니다(`beam_idx` null, P_d = P_fa). `dual_function`에서
 ρ = 1인 행은 빔 자체와 같고(빔 하나가 둘 다 함), `time_sharing`에서는 전송률이 0입니다.
+`interference`를 켜면 슬롯마다 그 슬롯에 다른 TX가 쏘는 빔을 간섭으로 받습니다. S는 간섭
+없는 신호 전력입니다.
+
+- `time_sharing`: rate_u = (1 − ρ) · log2(1 + S_k_c,u / (N0 + I_comm)).
+- `dual_function`: rate_u = (1 − ρ) · log2(1 + S_k_c,u / (N0 + I_comm)) +
+  ρ · log2(1 + S_k,u / (N0 + I_sens)).
+
+이렇게 슬롯을 맞추면 ρ가 커질수록 전송률이 오를 수도 있습니다. 다른 TX의 센싱 빔이 UE에
+통신 빔보다 약하게 닿으면(I_sens < I_comm) `dual_function` 점이 통신만 하는 전송률을
+넘고, 통신 전용 대비 손실이 음수로 나옵니다. 모델이 그렇게 정의된 것이지 버그가
+아닙니다.
 
 **출력 읽기.** `txs[]` 항목마다 다음이 들어 있습니다.
 
 - `beams[]`: 코드북 각도마다 한 행. UE별 SINR, 합 전송률, 타깃별 에코 SNR과 최적 RX
   각도, 가장 약한 타깃의 SNR, P_d, `detected`가 있습니다. 패널의 빔 표는 통신 빔 행을
   시안, 센싱 빔 행을 마젠타로 칠하고, **ISAC lobes** 오버레이는 TX마다 두 빔을 같은
-  색으로 그립니다(빠지는 부분은 §9 참고).
-- `comm_beam_angle_deg`, `sensing_beam_angle_deg`, `angle_gap_deg`.
+  색으로 그립니다(빠지는 부분은 §11 참고). 고도 스윕이 있으면 빔마다 `elevation_deg`와
+  타깃별 `target_best_rx_elevation_deg`가 붙고, 오버레이는 통신(센싱) 빔이 속한 고도
+  단면의 방위각 단면을 그립니다. `interference`를 켜면 빔마다 `ue_snr_db`(간섭 없음)와
+  `ue_interference_dbm`(I_comm, 다른 TX가 그 UE에 닿지 않으면 null)이 붙습니다.
+- `comm_beam_angle_deg`, `sensing_beam_angle_deg`, `angle_gap_deg`(방위각 차이).
+  `angles_deg`는 `beams`와 순서가 같습니다(방위각이 고도마다 반복). 고도 스윕이 있으면
+  `elevations_deg`도 같은 순서로 붙고, `comm_beam_elevation_deg`,
+  `sensing_beam_elevation_deg`, `elevation_gap_deg`가 짝을 채웁니다. `interference`를
+  켜면 `ue_interference_sensing_dbm`이 UE별 I_sens를 줍니다.
   `ue_single_element_rss_dbm`과 `target_single_element_snr_db`는 손 계산용 1×1
   기준값입니다. 타깃에 대한 빔의 배열 이득은 `target_snr_db − target_single_element_snr_db`
   입니다. UE 기준값은 SINR이 아니라 dBm 단위 RSS이므로, UE에 대한 배열 이득은
@@ -429,8 +563,14 @@ P_d = **0.517**입니다. 에코가 없으면 P_d = P_fa입니다.
   가리킵니다.
 
 최상위에는 `ue_serving_tx`와 `noise_floor_dbm`이 있고, `metadata`에는 §6의 탐지 상수와
-`snr_for_pd_target_db`, `pd_at_threshold`가 더해집니다. 서비스할 UE가 없는 TX는 센싱
-전용 트레이드오프(전송률 모두 0)가 되고, 그 사실을 자기 `warnings`에 적습니다.
+`snr_for_pd_target_db`, `pd_at_threshold`(둘 다 `detector.model` 기준)가 더해집니다.
+서비스할 UE가 없는 TX는 센싱 전용 트레이드오프(전송률 모두 0)가 되고, 그 사실을 자기
+`warnings`에 적습니다. 옵션을 켰을 때만 생기는 키도 있습니다. 고도 스윕이면
+`codebook_shape`([n_el, n_az]), `interference`이면 `interference`, `ue_interferers`(UE별로
+닿는 다른 TX), `interference_rounds`, `interference_converged`, `interference_model`,
+기본값이 아닌 `detector`이면 `detector`(모델, 임계값, 몬테카를로의 실측 P_fa)입니다. 새
+필드를 모두 기본값으로 둔 요청은 v0.1.12와 같은 `metadata.request`와 `request_hash`를
+저장합니다.
 
 ## 8. 센싱 커버리지 맵
 
@@ -463,6 +603,7 @@ curl http://127.0.0.1:8000/api/projects/demo/results/sensing-coverage
 | `threshold_db` / `cpi_pulses` / `pfa` | 13 / 4096 / 1e-6 | 탐지 조건. §6, §7과 같습니다. |
 | `array_gain` | `none` | `steered`는 `tx_rows`×`tx_cols` / `rx_rows`×`rx_cols` 패널의 10·log10(N_tx) + 10·log10(N_rx)를 더합니다. 모든 링크가 모든 셀에 빔을 맞춘다는 상한입니다. |
 | `min_links_for_fusion` | 3 | 셀이 융합 가능으로 판정되는 데 필요한 서로 다른 기하의 수. |
+| `detector` | Swerling 1, 몬테카를로 없음 | `pd_best`의 모델(§9). `monte_carlo_trials` > 0이면 셀 5개의 몬테카를로 점검을 더합니다. |
 
 **모델.** 링크와 셀마다, R_t = |셀 − TX|, R_r = |셀 − RX|로
 
@@ -485,7 +626,7 @@ mock 에코와 같은 식이어서, 셀 중심에 타깃을 둔 mock 센싱 솔�
 
 - `best_snr_db`: 가장 좋은 링크의 SNR(에코가 있는 링크가 없으면 null).
 - `n_links_detected`: SNR ≥ `threshold_db`인 링크 수.
-- `pd_best`: 가장 좋은 링크의 Swerling-1 P_d(§7).
+- `pd_best`: 가장 좋은 링크의 `detector.model` 기준 P_d(기본 Swerling 1, §7과 §9).
 - `fusion_feasible`: 탐지된 링크가 **서로 다른 기하**를 `min_links_for_fusion`개 이상
   이루면 1, 아니면 0. 서로 1 m 안에 있는 디바이스(TRP의 TX와 그 센싱 RX, ISAC의 같은 위치
   규칙)는 한 지점으로 보고, 같은 두 지점을 잇는 링크는 방향과 상관없이 하나로 셉니다.
@@ -495,8 +636,196 @@ mock 에코와 같은 식이어서, 셀 중심에 타깃을 둔 mock 센싱 솔�
 `summary`에는 셀·링크·기하 수, LOS 링크가 하나 이상인 셀, 탐지가 하나 이상인 셀, 융합
 가능한 셀의 비율(%), 그리고 에코가 있는 셀에 대한 최적 SNR 중앙값이 들어갑니다.
 `links[]`에는 링크별 기선 길이와 LOS 비율, 탐지 비율이 있습니다.
+`detector.monte_carlo_trials` > 0이면 `summary.mc_spot_check`에 에코가 있는 셀의
+`best_snr_db` 분위수 0/25/50/75/100 %에 해당하는 서로 다른 셀 5개가 들어갑니다(최근접
+순위. 같은 값을 가진 셀이 여럿이면 아직 고르지 않은 셀 중 번호가 가장 작은 셀. 에코가 있는
+셀이 적으면 그만큼 적음). 셀마다 `cell` [ix, iy], `snr_db`, 해석적 `pd`, `pd_mc`와 그
+95 % 구간(`ci_low`, `ci_high`)이 있습니다. 기본값이 아닌 `detector`이면 `metadata.detector`
+가 붙습니다.
 
-## 9. 한계
+## 9. 탐지기 모델과 Pd/Pfa 몬테카를로
+
+SEAM이 보고하는 P_d는 모두 코히어런트 적분 샘플에 대한 제곱 검파기를 적분 후 SNR(§6의
+링크 `snr_db`, §7의 빔 SNR, §8의 `best_snr_db`)로 모델링한 값입니다. 적분된 잡음 샘플을
+CN(0, 1)로 정규화하므로 잡음만 있으면 y = |z|² ~ Exp(1)이고, 임계값 T = −ln P_fa는 정확히
+P_fa를 줍니다. S = 10^(SNR/10)은 타깃 진폭 A의 평균 |A|²입니다. A는 CPI 동안 일정하고
+스캔마다 `detector.model`에 따라 요동합니다.
+
+| `model` | 타깃 | P_d | P_fa 10⁻⁶에서 P_d 0.9 / 0.5에 필요한 SNR |
+|---|---|---|---|
+| `swerling0` | 요동 없음 | Q₁(√(2S), √(2T)) (Marcum Q) | 13.18 / 11.24 dB |
+| `swerling1`(기본) | 레일리, \|A\|² ~ Exp(S) | P_fa^(1/(1 + S)) | 21.14 / 12.77 dB |
+| `swerling3` | 지배적 산란체 하나, \|A\|² ~ Gamma(2, S/2) | e^(−T/(1 + S/2)) · (1 + T·(S/2)/(1 + S/2)²) | 17.30 / 11.95 dB |
+
+요동하는 타깃은 높은 P_d에서 SNR이 더 필요합니다. P_d 0.9에서 Swerling 1은 요동 없는
+타깃보다 8 dB가 더 듭니다.
+
+**유도.** |A|² = s로 고정하면 P(y > T) = P(X ≤ K)이고, K ~ Pois(s)와 X ~ Pois(T)는
+서로 독립입니다(비중심 카이제곱의 포아송 혼합). Swerling 0은 이 급수를 로그 공간에서
+S ± (40√S + 40) 구간에 걸쳐 더합니다. P_fa 0.1부터 10⁻³⁰⁰까지 scipy의 `ncx2.sf`와 약
+10⁻¹³ 이내로 맞습니다. s를 Gamma(2, θ)로 섞으면 K는 음이항 분포가 되어
+P(K = k) = (k + 1) p² qᵏ이고, p = 1/(1 + θ), q = θ/(1 + θ)입니다. 그러면
+Σ_{k≥x} (k + 1) p² qᵏ = qˣ((x + 1)p + q)이고, X에 대해 평균하면 e^(−Tp)(1 + Tpq),
+곧 θ = S/2인 Swerling 3이 나옵니다. 같은 과정을 Gamma(1, S)로 밟으면
+e^(−T/(1 + S)), 곧 Swerling 1입니다. Swerling 1은 v0.1.12의 식을 그대로 쓰므로 기본
+숫자는 바뀌지 않습니다.
+
+**모델이 쓰이는 곳.** ISAC(§7): 모든 빔과 점의 `pd`, `snr_for_pd_target_db`,
+`pd_at_threshold`. 커버리지(§8): `pd_best`. 시나리오 센싱(§6): `sensing.pfa`를 정하면
+링크 보고의 `pd`. 거기서 탐지 판정은 그대로 `snr_db ≥ threshold_db`입니다.
+
+**몬테카를로.** `detector.monte_carlo_trials` > 0이면 해석적 `pd` 옆에 몬테카를로 추정
+`pd_mc`가 붙습니다. 시행마다 모델에 맞는 타깃 진폭을 뽑고(Swerling 0: √S·e^(jφ),
+Swerling 1: CN(0, S), Swerling 3: √Gamma(2, S/2)·e^(jφ), φ는 균등 분포) 적분 샘플
+z = A + CN(0, 1)을 뽑고, |z|²가 임계값을 넘으면 탐지로 셉니다. 이는 N = `cpi_pulses`개의
+펄스 A/√N + n_i를 코히어런트하게 더해 √N으로 나눈 것과 분포가 같습니다(독립인
+CN(0, 1) N개를 더해 √N으로 나누면 CN(0, 1)). 그래서 시행 하나는 N과 상관없이 샘플 하나만
+들고, 아래 상한이 실행 시간을 묶어 둡니다. 펄스를 하나하나 뽑아도 같은 수치가 나오지만
+비용은 N배입니다. 회귀 테스트가 두 방식이 맞는지 확인합니다.
+
+- **시드**는 위치로 정해지는 스트림이어서 결과가 계산 순서에 좌우되지 않습니다. Pd 곡선은
+  `[seed, 모델 번호, SNR 번호]`, ISAC는 `[seed, TX 번호, 빔 번호]`와
+  `[seed, TX 번호, 10⁶ + 점 번호]`, 시나리오는 `[seed, 프레임 번호, 링크 번호]`,
+  커버리지는 `[seed, 셀 번호]`입니다.
+- **임계값.** −ln P_fa이고, `empirical_threshold`이면 잡음만 있는 실행의 (1 − P_fa)
+  분위수입니다. 이 경우 시행 수 ≥ 20 / P_fa(초과 사례 20개 이상)가 필요하므로 P_fa 10⁻⁶
+  에서는 시행 상한 2·10⁶으로 닿지 않습니다. Pd 곡선, ISAC, 커버리지는 임계값과 실측 P_fa를
+  요청마다 잡음 전용 실행 한 쌍(스트림 `[seed, 999, 0, 1]`)에서 얻습니다. 1번 실행이 경험적
+  임계값을 주고, 1번과 독립인 2번 실행이 쓰이는 임계값에 대한 오경보를 셉니다. 키가 네
+  자리인 까닭은 numpy가 짧은 키 뒤를 0으로 채우기 때문입니다(`[seed, 999]`와
+  `[seed, 999, 0]`은 같은 스트림). 마지막 자리가 0이 아니므로 어떤 추정의 스트림과도
+  겹치지 않습니다. `empirical_threshold`를 켠 시나리오 링크는 자기 임계값을 위한 잡음 전용
+  실행을 따로 뽑습니다(링크 스트림에서 먼저 뽑고, 그다음 신호 실행). 시나리오 실행은
+  P_fa를 재지도 보고하지도 않습니다.
+- **구간**은 95 % Wilson 점수 구간입니다. 회귀 테스트에서 점당 200 000 시행은 모델마다
+  SNR 다섯 곳에서 해석식과 맞습니다(고정 시드 테스트가 흔들리지 않도록 99.9 % 구간으로
+  확인).
+- **상한.** 추정 하나에 시행 최대 2·10⁶, 요청 하나에 시행 × 추정 수로 세어 최대 2·10⁸입니다.
+  Pd 곡선은 점 수 × 모델 수(**422**), ISAC는 TX 수 × 빔 수 × (1 + 0이 아닌 슬롯 비율 수)
+  (**400**), 시나리오는 프레임 수 × TX 수 × RX 수 × 타깃 수(**400**, `empirical_threshold`
+  이면 링크마다 잡음 실행이 붙으므로 시행을 두 배로 셈), 커버리지는 5입니다.
+
+**Pd 곡선.** `POST /analysis/pd-curve`는 솔브 없이 SNR에 대한 P_d를 그리고 아무것도
+저장하지 않습니다. UI에서는 Results ▸ **Detector (Pd curve)**입니다.
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/projects/demo/analysis/pd-curve \
+  -H "Content-Type: application/json" \
+  -d '{"pfa": 1e-6, "cpi_pulses": 4096, "monte_carlo_trials": 200000}'
+```
+
+| 필드 | 기본값 | 의미 |
+|---|---|---|
+| `pfa` | 1e-6 | 오경보 확률. |
+| `snr_min_db` / `snr_max_db` / `step_db` | −5 / 30 / 0.5 | SNR 축(71점, 최대 1001점). |
+| `models` | 세 모델 전부 | 중복은 없애고 순서는 유지합니다. |
+| `monte_carlo_trials` | 0 | 점당 시행 수(0이면 해석식만). |
+| `empirical_threshold` | `false` | 잡음 전용 실행에서 임계값을 얻습니다(시행 수 ≥ 20 / P_fa 필요). |
+| `seed` | 0 | 몬테카를로 스트림의 기준값. |
+| `cpi_pulses` | 1 | 시행당 펄스 수. SNR 축은 적분 후 값이고 몬테카를로는 적분 샘플을 바로 뽑으므로, 어떤 수치도 이 값에 좌우되지 않습니다. |
+| `pd_target` | 0.9 | 모델별 `snr_for_pd_target_db`를 정합니다. |
+
+응답에는 `snr_db`와 `threshold`(−ln P_fa)가 있습니다. 모델마다 `pd`와
+`snr_for_pd_target_db`가 있고, 시행 수 > 0이면 `pd_mc`와 `pd_mc_ci_low` /
+`pd_mc_ci_high`, `mc_max_abs_deviation`, `mc_within_ci_fraction`도 붙습니다. 이때
+최상위에는 `empirical_threshold`, `pfa_measured`, `pfa_measured_ci`가 더해지고,
+`metadata.mc_method`가 어떤 방식으로 뽑았는지 알려 줍니다. 모르는 프로젝트는 **404**,
+시행 예산 초과를 포함한 잘못된 요청은 **422**입니다.
+
+## 10. 센싱 데이터셋 내보내기
+
+`POST /export/sensing-dataset`는 저장된 시나리오 결과의 프레임별 센싱(§6)을 학습이나
+오프라인 분석용 표로 펼쳐 `export/sensing_dataset/` 아래 zip 하나로 씁니다. 솔브는
+돌리지 않습니다. UI에서는 Toolbar ▸ Actions ▸ **Sensing dataset (.npz)**입니다.
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/projects/demo/export/sensing-dataset \
+  -H "Content-Type: application/json" \
+  -d '{"formats": ["npz", "csv"], "include_echo_paths": true,
+       "split": {"train": 0.8, "val": 0.1, "test": 0.1, "seed": 0}}'
+```
+
+| 필드 | 기본값 | 의미 |
+|---|---|---|
+| `result_ids` | `null` | 내보낼 시나리오 결과, 이 순서대로. `null`이면 센싱 프레임이 있는 저장된 시나리오 결과 전부. |
+| `skip_without_sensing` | `false` | `result_ids`와 함께: 나열한 결과에 센싱 프레임이 없으면 400 대신 건너뛰고 `warnings`에 이름을 남깁니다. UI는 일부만 고를 때 이 값을 보냅니다. |
+| `formats` | `["npz"]` | `npz`, `csv`, `parquet` 중 아무것이나(parquet은 pyarrow, 즉 `results` extra가 필요). |
+| `include_echo_paths` | `false` | `echoes` 표도 씁니다. |
+| `split` | `null` | 프레임 단위 분할 `{train, val, test, seed}`(비율 합은 1). `null`이면 모든 행이 `all`입니다. |
+
+응답에는 `zip_name`과 `download_url`(프로젝트 assets 경로), zip 안의 `files`, 행 수
+(`num_rows`, `rows_per_result`, `rows_per_split`, `num_echo_rows`), `detected_fraction`,
+`size_bytes`, `warnings`가 있습니다. zip에는 다음이 들어 있습니다.
+
+- `links.<fmt>`: 결과 × 프레임 × TX → RX 링크 × 타깃마다 한 행, 프레임의 `links[]`
+  순서(결과마다 프레임 × TX × RX × 타깃 행).
+- `echoes.<fmt>`(`include_echo_paths`): 프레임마다 에코 경로 하나에 한 행.
+- `manifest.json`: 열마다 dtype, 단위, 역할, 설명. 결과마다 레이블, 백엔드, 주파수,
+  프레임 수, dt, 행 수, `scene_hash`(와 지금의 해시), `kinematics_source`, 그리고
+  `metadata.sensing`의 실행 상수(타깃별 통계 제외). 그 밖에 분할, 분할별 행 수, 레이블
+  균형(`detected_fraction`, `reason_counts`), 규약.
+- `README.txt`: 파일별 설명, 불러오는 법, 주의할 점.
+
+열은 늘 모두 있어서 스키마가 바뀌지 않습니다. 값이 없으면 float 열은 NaN, 문자열 열은
+`""`입니다. **npz**는 열마다 1차원 배열 하나입니다(문자열은 `<U`라
+`np.load(..., allow_pickle=False)`로 읽힙니다). **csv**는 헤더가 있고, float는 왕복
+변환이 정확한 가장 짧은 형식, NaN은 빈 칸, 불리언은 `true`/`false`입니다. **parquet**은
+NaN을 NaN 그대로 둡니다.
+
+**links 열**
+
+| 열 | dtype | 단위 | 역할 | 출처 |
+|---|---|---|---|---|
+| `result_id`, `split` | str | | meta | |
+| `frame_index` | int64 | | meta | `frames` 안의 인덱스 |
+| `time_s` | float64 | s | meta | `frame.time_s` |
+| `tx_id`, `rx_id`, `target_id` | str | | meta | 링크 보고 |
+| `tx_pos_x/y/z`, `rx_pos_x/y/z` | float64 | m | feature | `frame.sensing.nodes` |
+| `tx_vel_x/y/z`, `rx_vel_x/y/z` | float64 | m/s | feature | `frame.sensing.nodes` |
+| `bistatic_range_m`, `doppler_hz`, `echo_power_dbm`, `snr_db`, `measured_range_m`, `measured_doppler_hz` | float64 | m, Hz, dBm, dB | feature | 링크 보고 |
+| `range_bin`, `doppler_bin` | float64(NaN = 없음) | 셀 | feature | 링크 보고 |
+| `num_echoes` | int64 | | feature | 링크 보고 |
+| `multipath` | bool | | feature | 링크 보고 |
+| `aod_az_deg`, `aod_el_deg`, `aoa_az_deg`, `aoa_el_deg` | float64 | deg | feature | 보고된 에코(`frame.sensing.echoes`에서 `path_id`로 찾음) |
+| `pd`, `pd_mc` | float64 | | feature | 링크 보고(실행에 `pfa`가 없으면 NaN) |
+| `detected` | bool | | label | |
+| `reason` | str | | label | `detected` / `no_echo` / `below_threshold` / `mti_rejected` |
+| `position_true_x/y/z`, `velocity_true_x/y/z` | float64 | m, m/s | label | 그 타깃의 `estimates[]` 행 |
+| `est_status` | str | | estimate | `ok` / `insufficient_links` / `diverged` |
+| `n_links_detected`, `n_links_used` | int64 | | estimate | |
+| `position_est_x/y/z`, `velocity_est_x/y/z`, `position_error_m`, `velocity_error_m_s`, `gdop` | float64 | m, m/s | estimate | |
+| `track_status` | str | | track | 추적을 껐으면 `""` |
+| `track_position_x/y/z`, `track_velocity_x/y/z`, `track_position_error_m`, `track_velocity_error_m_s`, `track_position_std_m`, `track_updates`, `track_gated` | float64 | m, m/s | track | 없으면 NaN |
+
+estimate와 track 열은 타깃·프레임마다 값이 하나이고, 그 타깃의 링크 행마다 되풀이됩니다.
+
+**echoes 열**: `result_id`, `split`, `frame_index`, `time_s`, `path_id`, `tx_id`,
+`rx_id`, `target_id`(`""`면 `include_comm_paths`의 통신 경로), `path_type`, `delay_ns`,
+`bistatic_range_m`(c·τ), `power_dbm`, `path_gain_db`, `phase_rad`, `doppler_hz`,
+`aod_az_deg`, `aod_el_deg`, `aoa_az_deg`, `aoa_el_deg`, `num_interactions`(int64),
+`direct`(bool: 상호작용이 [sensing]뿐), `reported`(bool: 링크 보고가 고른 에코).
+
+**분할.** 단위는 프레임입니다. (결과, 프레임) 쌍을 내보내는 순서대로 놓고
+`numpy.random.default_rng(seed)`로 섞은 뒤, 앞의 n_train개가 `train`, 다음 n_val개가
+`val`, 나머지가 `test`입니다. 개수는 train·F, val·F, test·F를 최대 잉여 방식으로 반올림한
+값입니다(동률이면 작은 비율 쪽, 그다음 train, val, test 순). 그래서 합이 F이고, 각각 정확한
+몫과 한 프레임 넘게 차이 나지 않으며, 비율이 0인 분할에는 프레임이 하나도 가지 않습니다. 한
+프레임의 행은 links든 echoes든 모두 같은 분할에 들어가고, 시드가 같으면 분할도 같습니다.
+
+**예전 결과.** v0.1.13 이전 결과에는 `nodes`가 없습니다. 이때 TX/RX 위치는 프레임의
+`device_states`, 없으면 지금의 씬에서, 속도는 지금 씬의 궤적에서 가져옵니다(실행
+당시 계산한 방식 그대로). 그러면 "predates v0.1.13" 경고가 붙고(씬 해시가 다르면
+"scene changed since the run"도), 매니페스트에는 `"kinematics_source": "current_scene"`이
+적힙니다.
+
+**오류.** 모르는 프로젝트, 그리고 모르거나 파일이 없거나 읽을 수 없는(올바른 시나리오
+결과가 아닌 경우도 포함) `result_ids` 항목은 **404**입니다. `result_ids`가 null이면 그런
+파일은 건너뛰고 `warnings`에 이름을 남깁니다. 나열한 결과에 센싱 프레임이 없을 때
+(`skip_without_sensing`이 아니면), 남는 결과가 하나도 없을 때, pyarrow 없이 parquet을
+요청했을 때, 행이 2 000 000개(links + echoes)를 넘을 때는 **400**이고 아무것도 쓰지
+않습니다. 모르는 형식은 **422**입니다.
+
+## 11. 한계
 
 - 타깃은 강체 평행 이동만 합니다. 회전이나 마이크로 도플러는 없습니다.
 - 직육면체 크기는 액터 박스 크기이므로 메시 액터는 `size_m`을 직접 지정해야 합니다.
@@ -522,24 +851,43 @@ mock 에코와 같은 식이어서, 셀 중심에 타깃을 둔 mock 센싱 솔�
 - 시간에 따른 센싱(§6)은 안테나를 단일 소자로 계산합니다(배열 이득 없음). 그래서 처리
   이득은 적분 이득뿐입니다.
 - `measurement_noise`는 경험칙(셀 / sqrt(2·SNR))이지 크라메르–라오 하한이 아닙니다.
-- 프레임마다 독립된 스냅샷입니다. 추적 필터는 없고, 이전 추정치는 다음 프레임 솔버의
+- `tracking`이 없으면 프레임마다 독립된 스냅샷이고, 이전 추정치는 다음 프레임 솔버의
   출발점으로만 쓰입니다.
+- 추적(§6)은 타깃마다 등속 EKF 하나이고 오라클 연관을 씁니다. 기동 모델이나 IMM은
+  없습니다(방향 전환은 융합에서 다시 시작하는 것으로 처리하므로, 급한 모서리 뒤 한두
+  프레임은 융합 정확도입니다). 거짓 트랙도, 트랙 간 융합도 없고, 측정 σ는
+  `measurement_noise`의 경험칙입니다. 한 프레임에 링크가 한두 개뿐이면 거리 합이 위치를
+  타원체 위에서 자유롭게 두므로, 링크 세 개가 없는 구간이 길어지면 표류합니다. 그런
+  구간에서는 `track_position_std_m`이 오차를 몇 배나 작게 말할 수 있습니다. 그래서
+  `max_position_std_m` 상한은 실제 오차가 요구하는 것보다 늦게 트랙을 버리고,
+  `coast_max_frames`는 프레임마다 스칼라가 하나라도 받아들여지는 한 트랙을 버리지
+  않습니다.
+- 센싱 데이터셋(§10): 레이블은 레이 트레이서가 줍니다(오라클 연관). 분할이 프레임
+  단위라서 한 실행의 이웃 프레임끼리는 분할을 넘어 상관이 있습니다. 엄밀하게 시험하려면
+  결과를 통째로 떼어 두세요.
 - ISAC 트레이드오프(§7):
-  - 코드북은 방위각 전용이라 세로 행은 늘 정면을 봅니다. λ/2 간격 4행 패널은 패널 면에서
-    30° 벗어난 방향에 세로 널이 있고, 25°에서 35° 사이 어디서든 끝마다 정면보다 14 dB
-    이상 낮습니다(28°와 33°에서는 21–23 dB). 그래서 위로 기울인 옥상 TRP는 거리의 UE나
-    가파른 각도의 드론 쪽으로 배열 이득보다 더 많이 잃을 수 있고, 4×4 빔이 단일 소자
-    기준값보다 낮게 나오기도 합니다.
+  - 고도 스윕이 없으면 코드북은 방위각 전용이라 세로 행은 늘 정면을 봅니다. λ/2 간격
+    4행 패널은 패널 면에서 30° 벗어난 방향에 세로 널이 있고, 25°에서 35° 사이 어디서든
+    끝마다 정면보다 14 dB 이상 낮습니다(28°와 33°에서는 21–23 dB). 그래서 위로 기울인
+    옥상 TRP는 거리의 UE나 가파른 각도의 드론 쪽으로 배열 이득보다 더 많이 잃을 수 있고,
+    4×4 빔이 단일 소자 기준값보다 낮게 나오기도 합니다. `elevation_*` 스윕을 주면 세로
+    행도 조향합니다. 다만 여전히 고정 격자여서, 격자 고도 사이로 오는 경로는 격자 간격만큼의
+    스캘럽 손실을 봅니다.
   - 기본 `iso` 소자에서는 패널에 거울상 뒤쪽 로브가 있습니다. 빔 θ는 패널 뒤쪽의
     180° − θ 방향도 같은 이득으로 비추므로, TRP 뒤에 있는 UE나 타깃도 잘리지 않습니다.
     앞뒤 비가 필요하면 `tr38901` 소자를 쓰세요. λ/2 간격에서는 스윕 범위 밖의 끝쪽 방향
     타깃(예: ±60° 스윕에서 정면 기준 78°)을 양쪽 가장자리 빔이 그레이팅 로브 자락으로
     서로 1 dB 안팎의 차이로 보므로, 어느 쪽 가장자리가 이길지는 거의 임의입니다.
-  - **ISAC lobes** 오버레이는 빔의 방위각 단면을 패널 앞쪽 반구에만 그립니다. `iso`처럼
-    앞뒤가 대칭인 소자라면 TX가 뒤쪽 로브로 패널 뒤의 UE를 서비스하면서도 시안 통신
-    로브는 그 UE 반대쪽을 가리킬 수 있습니다.
-  - TX 간 간섭은 없고(SINR = SNR), UE마다 대역 전체를 쓴다고 보고 전송률을 계산합니다.
-  - P_d는 Swerling-1 닫힌 식입니다. CFAR도, 거리·도플러 셀 경계 손실도 없습니다.
+  - **ISAC lobes** 오버레이는 빔의 방위각 단면을 패널 앞쪽 반구에만 그립니다(고도 스윕이
+    있으면 통신 또는 센싱 빔의 고도 단면). `iso`처럼 앞뒤가 대칭인 소자라면 TX가 뒤쪽
+    로브로 패널 뒤의 UE를 서비스하면서도 시안 통신 로브는 그 UE 반대쪽을 가리킬 수
+    있습니다.
+  - `interference`가 없으면 SINR = SNR입니다. 켜면 모든 TX가 늘 데이터가 차 있어 동기
+    슬롯에서 통신 빔이나 센싱 빔을 항상 쏜다고 보고, 간섭은 UE에만 닿습니다(센싱 수신기는
+    계속 잡음 제한이며, TX 간 에코나 직접 경로 누설은 없습니다). 통신 빔은 최적 응답
+    평형이지 공동 최적해가 아닙니다. UE마다 대역 전체를 쓴다고 보고 전송률을 계산합니다.
+  - P_d는 고정 임계값의 닫힌 식(Swerling 0, 1, 3, §9)입니다. CFAR도, 거리·도플러 셀 경계
+    손실도, 펄스 간 요동(Swerling 2와 4)도 없습니다.
   - t = 0 스냅샷 하나입니다. 이중 편파 안테나는 첫 번째 편파 포트만 합성하고, UE는 단일
     소자입니다.
 - 센싱 커버리지(§8):
@@ -550,6 +898,9 @@ mock 에코와 같은 식이어서, 셀 중심에 타깃을 둔 mock 센싱 솔�
     안테나를 모든 TX(RX)에 적용하므로, 패턴이 섞여 있으면 둘이 달라집니다. 편파 불일치는
     모델링하지 않습니다.
   - mock은 모든 구간을 LOS로 봅니다.
+- 탐지기 모델(§9): 몬테카를로는 닫힌 식이 기술하는 것과 같은 이상화된 모델(CPI 동안 일정한
+  진폭, 백색 가우스 잡음, 이상적인 코히어런트 적분)을 뽑습니다. 계산을 검증하고 표본
+  흩어짐을 보여 줄 뿐, 파형 수준의 시뮬레이션은 아닙니다.
 
 ## 관련 문서
 

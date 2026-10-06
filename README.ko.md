@@ -190,6 +190,10 @@ bash scripts/start.sh     # 2. 백엔드+프론트 실행
 - **ISAC 트레이드오프와 센싱 커버리지** — TRP별 통신 빔과 센싱 빔, 슬롯 공유에 따른
   Pd–전송률 파레토, 다중 스태틱 탐지·융합 커버리지 맵을 제공합니다.
   [docs/guides/sensing.md](docs/guides/sensing.ko.md) 참조.
+- **ISAC 연구 레이어** — 가파른 드론을 위한 방위각×고도 코드북, UE SINR의 TX 간 간섭,
+  Swerling 0/1/3 탐지기 모델과 몬테카를로 Pd/Pfa 검증, Pd 곡선 엔드포인트를 제공합니다.
+  시나리오 프레임에 걸친 EKF 추적과 학습용 센싱 데이터셋 내보내기(npz/csv/parquet)도
+  있습니다. [docs/guides/sensing.md](docs/guides/sensing.ko.md) 참조.
 - **AI 모델 픽커** — LM Studio/Ollama에 로드된 모델을 자동 발견해 제안·에이전트에
   쓸 모델을 UI에서 바꿉니다. 어떤 모델이 답했는지 provenance에 기록됩니다.
 

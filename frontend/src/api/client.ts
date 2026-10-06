@@ -49,6 +49,8 @@ import type {
   OsmImportRequest,
   OsmImportResponse,
   PathResultSet,
+  PdCurveRequest,
+  PdCurveResult,
   PlaybackBuildRequest,
   PlaybackResultSet,
   SensorManifestResponse,
@@ -79,6 +81,8 @@ import type {
   ISACResultSet,
   SensingCoverageRequest,
   SensingCoverageResultSet,
+  SensingDatasetExportRequest,
+  SensingDatasetExportResult,
   SensingResultSet,
   SensingSimulateRequest,
   ScenarioResultSet,
@@ -498,6 +502,14 @@ export const api = {
       "GET",
       `/projects/${pid}/results/sensing-coverage${resultId ? `?result_id=${encodeURIComponent(resultId)}` : ""}`,
     ),
+
+  // Pd vs SNR per detector model (+ Monte Carlo check); pure, not persisted.
+  pdCurve: (pid: string, req: PdCurveRequest = {}) =>
+    request<PdCurveResult>("POST", `/projects/${pid}/analysis/pd-curve`, req),
+  // Scenario sensing frames as an ML dataset zip (links / echoes tables);
+  // download it through assetUrl(pid, `${export_dir}/${zip_name}`).
+  exportSensingDataset: (pid: string, req: SensingDatasetExportRequest = {}) =>
+    request<SensingDatasetExportResult>("POST", `/projects/${pid}/export/sensing-dataset`, req),
 
   // static project assets (GLB, textures)
   assetUrl: (pid: string, uri: string) => `${BASE}/projects/${pid}/assets/${uri}`,

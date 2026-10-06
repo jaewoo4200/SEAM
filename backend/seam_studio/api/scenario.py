@@ -31,6 +31,7 @@ from seam_studio.schemas.actors import (
     ScenarioResultSet,
     ScenarioSimulateRequest,
 )
+from seam_studio.schemas.sensing import MAX_MC_TOTAL_TRIALS
 from seam_studio.schemas.simulation import SimulateRequest, SimulationConfig
 from seam_studio.services.scenario import _pair_metrics, run_scenario
 from seam_studio.services.simulation_backends import BackendUnavailableError, resolve_backend
@@ -81,9 +82,29 @@ def simulate_scenario(
                 ),
             )
         try:
-            select_targets(scene, request.sensing.target_actor_ids)
+            targets = select_targets(scene, request.sensing.target_actor_ids)
         except SensingRequestError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
+        detector = request.sensing.detector
+        # An empirical threshold draws a noise-only run per link estimate too.
+        trials = detector.monte_carlo_trials * (2 if detector.empirical_threshold else 1)
+        estimates = (
+            request.num_frames * len(selected["tx"]) * len(selected["rx"]) * len(targets)
+        )
+        if trials * estimates > MAX_MC_TOTAL_TRIALS:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"{trials} Monte Carlo trials"
+                    + (" (incl. the empirical threshold's noise run)"
+                       if detector.empirical_threshold else "")
+                    + f" x {estimates} link estimates "
+                    f"({request.num_frames} frames x {len(selected['tx'])} tx x "
+                    f"{len(selected['rx'])} rx x {len(targets)} targets) = "
+                    f"{trials * estimates} trials; at most {MAX_MC_TOTAL_TRIALS} per "
+                    "request (lower sensing.detector.monte_carlo_trials)"
+                ),
+            )
         # No mock fallback under "auto": comm and sensing share one backend.
         if not backend.capabilities().get("sensing", False):
             raise HTTPException(

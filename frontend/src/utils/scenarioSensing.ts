@@ -71,6 +71,62 @@ export function estimateTrackSegments(
   return segments;
 }
 
+export interface TrackSegment {
+  points: Vec3[];
+  /** Every edge of this run ends in a coasting (prediction-only) frame. */
+  dashed: boolean;
+}
+
+/** EKF track of one target over frames 0..upToFrame through track_position.
+ *  An edge into a coasting frame is dashed; none / lost (or a missing state)
+ *  break the line, and an init starts a new track (not joined to the old). */
+export function filteredTrackSegments(
+  s: ScenarioResultSet,
+  targetId: string,
+  upToFrame: number,
+): TrackSegment[] {
+  const out: TrackSegment[] = [];
+  let cur: TrackSegment | null = null;
+  const flush = () => {
+    if (cur && cur.points.length > 1) out.push(cur);
+    cur = null;
+  };
+  const last = Math.min(upToFrame, s.frames.length - 1);
+  for (let i = 0; i <= last; i++) {
+    const e = frameEstimate(s, i, targetId);
+    const st = e?.track_status;
+    const pos = e?.track_position;
+    if (!pos || st == null || st === "none" || st === "lost") {
+      flush();
+      continue;
+    }
+    if (st === "init" || cur === null) {
+      flush();
+      cur = { points: [pos], dashed: st === "coasting" };
+      continue;
+    }
+    const dashed = st === "coasting";
+    const c: TrackSegment = cur;
+    if (c.dashed === dashed || c.points.length === 1) {
+      c.dashed = dashed;
+      c.points.push(pos);
+    } else {
+      const prev = c.points[c.points.length - 1];
+      flush();
+      cur = { points: [prev, pos], dashed };
+    }
+  }
+  flush();
+  return out;
+}
+
+/** True when any frame of the run carries an EKF track state. */
+export function scenarioHasTracking(s: ScenarioResultSet | null | undefined): boolean {
+  return !!s?.frames.some((f) =>
+    f.sensing?.estimates.some((e) => e.track_status != null),
+  );
+}
+
 /** True target positions (cuboid centers) over frames 0..upToFrame. */
 export function trueTrack(s: ScenarioResultSet, targetId: string, upToFrame: number): Vec3[] {
   const out: Vec3[] = [];
@@ -90,15 +146,26 @@ function meters(v: number | null | undefined, digits = 2): string {
   return v == null || !Number.isFinite(v) ? "—" : `${v.toFixed(digits)} m`;
 }
 
+/** " · EKF med 0.30 m" when the run tracked, else "". */
+function trackSuffix(sum: ScenarioSensingSummary): string {
+  return "median_track_position_error_m" in sum
+    ? ` · EKF med ${meters(sum.median_track_position_error_m)}`
+    : "";
+}
+
 /** Compact run-row chip: "det 98% · ≥3 links 97% · med 0.41 m". */
 export function formatSensingChip(sum: ScenarioSensingSummary): string {
   return (
     `det ${pct(sum.detection_rate)} · ≥3 links ${pct(sum.frames_ge3_links_rate)}` +
-    ` · med ${meters(sum.median_position_error_m)}`
+    ` · med ${meters(sum.median_position_error_m)}` +
+    trackSuffix(sum)
   );
 }
 
 /** Suffix for the scenario success notice: " · sensing det 98% · med err 0.41 m". */
 export function formatSensingNotice(sum: ScenarioSensingSummary): string {
-  return ` · sensing det ${pct(sum.detection_rate)} · med err ${meters(sum.median_position_error_m)}`;
+  return (
+    ` · sensing det ${pct(sum.detection_rate)} · med err ${meters(sum.median_position_error_m)}` +
+    trackSuffix(sum)
+  );
 }

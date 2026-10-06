@@ -12,7 +12,7 @@ from typing import Literal, Optional
 from pydantic import Field, model_validator
 
 from .common import StrictModel, Vec3
-from .sensing import SensingCoverageMetric
+from .sensing import DetectorModel, SensingCoverageMetric
 from .simulation import SimulationConfig
 
 PathType = Literal[
@@ -142,6 +142,14 @@ class SensingLinkReport(StrictModel):
     doppler_bin: Optional[int] = None
     detected: bool = False
     reason: DetectionReason = "no_echo"
+    # Pd of snr_db under sensing.detector.model at sensing.pfa (pfa when no
+    # echo); None when the run set no pfa. pd_mc: Monte Carlo of the same
+    # (detector.monte_carlo_trials > 0 and an echo).
+    pd: Optional[float] = None
+    pd_mc: Optional[float] = None
+
+
+TrackStatus = Literal["none", "init", "tracking", "coasting", "lost"]
 
 
 class TargetEstimate(StrictModel):
@@ -167,6 +175,29 @@ class TargetEstimate(StrictModel):
     gdop: Optional[float] = None
     rms_residual_m: Optional[float] = None
     iterations: int = Field(default=0, ge=0)
+    # EKF track (sensing.tracking enabled); every field None otherwise.
+    # none: no track yet; init: started from this frame's fusion; tracking:
+    # >= 1 accepted measurement; coasting: prediction only; lost: dropped
+    # after coast_max_frames frames without an accepted measurement.
+    track_status: Optional[TrackStatus] = None
+    # Posterior state at this frame (None for none / lost).
+    track_position: Optional[Vec3] = None
+    track_velocity: Optional[Vec3] = None
+    track_position_error_m: Optional[float] = None
+    track_velocity_error_m_s: Optional[float] = None
+    # sqrt(trace(P_pos)): RMS of the 3-D position error the filter expects.
+    track_position_std_m: Optional[float] = None
+    # Scalar measurements (range, Doppler) accepted / gated out this frame.
+    track_updates: Optional[int] = Field(default=None, ge=0)
+    track_gated: Optional[int] = Field(default=None, ge=0)
+
+
+class SensingNodeState(StrictModel):
+    """A TX/RX device as one sensing frame used it."""
+
+    id: str
+    position: Vec3
+    velocity: Vec3 = Field(default_factory=lambda: [0.0, 0.0, 0.0])
 
 
 class SensingFrame(StrictModel):
@@ -175,23 +206,36 @@ class SensingFrame(StrictModel):
     echoes: list[RayPath] = Field(default_factory=list)
     links: list[SensingLinkReport] = Field(default_factory=list)
     estimates: list[TargetEstimate] = Field(default_factory=list)
+    # Every selected TX and RX at this frame (v0.1.13+; None in older results).
+    nodes: Optional[list[SensingNodeState]] = None
 
 
 class ISACBeam(StrictModel):
     """One codebook beam of one tx, used full time for comm OR sensing (rho = 1)."""
 
     angle_deg: float
-    # Per UE of this tx: SINR (= SNR, no inter-tx interference) [dB]; None = no path.
+    # Local elevation of a 2-D codebook beam; None = azimuth-only codebook.
+    elevation_deg: Optional[float] = None
+    # Per UE of this tx: SINR [dB]; None = no path. Without interference it
+    # equals the SNR; with it the other txs radiate their comm beams.
     ue_sinr_db: dict[str, Optional[float]] = Field(default_factory=dict)
+    # request.interference only: interference-free SNR and the comm-slot
+    # interference power (None: no interferer reaches the UE).
+    ue_snr_db: Optional[dict[str, Optional[float]]] = None
+    ue_interference_dbm: Optional[dict[str, Optional[float]]] = None
     # Sum over this tx's UEs of log2(1 + SINR) with this beam [bit/s/Hz].
     sum_rate_bps_hz: float = 0.0
     # Per target: echo SNR with this TX beam and the best RX beam, full CPI.
     target_snr_db: dict[str, Optional[float]] = Field(default_factory=dict)
     target_best_rx_angle_deg: dict[str, Optional[float]] = Field(default_factory=dict)
+    # 2-D codebook only: elevation of that best RX beam.
+    target_best_rx_elevation_deg: Optional[dict[str, Optional[float]]] = None
     # Weakest target (min over targets; None if any target has no echo).
     sensing_snr_db: Optional[float] = None
-    # Swerling-1 Pd of sensing_snr_db (pfa when None).
+    # Pd of sensing_snr_db under request.detector.model (pfa when None).
     pd: float
+    # Monte Carlo of pd (detector.monte_carlo_trials > 0 and an echo).
+    pd_mc: Optional[float] = None
     # sensing_snr_db >= threshold_db.
     detected: bool = False
 
@@ -206,6 +250,8 @@ class ISACPoint(StrictModel):
     # Weakest target, rho * cpi_pulses integrated.
     sensing_snr_db: Optional[float] = None
     pd: float
+    # Monte Carlo of pd: Pareto points only (detector.monte_carlo_trials > 0).
+    pd_mc: Optional[float] = None
     pareto: bool = False
 
 
@@ -235,14 +281,23 @@ class ISACTxResult(StrictModel):
     target_ids: list[str] = Field(default_factory=list)
     tx_array: list[int] = Field(min_length=2, max_length=2)  # [rows, cols]
     rx_array: list[int] = Field(min_length=2, max_length=2)
-    # Codebook, local azimuth of the panel.
+    # Codebook, local azimuth of the panel, aligned with beams.
     angles_deg: list[float] = Field(default_factory=list)
+    # 2-D codebook only: local elevation per beam, aligned with beams.
+    elevations_deg: Optional[list[float]] = None
     beams: list[ISACBeam] = Field(default_factory=list)
     comm_beam_idx: Optional[int] = None
     sensing_beam_idx: Optional[int] = None
     comm_beam_angle_deg: Optional[float] = None
     sensing_beam_angle_deg: Optional[float] = None
+    # Azimuth gap.
     angle_gap_deg: Optional[float] = None
+    comm_beam_elevation_deg: Optional[float] = None
+    sensing_beam_elevation_deg: Optional[float] = None
+    elevation_gap_deg: Optional[float] = None
+    # request.interference only: per served UE, the interference power while
+    # every other tx radiates its sensing beam (sensing slots).
+    ue_interference_sensing_dbm: Optional[dict[str, Optional[float]]] = None
     # Hand-check anchors: 1x1 both ends.
     ue_single_element_rss_dbm: dict[str, Optional[float]] = Field(default_factory=dict)
     target_single_element_snr_db: dict[str, Optional[float]] = Field(default_factory=dict)
@@ -325,6 +380,17 @@ class SensingCoverageLink(StrictModel):
     detected_fraction: float
 
 
+class PdMcSpotCheck(StrictModel):
+    """One coverage cell's analytic pd_best against a Monte Carlo of it."""
+
+    cell: list[int] = Field(min_length=2, max_length=2)  # [ix, iy]
+    snr_db: float
+    pd: float
+    pd_mc: float
+    ci_low: float
+    ci_high: float
+
+
 class SensingCoverageSummary(StrictModel):
     num_cells: int
     num_links: int
@@ -336,6 +402,9 @@ class SensingCoverageSummary(StrictModel):
     pct_cells_fusion_feasible: float
     # Over cells with an echo.
     median_best_snr_db: Optional[float] = None
+    # detector.monte_carlo_trials > 0: 5 cells at the 0/25/50/75/100 %
+    # quantiles of best_snr_db over the cells with an echo.
+    mc_spot_check: Optional[list[PdMcSpotCheck]] = None
 
 
 class SensingCoverageResultSet(StrictModel):
@@ -359,6 +428,65 @@ class SensingCoverageResultSet(StrictModel):
     summary: SensingCoverageSummary
     warnings: list[str] = Field(default_factory=list)
     metadata: dict = Field(default_factory=dict)
+
+
+class PdCurveModel(StrictModel):
+    model: DetectorModel
+    # Analytic, aligned with PdCurveResult.snr_db.
+    pd: list[float] = Field(default_factory=list)
+    # Monte Carlo (trials > 0): estimate and Wilson 95 % interval per point.
+    pd_mc: Optional[list[float]] = None
+    pd_mc_ci_low: Optional[list[float]] = None
+    pd_mc_ci_high: Optional[list[float]] = None
+    # Analytic SNR reaching pd_target (None: pd_target <= pfa).
+    snr_for_pd_target_db: Optional[float] = None
+    # max |pd_mc - pd| and the fraction of points whose interval holds pd.
+    mc_max_abs_deviation: Optional[float] = None
+    mc_within_ci_fraction: Optional[float] = None
+
+
+class PdCurveResult(StrictModel):
+    """POST /analysis/pd-curve response (not persisted)."""
+
+    pfa: float
+    pd_target: float
+    cpi_pulses: int
+    monte_carlo_trials: int
+    seed: int
+    snr_db: list[float] = Field(default_factory=list)
+    # Analytic threshold -ln(pfa) on the noise-normalized integrated power.
+    threshold: float
+    # empirical_threshold: the (1 - pfa) quantile of a noise-only run.
+    empirical_threshold: Optional[float] = None
+    # trials > 0: false alarms of an independent noise-only run against the
+    # threshold in use, with its Wilson 95 % interval.
+    pfa_measured: Optional[float] = None
+    pfa_measured_ci: Optional[list[float]] = Field(default=None, min_length=2, max_length=2)
+    models: list[PdCurveModel] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    metadata: dict = Field(default_factory=dict)
+
+
+class SensingDatasetExportResult(StrictModel):
+    """POST /export/sensing-dataset response."""
+
+    # Project-relative directory of the zip ("export/sensing_dataset").
+    export_dir: str
+    zip_name: str
+    # GET it to download (the project assets route).
+    download_url: str
+    # Entries inside the zip.
+    files: list[str] = Field(default_factory=list)
+    result_ids: list[str] = Field(default_factory=list)
+    num_rows: int = 0
+    rows_per_result: dict[str, int] = Field(default_factory=dict)
+    rows_per_split: dict[str, int] = Field(default_factory=dict)
+    num_echo_rows: int = 0
+    # Fraction of link rows with detected = true (None: no rows).
+    detected_fraction: Optional[float] = None
+    size_bytes: int = 0
+    elapsed_s: float = 0.0
+    warnings: list[str] = Field(default_factory=list)
 
 
 class TrajectorySample(StrictModel):

@@ -412,6 +412,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{project_id}/analysis/pd-curve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Analysis Pd Curve
+         * @description Pd vs post-integration SNR per detector model (Swerling 0/1/3,
+         *     square-law), with a Monte Carlo per point when monte_carlo_trials > 0.
+         *     Pure math: no solve, no solve guard, not persisted.
+         */
+        post: operations["analysis_pd_curve_api_projects__project_id__analysis_pd_curve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{project_id}/analyze/channel": {
         parameters: {
             query?: never;
@@ -805,6 +827,29 @@ export interface paths {
         put?: never;
         /** Export Rfdata Endpoint */
         post: operations["export_rfdata_endpoint_api_projects__project_id__export_rfdata_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/export/sensing-dataset": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Export Sensing Dataset Endpoint
+         * @description Sensing dataset of the stored scenario results (``result_ids``, else
+         *     every one with sensing frames): one zip with links (and echoes) tables,
+         *     a manifest and a README. Pure post-processing, so no solve guard; the zip
+         *     downloads through the project assets route (``download_url``).
+         */
+        post: operations["export_sensing_dataset_endpoint_api_projects__project_id__export_sensing_dataset_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1590,9 +1635,11 @@ export interface paths {
         put?: never;
         /**
          * Simulate Isac
-         * @description ISAC beam trade-off: per TX, the azimuth codebook scored for its UEs'
-         *     rate and its targets' echo SNR from one t = 0 echo + comm solve, and the
-         *     Pd-rate Pareto front of sharing slots between the comm and sensing beams.
+         * @description ISAC beam trade-off: per TX, the azimuth (or azimuth x elevation)
+         *     codebook scored for its UEs' rate and its targets' echo SNR from one
+         *     t = 0 echo + comm solve, and the Pd-rate Pareto front of sharing slots
+         *     between the comm and sensing beams. The Monte Carlo budget is checked
+         *     here, before the solve guard (400).
          */
         post: operations["simulate_isac_api_projects__project_id__simulate_isac_post"];
         delete?: never;
@@ -3112,6 +3159,35 @@ export interface components {
             /** Waypoints */
             waypoints?: number[][] | null;
         };
+        /**
+         * DetectorOptions
+         * @description Square-law detector on the coherently integrated sample. ``model`` is
+         *     the target fluctuation (Swerling 0 = steady, 1 = Rayleigh scan-to-scan,
+         *     3 = one dominant scatterer); swerling1 reproduces the v0.1.12 numbers.
+         */
+        DetectorOptions: {
+            /**
+             * Empirical Threshold
+             * @default false
+             */
+            empirical_threshold: boolean;
+            /**
+             * Model
+             * @default swerling1
+             * @enum {string}
+             */
+            model: "swerling0" | "swerling1" | "swerling3";
+            /**
+             * Monte Carlo Trials
+             * @default 0
+             */
+            monte_carlo_trials: number;
+            /**
+             * Seed
+             * @default 0
+             */
+            seed: number;
+        };
         /** Device */
         Device: {
             antenna?: components["schemas"]["Antenna"];
@@ -3355,8 +3431,12 @@ export interface components {
              * @default false
              */
             detected: boolean;
+            /** Elevation Deg */
+            elevation_deg?: number | null;
             /** Pd */
             pd: number;
+            /** Pd Mc */
+            pd_mc?: number | null;
             /** Sensing Snr Db */
             sensing_snr_db?: number | null;
             /**
@@ -3368,14 +3448,26 @@ export interface components {
             target_best_rx_angle_deg?: {
                 [key: string]: number | null;
             };
+            /** Target Best Rx Elevation Deg */
+            target_best_rx_elevation_deg?: {
+                [key: string]: number | null;
+            } | null;
             /** Target Snr Db */
             target_snr_db?: {
                 [key: string]: number | null;
             };
+            /** Ue Interference Dbm */
+            ue_interference_dbm?: {
+                [key: string]: number | null;
+            } | null;
             /** Ue Sinr Db */
             ue_sinr_db?: {
                 [key: string]: number | null;
             };
+            /** Ue Snr Db */
+            ue_snr_db?: {
+                [key: string]: number | null;
+            } | null;
         };
         /** ISACParetoSummary */
         ISACParetoSummary: {
@@ -3412,6 +3504,8 @@ export interface components {
             pareto: boolean;
             /** Pd */
             pd: number;
+            /** Pd Mc */
+            pd_mc?: number | null;
             /** Rho */
             rho: number;
             /** Sensing Snr Db */
@@ -3441,11 +3535,23 @@ export interface components {
              * @default 0.01
              */
             cpi_s: number;
+            detector?: components["schemas"]["DetectorOptions"];
+            /** Elevation Start Deg */
+            elevation_start_deg?: number | null;
+            /** Elevation Step Deg */
+            elevation_step_deg?: number | null;
+            /** Elevation Stop Deg */
+            elevation_stop_deg?: number | null;
             /**
              * Include Paths
              * @default false
              */
             include_paths: boolean;
+            /**
+             * Interference
+             * @default false
+             */
+            interference: boolean;
             /** Max Depth */
             max_depth?: number | null;
             /**
@@ -3582,8 +3688,14 @@ export interface components {
             beams?: components["schemas"]["ISACBeam"][];
             /** Comm Beam Angle Deg */
             comm_beam_angle_deg?: number | null;
+            /** Comm Beam Elevation Deg */
+            comm_beam_elevation_deg?: number | null;
             /** Comm Beam Idx */
             comm_beam_idx?: number | null;
+            /** Elevation Gap Deg */
+            elevation_gap_deg?: number | null;
+            /** Elevations Deg */
+            elevations_deg?: number[] | null;
             pareto: components["schemas"]["ISACParetoSummary"];
             /** Points */
             points?: components["schemas"]["ISACPoint"][];
@@ -3593,6 +3705,8 @@ export interface components {
             sensing_baseline_m: number;
             /** Sensing Beam Angle Deg */
             sensing_beam_angle_deg?: number | null;
+            /** Sensing Beam Elevation Deg */
+            sensing_beam_elevation_deg?: number | null;
             /** Sensing Beam Idx */
             sensing_beam_idx?: number | null;
             /** Sensing Rx Id */
@@ -3609,6 +3723,10 @@ export interface components {
             tx_id: string;
             /** Ue Ids */
             ue_ids?: string[];
+            /** Ue Interference Sensing Dbm */
+            ue_interference_sensing_dbm?: {
+                [key: string]: number | null;
+            } | null;
             /** Ue Single Element Rss Dbm */
             ue_single_element_rss_dbm?: {
                 [key: string]: number | null;
@@ -4201,6 +4319,136 @@ export interface components {
             simulation_config_id: string;
             /** Warnings */
             warnings?: string[];
+        };
+        /** PdCurveModel */
+        PdCurveModel: {
+            /** Mc Max Abs Deviation */
+            mc_max_abs_deviation?: number | null;
+            /** Mc Within Ci Fraction */
+            mc_within_ci_fraction?: number | null;
+            /**
+             * Model
+             * @enum {string}
+             */
+            model: "swerling0" | "swerling1" | "swerling3";
+            /** Pd */
+            pd?: number[];
+            /** Pd Mc */
+            pd_mc?: number[] | null;
+            /** Pd Mc Ci High */
+            pd_mc_ci_high?: number[] | null;
+            /** Pd Mc Ci Low */
+            pd_mc_ci_low?: number[] | null;
+            /** Snr For Pd Target Db */
+            snr_for_pd_target_db?: number | null;
+        };
+        /**
+         * PdCurveRequest
+         * @description Body for POST /projects/{id}/analysis/pd-curve (pure, not persisted).
+         *     snr_db is the post-integration SNR, as in every Pd SEAM reports, and
+         *     the Monte Carlo draws that integrated sample directly, so cpi_pulses
+         *     changes no number.
+         */
+        PdCurveRequest: {
+            /**
+             * Cpi Pulses
+             * @default 1
+             */
+            cpi_pulses: number;
+            /**
+             * Empirical Threshold
+             * @default false
+             */
+            empirical_threshold: boolean;
+            /** Models */
+            models?: ("swerling0" | "swerling1" | "swerling3")[];
+            /**
+             * Monte Carlo Trials
+             * @default 0
+             */
+            monte_carlo_trials: number;
+            /**
+             * Pd Target
+             * @default 0.9
+             */
+            pd_target: number;
+            /**
+             * Pfa
+             * @default 0.000001
+             */
+            pfa: number;
+            /**
+             * Seed
+             * @default 0
+             */
+            seed: number;
+            /**
+             * Snr Max Db
+             * @default 30
+             */
+            snr_max_db: number;
+            /**
+             * Snr Min Db
+             * @default -5
+             */
+            snr_min_db: number;
+            /**
+             * Step Db
+             * @default 0.5
+             */
+            step_db: number;
+        };
+        /**
+         * PdCurveResult
+         * @description POST /analysis/pd-curve response (not persisted).
+         */
+        PdCurveResult: {
+            /** Cpi Pulses */
+            cpi_pulses: number;
+            /** Empirical Threshold */
+            empirical_threshold?: number | null;
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            };
+            /** Models */
+            models?: components["schemas"]["PdCurveModel"][];
+            /** Monte Carlo Trials */
+            monte_carlo_trials: number;
+            /** Pd Target */
+            pd_target: number;
+            /** Pfa */
+            pfa: number;
+            /** Pfa Measured */
+            pfa_measured?: number | null;
+            /** Pfa Measured Ci */
+            pfa_measured_ci?: number[] | null;
+            /** Seed */
+            seed: number;
+            /** Snr Db */
+            snr_db?: number[];
+            /** Threshold */
+            threshold: number;
+            /** Warnings */
+            warnings?: string[];
+        };
+        /**
+         * PdMcSpotCheck
+         * @description One coverage cell's analytic pd_best against a Monte Carlo of it.
+         */
+        PdMcSpotCheck: {
+            /** Cell */
+            cell: number[];
+            /** Ci High */
+            ci_high: number;
+            /** Ci Low */
+            ci_low: number;
+            /** Pd */
+            pd: number;
+            /** Pd Mc */
+            pd_mc: number;
+            /** Snr Db */
+            snr_db: number;
         };
         /**
          * PlaybackBuildRequest
@@ -5147,6 +5395,7 @@ export interface components {
              * @default 4096
              */
             cpi_pulses: number;
+            detector?: components["schemas"]["DetectorOptions"];
             /**
              * Height M
              * @default 60
@@ -5235,6 +5484,8 @@ export interface components {
         };
         /** SensingCoverageSummary */
         SensingCoverageSummary: {
+            /** Mc Spot Check */
+            mc_spot_check?: components["schemas"]["PdMcSpotCheck"][] | null;
             /** Median Best Snr Db */
             median_best_snr_db?: number | null;
             /** Num Cells */
@@ -5250,6 +5501,102 @@ export interface components {
             /** Pct Cells Los */
             pct_cells_los: number;
         };
+        /**
+         * SensingDatasetExportRequest
+         * @description Body for POST /projects/{id}/export/sensing-dataset.
+         */
+        SensingDatasetExportRequest: {
+            /** Formats */
+            formats?: ("npz" | "csv" | "parquet")[];
+            /**
+             * Include Echo Paths
+             * @default false
+             */
+            include_echo_paths: boolean;
+            /** Result Ids */
+            result_ids?: string[] | null;
+            /**
+             * Skip Without Sensing
+             * @default false
+             */
+            skip_without_sensing: boolean;
+            split?: components["schemas"]["SensingDatasetSplit"] | null;
+        };
+        /**
+         * SensingDatasetExportResult
+         * @description POST /export/sensing-dataset response.
+         */
+        SensingDatasetExportResult: {
+            /** Detected Fraction */
+            detected_fraction?: number | null;
+            /** Download Url */
+            download_url: string;
+            /**
+             * Elapsed S
+             * @default 0
+             */
+            elapsed_s: number;
+            /** Export Dir */
+            export_dir: string;
+            /** Files */
+            files?: string[];
+            /**
+             * Num Echo Rows
+             * @default 0
+             */
+            num_echo_rows: number;
+            /**
+             * Num Rows
+             * @default 0
+             */
+            num_rows: number;
+            /** Result Ids */
+            result_ids?: string[];
+            /** Rows Per Result */
+            rows_per_result?: {
+                [key: string]: number;
+            };
+            /** Rows Per Split */
+            rows_per_split?: {
+                [key: string]: number;
+            };
+            /**
+             * Size Bytes
+             * @default 0
+             */
+            size_bytes: number;
+            /** Warnings */
+            warnings?: string[];
+            /** Zip Name */
+            zip_name: string;
+        };
+        /**
+         * SensingDatasetSplit
+         * @description Frame-level train/val/test split: every row of one (result, frame)
+         *     lands in the same split.
+         */
+        SensingDatasetSplit: {
+            /**
+             * Seed
+             * @default 0
+             */
+            seed: number;
+            /**
+             * Test
+             * @default 0.1
+             */
+            test: number;
+            /**
+             * Train
+             * @default 0.8
+             */
+            train: number;
+            /**
+             * Val
+             * @default 0.1
+             */
+            val: number;
+        };
         /** SensingFrame */
         SensingFrame: {
             /** Echoes */
@@ -5258,6 +5605,8 @@ export interface components {
             estimates?: components["schemas"]["TargetEstimate"][];
             /** Links */
             links?: components["schemas"]["SensingLinkReport"][];
+            /** Nodes */
+            nodes?: components["schemas"]["SensingNodeState"][] | null;
         };
         /**
          * SensingLinkReport
@@ -5293,6 +5642,10 @@ export interface components {
             num_echoes: number;
             /** Path Id */
             path_id?: string | null;
+            /** Pd */
+            pd?: number | null;
+            /** Pd Mc */
+            pd_mc?: number | null;
             /** Range Bin */
             range_bin?: number | null;
             /**
@@ -5309,6 +5662,18 @@ export interface components {
             target_id: string;
             /** Tx Id */
             tx_id: string;
+        };
+        /**
+         * SensingNodeState
+         * @description A TX/RX device as one sensing frame used it.
+         */
+        SensingNodeState: {
+            /** Id */
+            id: string;
+            /** Position */
+            position: number[];
+            /** Velocity */
+            velocity?: number[];
         };
         /** SensingResultSet */
         SensingResultSet: {
@@ -5450,6 +5815,7 @@ export interface components {
              * @default 0.01
              */
             cpi_s: number;
+            detector?: components["schemas"]["DetectorOptions"];
             /**
              * Enabled
              * @default false
@@ -5474,6 +5840,8 @@ export interface components {
              * @default 0
              */
             noise_seed: number;
+            /** Pfa */
+            pfa?: number | null;
             /**
              * Samples Per Sp
              * @default 1000000
@@ -5486,6 +5854,7 @@ export interface components {
              * @default 13
              */
             threshold_db: number;
+            tracking?: components["schemas"]["TrackingOptions"] | null;
         };
         /**
          * SensorChannel
@@ -5873,12 +6242,70 @@ export interface components {
             status: "ok" | "insufficient_links" | "diverged";
             /** Target Id */
             target_id: string;
+            /** Track Gated */
+            track_gated?: number | null;
+            /** Track Position */
+            track_position?: number[] | null;
+            /** Track Position Error M */
+            track_position_error_m?: number | null;
+            /** Track Position Std M */
+            track_position_std_m?: number | null;
+            /** Track Status */
+            track_status?: ("none" | "init" | "tracking" | "coasting" | "lost") | null;
+            /** Track Updates */
+            track_updates?: number | null;
+            /** Track Velocity */
+            track_velocity?: number[] | null;
+            /** Track Velocity Error M S */
+            track_velocity_error_m_s?: number | null;
             /** Velocity Error M S */
             velocity_error_m_s?: number | null;
             /** Velocity Est */
             velocity_est?: number[] | null;
             /** Velocity True */
             velocity_true: number[];
+        };
+        /**
+         * TrackingOptions
+         * @description Constant-velocity EKF over the scenario frames (services/sensing_track).
+         */
+        TrackingOptions: {
+            /**
+             * Coast Max Frames
+             * @default 10
+             */
+            coast_max_frames: number;
+            /**
+             * Enabled
+             * @default false
+             */
+            enabled: boolean;
+            /**
+             * Gate Chi2
+             * @default 16
+             */
+            gate_chi2: number;
+            /**
+             * Init From
+             * @default fusion
+             * @constant
+             */
+            init_from: "fusion";
+            /**
+             * Max Position Std M
+             * @default 25
+             */
+            max_position_std_m: number;
+            /**
+             * Process Accel Sigma M S2
+             * @default 2
+             */
+            process_accel_sigma_m_s2: number;
+            /**
+             * Use As Prior
+             * @default true
+             */
+            use_as_prior: boolean;
         };
         /** TrajectoryImportRequest */
         TrajectoryImportRequest: {
@@ -6958,6 +7385,41 @@ export interface operations {
             };
         };
     };
+    analysis_pd_curve_api_projects__project_id__analysis_pd_curve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["PdCurveRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PdCurveResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     analyze_channel_api_projects__project_id__analyze_channel_post: {
         parameters: {
             query?: never;
@@ -7590,6 +8052,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RFDataExportSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_sensing_dataset_endpoint_api_projects__project_id__export_sensing_dataset_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["SensingDatasetExportRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SensingDatasetExportResult"];
                 };
             };
             /** @description Validation Error */

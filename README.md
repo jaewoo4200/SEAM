@@ -208,6 +208,11 @@ Studio builds on the same Sionna RT engine and adds:
 - **ISAC trade-off & sensing coverage** — per-TRP comm vs sensing beam, a
   Pd–rate Pareto over slot sharing, and a multistatic detection/fusion
   coverage map. See [docs/guides/sensing.md](docs/guides/sensing.md).
+- **ISAC research layer** — an azimuth × elevation codebook for steep drones,
+  inter-TX interference in the UE SINR, Swerling 0/1/3 detector models with a
+  Monte Carlo Pd/Pfa check and a Pd-curve endpoint, EKF tracking over
+  scenario frames, and a sensing dataset export (npz/csv/parquet) for
+  learning. See [docs/guides/sensing.md](docs/guides/sensing.md).
 - **AI model picker** — models loaded in LM Studio / Ollama are auto-discovered
   and switchable in the UI; the responding model is recorded in provenance.
 

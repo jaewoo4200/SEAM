@@ -1,11 +1,14 @@
 """ISAC beam trade-off: the pinned beam math (normalization, frame, conj
 convention), Swerling-1 Pd, Pareto flags and slot-sharing identities, the
-role split, run_isac on the mock backend, and POST /simulate/isac.
+role split, run_isac on the mock backend, and POST /simulate/isac. Phase C:
+the 2-D (azimuth x elevation) codebook, inter-TX interference, detector
+models and Monte Carlo Pd, and the v0.1.12 output pin.
 
 The live Sionna cross-checks (synthesis == /simulate/beamforming) are in
 test_isac_sionna.py.
 """
 
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -17,13 +20,21 @@ from pydantic import ValidationError
 from seam_studio.schemas.devices import Device
 from seam_studio.schemas.results import ISACPoint, RayPath
 from seam_studio.schemas.scene import Actor, Scene
-from seam_studio.schemas.sensing import ISACRequest, SensingSimulateRequest
+from seam_studio.schemas.sensing import (
+    PHASE_C_FIELDS,
+    ISACRequest,
+    SensingSimulateRequest,
+)
 from seam_studio.schemas.simulation import SimulationConfig
+from seam_studio.services.detector import pd_swerling, snr_for_pd, wilson_ci
 from seam_studio.services.isac import (
+    COLOCATED_SENSING_RX_M,
+    ISAC_MODEL_2D,
     ISACRequestError,
     array_response,
     codebook_angles,
     codebook_weights,
+    codebook_weights_2d,
     comm_beam_channel,
     pareto_flags,
     pareto_summary,
@@ -717,3 +728,409 @@ def test_api_isac_prune(client):
     assert resp.status_code == 200, resp.text
     assert resp.json()["removed"] == ["mock_isac_001"]
     assert not target.exists()
+
+
+# ================================================================ Phase C
+
+# Phase C fields a v0.1.12 run never had (None when their options are off).
+_NEW_BEAM_FIELDS = (
+    "elevation_deg", "ue_snr_db", "ue_interference_dbm", "target_best_rx_elevation_deg", "pd_mc",
+)
+_NEW_TX_FIELDS = (
+    "elevations_deg", "comm_beam_elevation_deg", "sensing_beam_elevation_deg",
+    "elevation_gap_deg", "ue_interference_sensing_dbm",
+)
+
+
+def _v0112_shape(result) -> dict:
+    """The result dump without the Phase C fields (asserted None)."""
+    d = result.model_dump(mode="json")
+    for tx in d["txs"]:
+        for k in _NEW_TX_FIELDS:
+            assert tx.pop(k) is None, k
+        for b in tx["beams"]:
+            for k in _NEW_BEAM_FIELDS:
+                assert b.pop(k) is None, k
+        for p in tx["points"]:
+            assert p.pop("pd_mc") is None
+    return d
+
+
+def _digest(d: dict) -> str:
+    """sha256 of the dump with floats at 9 significant digits (robust to the
+    last-ulp libm differences between platforms)."""
+
+    def norm(x):
+        if isinstance(x, float):
+            return format(x, ".9g")
+        if isinstance(x, dict):
+            return {k: norm(v) for k, v in x.items()}
+        if isinstance(x, list):
+            return [norm(v) for v in x]
+        return x
+
+    return hashlib.sha256(json.dumps(norm(d), sort_keys=True).encode()).hexdigest()
+
+
+# Computed with the v0.1.12 services/isac.py (HEAD ffb8e39) on _mock_scene.
+V0112_PINS = {
+    "default": "194a2e36fe0c64e0e582a808f8ee72be01faffcc9fc30cbfc722e740a284ecab",
+    "time_sharing_all_pfa1e-4": "ed6fe308b2fda0ec9ca1119ca952a3d1412cb63ec10cc21cd5e4ac78cbf60720",
+}
+
+
+def test_azimuth_only_run_is_v0112_bit_for_bit():
+    scene = _mock_scene()
+    default = _run_mock(scene)
+    t1 = default.txs[0]
+    # Readable anchors of the pinned run (the digest covers every field).
+    assert (t1.comm_beam_idx, t1.sensing_beam_idx) == (7, 19)
+    assert t1.beams[19].sensing_snr_db == pytest.approx(53.17236773850778, rel=1e-12)
+    assert t1.pareto.comm_only_rate_bps_hz == pytest.approx(21.574858128254224, rel=1e-12)
+    assert default.metadata["snr_for_pd_target_db"] == pytest.approx(21.143643201915836, rel=1e-12)
+    assert not set(default.metadata["request"]) & set(PHASE_C_FIELDS["ISACRequest"])
+    for key in ("detector", "interference", "codebook_shape", "ue_interferers"):
+        assert key not in default.metadata
+    assert _digest(_v0112_shape(default)) == V0112_PINS["default"]
+    other = _run_mock(scene, sharing_mode="time_sharing", ue_association="all", pfa=1e-4)
+    assert _digest(_v0112_shape(other)) == V0112_PINS["time_sharing_all_pfa1e-4"]
+    # Every Phase C option spelled out at its default: the same dump, byte for byte.
+    explicit = _run_mock(
+        scene, interference=False, detector={"model": "swerling1", "monte_carlo_trials": 0},
+        elevation_start_deg=None, elevation_stop_deg=None, elevation_step_deg=None,
+    )
+    assert explicit.model_dump(mode="json") == default.model_dump(mode="json")
+
+
+def test_colocation_constant_is_the_shared_one():
+    from seam_studio.services import sensing
+
+    assert COLOCATED_SENSING_RX_M is sensing.COLOCATED_SENSING_RX_M == 1.0
+
+
+# ------------------------------------------------------ 2-D codebook (C4)
+
+
+def test_codebook_2d_gain_structure_and_el0_rows():
+    pos = planar_positions(4, 4, 0.5, 0.5)
+    az = codebook_angles(-60.0, 60.0, 5.0)
+    el = codebook_angles(-10.0, 40.0, 5.0)
+    w = codebook_weights_2d(pos, az, el)
+    n_az = len(az)
+    assert w.shape == (len(el) * n_az, 16)
+    assert np.allclose(np.linalg.norm(w, axis=1), 1.0, atol=1e-12)
+    # Elevation 0 rows are the azimuth-only beams.
+    i0 = el.index(0.0)
+    assert np.allclose(w[i0 * n_az:(i0 + 1) * n_az], codebook_weights(pos, az), atol=1e-12)
+    # Kronecker structure on the planar grid (element n = i_row * cols + j_col).
+    y = pos[1].reshape(4, 4)[0]
+    z = pos[2].reshape(4, 4)[:, 0]
+    for a, e in ((25.0, 30.0), (-40.0, -10.0)):
+        ar, er = math.radians(a), math.radians(e)
+        w_y = np.exp(1j * 2 * math.pi * y * math.cos(er) * math.sin(ar)) / 2.0
+        w_z = np.exp(1j * 2 * math.pi * z * math.sin(er)) / 2.0
+        assert np.allclose(w[el.index(e) * n_az + az.index(a)], np.kron(w_z, w_y), atol=1e-12)
+    # Broadside: 10 log10 N.
+    k0 = i0 * n_az + az.index(0.0)
+    gains = _gain_db(pos, w, [0.0, 0.0, 0.0], [0.0, 0.0])
+    assert int(np.argmax(gains)) == k0
+    assert gains[k0] == pytest.approx(10.0 * math.log10(16), abs=1e-9)
+    # A path at local (10, 30) peaks at the (10, 30) beam with the full gain.
+    k = el.index(30.0) * n_az + az.index(10.0)
+    g = _gain_db(pos, w, [0.0, 0.0, 0.0], [10.0, 30.0])
+    assert int(np.argmax(g)) == k and g[k] == pytest.approx(10.0 * math.log10(16), abs=1e-9)
+    # Seen by a panel pitched 15 deg up (Sionna pitch -15), world elevation
+    # 45 at azimuth 0 is local elevation 30.
+    k = el.index(30.0) * n_az + az.index(0.0)
+    g = _gain_db(pos, w, [0.0, -15.0, 0.0], [0.0, 45.0])
+    assert int(np.argmax(g)) == k and g[k] == pytest.approx(10.0 * math.log10(16), abs=1e-9)
+
+
+def test_codebook_2d_recovers_a_steep_uav():
+    # The design's 22 dB: a UAV at local elevation 32.6 deg on a 4x4 panel.
+    pos = planar_positions(4, 4, 0.5, 0.5)
+    az = codebook_angles(-60.0, 60.0, 5.0)
+    a = array_response(pos, [0.0, 0.0, 0.0], [0.0, 32.6])
+    flat = 20 * np.log10(np.abs(np.conj(codebook_weights(pos, az)) @ a)).max()
+    grid = 20 * np.log10(
+        np.abs(np.conj(codebook_weights_2d(pos, az, codebook_angles(-10.0, 40.0, 5.0))) @ a)
+    ).max()
+    assert flat == pytest.approx(-9.84, abs=0.01)
+    assert grid == pytest.approx(11.98, abs=0.01)
+
+
+def _steep_scene(elevation_deg: float = 30.0) -> Scene:
+    """One TRP (yaw 0) and a drone 60 m out at local azimuth 0 and the given
+    elevation, a street UE and a second UE high up."""
+    center_z = 20.0 + 60.0 * math.tan(math.radians(elevation_deg))
+    return Scene(
+        scene_id="steep",
+        devices=[
+            _dev("t1", "tx", (0, 0, 20), power_dbm=43.0),
+            _dev("t1_rx", "rx", (0, 0, 20)),
+            _dev("ue1", "rx", (40, -20, 1.5)),
+            _dev("ue2", "rx", (50, 5, 45)),
+        ],
+        actors=[
+            Actor(
+                id="uav_01", kind="uav", position=[60.0, 0.0, center_z - 0.5],
+                sensing={"model": "constant", "rcs_dbsm": -10.0, "size_m": [1.0, 1.0, 1.0]},
+            )
+        ],
+    )
+
+
+def test_run_isac_elevation_codebook_mock():
+    scene = _steep_scene(25.0)
+    flat = _run_mock(scene)
+    grid = _run_mock(scene, elevation_start_deg=-10, elevation_stop_deg=40, elevation_step_deg=5)
+    az = codebook_angles(-60.0, 60.0, 5.0)
+    el = codebook_angles(-10.0, 40.0, 5.0)
+    assert grid.metadata["codebook_size"] == 25 * 11
+    assert grid.metadata["codebook_shape"] == [11, 25]
+    assert grid.metadata["model"] == ISAC_MODEL_2D
+    assert grid.metadata["request"]["elevation_step_deg"] == 5
+    tx, ftx = grid.txs[0], flat.txs[0]
+    assert len(tx.beams) == 275 and len(tx.points) == 1 + 7 * 275
+    # Elevation outer, azimuth inner; angles_deg / elevations_deg follow the beams.
+    assert tx.angles_deg == [a for _ in el for a in az]
+    assert tx.elevations_deg == [e for e in el for _ in az]
+    assert [b.elevation_deg for b in tx.beams] == tx.elevations_deg
+    assert [b.angle_deg for b in tx.beams] == tx.angles_deg
+    # The sensing beam finds the drone in both planes, on both ends.
+    assert (tx.sensing_beam_angle_deg, tx.sensing_beam_elevation_deg) == (0.0, 25.0)
+    best = tx.beams[tx.sensing_beam_idx]
+    assert best.target_best_rx_angle_deg == {"uav_01": 0.0}
+    assert best.target_best_rx_elevation_deg == {"uav_01": 25.0}
+    # One LoS echo on the grid point: 10 log10 N on each end over 1x1.
+    single = tx.target_single_element_snr_db["uav_01"]
+    assert best.sensing_snr_db == pytest.approx(single + 2 * 10 * math.log10(16), abs=1e-9)
+    # The azimuth-only codebook loses most of that to the vertical rows.
+    assert ftx.beams[ftx.sensing_beam_idx].sensing_snr_db < best.sensing_snr_db - 20.0
+    assert tx.elevation_gap_deg == abs(tx.comm_beam_elevation_deg - tx.sensing_beam_elevation_deg)
+    assert tx.angle_gap_deg == abs(tx.comm_beam_angle_deg - tx.sensing_beam_angle_deg)
+    # The elevation-0 TX slice is the azimuth-only codebook: the same comm
+    # SINRs, and echoes at least as strong (the RX may also tilt).
+    i0 = el.index(0.0)
+    for k, fb in enumerate(ftx.beams):
+        gb = tx.beams[i0 * 25 + k]
+        assert gb.sensing_snr_db >= fb.sensing_snr_db - 1e-9
+        for u, v in fb.ue_sinr_db.items():
+            assert gb.ue_sinr_db[u] == pytest.approx(v, abs=1e-9)
+    # Off: every elevation field stays None.
+    assert ftx.elevations_deg is None and ftx.comm_beam_elevation_deg is None
+    assert all(b.elevation_deg is None and b.target_best_rx_elevation_deg is None for b in ftx.beams)
+
+
+def test_run_isac_large_2d_codebook_chunks_the_echo_matrix():
+    # 61 x 21 = 1281 beams per end: 1.6M beam pairs, built in row chunks.
+    scene = _steep_scene(30.0)
+    result = _run_mock(
+        scene, sweep_start_deg=-60, sweep_stop_deg=60, sweep_step_deg=2,
+        elevation_start_deg=-10, elevation_stop_deg=30, elevation_step_deg=2,
+        slot_ratios=[0.0, 1.0],
+    )
+    tx = result.txs[0]
+    assert len(tx.beams) == 1281
+    assert (tx.sensing_beam_angle_deg, tx.sensing_beam_elevation_deg) == (0.0, 30.0)
+    single = tx.target_single_element_snr_db["uav_01"]
+    assert tx.beams[tx.sensing_beam_idx].sensing_snr_db == pytest.approx(
+        single + 2 * 10 * math.log10(16), abs=1e-9
+    )
+
+
+# ----------------------------------------------------- interference (C5)
+
+
+def test_interference_matches_the_hand_formula():
+    scene = _mock_scene()
+    # ue_association "all" without interference: every tx's RSS at every UE.
+    ref = _run_mock(scene, ue_association="all")
+    n0 = ref.noise_floor_dbm
+    rss = {
+        t.tx_id: {u: [b.ue_sinr_db[u] + n0 for b in t.beams] for u in ("ue1", "ue2")}
+        for t in ref.txs
+    }
+    for mode in ("dual_function", "time_sharing"):
+        res = _run_mock(scene, interference=True, sharing_mode=mode)
+        md = res.metadata
+        assert md["interference"] is True and md["interference_converged"] is True
+        assert 1 <= md["interference_rounds"] <= 10
+        assert md["ue_interferers"] == {"ue1": ["t2", "t3"], "ue2": ["t1", "t3"]}
+        assert md["interference_model"].startswith("synchronized slots")
+        by = {t.tx_id: t for t in res.txs}
+        comm = {t: by[t].comm_beam_idx for t in by}
+        sens = {t: by[t].sensing_beam_idx for t in by}
+        assert comm["t3"] is None and sens["t3"] is not None  # silent in comm slots only
+        for t, u in (("t1", "ue1"), ("t2", "ue2")):
+            others = [o for o in by if o != t]
+            i_comm = sum(10 ** (rss[o][u][comm[o]] / 10) for o in others if comm[o] is not None)
+            i_sens = sum(10 ** (rss[o][u][sens[o]] / 10) for o in others)
+            tx = by[t]
+            for k, beam in enumerate(tx.beams):
+                assert beam.ue_snr_db[u] == pytest.approx(rss[t][u][k] - n0, abs=1e-9)
+                assert beam.ue_interference_dbm[u] == pytest.approx(10 * math.log10(i_comm), abs=1e-9)
+                sinr = rss[t][u][k] - 10 * math.log10(10 ** (n0 / 10) + i_comm)
+                assert beam.ue_sinr_db[u] == pytest.approx(sinr, abs=1e-9)
+                assert beam.ue_sinr_db[u] < beam.ue_snr_db[u]
+                assert beam.sum_rate_bps_hz == pytest.approx(math.log2(1 + 10 ** (sinr / 10)))
+            assert tx.ue_interference_sensing_dbm[u] == pytest.approx(
+                10 * math.log10(i_sens), abs=1e-9
+            )
+            # Best response: the comm beam maximizes the interference-aware rate.
+            assert tx.comm_beam_idx == int(np.argmax([b.sum_rate_bps_hz for b in tx.beams]))
+            r_c = tx.beams[tx.comm_beam_idx].sum_rate_bps_hz
+            for p in tx.points:
+                if p.rho == 0.0:
+                    expected = r_c
+                elif mode == "time_sharing":
+                    expected = (1 - p.rho) * r_c
+                else:
+                    s_k = 10 ** (rss[t][u][p.beam_idx] / 10)
+                    expected = (1 - p.rho) * r_c + p.rho * math.log2(
+                        1 + s_k / (10 ** (n0 / 10) + i_sens)
+                    )
+                assert p.sum_rate_bps_hz == pytest.approx(expected, rel=1e-12, abs=1e-12)
+        # Sensing is untouched by interference.
+        plain = _run_mock(scene, sharing_mode=mode)
+        for a, b in zip(plain.txs, res.txs):
+            assert [x.sensing_snr_db for x in a.beams] == [x.sensing_snr_db for x in b.beams]
+            assert a.sensing_beam_idx == b.sensing_beam_idx
+
+
+def test_interference_single_tx_and_off_are_unchanged():
+    scene = _mock_scene()
+    alone = _run_mock(scene, tx_ids=["t1"])
+    on = _run_mock(scene, tx_ids=["t1"], interference=True)
+    tx = on.txs[0]
+    assert tx.ue_ids == ["ue1", "ue2"]
+    for b in tx.beams:
+        assert b.ue_sinr_db == b.ue_snr_db
+        assert all(v is None for v in b.ue_interference_dbm.values())
+    assert tx.ue_interference_sensing_dbm == {"ue1": None, "ue2": None}
+    assert on.metadata["ue_interferers"] == {"ue1": [], "ue2": []}
+    assert on.metadata["interference_rounds"] == 1
+    b = on.model_dump(mode="json")
+    for t in b["txs"]:
+        t["ue_interference_sensing_dbm"] = None
+        for beam in t["beams"]:
+            beam["ue_snr_db"] = beam["ue_interference_dbm"] = None
+    b = _v0112_shape(type(on).model_validate(b))
+    for key in ("interference", "ue_interferers", "interference_rounds",
+                "interference_converged", "interference_model"):
+        b["metadata"].pop(key)
+    assert b["metadata"]["request"].pop("interference") is True
+    assert _v0112_shape(alone) == b
+    # Off is the default code path: the same dump as a request without the field.
+    assert _run_mock(scene, interference=False).model_dump(mode="json") == _run_mock(
+        scene
+    ).model_dump(mode="json")
+
+
+def test_tradeoff_points_sensing_slot_rates_and_model():
+    rates = [{"u": 3.0}, {"u": 1.0}]
+    slot = [{"u": 2.0}, {"u": 0.5}]
+    pfa = 1e-6
+    dual = tradeoff_points(["u"], rates, 0, [20.0, 25.0], [0.0, 0.5], "dual_function", pfa,
+                           sensing_slot_rates=slot)
+    assert [p.sum_rate_bps_hz for p in dual] == [3.0, 0.5 * 3.0 + 0.5 * 2.0, 0.5 * 3.0 + 0.5 * 0.5]
+    ts = tradeoff_points(["u"], rates, 0, [20.0, 25.0], [0.0, 0.5], "time_sharing", pfa,
+                         sensing_slot_rates=slot)
+    assert [p.sum_rate_bps_hz for p in ts] == [3.0, 1.5, 1.5]
+    sw3 = tradeoff_points(["u"], rates, 0, [20.0, 25.0], [0.0, 0.5], "dual_function", pfa,
+                          model="swerling3")
+    assert sw3[1].pd == pd_swerling(20.0 + 10 * math.log10(0.5), pfa, "swerling3")
+    assert sw3[0].pd == pfa
+
+
+# ------------------------------------------------------- detector (C2)
+
+
+def test_isac_detector_model_changes_pd_not_snr():
+    scene = _mock_scene()
+    base = _run_mock(scene)
+    sw3 = _run_mock(scene, detector={"model": "swerling3"})
+    for a, b in zip(base.txs, sw3.txs):
+        assert [x.sensing_snr_db for x in a.beams] == [x.sensing_snr_db for x in b.beams]
+        assert [x.ue_sinr_db for x in a.beams] == [x.ue_sinr_db for x in b.beams]
+        for beam in b.beams:
+            assert beam.pd == pd_swerling(beam.sensing_snr_db, 1e-6, "swerling3")
+            assert beam.pd_mc is None
+        assert any(x.pd != y.pd for x, y in zip(a.beams, b.beams))
+    assert sw3.metadata["snr_for_pd_target_db"] == pytest.approx(17.30, abs=0.01)
+    assert sw3.metadata["snr_for_pd_target_db"] == snr_for_pd(0.9, 1e-6, "swerling3")
+    assert sw3.metadata["pd_at_threshold"] == pd_swerling(13.0, 1e-6, "swerling3")
+    assert sw3.metadata["detector"]["model"] == "swerling3"
+    assert "pfa_measured" not in sw3.metadata["detector"]
+    assert sw3.metadata["request"]["detector"]["model"] == "swerling3"
+
+
+def test_isac_monte_carlo_on_beams_with_echo_and_pareto_points():
+    scene = _mock_scene()
+    trials = 20_000
+    kw = dict(
+        pfa=1e-3, sweep_start_deg=-30, sweep_stop_deg=30, sweep_step_deg=10,
+        detector={"model": "swerling1", "monte_carlo_trials": trials, "seed": 4},
+    )
+    res = _run_mock(scene, **kw)
+    det = res.metadata["detector"]
+    assert det["monte_carlo_trials"] == trials
+    assert det["threshold"] == pytest.approx(-math.log(1e-3))
+    assert det["pfa_measured_ci"][0] <= 1e-3 <= det["pfa_measured_ci"][1]
+    for tx in res.txs:
+        for beam in tx.beams:
+            assert beam.sensing_snr_db is not None and beam.pd_mc is not None
+            lo, hi = wilson_ci(round(beam.pd_mc * trials), trials, 3.29)
+            assert lo <= beam.pd <= hi
+        for p in tx.points:
+            if p.pareto and p.rho > 0.0:
+                assert p.pd_mc is not None
+                lo, hi = wilson_ci(round(p.pd_mc * trials), trials, 3.29)
+                assert lo <= p.pd <= hi
+            else:
+                assert p.pd_mc is None
+        assert any(p.pareto and p.rho > 0.0 for p in tx.points)
+    # Reproducible: streams keyed by seed, tx and beam / point.
+    again = _run_mock(scene, **kw)
+    assert again.model_dump(mode="json")["txs"] == res.model_dump(mode="json")["txs"]
+
+    class _NoEcho(MockBackend):
+        def simulate_sensing(self, *args, **kwargs):
+            result = super().simulate_sensing(*args, **kwargs)
+            result.paths = []
+            return result
+
+    req = ISACRequest(detector={"monte_carlo_trials": 1000})
+    empty = run_isac(
+        _NoEcho(), Path("."), scene, load_default_library(), SimulationConfig(**MOCK_CFG),
+        req, plan_isac_roles(scene, None, None, None), select_targets(scene, None),
+    )
+    assert all(b.pd_mc is None for t in empty.txs for b in t.beams)
+    assert all(p.pd_mc is None for t in empty.txs for p in t.points)
+
+
+def test_api_isac_phase_c(client):
+    # 3 tx x 25 beams x (1 + 7 ratios) = 600 estimates x 2e6 > 2e8: 400 before the solve.
+    resp = _post(client, {"config": MOCK_CFG, "detector": {"monte_carlo_trials": 2_000_000}})
+    assert resp.status_code == 400, resp.text
+    detail = resp.json()["detail"]
+    assert "600 Pd estimates" in detail and "at most 200000000" in detail
+    assert client.get(f"/api/projects/{PID}/scene").json()["result_sets"] == []
+    # Empirical threshold at Pfa 1e-6 needs 2e7 trials (over the per-estimate cap).
+    resp = _post(client, {"config": MOCK_CFG,
+                          "detector": {"monte_carlo_trials": 1000, "empirical_threshold": True}})
+    assert resp.status_code == 422
+    assert _post(client, {"config": MOCK_CFG, "interference": True,
+                          "ue_association": "all"}).status_code == 422
+    assert _post(client, {"config": MOCK_CFG, "elevation_start_deg": 0}).status_code == 422
+    body = {"config": MOCK_CFG, "elevation_start_deg": -10, "elevation_stop_deg": 40,
+            "elevation_step_deg": 10, "interference": True, "detector": {"model": "swerling0"}}
+    resp = _post(client, body)
+    assert resp.status_code == 200, resp.text
+    out = resp.json()
+    assert out["metadata"]["codebook_shape"] == [6, 25]
+    assert out["metadata"]["interference"] is True
+    assert out["txs"][0]["elevations_deg"][:26] == [-10.0] * 25 + [0.0]
+    from seam_studio.api.simulate import _sha256
+
+    assert out["metadata"]["request_hash"] == _sha256(out["metadata"]["request"])

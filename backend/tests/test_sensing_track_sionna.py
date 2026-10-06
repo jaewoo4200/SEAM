@@ -147,6 +147,10 @@ def test_sionna_scenario_sensing_fuses_the_true_track(project: Path, monkeypatch
         # The comm paths follow the echoes with Sionna's per-path Doppler.
         comm = [p for p in sensing.echoes if p.target_id is None]
         assert comm and all(p.doppler_hz is not None for p in comm), i
+        # v0.1.13: the frame stores the TX/RX kinematics its fusion used.
+        assert [n.id for n in sensing.nodes] == [*TRPS, *(f"{k}_rx" for k in TRPS)]
+        assert all(n.position == pytest.approx(list(TRPS[n.id.removesuffix("_rx")]))
+                   and n.velocity == [0.0, 0.0, 0.0] for n in sensing.nodes)
 
     # The frame-mode solves leave the cached scene as a plain load.
     rt_scene = _load_scene_cached(project / "rf" / "generated_scene.xml", [])

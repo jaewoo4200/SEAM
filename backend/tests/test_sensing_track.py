@@ -335,6 +335,30 @@ def test_fusion_three_links_ambiguous_without_prior():
     assert found.status == "ok" and math.dist(found.position, p_true) < 1e-6
 
 
+def test_fusion_merges_sites_within_one_metre():
+    # A sensing RX 0.6 m from its TX is the same site (the ISAC co-location
+    # rule, shared with the coverage map), so trp1 -> trp3_rx and trp3 ->
+    # trp1_rx are one ellipsoid. The v0.1.12 rule (0.5 m, pairwise) kept both.
+    consts = detection_constants(_config(), SensingTrackOptions())
+    off = np.array([0.6, 0.0, 0.0])
+    nodes = {k: (list(p), [0.0, 0.0, 0.0]) for k, p in TRPS.items()}
+    nodes.update({f"{k}_rx": (list(np.array(p) + off), [0.0, 0.0, 0.0]) for k, p in TRPS.items()})
+
+    def report(tx, rx, snr):
+        r = math.dist(P_TRUE, nodes[tx][0]) + math.dist(P_TRUE, nodes[f"{rx}_rx"][0])
+        return SensingLinkReport(
+            tx_id=tx, rx_id=f"{rx}_rx", target_id="uav_01", detected=True,
+            reason="detected", snr_db=snr, measured_range_m=r, measured_doppler_hz=150.0,
+        )
+
+    reports = [report("trp1", "trp3", 20.0), report("trp3", "trp1", 25.0),
+               report("trp4", "trp4", 18.0), report("trp6", "trp6", 17.0)]
+    est = estimate_target(_target_at(P_TRUE), reports, nodes, consts, None, 0.0)
+    assert est.n_links_detected == 4 and est.n_links_used == 3
+    assert est.links_used == ["trp3>trp1_rx", "trp4>trp4_rx", "trp6>trp6_rx"]
+    assert est.status == "ok" and est.position_error_m < 0.05
+
+
 def test_fusion_two_nodes_is_degenerate():
     # Three links over only two nodes: every ellipsoid is symmetric about the
     # node axis, so the solutions form a circle and the Jacobian is rank 2.
@@ -842,7 +866,9 @@ def test_api_scenario_sensing_200_and_reload(client):
     body = resp.json()
     assert body["result_id"] == "mock_scenario_001" and body["kind"] == "scenario"
     frame = body["frames"][0]
-    assert set(frame["sensing"]) == {"echoes", "links", "estimates"}
+    # nodes: v0.1.13 per-frame TX/RX kinematics.
+    assert set(frame["sensing"]) == {"echoes", "links", "estimates", "nodes"}
+    assert len(frame["sensing"]["nodes"]) == 8
     assert len(frame["sensing"]["links"]) == 16
     assert frame["sensing"]["estimates"][0]["status"] == "ok"
     summary = body["metadata"]["sensing"]
@@ -911,6 +937,8 @@ def test_openapi_pins_scenario_sensing():
         "enabled", "threshold_db", "cpi_s", "cpi_pulses", "mti_min_doppler_hz",
         "include_comm_paths", "target_actor_ids", "samples_per_sp", "max_depth",
         "measurement_noise", "noise_seed",
+        # v0.1.13 (Phase C): EKF tracking, detector model, link-report Pfa.
+        "tracking", "detector", "pfa",
     }
     for name in ("SensingLinkReport", "TargetEstimate", "SensingFrame"):
         assert name in components, name
@@ -939,3 +967,185 @@ def test_stored_v0110_scenario_json_still_validates():
     }
     result = ScenarioResultSet.model_validate(stored)
     assert result.frames[0].sensing is None
+
+
+# ------------------------------------------------- v0.1.13 (ISAC Phase C)
+
+# A v0.1.12 mock run (4 frames, noisy, seed 3), computed with the v0.1.12
+# code: position_est, velocity_est, position_error_m, sum of measured ranges.
+V012_PIN = [
+    ([-29.25558004895766, 0.23782117573314238, 60.68760275237849],
+     [9.895317434747442, -0.42526884163979306, 0.021988827599850505],
+     0.9629339708000871, 3393.8926978176046),
+    ([-25.209616016162013, 0.5701230183386533, 59.76184430159438],
+     [10.35642686945149, -0.02671136408171387, 0.34669808331351587],
+     0.7077154735878561, 3327.7230682254244),
+    ([-19.375155399021637, 0.24468985900319842, 60.555508816126206],
+     [10.102018691017447, -0.14863226491682013, 0.03235215740257456],
+     0.7972714363585359, 3255.592999368356),
+    ([-13.572380190522797, 0.5164424899156839, 61.135705928887006],
+     [9.752759646015669, -0.24009211469624467, -0.4815245531514199],
+     1.8238250027043121, 3197.994206380758),
+]
+V012_OPTIONS = {
+    "cpi_pulses": 4096, "cpi_s": 0.01, "enabled": True, "include_comm_paths": False,
+    "max_depth": None, "measurement_noise": True, "mti_min_doppler_hz": None, "noise_seed": 3,
+    "samples_per_sp": 1000000, "target_actor_ids": None, "threshold_db": 13.0,
+}
+TRACK_FIELDS = (
+    "track_status", "track_position", "track_velocity", "track_position_error_m",
+    "track_velocity_error_m_s", "track_position_std_m", "track_updates", "track_gated",
+)
+
+
+def test_phase_c_defaults_reproduce_v0112():
+    knobs = dict(num_frames=4, cpi_pulses=4096, measurement_noise=True, noise_seed=3)
+    off = _scenario(_trp_scene(), _config(), **knobs)
+    disabled = _scenario(_trp_scene(), _config(), **knobs, tracking={"enabled": False})
+    assert disabled.model_dump() == off.model_dump()
+
+    for frame, (pos, vel, err, ranges) in zip(off.frames, V012_PIN):
+        est = frame.sensing.estimates[0]
+        assert est.position_est == pytest.approx(pos, abs=1e-9)
+        assert est.velocity_est == pytest.approx(vel, abs=1e-9)
+        assert est.position_error_m == pytest.approx(err, abs=1e-9)
+        assert sum(r.measured_range_m for r in frame.sensing.links) == pytest.approx(
+            ranges, abs=1e-6
+        )
+        assert all(getattr(est, f) is None for f in TRACK_FIELDS)
+        assert all(r.pd is None and r.pd_mc is None for r in frame.sensing.links)
+    summary = off.metadata["sensing"]
+    assert summary["options"] == V012_OPTIONS  # no Phase C keys
+    assert summary["median_position_error_m"] == pytest.approx(0.8801027035793115, abs=1e-9)
+    assert summary["median_velocity_error_m_s"] == pytest.approx(0.4682320566044862, abs=1e-9)
+    assert "tracking_model" not in summary and "median_track_position_error_m" not in summary
+    assert not any("track" in k for k in summary["targets"]["uav_01"])
+
+
+def test_frame_nodes_are_the_trackers_kinematics():
+    scene = _ego_radar_scene(_uav(), devices=_trp_scene().devices)
+    result = _scenario(scene, _config(), num_frames=3, cpi_pulses=4096)
+    for frame in result.frames:
+        nodes = frame.sensing.nodes
+        tx_ids = [d.id for d in scene.devices if d.kind == "tx"]
+        rx_ids = [d.id for d in scene.devices if d.kind == "rx"]
+        assert [n.id for n in nodes] == tx_ids + rx_ids  # every TX, then every RX
+        by_id = {n.id: n for n in nodes}
+        moved = {d.id: d.position for d in frame.device_states}
+        for dev in scene.devices:
+            assert by_id[dev.id].position == pytest.approx(moved.get(dev.id, dev.position))
+        assert by_id["ego_tx"].velocity == pytest.approx([15.0, 0.0, 0.0])
+        assert by_id["ego_rx"].velocity == pytest.approx([15.0, 0.0, 0.0])
+        assert by_id["trp1"].velocity == [0.0, 0.0, 0.0]
+
+
+def test_link_pd_follows_the_detector_model():
+    from seam_studio.services.detector import pd_swerling, wilson_ci
+    from seam_studio.services.sensing_track import swerling1_pd
+
+    scene = _trp_scene()
+    plain = _scenario(scene, _config(), num_frames=2, cpi_pulses=4096)
+    assert all(r.pd is None for f in plain.frames for r in f.sensing.links)
+
+    sw1 = _scenario(scene, _config(), num_frames=2, cpi_pulses=4096, pfa=1e-6)
+    sw3 = _scenario(scene, _config(), num_frames=2, cpi_pulses=4096, pfa=1e-6,
+                    detector={"model": "swerling3"})
+    for f1, f3, f0 in zip(sw1.frames, sw3.frames, plain.frames):
+        for r1, r3, r0 in zip(f1.sensing.links, f3.sensing.links, f0.sensing.links):
+            assert r1.pd == swerling1_pd(r1.snr_db, 1e-6)  # bit-identical
+            assert r3.pd == pd_swerling(r3.snr_db, 1e-6, "swerling3")
+            assert r1.pd_mc is None
+            # Pd never changes a detection or a measurement.
+            assert r1.model_copy(update={"pd": None}) == r0
+        assert f1.sensing.estimates == f0.sensing.estimates
+
+    trials = 20_000
+    mc = _scenario(scene, _config(), num_frames=2, cpi_pulses=4096, pfa=1e-3,
+                   detector={"monte_carlo_trials": trials, "seed": 5})
+    again = _scenario(scene, _config(), num_frames=2, cpi_pulses=4096, pfa=1e-3,
+                      detector={"monte_carlo_trials": trials, "seed": 5})
+    assert mc.model_dump() == again.model_dump()
+    for frame in mc.frames:
+        for r in frame.sensing.links:
+            assert r.snr_db is not None and r.pd_mc is not None
+            lo, hi = wilson_ci(round(r.pd_mc * trials), trials, z=4.0)
+            assert lo <= r.pd <= hi, r
+    assert mc.metadata["sensing"]["options"]["detector"]["monte_carlo_trials"] == trials
+
+    # No echo: Pd = Pfa, no Monte Carlo.
+    opts = SensingTrackOptions(pfa=1e-3, detector={"monte_carlo_trials": 100})
+    none = sensing_track.with_link_pd(
+        SensingLinkReport(tx_id="a", rx_id="b", target_id="uav_01"), opts, 0, 0
+    )
+    assert none.pd == 1e-3 and none.pd_mc is None
+
+
+def test_link_monte_carlo_costs_one_sample_per_trial():
+    # 976 trials x 4096 pulses fit the old explicit-pulse budget (4e6), so
+    # every link drew all 4e6 pulses (~1000x the cost of 977 trials) while
+    # the 400 budget counted 976. Now a link's draw ignores cpi_pulses: it is
+    # the cpi_pulses = 1 stream exactly.
+    from seam_studio.services.detector import monte_carlo_pd
+
+    trials = 976
+    res = _scenario(_trp_scene(), _config(), num_frames=1, cpi_pulses=4096, pfa=1e-3,
+                    detector={"monte_carlo_trials": trials, "seed": 2})
+    links = res.frames[0].sensing.links
+    assert all(r.snr_db is not None for r in links)
+    for k, r in enumerate(links):
+        mc = monte_carlo_pd(r.snr_db, 1e-3, trials, "swerling1", seed=[2, 0, k],
+                            cpi_pulses=1, measure_pfa=False)
+        assert r.pd_mc == mc.pd
+
+
+def test_link_pd_with_an_empirical_threshold():
+    # Each link draws its own noise-only run for the threshold (no measured
+    # Pfa is stored per link); pd_mc still estimates the analytic pd.
+    from seam_studio.services.detector import wilson_ci
+
+    trials = 20_000
+    knobs = dict(num_frames=2, cpi_pulses=4096, pfa=1e-3,
+                 detector={"monte_carlo_trials": trials, "empirical_threshold": True})
+    res = _scenario(_trp_scene(), _config(), **knobs)
+    assert res.model_dump() == _scenario(_trp_scene(), _config(), **knobs).model_dump()
+    for frame in res.frames:
+        for r in frame.sensing.links:
+            lo, hi = wilson_ci(round(r.pd_mc * trials), trials, z=4.0)
+            assert lo <= r.pd <= hi, r
+
+
+def test_api_scenario_mc_budget_400(client):
+    # 10 frames x 4 tx x 4 rx x 1 target = 160 link estimates x 2e6 > 2e8.
+    sensing = {**SENSING, "pfa": 1e-6, "detector": {"monte_carlo_trials": 2_000_000}}
+    resp = _post(client, sensing, num_frames=10)
+    assert resp.status_code == 400
+    assert "Monte Carlo trials" in resp.json()["detail"]
+    assert client.get(f"/api/projects/{PID}/scene").json()["result_sets"] == []
+    assert _post(client, {**SENSING, "detector": {"monte_carlo_trials": 10}}).status_code == 422
+    ok = _post(client, {**sensing, "detector": {"monte_carlo_trials": 1000}}, num_frames=2)
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["frames"][0]["sensing"]["links"][0]["pd_mc"] is not None
+    # An empirical threshold doubles each link's draws (its noise run):
+    # 1e6 x 160 = 1.6e8 fits, 2 x 1.6e8 does not.
+    empirical = {**SENSING, "pfa": 1e-3,
+                 "detector": {"monte_carlo_trials": 1_000_000, "empirical_threshold": True}}
+    resp = _post(client, empirical, num_frames=10)
+    assert resp.status_code == 400 and "noise run" in resp.json()["detail"]
+
+
+def test_openapi_pins_tracking_and_sensing_dataset():
+    from seam_studio.main import app
+
+    schema = app.openapi()
+    components = schema["components"]["schemas"]
+    assert set(components["TrackingOptions"]["properties"]) == {
+        "enabled", "process_accel_sigma_m_s2", "gate_chi2", "init_from",
+        "coast_max_frames", "max_position_std_m", "use_as_prior",
+    }
+    assert {"track_status", "track_position", "track_updates"} <= set(
+        components["TargetEstimate"]["properties"]
+    )
+    route = schema["paths"]["/api/projects/{project_id}/export/sensing-dataset"]["post"]
+    assert route["responses"]["200"]["content"]["application/json"]["schema"]["$ref"].endswith(
+        "SensingDatasetExportResult"
+    )

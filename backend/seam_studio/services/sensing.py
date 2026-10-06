@@ -31,6 +31,10 @@ if TYPE_CHECKING:
 
 SENSING_TARGET_PREFIX = "seam-st-"  # sionna SensingTarget name prefix
 SENSING_PATH_PREFIX = "sensing_"  # RayPath.path_id prefix
+# Positions this close are one site: an RX within it of a TX is that TX's
+# co-located sensing receiver, and links between the same two sites are one
+# bistatic ellipsoid (ISAC roles, coverage fusion count, scenario fusion).
+COLOCATED_SENSING_RX_M = 1.0
 
 
 class SensingRequestError(ValueError):
@@ -72,6 +76,55 @@ def bistatic_radar_gain_db(wavelength_m, rcs_dbsm, r_tx_m, r_rx_m):
         wavelength_m**2 * 10.0 ** (np.asarray(rcs_dbsm) / 10.0)
         / ((4.0 * np.pi) ** 3 * d1**2 * d2**2)
     )
+
+
+def site_index(
+    points: Sequence[Sequence[float]], tol_m: float = COLOCATED_SENSING_RX_M
+) -> list[int]:
+    """Site of each point: points chained within ``tol_m`` (<=) form one site
+    (union-find, so A-B and B-C within tol make A, B, C one site even when
+    A-C is not). The value is the index of the site's first point."""
+    pts = [tuple(float(c) for c in p) for p in points]
+    parent = list(range(len(pts)))
+
+    def root(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for i in range(len(pts)):
+        for j in range(i):
+            if math.dist(pts[i], pts[j]) <= tol_m:
+                parent[root(i)] = root(j)
+    first: dict[int, int] = {}
+    return [first.setdefault(root(i), i) for i in range(len(pts))]
+
+
+def geometry_groups(
+    links: Sequence[tuple[Sequence[float], Sequence[float]]],
+    tol_m: float = COLOCATED_SENSING_RX_M,
+) -> list[int]:
+    """Group index per (tx position, rx position) link: links between the same
+    two sites (``site_index``), in either order, share one (one bistatic
+    ellipsoid), numbered by first appearance. A TRP whose sensing panel sits
+    up to ``tol_m`` from its TX is one focus, so A -> B_rx and B -> A_rx stay
+    one geometry."""
+    points: list[tuple[float, ...]] = []
+    for t, r in links:
+        for p in (t, r):
+            key = tuple(float(c) for c in p)
+            if key not in points:
+                points.append(key)
+    site = dict(zip(points, site_index(points, tol_m)))
+    numbering: dict[frozenset[int], int] = {}
+    groups: list[int] = []
+    for t, r in links:
+        key = frozenset(
+            (site[tuple(float(c) for c in t)], site[tuple(float(c) for c in r)])
+        )
+        groups.append(numbering.setdefault(key, len(numbering)))
+    return groups
 
 
 def resolve_target(actor: Actor) -> ResolvedSensingTarget:

@@ -20,6 +20,14 @@ convention (positive = closing):
 
 where k_ts = unit(TX -> target) and k_sr = unit(target -> RX).
 
+With ``sensing.tracking.enabled`` a constant-velocity EKF per target runs on
+top: it starts (and, after a manoeuvre its prediction cannot explain,
+restarts) from an ok fusion, predicts over each frame's dt, and updates
+with every detected direct link's range sum and Doppler one scalar at a time
+(chi-square gated), so frames with one or two links still refine the track.
+A track is dropped after too many frames without an accepted scalar or once
+its position sigma exceeds ``max_position_std_m``.
+
 Association is an oracle: the ray tracer labels each echo with its target and
 direct/multipath type, which a real receiver would have to infer.
 """
@@ -40,18 +48,28 @@ from seam_studio.schemas.results import (
     RayPath,
     SensingFrame,
     SensingLinkReport,
+    SensingNodeState,
     TargetEstimate,
 )
 from seam_studio.schemas.scene import Scene
-from seam_studio.schemas.sensing import SensingSimulateRequest, SensingTrackOptions
+from seam_studio.schemas.sensing import (
+    SensingSimulateRequest,
+    SensingTrackOptions,
+    TrackingOptions,
+    metadata_dump,
+)
 from seam_studio.schemas.simulation import SimulationConfig
+from seam_studio.services.detector import monte_carlo_pd, pd_swerling
 from seam_studio.services.scenario import _frame_scene
-from seam_studio.services.sensing import ResolvedSensingTarget, resolve_target_state
+from seam_studio.services.sensing import (
+    ResolvedSensingTarget,
+    geometry_groups,
+    resolve_target_state,
+)
 from seam_studio.services.simulation_backends.base import RayTracingBackend
 from seam_studio.services.simulation_backends.sionna_backend import noise_floor_dbm
 
 SPEED_OF_LIGHT = 299_792_458.0
-SAME_GEOMETRY_TOL_M = 0.5  # two links with the same foci (either order) are one ellipsoid
 GN_MAX_ITER = 50
 GN_STEP_TOL_M = 1e-7
 GN_MIN_STEP_SCALE = 1.0 / 1024.0
@@ -63,6 +81,14 @@ GROUND_KINDS = ("car", "human")  # actor kinds whose fusion tie goes toward z = 
 # Floor for the linear SNR in the measurement-noise sigma (-300 dB), so an
 # absurdly weak echo cannot divide by zero.
 _MIN_SNR_LIN = 1e-30
+# Floor of the EKF measurement sigmas (m, Hz): a very strong echo must not
+# make the innovation variance vanish.
+_MIN_TRACK_SIGMA = 1e-3
+
+TRACKING_MODEL = (
+    "CV EKF, DWNA process noise, sequential scalar range/Doppler updates, chi2(1) gate"
+)
+TRACKED_STATUSES = ("init", "tracking", "coasting")
 
 # Node id -> (position, velocity) in one frame.
 Nodes = dict[str, tuple[list[float], list[float]]]
@@ -209,6 +235,36 @@ def link_report(
         detected=reason == "detected",
         reason=reason,
     )
+
+
+def with_link_pd(
+    report: SensingLinkReport,
+    options: SensingTrackOptions,
+    frame_index: int,
+    link_index: int,
+) -> SensingLinkReport:
+    """``report`` with its Pd at ``options.pfa`` under the detector model, and
+    a Monte Carlo of it (seeded by frame and link) when trials > 0 and there
+    is an echo. Detection itself stays the snr_db >= threshold_db test."""
+    if options.pfa is None:
+        return report
+    det = options.detector
+    pd = float(pd_swerling(report.snr_db, options.pfa, det.model))
+    pd_mc: Optional[float] = None
+    if det.monte_carlo_trials > 0 and report.snr_db is not None:
+        pd_mc = float(
+            monte_carlo_pd(
+                report.snr_db,
+                options.pfa,
+                det.monte_carlo_trials,
+                det.model,
+                seed=[det.seed, frame_index, link_index],
+                cpi_pulses=options.cpi_pulses,
+                empirical_threshold=det.empirical_threshold,
+                measure_pfa=False,
+            ).pd
+        )
+    return report.model_copy(update={"pd": pd, "pd_mc": pd_mc})
 
 
 # ------------------------------------------------------------------ fusion
@@ -407,13 +463,6 @@ def solve_doppler_velocity(
     return [float(c) for c in v]
 
 
-def _same_geometry(t1, s1, t2, s2) -> bool:
-    def close(a, b) -> bool:
-        return math.dist(a, b) < SAME_GEOMETRY_TOL_M
-
-    return (close(t1, t2) and close(s1, s2)) or (close(t1, s2) and close(s1, t2))
-
-
 def estimate_target(
     target: ResolvedSensingTarget,
     reports: list[SensingLinkReport],
@@ -435,12 +484,14 @@ def estimate_target(
         (r for r in detected if not r.multipath),
         key=lambda r: (-(r.snr_db or 0.0), r.tx_id, r.rx_id),
     )
+    # One link per bistatic ellipsoid (sites within COLOCATED_SENSING_RX_M,
+    # either order), the highest-SNR one.
+    groups = geometry_groups([(nodes[r.tx_id][0], nodes[r.rx_id][0]) for r in candidates])
+    seen: set[int] = set()
     kept: list[SensingLinkReport] = []
-    for r in candidates:
-        t, s = nodes[r.tx_id][0], nodes[r.rx_id][0]
-        if not any(
-            _same_geometry(t, s, nodes[k.tx_id][0], nodes[k.rx_id][0]) for k in kept
-        ):
+    for r, g in zip(candidates, groups):
+        if g not in seen:
+            seen.add(g)
             kept.append(r)
 
     position_true = [float(c) for c in target.center]
@@ -516,16 +567,245 @@ def estimate_target(
     )
 
 
+# ------------------------------------------------------------------ EKF
+#
+# State x = [p (3), v (3)] in the world frame, constant velocity between
+# frames. Measurements are scalars, one range sum and one Doppler per detected
+# direct link, applied one at a time and re-linearized at the current state.
+
+
+@dataclass(frozen=True)
+class TrackMeasurement:
+    kind: str  # "range" | "doppler"
+    value: float
+    sigma: float
+    tx: tuple[list[float], list[float]]  # (position, velocity)
+    rx: tuple[list[float], list[float]]
+    link: str  # "tx_id>rx_id"
+
+
+@dataclass
+class TargetTrack:
+    x: np.ndarray  # [6]
+    P: np.ndarray  # [6, 6]
+    time_s: float
+    coast: int = 0  # consecutive frames without an accepted measurement
+
+
+def measurement_sigmas(snr_db: Optional[float], consts: dict) -> tuple[float, float]:
+    """(range-sum sigma [m], Doppler sigma [Hz]) of one link: cell / sqrt(2 SNR),
+    cell = c/B and 1/CPI, the measurement-noise rule, floored at 1e-3."""
+    snr_lin = max(10.0 ** ((snr_db or 0.0) / 10.0), _MIN_SNR_LIN)
+    root = math.sqrt(2.0 * snr_lin)
+    return (
+        max(consts["bistatic_range_resolution_m"] / root, _MIN_TRACK_SIGMA),
+        max(consts["doppler_resolution_hz"] / root, _MIN_TRACK_SIGMA),
+    )
+
+
+def cv_predict(
+    x: np.ndarray, P: np.ndarray, dt: float, accel_sigma: float
+) -> tuple[np.ndarray, np.ndarray]:
+    """Constant-velocity prediction over ``dt`` with discrete white noise
+    acceleration (piecewise constant over the step, std ``accel_sigma``):
+    Q = sigma_a^2 [[dt^4/4 I, dt^3/2 I], [dt^3/2 I, dt^2 I]]."""
+    eye = np.eye(3)
+    F = np.eye(6)
+    F[:3, 3:] = dt * eye
+    q = accel_sigma * accel_sigma
+    Q = np.zeros((6, 6))
+    Q[:3, :3] = q * dt**4 / 4.0 * eye
+    Q[:3, 3:] = Q[3:, :3] = q * dt**3 / 2.0 * eye
+    Q[3:, 3:] = q * dt * dt * eye
+    return F @ x, F @ P @ F.T + Q
+
+
+def _safe_unit(v: np.ndarray) -> tuple[np.ndarray, float]:
+    n = float(np.linalg.norm(v))
+    return (v / n, n) if n > 1e-9 else (np.zeros(3), n)
+
+
+def range_model(
+    x: np.ndarray, tx_pos: Sequence[float], rx_pos: Sequence[float]
+) -> tuple[float, np.ndarray]:
+    """h_R = |p - t| + |p - s| and its Jacobian [u(p - t) + u(p - s), 0]."""
+    p = x[:3]
+    u_t, n_t = _safe_unit(p - np.asarray(tx_pos, dtype=float))
+    u_s, n_s = _safe_unit(p - np.asarray(rx_pos, dtype=float))
+    H = np.zeros(6)
+    H[:3] = u_t + u_s
+    return n_t + n_s, H
+
+
+def doppler_model(
+    x: np.ndarray,
+    tx: tuple[Sequence[float], Sequence[float]],
+    rx: tuple[Sequence[float], Sequence[float]],
+    wavelength_m: float,
+) -> tuple[float, np.ndarray]:
+    """h_f = (v_t . k_ts - v_s . k_sr + v . (k_sr - k_ts)) / lambda (positive =
+    closing, the solve_doppler_velocity row model) and its Jacobian:
+    dh/dp = [(I - k_ts k_ts^T)(v_t - v)/|p - t| + (I - k_sr k_sr^T)(v_s - v)/|s - p|] / lambda,
+    dh/dv = (k_sr - k_ts) / lambda."""
+    p, v = x[:3], x[3:]
+    t, v_t = np.asarray(tx[0], dtype=float), np.asarray(tx[1], dtype=float)
+    s, v_s = np.asarray(rx[0], dtype=float), np.asarray(rx[1], dtype=float)
+    k_ts, r_t = _safe_unit(p - t)
+    k_sr, r_s = _safe_unit(s - p)
+    h = (float(v_t @ k_ts) - float(v_s @ k_sr) + float(v @ (k_sr - k_ts))) / wavelength_m
+    eye = np.eye(3)
+    dp = np.zeros(3)
+    if r_t > 1e-9:
+        dp += (eye - np.outer(k_ts, k_ts)) @ (v_t - v) / r_t
+    if r_s > 1e-9:
+        dp += (eye - np.outer(k_sr, k_sr)) @ (v_s - v) / r_s
+    H = np.zeros(6)
+    H[:3] = dp / wavelength_m
+    H[3:] = (k_sr - k_ts) / wavelength_m
+    return h, H
+
+
+def scalar_update(
+    x: np.ndarray,
+    P: np.ndarray,
+    z: float,
+    h: float,
+    H: np.ndarray,
+    sigma: float,
+    gate_chi2: float,
+) -> tuple[np.ndarray, np.ndarray, bool]:
+    """One gated scalar EKF update (Joseph form). Rejected (state unchanged)
+    when nu^2 / S > gate_chi2, S = H P H^T + sigma^2."""
+    nu = float(z) - float(h)
+    PHt = P @ H
+    S = float(H @ PHt) + sigma * sigma
+    if not (math.isfinite(nu) and math.isfinite(S) and S > 0.0) or nu * nu / S > gate_chi2:
+        return x, P, False
+    K = PHt / S
+    A = np.eye(len(x)) - np.outer(K, H)
+    P_new = A @ P @ A.T + sigma * sigma * np.outer(K, K)
+    return x + K * nu, 0.5 * (P_new + P_new.T), True
+
+
+def track_measurements(
+    reports: list[SensingLinkReport], target_id: str, nodes: Nodes, consts: dict
+) -> list[TrackMeasurement]:
+    """The target's detected direct links, highest SNR first, as scalars: the
+    range sum, then the Doppler (when the echo has one). No geometry dedup:
+    two links of one ellipsoid are independent receiver draws."""
+    links = sorted(
+        (
+            r for r in reports
+            if r.target_id == target_id and r.detected and not r.multipath
+            and r.measured_range_m is not None
+        ),
+        key=lambda r: (-(r.snr_db or 0.0), r.tx_id, r.rx_id),
+    )
+    out: list[TrackMeasurement] = []
+    for r in links:
+        sigma_r, sigma_f = measurement_sigmas(r.snr_db, consts)
+        tx, rx = nodes[r.tx_id], nodes[r.rx_id]
+        name = f"{r.tx_id}>{r.rx_id}"
+        out.append(TrackMeasurement("range", float(r.measured_range_m), sigma_r, tx, rx, name))  # type: ignore[arg-type]
+        if r.measured_doppler_hz is not None:
+            out.append(
+                TrackMeasurement("doppler", float(r.measured_doppler_hz), sigma_f, tx, rx, name)
+            )
+    return out
+
+
+def ekf_update(
+    x: np.ndarray,
+    P: np.ndarray,
+    measurements: list[TrackMeasurement],
+    wavelength_m: float,
+    gate_chi2: float,
+) -> tuple[np.ndarray, np.ndarray, int, int]:
+    """Sequential gated scalar updates: (x, P, accepted, gated)."""
+    accepted = gated = 0
+    for m in measurements:
+        if m.kind == "range":
+            h, H = range_model(x, m.tx[0], m.rx[0])
+        else:
+            h, H = doppler_model(x, m.tx, m.rx, wavelength_m)
+        x, P, ok = scalar_update(x, P, m.value, h, H, m.sigma, gate_chi2)
+        if ok:
+            accepted += 1
+        else:
+            gated += 1
+    return x, P, accepted, gated
+
+
+def chi2_3dof_gate(gate_1dof: float) -> float:
+    """The chi-square (3 dof) value whose tail probability equals that of a
+    1-dof ``gate_1dof`` (16 -> 22.06, both 6.3e-5). Tails: 1 dof erfc(z),
+    3 dof erfc(z) + sqrt(2x/pi) e^-x/2, z = sqrt(x/2)."""
+
+    def log_tail(x: float, three: bool) -> float:
+        z = math.sqrt(x / 2.0)
+        extra = math.sqrt(2.0 * x / math.pi) if three else 0.0
+        if z < 25.0:
+            return math.log(math.erfc(z) + extra * math.exp(-z * z))
+        # erfc(z) ~ e^-z^2 / (z sqrt(pi)): keeps the log finite past underflow.
+        return -z * z + math.log(1.0 / (z * math.sqrt(math.pi)) + extra)
+
+    target = log_tail(gate_1dof, False)
+    lo, hi = gate_1dof, 2.0 * gate_1dof + 10.0
+    while log_tail(hi, True) > target:
+        lo, hi = hi, 2.0 * hi
+    for _ in range(100):
+        mid = 0.5 * (lo + hi)
+        if log_tail(mid, True) > target:
+            lo = mid
+        else:
+            hi = mid
+    return 0.5 * (lo + hi)
+
+
+def init_track(
+    est: TargetEstimate, reports: list[SensingLinkReport], consts: dict, time_s: float
+) -> TargetTrack:
+    """A track from an ok fusion: x0 = [position_est, velocity_est or 0],
+    P0 = diag(max(GDOP^2 sigma_R^2 / 3, 0.25) per position axis (100 m^2
+    without a GDOP), 25 (m/s)^2 per velocity axis with a Doppler velocity,
+    400 without), sigma_R^2 = the mean range-sum variance of links_used."""
+    used = set(est.links_used)
+    variances = [
+        measurement_sigmas(r.snr_db, consts)[0] ** 2
+        for r in reports
+        if r.target_id == est.target_id and f"{r.tx_id}>{r.rx_id}" in used
+    ]
+    pos_var = 100.0
+    if est.gdop is not None and variances:
+        pos_var = max(est.gdop**2 * (sum(variances) / len(variances)) / 3.0, 0.25)
+    vel_var = 25.0 if est.velocity_est is not None else 400.0
+    x0 = np.array(
+        [*est.position_est, *(est.velocity_est or [0.0, 0.0, 0.0])],  # type: ignore[misc]
+        dtype=float,
+    )
+    return TargetTrack(x0, np.diag([pos_var] * 3 + [vel_var] * 3), time_s)
+
+
 # ------------------------------------------------------------------ tracker
+
+
+def _position_std(P: np.ndarray) -> float:
+    """sqrt(trace(P_pos)): the 3-D RMS position error the filter expects."""
+    return math.sqrt(max(float(np.trace(P[:3, :3])), 0.0))
 
 
 def _median(values: list[float]) -> Optional[float]:
     return float(statistics.median(values)) if values else None
 
 
+def _p90(values: list[float]) -> Optional[float]:
+    return float(np.percentile(values, 90)) if values else None
+
+
 class SensingTracker:
     """Runs the per-frame sensing solve of a scenario and keeps, per target,
-    the last ok estimate (the next frame's Gauss-Newton start)."""
+    the last ok estimate (the next frame's Gauss-Newton start) and, with
+    tracking enabled, the EKF track."""
 
     def __init__(
         self,
@@ -557,6 +837,16 @@ class SensingTracker:
             max_depth=options.max_depth,
         )
         self._prior: dict[str, Prior] = {}
+        self._tracking: Optional[TrackingOptions] = (
+            options.tracking if options.tracking_enabled() else None
+        )
+        self._tracks: dict[str, TargetTrack] = {}
+        self._track_started: set[str] = set()
+        # Frames whose track the max_position_std_m cap dropped, per target.
+        self._lost_by_std: dict[str, int] = {}
+        self._restart_gate = (
+            chi2_3dof_gate(self._tracking.gate_chi2) if self._tracking is not None else math.inf
+        )
 
     def _nodes(
         self,
@@ -621,17 +911,115 @@ class SensingTracker:
             for rx in self.rxs
             for aid in self.target_ids
         ]
+        if self.options.pfa is not None:
+            links = [
+                with_link_pd(r, self.options, frame_index, k) for k, r in enumerate(links)
+            ]
         estimates: list[TargetEstimate] = []
         for target in targets:
+            aid = target.actor_id
+            prior = self._prior.get(aid)
+            predicted: Optional[tuple[np.ndarray, np.ndarray]] = None
+            tracking = self._tracking
+            if tracking is not None and aid in self._tracks:
+                track = self._tracks[aid]
+                predicted = cv_predict(
+                    track.x, track.P, time_s - track.time_s, tracking.process_accel_sigma_m_s2
+                )
+                if tracking.use_as_prior:
+                    # dt = 0: the Gauss-Newton start is exactly the prediction.
+                    prior = ([float(c) for c in predicted[0][:3]], None, time_s)
             est = estimate_target(
-                target, links, nodes, self.consts, self._prior.get(target.actor_id), time_s,
+                target, links, nodes, self.consts, prior, time_s,
                 measurement_noise=self.options.measurement_noise,
-                ground_target=self._actor_by_id[target.actor_id].kind in GROUND_KINDS,
+                ground_target=self._actor_by_id[aid].kind in GROUND_KINDS,
             )
             if est.status == "ok" and est.position_est is not None:
-                self._prior[target.actor_id] = (est.position_est, est.velocity_est, time_s)
+                self._prior[aid] = (est.position_est, est.velocity_est, time_s)
+            if tracking is not None:
+                est = self._track_step(est, links, nodes, time_s, predicted, tracking)
             estimates.append(est)
-        return SensingFrame(echoes=echoes, links=links, estimates=estimates), warnings
+        node_states = [
+            SensingNodeState(id=dev_id, position=pos, velocity=vel)
+            for dev_id, (pos, vel) in nodes.items()
+        ]
+        frame = SensingFrame(echoes=echoes, links=links, estimates=estimates, nodes=node_states)
+        return frame, warnings
+
+    def _track_step(
+        self,
+        est: TargetEstimate,
+        links: list[SensingLinkReport],
+        nodes: Nodes,
+        time_s: float,
+        predicted: Optional[tuple[np.ndarray, np.ndarray]],
+        tracking: TrackingOptions,
+    ) -> TargetEstimate:
+        """Update (or start, or drop) the target's track with this frame and
+        return ``est`` carrying the track fields. Order: predict (done by the
+        caller, before the fusion) -> fusion -> update / init."""
+        aid = est.target_id
+        track = self._tracks.get(aid)
+        status = "lost" if aid in self._track_started else "none"
+        updates: Optional[int] = None
+        gated: Optional[int] = None
+        fresh: Optional[TargetTrack] = None
+        if est.status == "ok" and est.position_est is not None:
+            fresh = init_track(est, links, self.consts, time_s)
+        update: Optional[tuple[np.ndarray, np.ndarray, int, int]] = None
+        if track is not None and predicted is not None:
+            update = ekf_update(
+                predicted[0], predicted[1],
+                track_measurements(links, aid, nodes, self.consts),
+                self.consts["wavelength_m"], tracking.gate_chi2,
+            )
+        if predicted is not None and update is not None and fresh is not None and update[3] > 0:
+            # The target manoeuvred (a waypoint corner) when the gate rejects
+            # some of the frame's scalars (the Doppler that would correct the
+            # velocity) AND the ok fusion lies outside the predicted track's
+            # 3-D gate (same tail as gate_chi2): restart from the fusion. The
+            # fusion test alone also fires on the fusion's heavy-tailed
+            # outliers while every raw scalar still agrees with the track.
+            e = fresh.x[:3] - predicted[0][:3]
+            cov = predicted[1][:3, :3] + fresh.P[:3, :3]
+            try:
+                d2 = float(e @ np.linalg.solve(cov, e))
+            except np.linalg.LinAlgError:
+                d2 = 0.0
+            if d2 > self._restart_gate:
+                del self._tracks[aid]
+                track = None
+        if track is not None and update is not None:
+            x, P, updates, gated = update
+            track.x, track.P, track.time_s = x, P, time_s
+            track.coast = 0 if updates > 0 else track.coast + 1
+            status = "tracking" if updates > 0 else "coasting"
+            # A posterior wider than max_position_std_m (long stretches on one
+            # or two links) no longer locates the target: drop it like a coast.
+            too_wide = _position_std(P) > tracking.max_position_std_m
+            if too_wide or track.coast > tracking.coast_max_frames:
+                if too_wide:
+                    self._lost_by_std[aid] = self._lost_by_std.get(aid, 0) + 1
+                del self._tracks[aid]
+                track = None
+                status = "lost"
+        if track is None and fresh is not None:
+            # Started from this frame's fusion: no update with the same data.
+            track = self._tracks[aid] = fresh
+            self._track_started.add(aid)
+            status, updates, gated = "init", 0, 0
+        fields: dict = {"track_status": status, "track_updates": updates, "track_gated": gated}
+        if track is not None:
+            pos = [float(c) for c in track.x[:3]]
+            vel = [float(c) for c in track.x[3:]]
+            fields.update(
+                track_position=pos,
+                track_velocity=vel,
+                track_position_error_m=math.dist(pos, est.position_true),
+                track_velocity_error_m_s=math.dist(vel, est.velocity_true),
+                track_position_std_m=_position_std(track.P),
+            )
+        return est.model_copy(update=fields)
 
     def summary(self, frames: list[ScenarioFrame]) -> dict:
         """Run summary for metadata["sensing"]: constants, options, and per
@@ -641,6 +1029,7 @@ class SensingTracker:
         targets: dict[str, dict] = {}
         all_pos: list[float] = []
         all_vel: list[float] = []
+        all_track_pos: list[float] = []
         for aid in self.target_ids:
             detected_frames = detected_links = ge3 = ok = 0
             pos_err: list[float] = []
@@ -686,9 +1075,27 @@ class SensingTracker:
                 "median_velocity_error_m_s": _median(vel_err),
                 "median_gdop": _median(gdops),
             }
+            if self._tracking is not None:
+                stats, track_pos_err = self._track_summary(
+                    frames, aid, self._lost_by_std.get(aid, 0)
+                )
+                all_track_pos += track_pos_err
+                targets[aid].update(stats)
         per_target = list(targets.values())
+        # tracking {enabled: false} is the same run as no tracking block.
+        options = self.options
+        if options.tracking is not None and not options.tracking_enabled():
+            options = options.model_copy(update={"tracking": None})
+        tracking_keys = (
+            {
+                "median_track_position_error_m": _median(all_track_pos),
+                "tracking_model": TRACKING_MODEL,
+            }
+            if self._tracking is not None
+            else {}
+        )
         return {
-            "options": self.options.model_dump(mode="json"),
+            "options": metadata_dump(options),
             **self.consts,
             "num_links": num_links,
             "target_ids": list(self.target_ids),
@@ -703,4 +1110,47 @@ class SensingTracker:
             ),
             "median_position_error_m": _median(all_pos),
             "median_velocity_error_m_s": _median(all_vel),
+            **tracking_keys,
         }
+
+    @staticmethod
+    def _track_summary(
+        frames: list[ScenarioFrame], aid: str, lost_by_std: int
+    ) -> tuple[dict, list[float]]:
+        """Per-target EKF statistics, and the track position errors.
+        ``lost_by_std``: frames whose track the max_position_std_m cap dropped
+        (the frame does not record why its track was dropped)."""
+        tracked = coasting = lost = improved = without_fusion = 0
+        pos_err: list[float] = []
+        vel_err: list[float] = []
+        for frame in frames:
+            if frame.sensing is None:
+                continue
+            est = next((e for e in frame.sensing.estimates if e.target_id == aid), None)
+            if est is None:
+                continue
+            tracked += est.track_status in TRACKED_STATUSES
+            coasting += est.track_status == "coasting"
+            lost += est.track_status == "lost"
+            if est.track_position_error_m is not None:
+                pos_err.append(est.track_position_error_m)
+                if est.status != "ok":
+                    without_fusion += 1
+                elif (
+                    est.position_error_m is not None
+                    and est.track_position_error_m < est.position_error_m
+                ):
+                    improved += 1
+            if est.track_velocity_error_m_s is not None:
+                vel_err.append(est.track_velocity_error_m_s)
+        return {
+            "tracked_frames": tracked,
+            "coasting_frames": coasting,
+            "lost_frames": lost,
+            "lost_by_std_frames": lost_by_std,
+            "median_track_position_error_m": _median(pos_err),
+            "p90_track_position_error_m": _p90(pos_err),
+            "median_track_velocity_error_m_s": _median(vel_err),
+            "frames_improved_over_fusion": improved,
+            "frames_track_without_fusion": without_fusion,
+        }, pos_err

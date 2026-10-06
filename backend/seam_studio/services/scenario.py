@@ -19,7 +19,9 @@ interference model yet).
 
 With ``request.sensing.enabled`` every frame also runs a sensing solve at the
 frame's poses and records per-link detections plus a fused target estimate
-(services/sensing_track.py) in ``ScenarioFrame.sensing``.
+(services/sensing_track.py) in ``ScenarioFrame.sensing``; with
+``sensing.tracking.enabled`` the estimate also carries an EKF track that one
+SensingTracker carries from frame to frame (frames run in time order).
 """
 
 import math

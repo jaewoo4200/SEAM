@@ -144,9 +144,11 @@ def test_sionna_static_actor_keeps_plain_solve_doppler_free(project: Path):
     static = backend.simulate_paths(project, _scene(), library, _config())
     assert any(_off_car(p) for p in static.paths), static.warnings
     assert "doppler_hz" not in static.metadata
-    # Velocity never moves geometry (Sionna's path order may differ).
+    # Velocity never moves geometry (Sionna's path order may differ). Two
+    # float32 GPU solves of the same scene jitter by ~1e-6 dB, so the bound
+    # sits above that noise while still catching any geometric change.
     assert sorted(p.power_dbm for p in static.paths) == pytest.approx(
-        sorted(p.power_dbm for p in moving.paths), abs=1e-6
+        sorted(p.power_dbm for p in moving.paths), abs=1e-4
     )
 
     # A zero-velocity TX still asks for Doppler: the car legs read 0, so the

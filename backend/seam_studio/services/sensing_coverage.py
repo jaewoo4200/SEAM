@@ -19,27 +19,39 @@ count are backend-neutral, so mock and sionna maps share their grid.
 import math
 import time
 from pathlib import Path
-from typing import Callable, Optional, Sequence
+from typing import Callable, Optional
 
 import numpy as np
 
 from seam_studio.schemas.devices import Device
 from seam_studio.schemas.materials import RFMaterialLibrary
 from seam_studio.schemas.results import (
+    PdMcSpotCheck,
     RadioMapGrid,
     SensingCoverageLink,
     SensingCoverageResultSet,
     SensingCoverageSummary,
 )
 from seam_studio.schemas.scene import Scene, SceneBounds
-from seam_studio.schemas.sensing import SensingCoverageRequest
+from seam_studio.schemas.sensing import DetectorOptions, SensingCoverageRequest, metadata_dump
 from seam_studio.schemas.simulation import SimulationConfig
 from seam_studio.services import atmosphere
 from seam_studio.services.channel_npz_export import local_frame_matrix
-from seam_studio.services.isac import COLOCATED_SENSING_RX_M, ISACPlan, plan_isac_roles
+from seam_studio.services.detector import (
+    NoiseReference,
+    detector_metadata,
+    monte_carlo_pd,
+    noise_reference,
+    noise_seed,
+    pd_swerling,
+)
+from seam_studio.services.isac import ISACPlan, plan_isac_roles
 from seam_studio.services.scene_bounds import compute_scene_bounds
-from seam_studio.services.sensing import bistatic_radar_gain_db, dbsm_to_m2
-from seam_studio.services.sensing_track import swerling1_pd
+from seam_studio.services.sensing import (
+    bistatic_radar_gain_db,
+    dbsm_to_m2,
+    geometry_groups,
+)
 from seam_studio.services.simulation_backends.base import (
     UNSAVED_RESULT_ID,
     RayTracingBackend,
@@ -116,42 +128,52 @@ def cell_centers(grid: RadioMapGrid) -> np.ndarray:
     return np.stack([x.ravel(), y.ravel(), np.full(x.size, grid.height_m)], axis=1)
 
 
-def geometry_groups(
-    links: Sequence[tuple[Sequence[float], Sequence[float]]],
-) -> list[int]:
-    """Group index per (tx position, rx position) link: links between the same
-    two sites, in either order, share one (one bistatic ellipsoid), numbered by
-    first appearance. A site is a cluster of positions chained within
-    COLOCATED_SENSING_RX_M (the ISAC co-location rule), so a TRP whose sensing
-    panel sits up to 1 m from its TX is one focus and A -> B_rx, B -> A_rx
-    stay one geometry."""
-    points: list[tuple[float, ...]] = []
-    for t, r in links:
-        for p in (t, r):
-            key = tuple(float(c) for c in p)
-            if key not in points:
-                points.append(key)
-    parent = list(range(len(points)))
+def mc_spot_cells(best_snr_db: np.ndarray, has_echo: np.ndarray) -> list[int]:
+    """Up to 5 distinct cell indices at the 0/25/50/75/100 % quantiles
+    (method "nearest") of best_snr_db over the cells with an echo; a value
+    shared by several cells goes to the lowest index not taken yet."""
+    echo_idx = np.flatnonzero(has_echo)
+    if echo_idx.size == 0:
+        return []
+    values = best_snr_db[echo_idx]
+    chosen: list[int] = []
+    for q in (0.0, 0.25, 0.5, 0.75, 1.0):
+        v = np.quantile(values, q, method="nearest")
+        for cell in echo_idx[values == v]:
+            if int(cell) not in chosen:
+                chosen.append(int(cell))
+                break
+    return chosen
 
-    def root(i: int) -> int:
-        while parent[i] != i:
-            parent[i] = parent[parent[i]]
-            i = parent[i]
-        return i
 
-    for i in range(len(points)):
-        for j in range(i):
-            if math.dist(points[i], points[j]) <= COLOCATED_SENSING_RX_M:
-                parent[root(i)] = root(j)
-    site = {p: root(i) for i, p in enumerate(points)}
-    numbering: dict[frozenset[int], int] = {}
-    groups: list[int] = []
-    for t, r in links:
-        key = frozenset(
-            (site[tuple(float(c) for c in t)], site[tuple(float(c) for c in r)])
+def _mc_spot_check(
+    best: np.ndarray,
+    has_echo: np.ndarray,
+    pd_best: np.ndarray,
+    grid: RadioMapGrid,
+    request: SensingCoverageRequest,
+    ref: NoiseReference,
+) -> list[PdMcSpotCheck]:
+    det = request.detector
+    out: list[PdMcSpotCheck] = []
+    for cell in mc_spot_cells(best, has_echo):
+        mc = monte_carlo_pd(
+            float(best[cell]), request.pfa, det.monte_carlo_trials, det.model,
+            seed=[det.seed, cell], cpi_pulses=request.cpi_pulses,
+            empirical_threshold=det.empirical_threshold,
+            threshold=ref.threshold, measure_pfa=False,
         )
-        groups.append(numbering.setdefault(key, len(numbering)))
-    return groups
+        out.append(
+            PdMcSpotCheck(
+                cell=[cell % grid.nx, cell // grid.nx],
+                snr_db=float(best[cell]),
+                pd=float(pd_best[cell]),
+                pd_mc=mc.pd,
+                ci_low=mc.ci_low,
+                ci_high=mc.ci_high,
+            )
+        )
+    return out
 
 
 def element_gain_db(device: Device, directions: np.ndarray) -> np.ndarray:
@@ -317,9 +339,18 @@ def run_sensing_coverage(
         members = [i for i, gi in enumerate(groups) if gi == g]
         n_geom += detected[members].any(axis=0)
     fusion = n_geom >= request.min_links_for_fusion
+    det = request.detector
     pd_best = np.where(
-        has_echo, swerling1_pd(np.where(has_echo, best, 0.0), request.pfa), -np.inf
+        has_echo, pd_swerling(np.where(has_echo, best, 0.0), request.pfa, det.model), -np.inf
     )
+    mc_ref: Optional[NoiseReference] = None
+    spot_check: Optional[list[PdMcSpotCheck]] = None
+    if det.monte_carlo_trials > 0:
+        mc_ref = noise_reference(
+            request.pfa, det.monte_carlo_trials, noise_seed(det.seed),
+            request.cpi_pulses, det.empirical_threshold,
+        )
+        spot_check = _mc_spot_check(best, has_echo, pd_best, rm_grid, request, mc_ref)
 
     def pct(mask: np.ndarray) -> float:
         return 100.0 * float(mask.mean()) if n_cells else 0.0
@@ -332,6 +363,7 @@ def run_sensing_coverage(
         pct_cells_detected=pct(detected.any(axis=0)) if links else 0.0,
         pct_cells_fusion_feasible=pct(fusion),
         median_best_snr_db=float(np.median(best[has_echo])) if has_echo.any() else None,
+        mc_spot_check=spot_check,
     )
     coverage_links = [
         SensingCoverageLink(
@@ -351,7 +383,7 @@ def run_sensing_coverage(
     else:
         los_model = f"none ({backend.name}: no geometry occlusion)"
     metadata = {
-        "request": request.model_dump(mode="json", exclude={"config"}),
+        "request": metadata_dump(request, exclude=("config",)),
         "wavelength_m": wavelength,
         "noise_floor_dbm": noise_dbm,
         "integration_gain_db": integration_db,
@@ -365,6 +397,10 @@ def run_sensing_coverage(
         "los_model": los_model,
         "elapsed_s": time.perf_counter() - t_start,
     }
+    if det != DetectorOptions():
+        metadata["detector"] = detector_metadata(
+            det.model, request.pfa, det.monte_carlo_trials, mc_ref
+        )
     if tick is not None:
         tick(1, 1)
     return SensingCoverageResultSet(

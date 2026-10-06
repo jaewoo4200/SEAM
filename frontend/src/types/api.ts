@@ -1832,6 +1832,41 @@ export interface SensingSimulateRequest {
   max_depth?: number | null;
 }
 
+// ------------------------------------------- detector models (Phase C)
+
+/** Target fluctuation of the square-law detector: Swerling 0 = steady,
+ *  1 = Rayleigh scan-to-scan (the v0.1.12 numbers), 3 = one dominant scatterer. */
+export type DetectorModel = "swerling0" | "swerling1" | "swerling3";
+export const DETECTOR_MODELS: DetectorModel[] = ["swerling0", "swerling1", "swerling3"];
+/** schemas/sensing.py: Monte Carlo trials per Pd estimate / per request. */
+export const MAX_MC_TRIALS = 2_000_000;
+export const MAX_MC_TOTAL_TRIALS = 200_000_000;
+
+export interface DetectorOptions {
+  model?: DetectorModel;
+  /** 0 = analytic Pd only. */
+  monte_carlo_trials?: number;
+  /** Threshold from a noise-only run instead of -ln(Pfa); needs trials >= 20 / pfa. */
+  empirical_threshold?: boolean;
+  seed?: number;
+}
+
+/** Constant-velocity EKF over the scenario frames. */
+export interface TrackingOptions {
+  enabled?: boolean;
+  /** White (piecewise-constant) acceleration std of the process noise. */
+  process_accel_sigma_m_s2?: number;
+  /** Mahalanobis gate per scalar measurement (chi-square, 1 dof). */
+  gate_chi2?: number;
+  init_from?: "fusion";
+  /** Consecutive frames without an accepted update before the track is dropped. */
+  coast_max_frames?: number;
+  /** The track is also dropped once its posterior sqrt(trace(P_pos)) exceeds this (m). */
+  max_position_std_m?: number;
+  /** Seed the next frame's Gauss-Newton fusion with the predicted position. */
+  use_as_prior?: boolean;
+}
+
 // ------------------------------------------- sensing over time (scenario)
 
 /** ScenarioSimulateRequest.sensing: a sensing solve in every scenario frame,
@@ -1855,6 +1890,12 @@ export interface SensingTrackOptions {
   /** Gaussian noise (sigma = cell / sqrt(2 SNR)) on the fused range / Doppler. */
   measurement_noise?: boolean;
   noise_seed?: number;
+  /** null or enabled=false: no tracking (v0.1.12 output). */
+  tracking?: TrackingOptions | null;
+  /** Pd model of the link reports (needs pfa); detection stays snr_db >= threshold_db. */
+  detector?: DetectorOptions;
+  /** null: link reports carry no Pd. */
+  pfa?: number | null;
 }
 
 export type SensingDetectionReason = "detected" | "no_echo" | "below_threshold" | "mti_rejected";
@@ -1882,9 +1923,16 @@ export interface SensingLinkReport {
   doppler_bin: number | null;
   detected: boolean;
   reason: SensingDetectionReason;
+  /** Pd of snr_db under sensing.detector.model at sensing.pfa; null when the
+   *  run set no pfa. pd_mc: its Monte Carlo (trials > 0 and an echo). */
+  pd?: number | null;
+  pd_mc?: number | null;
 }
 
 export type TargetEstimateStatus = "ok" | "insufficient_links" | "diverged";
+
+/** EKF track state of one target in one frame (tracking enabled). */
+export type TrackStatus = "none" | "init" | "tracking" | "coasting" | "lost";
 
 /** Multistatic position/velocity estimate of one target in one frame. */
 export interface TargetEstimate {
@@ -1906,6 +1954,25 @@ export interface TargetEstimate {
   gdop: number | null;
   rms_residual_m: number | null;
   iterations: number;
+  /** EKF track (sensing.tracking enabled); every field null otherwise. */
+  track_status?: TrackStatus | null;
+  /** Posterior state at this frame (null for none / lost). */
+  track_position?: Vec3 | null;
+  track_velocity?: Vec3 | null;
+  track_position_error_m?: number | null;
+  track_velocity_error_m_s?: number | null;
+  /** sqrt(trace(P_pos)): RMS of the 3-D position error the filter expects. */
+  track_position_std_m?: number | null;
+  /** Scalar measurements (range, Doppler) accepted / gated out this frame. */
+  track_updates?: number | null;
+  track_gated?: number | null;
+}
+
+/** A TX/RX device as one sensing frame used it. */
+export interface SensingNodeState {
+  id: string;
+  position: Vec3;
+  velocity: Vec3;
 }
 
 export interface SensingFrame {
@@ -1914,6 +1981,8 @@ export interface SensingFrame {
   echoes: RayPath[];
   links: SensingLinkReport[];
   estimates: TargetEstimate[];
+  /** Every selected TX and RX at this frame (v0.1.13+; null in older results). */
+  nodes?: SensingNodeState[] | null;
 }
 
 /** Per-target run summary in ScenarioResultSet.metadata.sensing.targets. */
@@ -1929,6 +1998,20 @@ export interface ScenarioSensingTargetSummary {
   p90_position_error_m: number | null;
   median_velocity_error_m_s: number | null;
   median_gdop: number | null;
+  // Tracking enabled only (absent otherwise).
+  /** Frames with status init / tracking / coasting. */
+  tracked_frames?: number;
+  coasting_frames?: number;
+  lost_frames?: number;
+  /** Frames whose track the max_position_std_m cap dropped. */
+  lost_by_std_frames?: number;
+  median_track_position_error_m?: number | null;
+  p90_track_position_error_m?: number | null;
+  median_track_velocity_error_m_s?: number | null;
+  /** Fusion ok and the track error below the fusion error. */
+  frames_improved_over_fusion?: number;
+  /** Track state present while the fusion was not ok. */
+  frames_track_without_fusion?: number;
 }
 
 /** ScenarioResultSet.metadata.sensing (present only when sensing ran). */
@@ -1958,6 +2041,9 @@ export interface ScenarioSensingSummary {
   frames_ge3_links_rate: number;
   median_position_error_m: number | null;
   median_velocity_error_m_s: number | null;
+  /** Tracking enabled only. */
+  median_track_position_error_m?: number | null;
+  tracking_model?: string;
 }
 
 // ------------------------------------------------ ISAC beam trade-off (B1)
@@ -2004,22 +2090,41 @@ export interface ISACRequest {
   max_depth?: number | null;
   /** Store the echo + comm paths of the solve in the result (echoes first). */
   include_paths?: boolean;
+  /** Elevation sweep of a 2-D codebook (local elevation of the panel). All
+   *  three null: azimuth-only codebook. Beams: k = i_el * n_az + i_az. */
+  elevation_start_deg?: number | null;
+  elevation_stop_deg?: number | null;
+  elevation_step_deg?: number | null;
+  /** Inter-TX interference in the UE SINR (ue_association "serving" only). */
+  interference?: boolean;
+  detector?: DetectorOptions;
 }
 
 /** One codebook beam of one tx, used full time for comm OR sensing (rho = 1). */
 export interface ISACBeam {
   angle_deg: number;
-  /** Per UE of this tx: SINR (= SNR, no inter-tx interference) dB; null = no path. */
+  /** Local elevation of a 2-D codebook beam; null = azimuth-only codebook. */
+  elevation_deg?: number | null;
+  /** Per UE of this tx: SINR dB; null = no path. Equals the SNR without
+   *  interference; with it the other txs radiate their comm beams. */
   ue_sinr_db: Record<string, number | null>;
+  /** request.interference only: interference-free SNR and the comm-slot
+   *  interference power (null: no interferer reaches the UE). */
+  ue_snr_db?: Record<string, number | null> | null;
+  ue_interference_dbm?: Record<string, number | null> | null;
   /** Sum over this tx's UEs of log2(1 + SINR) [bit/s/Hz]. */
   sum_rate_bps_hz: number;
   /** Per target: echo SNR with this TX beam and the best RX beam, full CPI. */
   target_snr_db: Record<string, number | null>;
   target_best_rx_angle_deg: Record<string, number | null>;
+  /** 2-D codebook only: elevation of that best RX beam. */
+  target_best_rx_elevation_deg?: Record<string, number | null> | null;
   /** Weakest target (null if any target has no echo). */
   sensing_snr_db: number | null;
-  /** Swerling-1 Pd of sensing_snr_db (pfa when null). */
+  /** Pd of sensing_snr_db under request.detector.model (pfa when null). */
   pd: number;
+  /** Monte Carlo of pd (detector.monte_carlo_trials > 0 and an echo). */
+  pd_mc?: number | null;
   detected: boolean;
 }
 
@@ -2033,6 +2138,8 @@ export interface ISACPoint {
   /** Weakest target, rho * cpi_pulses integrated. */
   sensing_snr_db: number | null;
   pd: number;
+  /** Monte Carlo of pd: Pareto points only (detector.monte_carlo_trials > 0). */
+  pd_mc?: number | null;
   pareto: boolean;
 }
 
@@ -2063,14 +2170,23 @@ export interface ISACTxResult {
   /** [rows, cols] */
   tx_array: [number, number];
   rx_array: [number, number];
-  /** Codebook, local azimuth. */
+  /** Codebook, local azimuth, aligned with beams. */
   angles_deg: number[];
+  /** 2-D codebook only: local elevation per beam, aligned with beams. */
+  elevations_deg?: number[] | null;
   beams: ISACBeam[];
   comm_beam_idx: number | null;
   sensing_beam_idx: number | null;
   comm_beam_angle_deg: number | null;
   sensing_beam_angle_deg: number | null;
+  /** Azimuth gap. */
   angle_gap_deg: number | null;
+  comm_beam_elevation_deg?: number | null;
+  sensing_beam_elevation_deg?: number | null;
+  elevation_gap_deg?: number | null;
+  /** request.interference only: per served UE, the interference power while
+   *  every other tx radiates its sensing beam (sensing slots). */
+  ue_interference_sensing_dbm?: Record<string, number | null> | null;
   /** Hand-check anchors: 1x1 both ends. */
   ue_single_element_rss_dbm: Record<string, number | null>;
   target_single_element_snr_db: Record<string, number | null>;
@@ -2133,6 +2249,8 @@ export interface SensingCoverageRequest {
   rx_rows?: number | null;
   rx_cols?: number | null;
   min_links_for_fusion?: number;
+  /** pd_best uses detector.model; Monte Carlo only spot-checks 5 cells. */
+  detector?: DetectorOptions;
 }
 
 export interface SensingCoverageLink {
@@ -2158,6 +2276,20 @@ export interface SensingCoverageSummary {
   pct_cells_fusion_feasible: number;
   /** Over cells with an echo. */
   median_best_snr_db: number | null;
+  /** detector.monte_carlo_trials > 0: 5 cells at the 0/25/50/75/100 %
+   *  quantiles of best_snr_db over the cells with an echo. */
+  mc_spot_check?: PdMcSpotCheck[] | null;
+}
+
+/** One coverage cell's analytic pd_best against a Monte Carlo of it. */
+export interface PdMcSpotCheck {
+  /** [ix, iy] (row-major index iy * nx + ix). */
+  cell: [number, number];
+  snr_db: number;
+  pd: number;
+  pd_mc: number;
+  ci_low: number;
+  ci_high: number;
 }
 
 export interface SensingCoverageResultSet {
@@ -2181,4 +2313,106 @@ export interface SensingCoverageResultSet {
   summary: SensingCoverageSummary;
   warnings: string[];
   metadata: Record<string, unknown>;
+}
+
+// ------------------------------------------- Pd curve (Phase C, not persisted)
+
+/** Body for POST /projects/{pid}/analysis/pd-curve. snr_db is the
+ *  post-integration SNR; cpi_pulses only changes how the Monte Carlo builds it. */
+export interface PdCurveRequest {
+  pfa?: number;
+  snr_min_db?: number;
+  snr_max_db?: number;
+  step_db?: number;
+  /** Deduplicated, order kept. */
+  models?: DetectorModel[];
+  monte_carlo_trials?: number;
+  empirical_threshold?: boolean;
+  seed?: number;
+  cpi_pulses?: number;
+  pd_target?: number;
+}
+
+/** schemas/sensing.py MAX_PD_CURVE_POINTS. */
+export const MAX_PD_CURVE_POINTS = 1001;
+
+export interface PdCurveModel {
+  model: DetectorModel;
+  /** Analytic, aligned with PdCurveResult.snr_db. */
+  pd: number[];
+  /** Monte Carlo (trials > 0): estimate and Wilson 95 % interval per point. */
+  pd_mc?: number[] | null;
+  pd_mc_ci_low?: number[] | null;
+  pd_mc_ci_high?: number[] | null;
+  /** Analytic SNR reaching pd_target (null: pd_target <= pfa). */
+  snr_for_pd_target_db?: number | null;
+  /** max |pd_mc - pd| and the fraction of points whose interval holds pd. */
+  mc_max_abs_deviation?: number | null;
+  mc_within_ci_fraction?: number | null;
+}
+
+/** POST /analysis/pd-curve response. */
+export interface PdCurveResult {
+  pfa: number;
+  pd_target: number;
+  cpi_pulses: number;
+  monte_carlo_trials: number;
+  seed: number;
+  snr_db: number[];
+  /** Analytic threshold -ln(pfa) on the noise-normalized integrated power. */
+  threshold: number;
+  /** empirical_threshold: the (1 - pfa) quantile of a noise-only run. */
+  empirical_threshold?: number | null;
+  /** trials > 0: false alarms of an independent noise-only run against the
+   *  threshold in use, with its Wilson 95 % interval. */
+  pfa_measured?: number | null;
+  pfa_measured_ci?: [number, number] | null;
+  models: PdCurveModel[];
+  warnings: string[];
+  metadata: Record<string, unknown>;
+}
+
+// ----------------------------------------- sensing dataset export (Phase C)
+
+export type SensingDatasetFormat = "npz" | "csv" | "parquet";
+
+/** Frame-level train/val/test split (fractions sum to 1). */
+export interface SensingDatasetSplit {
+  train?: number;
+  val?: number;
+  test?: number;
+  seed?: number;
+}
+
+/** Body for POST /projects/{pid}/export/sensing-dataset. */
+export interface SensingDatasetExportRequest {
+  /** null = every stored scenario result that has sensing frames. */
+  result_ids?: string[] | null;
+  /** With result_ids: skip a listed result without sensing frames (named in warnings) instead of 400. */
+  skip_without_sensing?: boolean;
+  /** Also write one row per echo path (echoes.* tables). */
+  include_echo_paths?: boolean;
+  /** parquet needs pyarrow on the backend (400 otherwise). */
+  formats?: SensingDatasetFormat[];
+  /** null = one split "all". */
+  split?: SensingDatasetSplit | null;
+}
+
+export interface SensingDatasetExportResult {
+  /** Project-relative directory of the zip ("export/sensing_dataset"). */
+  export_dir: string;
+  zip_name: string;
+  download_url: string;
+  /** Entries inside the zip. */
+  files: string[];
+  result_ids: string[];
+  num_rows: number;
+  rows_per_result: Record<string, number>;
+  rows_per_split: Record<string, number>;
+  num_echo_rows: number;
+  /** Fraction of link rows with detected = true (null: no rows). */
+  detected_fraction: number | null;
+  size_bytes: number;
+  elapsed_s: number;
+  warnings: string[];
 }

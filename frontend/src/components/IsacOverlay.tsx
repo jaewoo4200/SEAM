@@ -3,7 +3,9 @@
  * (magenta) of the stored ISAC result, drawn as codebook azimuth cuts on the
  * TX's fixed-bearing panel. The ISAC codebook is device-orientation anchored
  * (use_device_orientation is mandatory there), so codebook angle 0 is the
- * device yaw and the fan carries the panel pitch.
+ * device yaw and the fan carries the panel pitch. With a 2-D (elevation)
+ * codebook each lobe is the elevation slice holding its beam: the fan is
+ * tilted by that beam's local elevation on top of the panel pitch.
  */
 
 import { Fragment, useMemo } from "react";
@@ -29,6 +31,8 @@ export function IsacBeamLobes({
       rows: number;
       comm: ReturnType<typeof codebookBeamCurve> | null;
       sensing: ReturnType<typeof codebookBeamCurve> | null;
+      commElDeg: number;
+      sensingElDeg: number;
     }[] = [];
     for (const t of result.txs) {
       const tx = devices.find((d) => d.id === t.tx_id);
@@ -47,6 +51,10 @@ export function IsacBeamLobes({
           t.sensing_beam_angle_deg !== null
             ? codebookBeamCurve(cols, spacing, t.sensing_beam_angle_deg)
             : null,
+        // 2-D codebook: the azimuth cut of the elevation slice that holds the
+        // beam (azimuth-only lobes when the result has no elevation sweep).
+        commElDeg: t.comm_beam_elevation_deg ?? 0,
+        sensingElDeg: t.sensing_beam_elevation_deg ?? 0,
       });
     }
     return out;
@@ -54,14 +62,14 @@ export function IsacBeamLobes({
 
   return (
     <>
-      {lobes.map(({ key, tx, rows, comm, sensing }) => (
+      {lobes.map(({ key, tx, rows, comm, sensing, commElDeg, sensingElDeg }) => (
         <Fragment key={key}>
           {comm && (
             <BeamLobeOverlay
               origin={tx.position}
               axisDeg={tx.orientation_deg[0]}
               // Sionna: +pitch tilts the boresight DOWN; BeamLobeOverlay tilts up.
-              tiltDeg={-tx.orientation_deg[1]}
+              tiltDeg={-tx.orientation_deg[1] + commElDeg}
               txRows={rows}
               anglesDeg={comm.anglesDeg}
               powerDbm={comm.powerDb}
@@ -73,7 +81,7 @@ export function IsacBeamLobes({
             <BeamLobeOverlay
               origin={tx.position}
               axisDeg={tx.orientation_deg[0]}
-              tiltDeg={-tx.orientation_deg[1]}
+              tiltDeg={-tx.orientation_deg[1] + sensingElDeg}
               txRows={rows}
               anglesDeg={sensing.anglesDeg}
               powerDbm={sensing.powerDb}

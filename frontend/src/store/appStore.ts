@@ -35,6 +35,8 @@ import type {
   PlaybackResultSet,
   SensorManifestResponse,
   PathType,
+  PdCurveRequest,
+  PdCurveResult,
   ProjectInfo,
   ProviderModels,
   RadioMapResultSet,
@@ -47,6 +49,8 @@ import type {
   SensingCoverageMetric,
   SensingCoverageRequest,
   SensingCoverageResultSet,
+  SensingDatasetExportRequest,
+  SensingDatasetExportResult,
   SensingResultSet,
   SensingTrackOptions,
   SegmentationPreviewRequest,
@@ -349,6 +353,17 @@ interface AppState {
   loadIsac: (resultId?: string) => Promise<void>;
   loadSensingCoverage: (resultId?: string) => Promise<void>;
   setCoverageMetric: (m: SensingCoverageMetric) => void;
+  /** Last Pd-vs-SNR curve (POST /analysis/pd-curve; pure maths, not
+   *  persisted, so it survives project switches). */
+  pdCurve: PdCurveResult | null;
+  runPdCurve: (req: PdCurveRequest) => Promise<void>;
+  clearPdCurve: () => void;
+  /** Write the scenario sensing frames as a dataset zip and download it.
+   *  Resolves true on success (errors go to the error banner). */
+  exportSensingDataset: (req: SensingDatasetExportRequest) => Promise<boolean>;
+  /** Last successful sensing-dataset export (durable download row). */
+  lastSensingDatasetExport: SensingDatasetExportResult | null;
+  dismissSensingDatasetExport: () => void;
 
   // --- channel analysis ---
   channelResult: ChannelAnalysisResult | null;
@@ -1397,6 +1412,8 @@ export const useAppStore = create<AppState>()((set, get) => {
     sensingCoverage: null,
     showSensingCoverage: false,
     coverageMetric: "best_snr_db",
+    pdCurve: null,
+    lastSensingDatasetExport: null,
 
     channelResult: null,
     abBaseline: null,
@@ -1595,6 +1612,7 @@ export const useAppStore = create<AppState>()((set, get) => {
           // The surfaced export paths belong to the previous project.
           lastRfdataExport: null,
           lastChannelNpzExport: null,
+          lastSensingDatasetExport: null,
           // Live sync is opt-in and reset per project (stops any prior poll).
           liveMode: false,
           // AI model selection is per project: a model id valid for one
@@ -2412,6 +2430,58 @@ export const useAppStore = create<AppState>()((set, get) => {
     },
 
     setCoverageMetric: (m) => set({ coverageMetric: m }),
+
+    runPdCurve: async (req) => {
+      const pid = get().projectId;
+      if (!pid) return;
+      await run("Computing Pd curve…", async () => {
+        const result = await api.pdCurve(pid, req);
+        const at = result.models
+          .map((m) => {
+            const v = m.snr_for_pd_target_db;
+            return `${m.model} ${v == null ? "—" : `${v.toFixed(2)} dB`}`;
+          })
+          .join(" · ");
+        const pfa = result.pfa < 1e-3 ? result.pfa.toExponential() : String(result.pfa);
+        set({
+          pdCurve: result,
+          notice:
+            `Pd curve: SNR for Pd ${result.pd_target} @ Pfa ${pfa}: ${at}` +
+            (result.warnings[0] ? ` · ${result.warnings[0]}` : ""),
+        });
+      });
+    },
+
+    clearPdCurve: () => set({ pdCurve: null }),
+
+    exportSensingDataset: async (req) => {
+      const pid = get().projectId;
+      if (!pid) return false;
+      const res = await run("Exporting sensing dataset…", async () => {
+        const r = await api.exportSensingDataset(pid, req);
+        // The assets route (respects BASE) rather than the raw download_url.
+        const href = api.assetUrl(pid, `${r.export_dir}/${r.zip_name}`);
+        const a = document.createElement("a");
+        a.href = href;
+        a.download = r.zip_name;
+        a.click();
+        const mb = r.size_bytes / (1024 * 1024);
+        const size = mb >= 1 ? `${mb.toFixed(1)} MB` : `${Math.max(1, Math.round(r.size_bytes / 1024))} KB`;
+        set({
+          lastSensingDatasetExport: r,
+          notice:
+            `Sensing dataset: ${r.num_rows} link row(s)` +
+            (r.num_echo_rows > 0 ? ` + ${r.num_echo_rows} echo row(s)` : "") +
+            ` from ${r.result_ids.length} run(s) · ${size} · ${r.zip_name}` +
+            (r.warnings[0] ? ` · ${r.warnings[0]}` : "") +
+            (r.warnings.length > 1 ? ` (+${r.warnings.length - 1} more warning(s))` : ""),
+        });
+        return r;
+      });
+      return res !== undefined;
+    },
+
+    dismissSensingDatasetExport: () => set({ lastSensingDatasetExport: null }),
 
     setPlaybackFrame: (i) => {
       const pb = get().playback;

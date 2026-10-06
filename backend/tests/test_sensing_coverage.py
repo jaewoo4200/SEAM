@@ -1,6 +1,7 @@
 """Sensing coverage map: grid sizing, the bistatic radar equation per cell,
 LOS gating through the backend's segment_los hook, the per-cell link and
-fusion counts, request validation, and POST /simulate/sensing-coverage.
+fusion counts, request validation, POST /simulate/sensing-coverage, and the
+Phase C detector models with their Monte Carlo spot check.
 
 Mock backend throughout (no occlusion); the Mitsuba LOS test and the
 cross-check against real RCS echoes are in test_isac_sionna.py.
@@ -21,6 +22,7 @@ from seam_studio.schemas.sensing import (
     SensingCoverageRequest,
 )
 from seam_studio.schemas.simulation import SimulationConfig
+from seam_studio.services.detector import pd_swerling
 from seam_studio.services.project_store import load_default_library
 from seam_studio.services.sensing import (
     ResolvedSensingTarget,
@@ -32,6 +34,7 @@ from seam_studio.services.sensing_coverage import (
     coverage_grid,
     element_gain_db,
     geometry_groups,
+    mc_spot_cells,
     run_sensing_coverage,
 )
 from seam_studio.services.simulation_backends.mock_backend import MockBackend
@@ -512,3 +515,98 @@ def test_capabilities(api_client):
     assert listing["mock"]["capabilities"]["occlusion"] is False
     if "sionna" in listing:
         assert listing["sionna"]["capabilities"]["occlusion"] is True
+
+
+# ---------------------------------------------------------- Phase C
+
+
+def test_geometry_groups_is_the_shared_helper():
+    from seam_studio.services import sensing, sensing_coverage
+
+    assert sensing_coverage.geometry_groups is sensing.geometry_groups
+    assert geometry_groups is sensing.geometry_groups
+
+
+def test_default_detector_keeps_the_v0112_numbers():
+    scene = _scene(3)
+    kw = dict(center_xy=[75.0, 40.0], size_xy=[400.0, 400.0], cell_size_m=10.0)
+    default = _run(scene, **kw)
+    explicit = _run(scene, detector={"model": "swerling1", "monte_carlo_trials": 0}, **kw)
+    a = default.model_dump(mode="json")
+    b = explicit.model_dump(mode="json")
+    for d in (a, b):
+        d["metadata"].pop("elapsed_s")
+    assert a == b
+    assert "detector" not in default.metadata
+    assert "detector" not in default.metadata["request"]
+    assert default.summary.mc_spot_check is None
+    best = np.array(default.values["best_snr_db"], dtype=float)
+    pd = np.array(default.values["pd_best"], dtype=float)
+    assert np.array_equal(pd, 1e-6 ** (1.0 / (1.0 + 10.0 ** (best / 10.0))))
+
+
+def test_detector_model_changes_pd_best_only():
+    scene = _scene(2)
+    kw = dict(center_xy=[75.0, 0.0], size_xy=[200.0, 100.0], cell_size_m=10.0)
+    base = _run(scene, **kw)
+    for model in ("swerling0", "swerling3"):
+        other = _run(scene, detector={"model": model}, **kw)
+        assert other.values["best_snr_db"] == base.values["best_snr_db"]
+        assert other.values["fusion_feasible"] == base.values["fusion_feasible"]
+        best = np.array(other.values["best_snr_db"], dtype=float)
+        assert np.allclose(
+            np.array(other.values["pd_best"], dtype=float),
+            pd_swerling(best, 1e-6, model), rtol=0.0, atol=1e-15,
+        )
+        assert other.metadata["detector"]["model"] == model
+        assert other.summary.mc_spot_check is None
+
+
+def test_mc_spot_cells_quantiles_and_ties():
+    best = np.array([5.0, -np.inf, 1.0, 9.0, 3.0, 7.0, 7.0])
+    has = np.isfinite(best)
+    # Echo values 5, 1, 9, 3, 7, 7: quantiles 0/25/50/75/100 % (nearest).
+    assert mc_spot_cells(best, has) == [2, 4, 0, 5, 3]
+    # Ties go to the lowest index not taken yet; fewer cells than quantiles.
+    flat = np.array([4.0, 4.0, 4.0])
+    assert mc_spot_cells(flat, np.ones(3, dtype=bool)) == [0, 1, 2]
+    assert mc_spot_cells(best, np.zeros(7, dtype=bool)) == []
+
+
+def test_mc_spot_check_within_ci():
+    scene = _scene(2)
+    trials = 200_000
+    result = _run(
+        scene, center_xy=[75.0, 0.0], size_xy=[600.0, 400.0], cell_size_m=10.0,
+        detector={"model": "swerling3", "monte_carlo_trials": trials, "seed": 2},
+    )
+    checks = result.summary.mc_spot_check
+    assert len(checks) == 5
+    grid = result.grid
+    snrs = [c.snr_db for c in checks]
+    assert snrs == sorted(snrs)
+    finite = [v for row in result.values["best_snr_db"] for v in row if v is not None]
+    assert snrs[0] == min(finite) and snrs[-1] == max(finite)
+    assert len({tuple(c.cell) for c in checks}) == 5
+    for c in checks:
+        ix, iy = c.cell
+        assert 0 <= ix < grid.nx and 0 <= iy < grid.ny
+        assert result.values["best_snr_db"][iy][ix] == c.snr_db
+        assert result.values["pd_best"][iy][ix] == c.pd
+        assert c.ci_low <= c.pd <= c.ci_high, c
+        assert c.ci_low <= c.pd_mc <= c.ci_high
+    det = result.metadata["detector"]
+    assert det["model"] == "swerling3" and det["monte_carlo_trials"] == trials
+    assert det["pfa_measured_ci"][0] <= 1e-6 <= det["pfa_measured_ci"][1]
+
+
+def test_api_coverage_detector(client):
+    resp = _post(client, {"config": MOCK_CFG, "detector": {"model": "swerling0",
+                                                           "monte_carlo_trials": 10_000}})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert len(body["summary"]["mc_spot_check"]) == 5
+    assert body["metadata"]["request"]["detector"]["model"] == "swerling0"
+    resp = _post(client, {"config": MOCK_CFG, "detector": {"monte_carlo_trials": 1000,
+                                                           "empirical_threshold": True}})
+    assert resp.status_code == 422

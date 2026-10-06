@@ -795,3 +795,34 @@ def test_channel_npz_warns_when_the_echo_rx_differs_from_the_probe(client):
     assert resp.status_code == 200, resp.text
     assert resp.json()["sensing_path_count"] == 1
     assert any("orientation/antenna" in w for w in resp.json()["warnings"])
+
+
+# ------------------------------------------------ shared geometry rule (v0.1.13)
+
+
+def test_site_index_chains_within_tolerance():
+    from seam_studio.services.sensing import COLOCATED_SENSING_RX_M, site_index
+
+    assert COLOCATED_SENSING_RX_M == 1.0
+    pts = [[0.0, 0.0, 0.0], [0.9, 0.0, 0.0], [1.8, 0.0, 0.0], [5.0, 0.0, 0.0], [0.5, 0.0, 0.0]]
+    # 0 - 0.9 - 1.8 chain into one site (0 and 1.8 are 1.8 m apart).
+    assert site_index(pts) == [0, 0, 0, 3, 0]
+    # 0.5 m: 0 - 0.5 - 0.9 still chain through the point at 0.5.
+    assert site_index(pts, tol_m=0.5) == [0, 0, 2, 3, 0]
+    assert site_index(pts, tol_m=0.3) == [0, 1, 2, 3, 4]
+    assert site_index([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]]) == [0, 0]  # <= tol
+    assert site_index([]) == []
+
+
+def test_geometry_groups_for_offset_sensing_rx():
+    from seam_studio.services.sensing import geometry_groups
+
+    trps = [np.array(p) for p in ([0.0, 0, 20], [200.0, 0, 20], [0.0, 200, 20], [200.0, 200, 20])]
+    counts = []
+    for d in (0.0, 0.4, 0.6, 1.0, 1.5):
+        rxs = [t + np.array([d, 0.0, 0.0]) for t in trps]
+        counts.append(len(set(geometry_groups([(t, r) for t in trps for r in rxs]))))
+    # 4 monostatic + 6 reciprocal pairs; beyond 1 m every TX/RX is its own site.
+    assert counts == [10, 10, 10, 10, 16]
+    a, b = [0.0, 0.0, 0.0], [50.0, 0.0, 0.0]
+    assert geometry_groups([(a, b), (b, a), (a, a), (b, b)]) == [0, 0, 1, 2]

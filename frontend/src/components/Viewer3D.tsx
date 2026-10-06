@@ -21,7 +21,12 @@ import { IsacBeamLobes } from "./IsacOverlay";
 import SensingOverlay, { SensingDopplerLegend, SensingEchoLines } from "./SensingOverlay";
 import { captureAgentViews } from "./AgentCapture";
 import { sensingDopplerRange } from "../utils/dopplerColor";
-import { estimateTrackSegments, scenarioEchoes, trueTrack } from "../utils/scenarioSensing";
+import {
+  estimateTrackSegments,
+  filteredTrackSegments,
+  scenarioEchoes,
+  trueTrack,
+} from "../utils/scenarioSensing";
 import { segmentationClassColor } from "../types/api";
 import type {
   Actor,
@@ -1338,11 +1343,14 @@ function ScenarioOverlay({ showPaths }: { showPaths: boolean }) {
  *  path type, device or Doppler color. */
 const ESTIMATE_COLOR = "#e040fb";
 const TRUE_TRACK_COLOR = "#e5e7eb";
+/** EKF (filtered) track: amber, distinct from the magenta raw fusion. */
+const TRACK_COLOR = "#f59e0b";
 
 /** Per-frame sensing of a scenario run: the frame's Doppler-colored echoes
  *  (one color scale over the whole run), and per target the estimated
  *  position marker, the dashed estimated track and the thin true track up to
- *  this frame. */
+ *  this frame; with EKF tracking also the amber filtered track (dashed into
+ *  coasting frames) and its current-state marker. */
 function ScenarioSensingLayer({
   scenario,
   frameIdx,
@@ -1366,6 +1374,7 @@ function ScenarioSensingLayer({
             segments: estimateTrackSegments(scenario, e.target_id, frameIdx).filter(
               (seg) => seg.length > 1,
             ),
+            filtered: filteredTrackSegments(scenario, e.target_id, frameIdx),
           },
         ]),
       ),
@@ -1381,15 +1390,56 @@ function ScenarioSensingLayer({
       <SensingEchoLines paths={sensing.echoes} maxAbs={maxAbs} />
       {sensing.estimates.map((e) => {
         const ok = e.status === "ok" && e.position_est != null;
-        const { truth, segments } = tracks.get(e.target_id) ?? { truth: [], segments: [] };
+        const { truth, segments, filtered } = tracks.get(e.target_id) ?? {
+          truth: [],
+          segments: [],
+          filtered: [],
+        };
         const anchor = ok ? e.position_est! : e.position_true;
-        const label = ok
-          ? `${e.target_id} est · ${fmt(e.position_error_m)} m`
-          : `${e.target_id}: ${e.status === "diverged" ? "diverged" : "insufficient links"}`;
+        const trackPos = e.track_position ?? null;
+        const trackLabel =
+          trackPos != null
+            ? ` · EKF ${fmt(e.track_position_error_m ?? null)} m` +
+              (e.track_status === "coasting" ? " (coast)" : "")
+            : e.track_status === "lost"
+              ? " · EKF lost"
+              : "";
+        const label =
+          (ok
+            ? `${e.target_id} est · ${fmt(e.position_error_m)} m`
+            : `${e.target_id}: ${e.status === "diverged" ? "diverged" : "insufficient links"}`) +
+          trackLabel;
         return (
           <group key={e.target_id}>
             {truth.length > 1 && (
               <Line points={truth} color={TRUE_TRACK_COLOR} lineWidth={1} />
+            )}
+            {filtered.map((seg, i) =>
+              seg.dashed ? (
+                // Distinct keys: a Line must not flip its dashed material in place.
+                <Line
+                  key={`kd${i}`}
+                  points={seg.points}
+                  color={TRACK_COLOR}
+                  lineWidth={2.5}
+                  dashed
+                  dashSize={r * 0.6}
+                  gapSize={r * 0.6}
+                />
+              ) : (
+                <Line key={`ks${i}`} points={seg.points} color={TRACK_COLOR} lineWidth={2.5} />
+              ),
+            )}
+            {trackPos && (
+              <mesh position={trackPos} renderOrder={999}>
+                <sphereGeometry args={[r * 0.55, 16, 12]} />
+                <meshBasicMaterial
+                  color={TRACK_COLOR}
+                  transparent
+                  opacity={e.track_status === "coasting" ? 0.55 : 0.95}
+                  depthTest={false}
+                />
+              </mesh>
             )}
             {segments.map((seg, i) => (
               <Line

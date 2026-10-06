@@ -4,7 +4,12 @@ import type { Mode } from "../store/appStore";
 import { api, ApiError } from "../api/client";
 import OsmAreaPicker from "./OsmAreaPicker";
 import { PANEL_REGISTRY } from "./PanelHost";
-import type { AISettingsUpdate, Environment, ImportJobStatus } from "../types/api";
+import type {
+  AISettingsUpdate,
+  Environment,
+  ImportJobStatus,
+  SensingDatasetFormat,
+} from "../types/api";
 
 const PROJECT_ID_PATTERN = /^[a-z0-9_-]+$/;
 
@@ -56,6 +61,8 @@ export default function Toolbar() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   // Global AI settings dialog (gear next to the AI provider chip).
   const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
+  // Sensing-dataset export options (runs, formats) before the POST.
+  const [sensingDatasetOpen, setSensingDatasetOpen] = useState(false);
   const loadAiSettings = useAppStore((s) => s.loadAiSettings);
 
   const sionnaAvailable =
@@ -227,6 +234,14 @@ export default function Toolbar() {
               onClick: () => void exportChannelNpz(),
             },
             {
+              label: "Sensing dataset (.npz)",
+              title:
+                "Export the sensing frames of stored scenario runs as an ML dataset zip " +
+                "(one row per frame × TX × RX × target: features, detection labels, " +
+                "fused / EKF estimates; optional echo-path table)",
+              onClick: () => setSensingDatasetOpen(true),
+            },
+            {
               label: "Delete project…",
               danger: true,
               title: "Permanently remove this project folder (asks for confirmation)",
@@ -257,7 +272,168 @@ export default function Toolbar() {
       {aiSettingsOpen && (
         <AiSettingsModal onClose={() => setAiSettingsOpen(false)} />
       )}
+      {sensingDatasetOpen && projectId && (
+        <SensingDatasetModal onClose={() => setSensingDatasetOpen(false)} />
+      )}
     </header>
+  );
+}
+
+const DATASET_FORMATS: { id: SensingDatasetFormat; label: string; title: string }[] = [
+  { id: "npz", label: "npz", title: "One 1-D array per column (np.load, allow_pickle=False)" },
+  { id: "csv", label: "csv", title: "Header + rows; NaN / None as empty fields" },
+  { id: "parquet", label: "parquet", title: "Needs pyarrow on the backend (the `results` extra)" },
+];
+
+/** Options of the sensing-dataset export: which stored scenario runs (all
+ *  checked = every run with sensing frames, result_ids null; a partial pick
+ *  skips its runs without sensing frames, named in the notice), the file
+ *  formats and the optional echo table. Export closes the dialog; the store
+ *  POSTs, downloads the zip and reports errors in the error banner. */
+function SensingDatasetModal({ onClose }: { onClose: () => void }) {
+  const scene = useAppStore((s) => s.scene);
+  const scenario = useAppStore((s) => s.scenario);
+  const busy = useAppStore((s) => s.busy) !== null;
+  const exportSensingDataset = useAppStore((s) => s.exportSensingDataset);
+  const runs = (scene?.result_sets ?? []).filter((r) => r.kind === "scenario");
+  const [picked, setPicked] = useState<string[]>(() => runs.map((r) => r.result_id));
+  const [formats, setFormats] = useState<SensingDatasetFormat[]>(["npz"]);
+  const [echoes, setEchoes] = useState(false);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent): void {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const all = runs.length > 0 && runs.every((r) => picked.includes(r.result_id));
+  const ids = runs.map((r) => r.result_id).filter((id) => picked.includes(id));
+  const canExport = !busy && runs.length > 0 && ids.length > 0 && formats.length > 0;
+  const loadedSensing = scenario?.frames.some((f) => f.sensing != null) ?? false;
+
+  const submit = () => {
+    if (!canExport) return;
+    onClose();
+    void exportSensingDataset({
+      result_ids: all ? null : ids,
+      // The list cannot tell which runs have sensing: skip those without
+      // (named in the notice) rather than failing the whole export with 400.
+      ...(all ? {} : { skip_without_sensing: true }),
+      formats: DATASET_FORMATS.map((f) => f.id).filter((f) => formats.includes(f)),
+      include_echo_paths: echoes,
+    });
+  };
+
+  return (
+    <div className="modal-backdrop" onPointerDown={onClose}>
+      <div
+        className="modal-card sensing-dataset-modal"
+        role="dialog"
+        aria-label="Sensing dataset export"
+        aria-modal="true"
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        <h4>Sensing dataset</h4>
+        <p className="hint">
+          One row per frame × TX × RX × target of each scenario run with sensing: node
+          kinematics, echo range / Doppler / SNR / angles (features), detected + reason (labels),
+          the fused and EKF estimates, and the ground truth. Written as a zip under{" "}
+          <span className="mono">export/sensing_dataset</span> and downloaded.
+        </p>
+        <div className="confirm-field">
+          <span>
+            Scenario runs{" "}
+            <span className="hint">
+              {all
+                ? "(all; runs without sensing frames are skipped)"
+                : `(${ids.length} selected; runs without sensing frames are skipped)`}
+            </span>
+          </span>
+          {runs.length === 0 ? (
+            <span className="hint">No stored scenario run. Simulate a scenario with sensing first.</span>
+          ) : (
+            <div className="dataset-run-list">
+              <label className="solver-check">
+                <input
+                  type="checkbox"
+                  checked={all}
+                  disabled={busy}
+                  onChange={(e) => setPicked(e.target.checked ? runs.map((r) => r.result_id) : [])}
+                />
+                All
+              </label>
+              {runs.map((r) => (
+                <label key={r.result_id} className="solver-check" title={r.uri}>
+                  <input
+                    type="checkbox"
+                    checked={picked.includes(r.result_id)}
+                    disabled={busy}
+                    onChange={(e) =>
+                      setPicked(
+                        e.target.checked
+                          ? [...picked, r.result_id]
+                          : picked.filter((id) => id !== r.result_id),
+                      )
+                    }
+                  />
+                  {/* One span so name and details flow as text, not flex columns. */}
+                  <span>
+                    <span className="mono">{r.label || r.result_id}</span>
+                    <span className="hint">
+                      {r.label ? ` ${r.result_id}` : ""} · {r.backend}
+                      {r.created_at ? ` · ${new Date(r.created_at).toLocaleString()}` : ""}
+                      {scenario?.result_id === r.result_id &&
+                        (loadedSensing ? " · loaded, has sensing" : " · loaded, no sensing")}
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="confirm-field">
+          <span>Formats</span>
+          <span className="dataset-format-row">
+            {DATASET_FORMATS.map((f) => (
+              <label key={f.id} className="solver-check" title={f.title}>
+                <input
+                  type="checkbox"
+                  checked={formats.includes(f.id)}
+                  disabled={busy}
+                  onChange={(e) =>
+                    setFormats(
+                      e.target.checked ? [...formats, f.id] : formats.filter((x) => x !== f.id),
+                    )
+                  }
+                />
+                {f.label}
+              </label>
+            ))}
+          </span>
+        </div>
+        <label
+          className="solver-check"
+          title="Also write one row per echo path (echoes table: delay, power, phase, Doppler, angles, interactions)"
+        >
+          <input
+            type="checkbox"
+            checked={echoes}
+            disabled={busy}
+            onChange={(e) => setEchoes(e.target.checked)}
+          />
+          Include echo paths
+        </label>
+        {formats.length === 0 && <p className="hint sensing-miss">Pick at least one format.</p>}
+        <div className="confirm-actions">
+          <button className="primary" disabled={!canExport} onClick={submit}>
+            Export &amp; download
+          </button>
+          <button onClick={onClose}>Cancel</button>
+        </div>
+      </div>
+    </div>
   );
 }
 

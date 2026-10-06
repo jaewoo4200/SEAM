@@ -12,7 +12,7 @@ import {
   formatVec,
   materialById,
 } from "./common";
-import { IsacTradeoffSection, SensingCoverageSection } from "./IsacSections";
+import { IsacTradeoffSection, PdCurveSection, SensingCoverageSection } from "./IsacSections";
 import { LineChart, exportCsv } from "../charts";
 import { filterPaths, pathColor, pathDepth, powerRange } from "../pathFilter";
 import { meshRadioMapRange } from "./MeshRadioMapOverlay";
@@ -38,6 +38,7 @@ import type {
   SensingLinkReport,
   SensingResultSet,
   TargetEstimate,
+  TrackStatus,
   TrajectoryResultSet,
   UERoute,
   Vec3,
@@ -1193,6 +1194,9 @@ function ScenarioSensingBlock({
 
 /** Whole-run sensing statistics per target, plus the run's detection constants. */
 function ScenarioSensingSummaryTable({ summary }: { summary: ScenarioSensingSummary }) {
+  const tracked = summary.target_ids.some(
+    (id) => summary.targets[id]?.tracked_frames != null,
+  );
   return (
     <>
       <table className="results-table">
@@ -1235,6 +1239,57 @@ function ScenarioSensingSummaryTable({ summary }: { summary: ScenarioSensingSumm
           })}
         </tbody>
       </table>
+      {tracked && (
+        <table className="results-table track-summary" title={summary.tracking_model ?? undefined}>
+          <thead>
+            <tr>
+              <th title="EKF (filtered track)">EKF</th>
+              <th title="Frames with a live track (init / tracking / coasting)">tracked</th>
+              <th title="Frames predicted without an accepted measurement">coast</th>
+              <th title="Frames whose track was dropped (after coast_max_frames, or σ above max_position_std_m)">
+                lost
+              </th>
+              <th title="Median filtered position error over tracked frames">med err</th>
+              <th title="90th-percentile filtered position error">p90 err</th>
+              <th title="Median filtered velocity error">med v err</th>
+              <th title="Frames where the fusion was ok and the filtered error is below it · frames with a track but no ok fusion">
+                better / no fix
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {summary.target_ids.map((id) => {
+              const t = summary.targets[id];
+              if (!t || t.tracked_frames == null) return null;
+              return (
+                <tr key={id}>
+                  <td className="mono">{id}</td>
+                  <td className="mono">
+                    {t.tracked_frames}/{t.frames}
+                  </td>
+                  <td className="mono">{t.coasting_frames ?? "—"}</td>
+                  <td
+                    className="mono"
+                    title={
+                      t.lost_by_std_frames != null
+                        ? `${t.lost_by_std_frames} drop(s) by the σ cap`
+                        : undefined
+                    }
+                  >
+                    {t.lost_frames ?? "—"}
+                  </td>
+                  <td className="mono">{fmtOr(t.median_track_position_error_m, 2, " m")}</td>
+                  <td className="mono">{fmtOr(t.p90_track_position_error_m, 2, " m")}</td>
+                  <td className="mono">{fmtOr(t.median_track_velocity_error_m_s, 2, " m/s")}</td>
+                  <td className="mono">
+                    {t.frames_improved_over_fusion ?? "—"} / {t.frames_track_without_fusion ?? "—"}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
       <div
         className="results-meta"
         title={
@@ -1272,6 +1327,7 @@ function ScenarioSensingReadout({ sensing }: { sensing: SensingFrame }) {
             {e.target_id}: {e.n_links_detected}/{n} links · {e.n_links_used} fused ·{" "}
             {ESTIMATE_STATUS_LABEL[e.status] ?? e.status} · err {fmtOr(e.position_error_m, 2, " m")} · v
             err {fmtOr(e.velocity_error_m_s, 2, " m/s")} · GDOP {fmtOr(e.gdop, 2)}
+            {e.track_status != null && <TrackReadout e={e} />}
           </div>
         );
       })}
@@ -1279,6 +1335,32 @@ function ScenarioSensingReadout({ sensing }: { sensing: SensingFrame }) {
         <SensingLinkTable links={sensing.links} showTarget={multiTarget} />
       </Collapsible>
     </>
+  );
+}
+
+const TRACK_STATUS_TITLE: Record<TrackStatus, string> = {
+  none: "no track yet (waiting for an ok fusion)",
+  init: "track started from this frame's fusion",
+  tracking: "≥1 range/Doppler measurement accepted this frame",
+  coasting: "prediction only: no accepted measurement this frame",
+  lost: "dropped after too many frames without an accepted measurement",
+};
+
+/** EKF part of a frame's target line: status, filtered error (next to the
+ *  fusion error), expected RMS error and accepted / gated measurements. */
+function TrackReadout({ e }: { e: TargetEstimate }) {
+  const st = e.track_status!;
+  const tip =
+    `${TRACK_STATUS_TITLE[st] ?? st}` +
+    ` · v err ${fmtOr(e.track_velocity_error_m_s, 2, " m/s")}` +
+    ` · ${e.track_updates ?? 0} update(s), ${e.track_gated ?? 0} gated`;
+  return (
+    <span className={"track-readout track-" + st} title={tip}>
+      {" "}
+      · EKF {st}
+      {e.track_position_error_m != null && <> · err {fmtOr(e.track_position_error_m, 2, " m")}</>}
+      {e.track_position_std_m != null && <> (σ {fmtOr(e.track_position_std_m, 2, " m")})</>}
+    </span>
   );
 }
 
@@ -1292,6 +1374,8 @@ function SensingLinkTable({
   showTarget: boolean;
 }) {
   if (links.length === 0) return <p className="hint">No sensing links this frame.</p>;
+  const hasPd = links.some((l) => l.pd != null);
+  const hasPdMc = links.some((l) => l.pd_mc != null);
   return (
     <table className="results-table">
       <thead>
@@ -1302,6 +1386,12 @@ function SensingLinkTable({
           <th title="Bistatic range sum c·τ of the reported echo">R m</th>
           <th title="Doppler, + = closing">f_D Hz</th>
           <th title="Post-integration SNR">SNR dB</th>
+          {hasPd && (
+            <th title="Pd of this SNR under the run's detector model at its Pfa (detection itself stays SNR ≥ threshold)">
+              Pd
+            </th>
+          )}
+          {hasPdMc && <th title="Monte Carlo estimate of Pd">Pd MC</th>}
           <th title="✓ detected · MTI rejected by the MTI notch · <thr below threshold · mp = multipath echo (not fused)">
             result
           </th>
@@ -1321,6 +1411,8 @@ function SensingLinkTable({
               {fmtOr(l.doppler_hz, 1)}
             </td>
             <td className="mono">{fmtOr(l.snr_db, 1)}</td>
+            {hasPd && <td className="mono">{fmtOr(l.pd, 3)}</td>}
+            {hasPdMc && <td className="mono">{fmtOr(l.pd_mc, 3)}</td>}
             <td className={"mono " + (l.detected ? "sensing-ok" : "sensing-miss")}>
               {LINK_RESULT_LABEL[l.reason] ?? l.reason}
               {l.multipath && " mp"}
@@ -1435,6 +1527,10 @@ export function ScenarioSection() {
   const [cpiMs, setCpiMs] = useState(10);
   const [cpiPulses, setCpiPulses] = useState(1);
   const [measurementNoise, setMeasurementNoise] = useState(false);
+  const [trackingOn, setTrackingOn] = useState(false);
+  const [accelSigma, setAccelSigma] = useState(2);
+  const [gateChi2, setGateChi2] = useState(16);
+  const [maxStd, setMaxStd] = useState(25);
   const sensingActive = sensingOn && sensingAvailable;
 
   const simulate = () =>
@@ -1449,6 +1545,17 @@ export function ScenarioSection() {
             cpi_s: clampNum(cpiMs, 0.1, 10000, 10) / 1000,
             cpi_pulses: Math.round(clampNum(cpiPulses, 1, 1e8, 1)),
             measurement_noise: measurementNoise,
+            // Key omitted when off: a pre-v0.1.13 backend rejects unknown keys.
+            ...(trackingOn
+              ? {
+                  tracking: {
+                    enabled: true,
+                    process_accel_sigma_m_s2: clampNum(accelSigma, 0.01, 1000, 2),
+                    gate_chi2: clampNum(gateChi2, 0.1, 1e6, 16),
+                    max_position_std_m: clampNum(maxStd, 0.1, 1e6, 25),
+                  },
+                }
+              : {}),
           }
         : null,
     });
@@ -1576,6 +1683,72 @@ export function ScenarioSection() {
             />
             Measurement noise
           </label>
+          <label
+            className="solver-check"
+            title="Constant-velocity EKF per target: sequential range / Doppler updates with a χ² gate, so frames with only 1–2 detected links still update the track"
+          >
+            <input
+              type="checkbox"
+              checked={trackingOn}
+              disabled={disabled}
+              onChange={(e) => setTrackingOn(e.target.checked)}
+            />
+            Tracking (EKF)
+          </label>
+          {trackingOn && (
+            <>
+              <label
+                className="solver-field"
+                title="Process noise: std of the piecewise-constant white acceleration (DWNA)"
+              >
+                <span className="solver-field-label">Accel σ</span>
+                <span className="solver-field-input">
+                  <input
+                    type="number"
+                    step={0.5}
+                    value={accelSigma}
+                    disabled={disabled}
+                    onChange={(e) => setAccelSigma(Number(e.target.value))}
+                    onBlur={() => setAccelSigma(clampNum(accelSigma, 0.01, 1000, 2))}
+                  />
+                  <span className="solver-unit">m/s²</span>
+                </span>
+              </label>
+              <label
+                className="solver-field"
+                title="Mahalanobis gate per scalar measurement, χ²(1 dof): 16 = 4σ"
+              >
+                <span className="solver-field-label">Gate χ²</span>
+                <span className="solver-field-input">
+                  <input
+                    type="number"
+                    step={1}
+                    value={gateChi2}
+                    disabled={disabled}
+                    onChange={(e) => setGateChi2(Number(e.target.value))}
+                    onBlur={() => setGateChi2(clampNum(gateChi2, 0.1, 1e6, 16))}
+                  />
+                </span>
+              </label>
+              <label
+                className="solver-field"
+                title="Drop the track (lost) once its position σ = √trace(P_pos) exceeds this: long stretches on 1–2 links drift unobserved"
+              >
+                <span className="solver-field-label">Max σ</span>
+                <span className="solver-field-input">
+                  <input
+                    type="number"
+                    step={5}
+                    value={maxStd}
+                    disabled={disabled}
+                    onChange={(e) => setMaxStd(Number(e.target.value))}
+                    onBlur={() => setMaxStd(clampNum(maxStd, 0.1, 1e6, 25))}
+                  />
+                  <span className="solver-unit">m</span>
+                </span>
+              </label>
+            </>
+          )}
         </>
       )}
       {sensingActive && <p className="hint">{SENSING_TRACK_HINT}</p>}
@@ -2719,6 +2892,52 @@ function ChannelNpzExportRow() {
               </span>
             );
           })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Durable row for the last sensing-dataset export: the zip link plus what
+ *  it holds (rows per split, detected fraction). */
+function SensingDatasetExportRow() {
+  const last = useAppStore((s) => s.lastSensingDatasetExport);
+  const dismiss = useAppStore((s) => s.dismissSensingDatasetExport);
+  const projectId = useAppStore((s) => s.projectId);
+  if (!last || !projectId) return null;
+  const splits = Object.entries(last.rows_per_split)
+    .map(([k, v]) => `${k} ${v}`)
+    .join(" · ");
+  return (
+    <div className="ai-note rfdata-export-row">
+      <div className="rfdata-export-head">
+        <span>
+          Sensing dataset: {last.num_rows} link row(s)
+          {last.num_echo_rows > 0 && <> + {last.num_echo_rows} echo row(s)</>} from{" "}
+          {last.result_ids.length} run(s) · {formatBytes(last.size_bytes)}
+          {last.detected_fraction != null && (
+            <> · detected {(last.detected_fraction * 100).toFixed(1)} %</>
+          )}
+        </span>
+        <button className="row-del" title="Dismiss" onClick={dismiss}>
+          ×
+        </button>
+      </div>
+      <div className="rfdata-export-files" title={last.files.join("\n")}>
+        <a
+          className="mono"
+          href={api.assetUrl(projectId, `${last.export_dir}/${last.zip_name}`)}
+          download={last.zip_name}
+          style={{ marginRight: 8 }}
+        >
+          {last.zip_name}
+        </a>
+        {splits && <span className="hint">{splits}</span>}
+      </div>
+      {last.warnings.length > 0 && (
+        <div className="hint" title={last.warnings.join("\n")}>
+          {last.warnings[0]}
+          {last.warnings.length > 1 && ` (+${last.warnings.length - 1} more)`}
         </div>
       )}
     </div>
@@ -3988,6 +4207,7 @@ export default function ResultExplorer() {
 
       <RfdataExportRow />
       <ChannelNpzExportRow />
+      <SensingDatasetExportRow />
 
       {(linkDevices.txs.length > 1 || linkDevices.rxs.length > 1) && (
         // AODT-style per-link filter chips: toggle a TX/RX to hide its links.
@@ -4233,6 +4453,7 @@ export default function ResultExplorer() {
       <AltitudeSweepSection />
       <IsacTradeoffSection />
       <SensingCoverageSection />
+      <PdCurveSection />
       {/* Renders nothing unless the project carries sensor_data/ (it reads the
           manifest from the store and self-hides), so no gate is needed here. */}
       <PlaybackPanel />

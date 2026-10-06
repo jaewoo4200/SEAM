@@ -969,6 +969,29 @@ h4 {
 .device-label.sensing-miss {
   border-color: var(--warn);
 }
+/* EKF part of a frame line: amber like the filtered track in the viewport. */
+.track-readout {
+  color: #f59e0b;
+}
+.track-readout.track-coasting {
+  color: #fbbf24;
+  font-style: italic;
+}
+.track-readout.track-lost,
+.track-readout.track-none {
+  color: var(--muted);
+}
+.results-table.track-summary {
+  margin-top: 4px;
+}
+.results-table.track-summary th:first-child {
+  color: #f59e0b;
+}
+/* ISAC elevation sweep: three compact start / stop / step inputs. */
+.isac-el-inputs input[type="text"] {
+  width: 48px;
+  text-align: right;
+}
 .run-note {
   display: block;
   max-width: 220px;
@@ -2801,6 +2824,44 @@ button.picking {
   display: flex;
   gap: 8px;
   margin-top: 2px;
+}
+/* Sensing-dataset export dialog: run checklist + format row. */
+.modal-card.sensing-dataset-modal {
+  width: 440px;
+}
+.sensing-dataset-modal .confirm-field input[type="checkbox"] {
+  width: auto;
+}
+.sensing-dataset-modal .confirm-field input:focus {
+  outline: 1px solid var(--accent);
+}
+.dataset-run-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: 180px;
+  overflow: auto;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--text);
+}
+.sensing-dataset-modal .hint {
+  color: var(--muted);
+  font-size: 11px;
+}
+.sensing-dataset-modal p.hint {
+  margin: 0;
+  font-size: 12px;
+}
+.sensing-dataset-modal .sensing-miss {
+  color: var(--warn);
+}
+.dataset-format-row {
+  display: flex;
+  gap: 14px;
+  color: var(--text);
 }
 
 /* Inline "Prune results" confirm row (in the results header actions). */

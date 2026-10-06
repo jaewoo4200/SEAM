@@ -5,6 +5,7 @@ POST /projects/{project_id}/simulate/radio-map  -> RadioMapResultSet
 POST /projects/{project_id}/simulate/sensing    -> SensingResultSet
 POST /projects/{project_id}/simulate/isac       -> ISACResultSet
 POST /projects/{project_id}/simulate/sensing-coverage -> SensingCoverageResultSet
+POST /projects/{project_id}/analysis/pd-curve   -> PdCurveResult (not stored)
 GET  /projects/{project_id}/results/paths       -> stored PathResultSet
 GET  /projects/{project_id}/results/radio-map   -> stored RadioMapResultSet
 GET  /projects/{project_id}/results/sensing     -> stored SensingResultSet
@@ -39,6 +40,7 @@ from seam_studio.schemas.results import (
     ISACResultSet,
     MeshRadioMapResultSet,
     PathResultSet,
+    PdCurveResult,
     PlaybackResultSet,
     RadioMapResultSet,
     SensingCoverageResultSet,
@@ -47,7 +49,9 @@ from seam_studio.schemas.results import (
 )
 from seam_studio.schemas.scene import ResultSetRef, Scene
 from seam_studio.schemas.sensing import (
+    MAX_MC_TOTAL_TRIALS,
     ISACRequest,
+    PdCurveRequest,
     SensingCoverageRequest,
     SensingSimulateRequest,
 )
@@ -752,10 +756,17 @@ def get_sensing_result(
 def simulate_isac(
     project_id: str, request: Optional[ISACRequest] = None
 ) -> ISACResultSet:
-    """ISAC beam trade-off: per TX, the azimuth codebook scored for its UEs'
-    rate and its targets' echo SNR from one t = 0 echo + comm solve, and the
-    Pd-rate Pareto front of sharing slots between the comm and sensing beams."""
-    from seam_studio.services.isac import ISACRequestError, plan_isac_roles, run_isac
+    """ISAC beam trade-off: per TX, the azimuth (or azimuth x elevation)
+    codebook scored for its UEs' rate and its targets' echo SNR from one
+    t = 0 echo + comm solve, and the Pd-rate Pareto front of sharing slots
+    between the comm and sensing beams. The Monte Carlo budget is checked
+    here, before the solve guard (400)."""
+    from seam_studio.services.isac import (
+        ISACRequestError,
+        isac_mc_estimates,
+        plan_isac_roles,
+        run_isac,
+    )
     from seam_studio.services.sensing import SensingRequestError, select_targets
 
     request = request or ISACRequest()
@@ -781,6 +792,17 @@ def simulate_isac(
         targets = select_targets(scene, request.target_actor_ids)
     except (ISACRequestError, SensingRequestError) as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    trials = request.detector.monte_carlo_trials
+    estimates = isac_mc_estimates(request, len(plan.txs))
+    if trials * estimates > MAX_MC_TOTAL_TRIALS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"{trials} Monte Carlo trials x {estimates} Pd estimates ({len(plan.txs)} tx "
+                f"x beams x (1 + nonzero slot ratios)) = {trials * estimates} trials; at most "
+                f"{MAX_MC_TOTAL_TRIALS}"
+            ),
+        )
     try:
         backend, notes = _resolve_sensing_backend(config)
     except BackendUnavailableError as exc:
@@ -870,6 +892,23 @@ def get_sensing_coverage_result(
     return SensingCoverageResultSet.model_validate(
         _load_result(project_id, "sensing_coverage", result_id)
     )
+
+
+@router.post("/projects/{project_id}/analysis/pd-curve", response_model=PdCurveResult)
+def analysis_pd_curve(
+    project_id: str, request: Optional[PdCurveRequest] = None
+) -> PdCurveResult:
+    """Pd vs post-integration SNR per detector model (Swerling 0/1/3,
+    square-law), with a Monte Carlo per point when monte_carlo_trials > 0.
+    Pure math: no solve, no solve guard, not persisted."""
+    from seam_studio.services.detector import DetectorError, pd_curve
+
+    request = request or PdCurveRequest()
+    load_scene_or_404(get_store(), project_id)
+    try:
+        return pd_curve(request)
+    except DetectorError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @router.post(

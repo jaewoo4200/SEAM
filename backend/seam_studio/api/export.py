@@ -11,6 +11,10 @@ results-schema parquet tables under export/aodt/ (409 when pyarrow is missing,
 POST /projects/{project_id}/export/channel-npz -> solves one paths run per UE
 position and writes a per-link channel dataset npz in the AODT/HYRAY layout
 under export/channel_npz/.
+
+POST /projects/{project_id}/export/sensing-dataset -> flattens the stored
+scenario results' per-frame sensing into links/echoes tables (npz, csv,
+parquet) in one zip under export/sensing_dataset/ (no solve).
 """
 
 import math
@@ -30,10 +34,12 @@ from seam_studio.schemas.results import (
     PlaybackResultSet,
     RadioMapResultSet,
     RFDataExportSummary,
+    SensingDatasetExportResult,
     SensingResultSet,
     TrajectoryResultSet,
 )
 from seam_studio.schemas.scene import Scene
+from seam_studio.schemas.sensing import SensingDatasetExportRequest
 from seam_studio.schemas.simulation import SimulateRequest, SimulationConfig
 
 router = APIRouter(tags=["export"])
@@ -358,3 +364,65 @@ def export_channel_npz_endpoint(
             },
         )
         return ChannelNpzExportSummary(**summary)
+
+
+@router.post(
+    "/projects/{project_id}/export/sensing-dataset",
+    response_model=SensingDatasetExportResult,
+)
+def export_sensing_dataset_endpoint(
+    project_id: str, request: Optional[SensingDatasetExportRequest] = None
+) -> SensingDatasetExportResult:
+    """Sensing dataset of the stored scenario results (``result_ids``, else
+    every one with sensing frames): one zip with links (and echoes) tables,
+    a manifest and a README. Pure post-processing, so no solve guard; the zip
+    downloads through the project assets route (``download_url``)."""
+    from seam_studio.api.simulate import _provenance_hashes
+    from seam_studio.services.events import publish_event
+    from seam_studio.services.sensing_dataset_export import (
+        SensingDatasetError,
+        SensingDatasetNotFound,
+        export_sensing_dataset,
+        load_sources,
+    )
+
+    req = request or SensingDatasetExportRequest()
+    store = get_store()
+    scene = load_scene_or_404(store, project_id)
+    try:
+        sources, skipped = load_sources(
+            store, project_id, scene, req.result_ids,
+            skip_without_sensing=req.skip_without_sensing,
+        )
+        summary = export_sensing_dataset(
+            store.resolve(project_id),
+            project_id,
+            scene,
+            sources,
+            req,
+            current_scene_hash=_provenance_hashes(scene, None)["scene_hash"],
+        )
+        summary["warnings"] = skipped + summary["warnings"]
+    except SensingDatasetNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except SensingDatasetError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    store.append_provenance(
+        project_id,
+        {
+            "type": "export_sensing_dataset",
+            "result_ids": summary["result_ids"],
+            "rows": summary["num_rows"],
+        },
+    )
+    publish_event(
+        project_id,
+        {
+            "type": "export_finished",
+            "kind": "sensing_dataset",
+            "export_dir": summary["export_dir"],
+            "files": summary["files"],
+        },
+    )
+    return SensingDatasetExportResult(**summary)

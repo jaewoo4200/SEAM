@@ -17,6 +17,12 @@ with p_n the PlanarArray element position in wavelengths. A codebook beam w
 filtering of ``_codebook_sweep`` (H @ conj(w_t), vdot(w_r, .)). The solve
 uses 1x1 antennas so every path is referenced to the panel center, which
 makes the synthesis equal Sionna's own synthetic array.
+
+Phase C options (each off by default, leaving the v0.1.12 numbers as they
+were): an elevation sweep turns the codebook into an azimuth x elevation
+grid (codebook_weights_2d), ``interference`` adds the other txs' comm /
+sensing beams to each served UE's SINR (synchronized slots), and
+``detector`` picks the Pd model and a Monte Carlo of it (services/detector).
 """
 
 import math
@@ -38,14 +44,26 @@ from seam_studio.schemas.results import (
 )
 from seam_studio.schemas.scene import Scene
 from seam_studio.schemas.sensing import (
+    DetectorModel,
+    DetectorOptions,
     ISACRequest,
     SensingSimulateRequest,
     SensingTrackOptions,
+    metadata_dump,
 )
 from seam_studio.schemas.simulation import SimulationConfig
 from seam_studio.services.channel_npz_export import local_frame_matrix
-from seam_studio.services.sensing import ResolvedSensingTarget
-from seam_studio.services.sensing_track import detection_constants, swerling1_pd
+from seam_studio.services.detector import (
+    NoiseReference,
+    detector_metadata,
+    monte_carlo_pd,
+    noise_reference,
+    noise_seed,
+    pd_swerling,
+    snr_for_pd,
+)
+from seam_studio.services.sensing import COLOCATED_SENSING_RX_M, ResolvedSensingTarget
+from seam_studio.services.sensing_track import detection_constants
 from seam_studio.services.simulation_backends.base import (
     UNSAVED_RESULT_ID,
     RayTracingBackend,
@@ -55,12 +73,24 @@ from seam_studio.services.simulation_backends.sionna_backend import (
     noise_floor_dbm,
 )
 
-COLOCATED_SENSING_RX_M = 1.0
 # |h| below this is no channel (log of zero).
 _MIN_AMPLITUDE = 1e-30
 # Two trade-off points closer than this on both axes are one point.
 _PARETO_TOL = 1e-12
+# TX beams x RX beams above this: the echo matrix is built in row chunks.
+_ECHO_MATRIX_CHUNK = 1 << 20
+# Gauss-Seidel sweeps of the interference-aware comm beam choice.
+MAX_INTERFERENCE_ROUNDS = 10
+# Pareto points get MC streams [seed, tx, offset + point]; beams [seed, tx, beam].
+_POINT_STREAM_OFFSET = 1_000_000
 ISAC_MODEL = "path-synthesized azimuth DFT codebook (sionna synthetic-array convention)"
+ISAC_MODEL_2D = (
+    "path-synthesized azimuth x elevation DFT codebook (sionna synthetic-array convention)"
+)
+INTERFERENCE_MODEL = (
+    "synchronized slots: comm slots see the other TXs' comm beams, sensing "
+    "slots their sensing beams"
+)
 
 
 class ISACRequestError(ValueError):
@@ -207,6 +237,66 @@ def codebook_weights(pos: np.ndarray, angles: Sequence[float]) -> np.ndarray:
     return np.stack([_steering_from_positions(pos[1], a, np) for a in angles])
 
 
+def codebook_weights_2d(
+    pos: np.ndarray, az_list: Sequence[float], el_list: Sequence[float]
+) -> np.ndarray:
+    """[n_el * n_az, N] unit-norm beams, elevation outer (k = i_el * n_az +
+    i_az): w_n = exp(+j 2 pi p_n . k) / sqrt(N) toward the panel-local
+    direction k = [cos el cos az, cos el sin az, sin el] (array_response's
+    convention). On a planar_positions grid (x = 0) this is
+    kron(w_z(el), w_y(az, el)); at el = 0 a row is codebook_weights' beam."""
+    n = pos.shape[1]
+    if not az_list or not el_list:
+        return np.zeros((0, n), dtype=complex)
+    az = np.radians(np.asarray(az_list, dtype=float))[None, :, None]
+    el = np.radians(np.asarray(el_list, dtype=float))[:, None, None]
+    phase = 2.0 * np.pi * (
+        pos[0] * (np.cos(el) * np.cos(az))
+        + pos[1] * (np.cos(el) * np.sin(az))
+        + pos[2] * np.sin(el)
+    )
+    return (np.exp(1j * phase) / math.sqrt(n)).reshape(-1, n)
+
+
+@dataclass(frozen=True)
+class Codebook:
+    """Per-beam local azimuth / elevation (elevation None: azimuth-only)."""
+
+    az_axis: list[float]
+    el_axis: Optional[list[float]]
+
+    @property
+    def az(self) -> list[float]:
+        n_el = len(self.el_axis) if self.el_axis is not None else 1
+        return [a for _ in range(n_el) for a in self.az_axis]
+
+    @property
+    def el(self) -> Optional[list[float]]:
+        if self.el_axis is None:
+            return None
+        return [e for e in self.el_axis for _ in self.az_axis]
+
+    def __len__(self) -> int:
+        return len(self.az_axis) * (len(self.el_axis) if self.el_axis is not None else 1)
+
+    def weights(self, pos: np.ndarray) -> np.ndarray:
+        if self.el_axis is None:
+            return codebook_weights(pos, self.az_axis)
+        return codebook_weights_2d(pos, self.az_axis, self.el_axis)
+
+
+def request_codebook(request: ISACRequest) -> Codebook:
+    az = codebook_angles(request.sweep_start_deg, request.sweep_stop_deg, request.sweep_step_deg)
+    if not request.elevation_sweep():
+        return Codebook(az, None)
+    el = codebook_angles(
+        float(request.elevation_start_deg),  # type: ignore[arg-type]
+        float(request.elevation_stop_deg),  # type: ignore[arg-type]
+        float(request.elevation_step_deg),  # type: ignore[arg-type]
+    )
+    return Codebook(az, el)
+
+
 def world_unit(az_el_deg: Sequence[float]) -> np.ndarray:
     a, e = math.radians(float(az_el_deg[0])), math.radians(float(az_el_deg[1]))
     return np.array([math.cos(e) * math.cos(a), math.cos(e) * math.sin(a), math.sin(e)])
@@ -259,6 +349,46 @@ def echo_beam_matrix(
     return out
 
 
+def echo_best_rx(
+    echoes: Sequence[RayPath],
+    tx: Device,
+    rx: Device,
+    pos_tx: np.ndarray,
+    pos_rx: np.ndarray,
+    w_tx: np.ndarray,
+    w_rx: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """(max_m |E[k, m]|, argmax_m) per TX beam k of echo_beam_matrix. Above
+    _ECHO_MATRIX_CHUNK beam pairs (2-D codebooks) the matrix is built in row
+    chunks of the same per-element sums instead of all at once."""
+    k_tx, k_rx = w_tx.shape[0], w_rx.shape[0]
+    if k_tx * k_rx <= _ECHO_MATRIX_CHUNK:
+        mag = np.abs(echo_beam_matrix(echoes, tx, rx, pos_tx, pos_rx, w_tx, w_rx))
+        idx = np.argmax(mag, axis=1)
+        return mag[np.arange(k_tx), idx], idx
+    conj_t, conj_r = np.conj(w_tx), np.conj(w_rx)
+    terms = [
+        (
+            path_alpha(e, tx.power_dbm),
+            conj_t @ array_response(pos_tx, tx.orientation_deg, e.aod_deg),
+            conj_r @ array_response(pos_rx, rx.orientation_deg, e.aoa_deg),
+        )
+        for e in echoes
+    ]
+    best = np.empty(k_tx)
+    idx = np.empty(k_tx, dtype=np.int64)
+    rows = max(1, _ECHO_MATRIX_CHUNK // k_rx)
+    for start in range(0, k_tx, rows):
+        stop = min(start + rows, k_tx)
+        block = np.zeros((stop - start, k_rx), dtype=complex)
+        for alpha, g_tx, g_rx in terms:
+            block += alpha * np.outer(g_tx[start:stop], g_rx)
+        mag = np.abs(block)
+        idx[start:stop] = np.argmax(mag, axis=1)
+        best[start:stop] = mag[np.arange(stop - start), idx[start:stop]]
+    return best, idx
+
+
 def _db20(x: complex | float) -> Optional[float]:
     mag = abs(x)
     return 20.0 * math.log10(mag) if mag >= _MIN_AMPLITUDE else None
@@ -266,6 +396,21 @@ def _db20(x: complex | float) -> Optional[float]:
 
 def _rate(sinr_db: Optional[float]) -> float:
     return math.log2(1.0 + 10.0 ** (sinr_db / 10.0)) if sinr_db is not None else 0.0
+
+
+def _sinr_db(
+    rss_dbm: Optional[float], noise_dbm: float, interference_mw: Optional[float]
+) -> Optional[float]:
+    """SINR [dB]; no interferer term (None) is the plain SNR, rss - N."""
+    if rss_dbm is None:
+        return None
+    if interference_mw is None:
+        return rss_dbm - noise_dbm
+    return rss_dbm - 10.0 * math.log10(10.0 ** (noise_dbm / 10.0) + interference_mw)
+
+
+def _dbm(mw: Optional[float]) -> Optional[float]:
+    return 10.0 * math.log10(mw) if mw is not None and mw > 0.0 else None
 
 
 # ------------------------------------------------------- trade-off curve
@@ -321,17 +466,23 @@ def tradeoff_points(
     slot_ratios: Sequence[float],
     sharing_mode: str,
     pfa: float,
+    *,
+    model: DetectorModel = "swerling1",
+    sensing_slot_rates: Optional[Sequence[dict[str, float]]] = None,
 ) -> list[ISACPoint]:
     """Operating points of one tx, Pareto-flagged: rho ascending, and within
     rho > 0 the sensing beam k ascending. A fraction rho of the slots (or
     pulses) senses with beam k, so the echo integrates rho * cpi_pulses
     (``beam_sensing_snr_db`` is the full-CPI SNR). time_sharing: the UEs get
     the comm beam in the other 1 - rho; dual_function: they are also served
-    by beam k while it senses."""
+    by beam k while it senses, at ``sensing_slot_rates[k]`` (default
+    ``beam_ue_rates[k]``; differs under interference, where the other txs
+    radiate their sensing beams in those slots)."""
     comm_rates = {
         u: (beam_ue_rates[comm_beam_idx][u] if comm_beam_idx is not None else 0.0)
         for u in ue_ids
     }
+    slot_rates = beam_ue_rates if sensing_slot_rates is None else sensing_slot_rates
     points: list[ISACPoint] = []
     for rho in slot_ratios:
         if rho <= 0.0:
@@ -352,7 +503,7 @@ def tradeoff_points(
                 rates = {u: (1.0 - rho) * comm_rates[u] for u in ue_ids}
             else:
                 rates = {
-                    u: (1.0 - rho) * comm_rates[u] + rho * beam_ue_rates[k][u]
+                    u: (1.0 - rho) * comm_rates[u] + rho * slot_rates[k][u]
                     for u in ue_ids
                 }
             snr = snr_full + gain if snr_full is not None else None
@@ -363,7 +514,7 @@ def tradeoff_points(
                     sum_rate_bps_hz=sum(rates[u] for u in ue_ids),
                     ue_rates_bps_hz=rates,
                     sensing_snr_db=snr,
-                    pd=swerling1_pd(snr, pfa),
+                    pd=pd_swerling(snr, pfa, model),
                 )
             )
     for point, flag in zip(
@@ -413,8 +564,7 @@ def pareto_summary(
 
 def snr_for_pd_db(pd: float, pfa: float) -> Optional[float]:
     """Swerling-1 SNR [dB] that reaches ``pd`` at ``pfa`` (None: any SNR does)."""
-    lin = math.log(pfa) / math.log(pd) - 1.0
-    return 10.0 * math.log10(lin) if lin > 0.0 else None
+    return snr_for_pd(pd, pfa, "swerling1")
 
 
 # ---------------------------------------------------------------- solve
@@ -445,9 +595,11 @@ class _TxChannels:
     # UE id -> [K] RSS dBm (None = no path); every planned UE.
     rss: dict[str, list[Optional[float]]]
     ue_single: dict[str, Optional[float]]
-    # Target id -> [K] full-CPI echo SNR and best RX angle per TX beam.
+    # Target id -> [K] full-CPI echo SNR and best RX beam (azimuth, and
+    # elevation on a 2-D codebook) per TX beam.
     target_snr: dict[str, list[Optional[float]]]
     target_rx_angle: dict[str, list[Optional[float]]]
+    target_rx_elevation: dict[str, list[Optional[float]]]
     target_single: dict[str, Optional[float]]
 
 
@@ -455,7 +607,7 @@ def _tx_channels(
     tx: Device,
     rx: Device,
     request: ISACRequest,
-    angles: list[float],
+    codebook: Codebook,
     ues: list[Device],
     targets: list[ResolvedSensingTarget],
     comm: dict[tuple[str, str], list[RayPath]],
@@ -471,8 +623,10 @@ def _tx_channels(
     pos_rx = planar_positions(
         rx_rows, rx_cols, rx.antenna.vertical_spacing, rx.antenna.horizontal_spacing
     )
-    w_tx = codebook_weights(pos_tx, angles)
-    w_rx = codebook_weights(pos_rx, angles)
+    w_tx = codebook.weights(pos_tx)
+    w_rx = codebook.weights(pos_rx)
+    az, el = codebook.az, codebook.el
+    n_beams = len(codebook)
     integration_db = 10.0 * math.log10(request.cpi_pulses)
 
     rss: dict[str, list[Optional[float]]] = {}
@@ -480,7 +634,7 @@ def _tx_channels(
     for ue in ues:
         paths = comm.get((tx.id, ue.id), [])
         if not paths:
-            rss[ue.id] = [None] * len(angles)
+            rss[ue.id] = [None] * n_beams
             ue_single[ue.id] = None
             continue
         gains = [_db20(v) for v in comm_beam_channel(paths, tx, pos_tx, w_tx)]
@@ -490,21 +644,26 @@ def _tx_channels(
 
     target_snr: dict[str, list[Optional[float]]] = {}
     target_rx_angle: dict[str, list[Optional[float]]] = {}
+    target_rx_elevation: dict[str, list[Optional[float]]] = {}
     target_single: dict[str, Optional[float]] = {}
     for t in targets:
         mine = echoes.get((tx.id, rx.id, t.actor_id), [])
-        snr: list[Optional[float]] = [None] * len(angles)
-        rx_angle: list[Optional[float]] = [None] * len(angles)
+        snr: list[Optional[float]] = [None] * n_beams
+        rx_angle: list[Optional[float]] = [None] * n_beams
+        rx_elevation: list[Optional[float]] = [None] * n_beams
         if mine:
-            mag = np.abs(echo_beam_matrix(mine, tx, rx, pos_tx, pos_rx, w_tx, w_rx))
-            for k in range(len(angles)):
-                m = int(np.argmax(mag[k]))
-                db = _db20(float(mag[k, m]))
+            best, best_rx = echo_best_rx(mine, tx, rx, pos_tx, pos_rx, w_tx, w_rx)
+            for k in range(n_beams):
+                m = int(best_rx[k])
+                db = _db20(float(best[k]))
                 if db is not None:
                     snr[k] = tx.power_dbm + db - noise_dbm + integration_db
-                    rx_angle[k] = angles[m]
+                    rx_angle[k] = az[m]
+                    if el is not None:
+                        rx_elevation[k] = el[m]
         target_snr[t.actor_id] = snr
         target_rx_angle[t.actor_id] = rx_angle
+        target_rx_elevation[t.actor_id] = rx_elevation
         single = _db20(sum((path_alpha(e, tx.power_dbm) for e in mine), 0j))
         target_single[t.actor_id] = (
             tx.power_dbm + single - noise_dbm + integration_db
@@ -514,8 +673,144 @@ def _tx_channels(
     return _TxChannels(
         tx=tx, rx=rx, rss=rss, ue_single=ue_single,
         target_snr=target_snr, target_rx_angle=target_rx_angle,
-        target_single=target_single,
+        target_rx_elevation=target_rx_elevation, target_single=target_single,
     )
+
+
+def _target_snrs(
+    ch: _TxChannels, target_ids: list[str], k: int
+) -> tuple[dict[str, Optional[float]], Optional[float]]:
+    """Per-target echo SNR of TX beam k and the weakest (None if any target
+    has no echo)."""
+    per_target = {q: ch.target_snr[q][k] for q in target_ids}
+    weakest = (
+        min(per_target.values())  # type: ignore[type-var]
+        if per_target and all(v is not None for v in per_target.values())
+        else None
+    )
+    return per_target, weakest
+
+
+# --------------------------------------------------------- interference
+
+
+@dataclass(frozen=True)
+class _Interference:
+    """One tx's view under request.interference (synchronized slots)."""
+
+    # Per served UE: interference [mW] while the other txs radiate their comm
+    # beams (comm slots) / sensing beams (sensing slots); None = no term.
+    comm_mw: dict[str, Optional[float]]
+    sens_mw: dict[str, Optional[float]]
+    # The tx's comm beam from the best-response iteration.
+    comm_beam_idx: Optional[int]
+
+
+def _interference_mw(
+    ue_id: str, tx_id: str, channels: list[_TxChannels], beam_of: dict[str, Optional[int]]
+) -> Optional[float]:
+    """Sum over the other txs of their RSS at the UE with the beam they
+    radiate (None beam = silent)."""
+    terms = [
+        10.0 ** (v / 10.0)
+        for ch in channels
+        if ch.tx.id != tx_id
+        and (k := beam_of.get(ch.tx.id)) is not None
+        and (v := ch.rss[ue_id][k]) is not None
+    ]
+    return sum(terms) if terms else None
+
+
+def _best_comm_beam(
+    ch: _TxChannels,
+    served: list[str],
+    n_beams: int,
+    noise_dbm: float,
+    interference_mw: dict[str, Optional[float]],
+) -> Optional[int]:
+    if not served or not any(v is not None for u in served for v in ch.rss[u]):
+        return None
+    sums = [
+        sum(_rate(_sinr_db(ch.rss[u][k], noise_dbm, interference_mw.get(u))) for u in served)
+        for k in range(n_beams)
+    ]
+    return int(np.argmax(sums))
+
+
+def _interference_plan(
+    channels: list[_TxChannels],
+    served: dict[str, list[str]],
+    sensing_beam: dict[str, Optional[int]],
+    n_beams: int,
+    noise_dbm: float,
+) -> tuple[dict[str, _Interference], int, bool]:
+    """Comm beams under mutual interference: round 0 is the interference-free
+    choice, then Gauss-Seidel best response in tx order (each tx maximizes
+    its own sum SINR rate given the others' current comm beams) until a sweep
+    changes nothing, at most MAX_INTERFERENCE_ROUNDS sweeps. Sensing beams
+    do not depend on interference."""
+    comm = {
+        ch.tx.id: _best_comm_beam(ch, served[ch.tx.id], n_beams, noise_dbm, {})
+        for ch in channels
+    }
+    rounds, converged = 0, False
+    while rounds < MAX_INTERFERENCE_ROUNDS:
+        rounds += 1
+        changed = False
+        for ch in channels:
+            t = ch.tx.id
+            i_comm = {u: _interference_mw(u, t, channels, comm) for u in served[t]}
+            new = _best_comm_beam(ch, served[t], n_beams, noise_dbm, i_comm)
+            if new != comm[t]:
+                comm[t] = new
+                changed = True
+        if not changed:
+            converged = True
+            break
+    plan = {
+        ch.tx.id: _Interference(
+            comm_mw={u: _interference_mw(u, ch.tx.id, channels, comm) for u in served[ch.tx.id]},
+            sens_mw={
+                u: _interference_mw(u, ch.tx.id, channels, sensing_beam)
+                for u in served[ch.tx.id]
+            },
+            comm_beam_idx=comm[ch.tx.id],
+        )
+        for ch in channels
+    }
+    return plan, rounds, converged
+
+
+# ---------------------------------------------------------- per-tx result
+
+
+def _monte_carlo(
+    beams: list[ISACBeam],
+    points: list[ISACPoint],
+    request: ISACRequest,
+    tx_index: int,
+    ref: NoiseReference,
+) -> None:
+    """pd_mc of every beam with an echo and of every Pareto point with rho > 0
+    (streams [seed, tx, beam] / [seed, tx, 1e6 + point]) against the
+    request's shared threshold."""
+    det = request.detector
+
+    def mc(snr_db: float, pulses: int, stream: int) -> float:
+        return monte_carlo_pd(
+            snr_db, request.pfa, det.monte_carlo_trials, det.model,
+            seed=[det.seed, tx_index, stream], cpi_pulses=pulses,
+            empirical_threshold=det.empirical_threshold,
+            threshold=ref.threshold, measure_pfa=False,
+        ).pd
+
+    for k, beam in enumerate(beams):
+        if beam.sensing_snr_db is not None:
+            beam.pd_mc = mc(beam.sensing_snr_db, request.cpi_pulses, k)
+    for i, p in enumerate(points):
+        if p.pareto and p.rho > 0.0 and p.sensing_snr_db is not None:
+            pulses = max(1, round(p.rho * request.cpi_pulses))
+            p.pd_mc = mc(p.sensing_snr_db, pulses, _POINT_STREAM_OFFSET + i)
 
 
 def _tx_result(
@@ -523,56 +818,90 @@ def _tx_result(
     served: list[str],
     targets: list[ResolvedSensingTarget],
     request: ISACRequest,
-    angles: list[float],
+    codebook: Codebook,
     ratios: list[float],
     noise_dbm: float,
+    *,
+    tx_index: int = 0,
+    interference: Optional[_Interference] = None,
+    mc_ref: Optional[NoiseReference] = None,
 ) -> ISACTxResult:
     target_ids = [t.actor_id for t in targets]
     rx_rows = request.rx_rows if request.rx_rows is not None else request.tx_rows
     rx_cols = request.rx_cols if request.rx_cols is not None else request.tx_cols
+    az, el = codebook.az, codebook.el
+    model = request.detector.model
     beams: list[ISACBeam] = []
     beam_rates: list[dict[str, float]] = []
     beam_snr: list[Optional[float]] = []
-    for k, angle in enumerate(angles):
-        sinr = {
+    slot_rates: Optional[list[dict[str, float]]] = [] if interference is not None else None
+    for k, angle in enumerate(az):
+        snr_u = {
             u: (ch.rss[u][k] - noise_dbm) if ch.rss[u][k] is not None else None
             for u in served
         }
+        if interference is None:
+            sinr = snr_u
+        else:
+            sinr = {
+                u: _sinr_db(ch.rss[u][k], noise_dbm, interference.comm_mw[u]) for u in served
+            }
+            slot_rates.append(  # type: ignore[union-attr]
+                {
+                    u: _rate(_sinr_db(ch.rss[u][k], noise_dbm, interference.sens_mw[u]))
+                    for u in served
+                }
+            )
         rates = {u: _rate(sinr[u]) for u in served}
-        per_target = {q: ch.target_snr[q][k] for q in target_ids}
-        weakest = (
-            min(per_target.values())  # type: ignore[type-var]
-            if per_target and all(v is not None for v in per_target.values())
-            else None
-        )
+        per_target, weakest = _target_snrs(ch, target_ids, k)
         beam_rates.append(rates)
         beam_snr.append(weakest)
         beams.append(
             ISACBeam(
                 angle_deg=angle,
+                elevation_deg=el[k] if el is not None else None,
                 ue_sinr_db=sinr,
+                ue_snr_db=snr_u if interference is not None else None,
+                ue_interference_dbm=(
+                    {u: _dbm(interference.comm_mw[u]) for u in served}
+                    if interference is not None
+                    else None
+                ),
                 sum_rate_bps_hz=sum(rates[u] for u in served),
                 target_snr_db=per_target,
                 target_best_rx_angle_deg={q: ch.target_rx_angle[q][k] for q in target_ids},
+                target_best_rx_elevation_deg=(
+                    {q: ch.target_rx_elevation[q][k] for q in target_ids}
+                    if el is not None
+                    else None
+                ),
                 sensing_snr_db=weakest,
-                pd=swerling1_pd(weakest, request.pfa),
+                pd=pd_swerling(weakest, request.pfa, model),
                 detected=weakest is not None and weakest >= request.threshold_db,
             )
         )
 
     warnings: list[str] = []
-    has_path = any(v is not None for u in served for v in ch.rss[u])
-    comm_idx = (
-        int(np.argmax([b.sum_rate_bps_hz for b in beams])) if served and has_path else None
-    )
+    if interference is not None:
+        comm_idx = interference.comm_beam_idx
+    else:
+        has_path = any(v is not None for u in served for v in ch.rss[u])
+        comm_idx = (
+            int(np.argmax([b.sum_rate_bps_hz for b in beams])) if served and has_path else None
+        )
     if not served:
         warnings.append(f"tx {ch.tx.id} serves no UE: sensing-only trade-off")
     sensing_idx = _argmax_optional(beam_snr)
-    comm_angle = angles[comm_idx] if comm_idx is not None else None
-    sensing_angle = angles[sensing_idx] if sensing_idx is not None else None
+    comm_angle = az[comm_idx] if comm_idx is not None else None
+    sensing_angle = az[sensing_idx] if sensing_idx is not None else None
+    comm_el = el[comm_idx] if el is not None and comm_idx is not None else None
+    sensing_el = el[sensing_idx] if el is not None and sensing_idx is not None else None
     points = tradeoff_points(
-        served, beam_rates, comm_idx, beam_snr, ratios, request.sharing_mode, request.pfa
+        served, beam_rates, comm_idx, beam_snr, ratios, request.sharing_mode, request.pfa,
+        model=model, sensing_slot_rates=slot_rates,
     )
+    if mc_ref is not None:
+        _monte_carlo(beams, points, request, tx_index, mc_ref)
     comm_only = beams[comm_idx].sum_rate_bps_hz if comm_idx is not None else 0.0
     return ISACTxResult(
         tx_id=ch.tx.id,
@@ -582,7 +911,8 @@ def _tx_result(
         target_ids=target_ids,
         tx_array=[request.tx_rows, request.tx_cols],
         rx_array=[rx_rows, rx_cols],
-        angles_deg=list(angles),
+        angles_deg=list(az),
+        elevations_deg=list(el) if el is not None else None,
         beams=beams,
         comm_beam_idx=comm_idx,
         sensing_beam_idx=sensing_idx,
@@ -593,12 +923,30 @@ def _tx_result(
             if comm_angle is not None and sensing_angle is not None
             else None
         ),
+        comm_beam_elevation_deg=comm_el,
+        sensing_beam_elevation_deg=sensing_el,
+        elevation_gap_deg=(
+            abs(comm_el - sensing_el) if comm_el is not None and sensing_el is not None else None
+        ),
+        ue_interference_sensing_dbm=(
+            {u: _dbm(interference.sens_mw[u]) for u in served}
+            if interference is not None
+            else None
+        ),
         ue_single_element_rss_dbm={u: ch.ue_single[u] for u in served},
         target_single_element_snr_db=dict(ch.target_single),
         points=points,
         pareto=pareto_summary(points, comm_only, request.pd_target, request.pfa),
         warnings=warnings,
     )
+
+
+def isac_mc_estimates(request: ISACRequest, n_tx: int) -> int:
+    """Upper bound on the Pd Monte Carlo estimates of a run: every beam and
+    every (rho > 0, beam) point of every tx (only Pareto points run)."""
+    n_az, n_el = request.codebook_size()
+    n_ratios = len({r for r in request.slot_ratios if r > 0.0})
+    return n_tx * n_az * n_el * (1 + n_ratios)
 
 
 def run_isac(
@@ -676,13 +1024,11 @@ def run_isac(
         echoes_by_link.setdefault((p.tx_id, p.rx_id, p.target_id or ""), []).append(p)
 
     noise_dbm = noise_floor_dbm(config)
-    angles = codebook_angles(
-        request.sweep_start_deg, request.sweep_stop_deg, request.sweep_step_deg
-    )
+    codebook = request_codebook(request)
     ratios = sorted(set(float(r) for r in request.slot_ratios))
     channels = [
         _tx_channels(
-            t, plan.sensing_rx[t.id], request, angles, plan.ues, targets,
+            t, plan.sensing_rx[t.id], request, codebook, plan.ues, targets,
             comm_by_link, echoes_by_link, noise_dbm,
         )
         for t in plan.txs
@@ -703,15 +1049,68 @@ def run_isac(
                 if request.ue_association == "serving"
                 else f"UE {u} has no path to any selected tx"
             )
-
-    txs = []
-    for ch in channels:
-        served = (
+    served = {
+        ch.tx.id: (
             list(ue_ids)
             if request.ue_association == "all"
             else [u for u in ue_ids if ue_serving_tx[u] == ch.tx.id]
         )
-        txs.append(_tx_result(ch, served, targets, request, angles, ratios, noise_dbm))
+        for ch in channels
+    }
+
+    target_ids = [t.actor_id for t in targets]
+    interference: dict[str, _Interference] = {}
+    extra_metadata: dict = {}
+    if request.interference:
+        sensing_beam = {
+            ch.tx.id: _argmax_optional(
+                [_target_snrs(ch, target_ids, k)[1] for k in range(len(codebook))]
+            )
+            for ch in channels
+        }
+        interference, rounds, converged = _interference_plan(
+            channels, served, sensing_beam, len(codebook), noise_dbm
+        )
+        if not converged:
+            warnings.append(
+                f"interference: the comm beam best response did not settle in "
+                f"{MAX_INTERFERENCE_ROUNDS} rounds; the last round's beams are reported"
+            )
+        extra_metadata.update(
+            interference=True,
+            ue_interferers={
+                u: [
+                    ch.tx.id for ch in channels
+                    if ch.tx.id != ue_serving_tx[u]
+                    and ue_serving_tx[u] is not None
+                    and any(v is not None for v in ch.rss[u])
+                ]
+                for u in ue_ids
+            },
+            interference_rounds=rounds,
+            interference_converged=converged,
+            interference_model=INTERFERENCE_MODEL,
+        )
+
+    det = request.detector
+    mc_ref: Optional[NoiseReference] = None
+    if det.monte_carlo_trials > 0:
+        mc_ref = noise_reference(
+            request.pfa, det.monte_carlo_trials, noise_seed(det.seed),
+            request.cpi_pulses, det.empirical_threshold,
+        )
+    if det != DetectorOptions():
+        extra_metadata["detector"] = detector_metadata(
+            det.model, request.pfa, det.monte_carlo_trials, mc_ref
+        )
+
+    txs = [
+        _tx_result(
+            ch, served[ch.tx.id], targets, request, codebook, ratios, noise_dbm,
+            tx_index=i, interference=interference.get(ch.tx.id), mc_ref=mc_ref,
+        )
+        for i, ch in enumerate(channels)
+    ]
 
     consts = detection_constants(
         config,
@@ -724,15 +1123,19 @@ def run_isac(
     for key in ("mti_min_doppler_hz", "mti_blind_speed_m_s"):
         consts.pop(key, None)
     metadata = {
-        "request": request.model_dump(mode="json", exclude={"config"}),
+        "request": metadata_dump(request, exclude=("config",)),
         **consts,
-        "codebook_size": len(angles),
+        "codebook_size": len(codebook),
         "echo_path_count": len(echo_paths),
         "comm_path_count": len(comm_paths),
-        "snr_for_pd_target_db": snr_for_pd_db(request.pd_target, request.pfa),
-        "pd_at_threshold": swerling1_pd(request.threshold_db, request.pfa),
-        "model": ISAC_MODEL,
+        "snr_for_pd_target_db": snr_for_pd(request.pd_target, request.pfa, det.model),
+        "pd_at_threshold": pd_swerling(request.threshold_db, request.pfa, det.model),
+        "model": ISAC_MODEL if codebook.el_axis is None else ISAC_MODEL_2D,
     }
+    if codebook.el_axis is not None:
+        # Beams enumerate elevation outer, azimuth inner.
+        metadata["codebook_shape"] = [len(codebook.el_axis), len(codebook.az_axis)]
+    metadata.update(extra_metadata)
     if tick is not None:
         tick(2, 2)
     return ISACResultSet(

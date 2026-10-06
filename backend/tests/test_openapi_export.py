@@ -42,6 +42,9 @@ SIBLING_ROUTES = [
     ("POST", "/projects/{project_id}/ai/explain-validation"),
     ("POST", "/projects/{project_id}/calibrate/measurements/import-csv"),
     ("GET", "/projects/{project_id}/calibrate/measurements"),
+    # ISAC Phase C (v0.1.13).
+    ("POST", "/projects/{project_id}/analysis/pd-curve"),
+    ("POST", "/projects/{project_id}/export/sensing-dataset"),
 ]
 
 
