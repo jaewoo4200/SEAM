@@ -3,9 +3,13 @@
 POST /projects/{project_id}/simulate/paths      -> PathResultSet
 POST /projects/{project_id}/simulate/radio-map  -> RadioMapResultSet
 POST /projects/{project_id}/simulate/sensing    -> SensingResultSet
+POST /projects/{project_id}/simulate/isac       -> ISACResultSet
+POST /projects/{project_id}/simulate/sensing-coverage -> SensingCoverageResultSet
 GET  /projects/{project_id}/results/paths       -> stored PathResultSet
 GET  /projects/{project_id}/results/radio-map   -> stored RadioMapResultSet
 GET  /projects/{project_id}/results/sensing     -> stored SensingResultSet
+GET  /projects/{project_id}/results/isac        -> stored ISACResultSet
+GET  /projects/{project_id}/results/sensing-coverage -> stored SensingCoverageResultSet
 
 Storage convention: results/<result_id>.json inside the project folder, with
 result_id = "<backend>_<kind>_<nnn>" (nnn = highest existing suffix + 1,
@@ -32,15 +36,21 @@ from seam_studio.schemas.channel import ChannelAnalysisResult
 from seam_studio.schemas.common import StrictModel
 from seam_studio.schemas.results import (
     BeamformingResult,
+    ISACResultSet,
     MeshRadioMapResultSet,
     PathResultSet,
     PlaybackResultSet,
     RadioMapResultSet,
+    SensingCoverageResultSet,
     SensingResultSet,
     TrajectoryResultSet,
 )
 from seam_studio.schemas.scene import ResultSetRef, Scene
-from seam_studio.schemas.sensing import SensingSimulateRequest
+from seam_studio.schemas.sensing import (
+    ISACRequest,
+    SensingCoverageRequest,
+    SensingSimulateRequest,
+)
 from seam_studio.schemas.simulation import (
     BeamformingRequest,
     MeshRadioMapRequest,
@@ -114,7 +124,7 @@ def _solve_guard(project_id: str, kind: str) -> Iterator[None]:
 
 ResultKind = Literal[
     "paths", "radio_map", "mesh_radio_map", "trajectory", "scenario",
-    "channel", "playback", "sensing",
+    "channel", "playback", "sensing", "isac", "sensing_coverage",
 ]
 RESULT_KINDS: tuple[str, ...] = (
     "paths",
@@ -125,6 +135,8 @@ RESULT_KINDS: tuple[str, ...] = (
     "channel",
     "playback",
     "sensing",
+    "isac",
+    "sensing_coverage",
 )
 AnyResult = Union[
     PathResultSet,
@@ -135,6 +147,8 @@ AnyResult = Union[
     ChannelAnalysisResult,
     PlaybackResultSet,
     SensingResultSet,
+    ISACResultSet,
+    SensingCoverageResultSet,
 ]
 
 
@@ -227,11 +241,12 @@ def _persist_result(
     result.created_at = datetime.now(timezone.utc).isoformat()
     # Reproducibility stamp: content hashes + the exact solver knobs used.
     result.metadata.update(_provenance_hashes(scene, config))
-    # Sensing-only knobs (targets, max_depth, samples_per_sp, comm paths) live
-    # in the request, not the config: without this two different sensing runs
-    # would share every hash.
-    if kind == "sensing" and "sensing_request" in result.metadata:
-        result.metadata["request_hash"] = _sha256(result.metadata["sensing_request"])
+    # Sensing-only knobs (targets, max_depth, samples_per_sp, comm paths,
+    # codebook, slot ratios, grid) live in the request, not the config:
+    # without this two different runs would share every hash.
+    req = result.metadata.get("sensing_request" if kind == "sensing" else "request")
+    if kind in ("sensing", "isac", "sensing_coverage") and req is not None:
+        result.metadata["request_hash"] = _sha256(req)
     if config is not None:
         result.metadata.setdefault("config_snapshot", config.model_dump(mode="json"))
 
@@ -730,6 +745,130 @@ def get_sensing_result(
 ) -> SensingResultSet:
     return SensingResultSet.model_validate(
         _load_result(project_id, "sensing", result_id)
+    )
+
+
+@router.post("/projects/{project_id}/simulate/isac", response_model=ISACResultSet)
+def simulate_isac(
+    project_id: str, request: Optional[ISACRequest] = None
+) -> ISACResultSet:
+    """ISAC beam trade-off: per TX, the azimuth codebook scored for its UEs'
+    rate and its targets' echo SNR from one t = 0 echo + comm solve, and the
+    Pd-rate Pareto front of sharing slots between the comm and sensing beams."""
+    from seam_studio.services.isac import ISACRequestError, plan_isac_roles, run_isac
+    from seam_studio.services.sensing import SensingRequestError, select_targets
+
+    request = request or ISACRequest()
+    store = get_store()
+    scene = load_scene_live(store, project_id)
+    library = store.load_materials(project_id)
+    config = _resolve_config(
+        scene, SimulateRequest(config_id=request.config_id, config=request.config)
+    )
+    # Validation stays outside the guard so a 4xx never announces a solve.
+    if not request.use_device_orientation:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "ISAC needs fixed-bearing arrays (use_device_orientation=true): "
+                "look_at cannot aim one panel at both its UEs and its targets"
+            ),
+        )
+    try:
+        plan = plan_isac_roles(
+            scene, request.tx_ids, request.ue_rx_ids, request.sensing_rx_ids
+        )
+        targets = select_targets(scene, request.target_actor_ids)
+    except (ISACRequestError, SensingRequestError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    try:
+        backend, notes = _resolve_sensing_backend(config)
+    except BackendUnavailableError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    project_dir = store.resolve(project_id)
+
+    with _solve_guard(project_id, "isac"):
+        try:
+            result = run_isac(
+                backend, project_dir, scene, library, config, request, plan, targets,
+                tick=solve_ctx.tick, extra_warnings=notes,
+            )
+        except BackendUnavailableError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+        return _persist_result(
+            project_id, scene, project_dir, "isac", backend.name, config.id,
+            result, config=config,
+        )
+
+
+@router.get("/projects/{project_id}/results/isac", response_model=ISACResultSet)
+def get_isac_result(
+    project_id: str, result_id: Optional[str] = Query(default=None)
+) -> ISACResultSet:
+    return ISACResultSet.model_validate(_load_result(project_id, "isac", result_id))
+
+
+@router.post(
+    "/projects/{project_id}/simulate/sensing-coverage",
+    response_model=SensingCoverageResultSet,
+)
+def simulate_sensing_coverage(
+    project_id: str, request: Optional[SensingCoverageRequest] = None
+) -> SensingCoverageResultSet:
+    """Sensing coverage map: bistatic radar equation of a virtual point target
+    over a grid at one height, per TX x sensing-RX link with two-leg LOS, plus
+    the links detected and the multistatic fusion feasibility per cell."""
+    from seam_studio.services.isac import ISACRequestError, plan_isac_roles
+    from seam_studio.services.scene_bounds import compute_scene_bounds
+    from seam_studio.services.sensing_coverage import (
+        SensingCoverageError,
+        coverage_grid,
+        run_sensing_coverage,
+    )
+
+    request = request or SensingCoverageRequest()
+    store = get_store()
+    scene = load_scene_live(store, project_id)
+    library = store.load_materials(project_id)
+    config = _resolve_config(
+        scene, SimulateRequest(config_id=request.config_id, config=request.config)
+    )
+    project_dir = store.resolve(project_id)
+    try:
+        plan = plan_isac_roles(
+            scene, request.tx_ids, None, request.sensing_rx_ids, require_ues=False
+        )
+        bounds = (
+            compute_scene_bounds(project_dir, scene) if request.center_xy is None else None
+        )
+        grid = coverage_grid(request, bounds)
+    except (ISACRequestError, SensingCoverageError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    try:
+        backend = resolve_backend(config)
+    except BackendUnavailableError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+    with _solve_guard(project_id, "sensing_coverage"):
+        result = run_sensing_coverage(
+            backend, project_dir, scene, library, config, request,
+            plan=plan, grid=grid, tick=solve_ctx.tick,
+        )
+        return _persist_result(
+            project_id, scene, project_dir, "sensing_coverage", backend.name,
+            config.id, result, config=config,
+        )
+
+
+@router.get(
+    "/projects/{project_id}/results/sensing-coverage",
+    response_model=SensingCoverageResultSet,
+)
+def get_sensing_coverage_result(
+    project_id: str, result_id: Optional[str] = Query(default=None)
+) -> SensingCoverageResultSet:
+    return SensingCoverageResultSet.model_validate(
+        _load_result(project_id, "sensing_coverage", result_id)
     )
 
 

@@ -107,6 +107,16 @@ def detection_constants(config: SimulationConfig, options: SensingTrackOptions) 
     }
 
 
+def swerling1_pd(snr_db: Optional[float], pfa: float) -> float:
+    """Detection probability of a Swerling-1 target with a square-law detector
+    on the coherently integrated sample: Pfa = e^-T and Pd = e^(-T / (1 + SNR))
+    give Pd = Pfa^(1 / (1 + SNR)). No echo (None) detects at the false-alarm
+    rate."""
+    if snr_db is None:
+        return pfa
+    return pfa ** (1.0 / (1.0 + 10.0 ** (snr_db / 10.0)))
+
+
 def _node_doppler_hz(
     path: RayPath,
     tx: tuple[list[float], list[float]],

@@ -87,6 +87,36 @@ export function beamSweepAxisDeg(
   return Math.atan2(rxPos[1] - txPos[1], rxPos[0] - txPos[0]) / DEG;
 }
 
+/** Azimuth cut of one DFT codebook beam of a `cols`-wide ULA (element spacing
+ *  in wavelengths) steered to local azimuth `steerDeg`, over the front
+ *  hemisphere -90..90 step 1: 10log10(|sum_n e^{j2pi d n (sin phi - sin theta)}|^2 / cols),
+ *  i.e. gain over one element (peak = 10log10(cols)). Analytic, not measured:
+ *  the ISAC result stores only the chosen beam index, and this is exactly the
+ *  pattern the backend's codebook weights form for a broadside row. */
+export function codebookBeamCurve(
+  cols: number,
+  horizontalSpacing: number,
+  steerDeg: number,
+): { anglesDeg: number[]; powerDb: number[] } {
+  const n = Math.max(1, Math.round(cols));
+  const sinT = Math.sin(steerDeg * DEG);
+  const anglesDeg: number[] = [];
+  const powerDb: number[] = [];
+  for (let a = -90; a <= 90; a++) {
+    const psi = 2 * Math.PI * horizontalSpacing * (Math.sin(a * DEG) - sinT);
+    let re = 0;
+    let im = 0;
+    for (let k = 0; k < n; k++) {
+      re += Math.cos(psi * k);
+      im += Math.sin(psi * k);
+    }
+    anglesDeg.push(a);
+    // Floor keeps exact nulls finite (BeamLobeOverlay maps them to r = 0 anyway).
+    powerDb.push(10 * Math.log10(Math.max((re * re + im * im) / n, 1e-30)));
+  }
+  return { anglesDeg, powerDb };
+}
+
 export default function BeamLobeOverlay({
   origin,
   axisDeg,

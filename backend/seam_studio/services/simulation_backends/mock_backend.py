@@ -30,7 +30,7 @@ from seam_studio.services.sensing import (
     SENSING_PATH_PREFIX,
     ResolvedSensingTarget,
     actor_velocities_t0,
-    dbsm_to_m2,
+    bistatic_radar_gain_db,
     target_summary,
     with_rider_velocities,
 )
@@ -182,6 +182,7 @@ class MockBackend(RayTracingBackend):
             **super().capabilities(),
             "beamforming": True,  # analytic array-gain stub
             "sensing": True,  # bistatic radar equation, one point per target
+            "sensing_coverage": True,  # every leg counts as LOS (no occlusion)
             "deterministic": True,
         }
 
@@ -488,12 +489,10 @@ class MockBackend(RayTracingBackend):
         rx_pos = [float(c) for c in rx.position]
         # Raw leg lengths drive delay/phase; the gain clamps them like friis_dbm.
         r1, r2 = _dist(tx_pos, sp), _dist(sp, rx_pos)
-        d1, d2 = max(r1, 0.1), max(r2, 0.1)
-        gain_lin = lam**2 * dbsm_to_m2(target.rcs_dbsm) / (
-            (4.0 * math.pi) ** 3 * d1**2 * d2**2
-        )
         power_dbm = (
-            tx.power_dbm + 10.0 * math.log10(gain_lin) - _absorption_db(config, r1 + r2)
+            tx.power_dbm
+            + bistatic_radar_gain_db(lam, target.rcs_dbsm, r1, r2)
+            - _absorption_db(config, r1 + r2)
         )
         k_ts = _unit(tx_pos, sp)
         k_sr = _unit(sp, rx_pos)

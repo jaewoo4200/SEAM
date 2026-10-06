@@ -29,6 +29,10 @@ WAVE0_ROUTES = [
     ("GET", "/backends"),
     ("POST", "/projects/{project_id}/simulate/sensing"),
     ("GET", "/projects/{project_id}/results/sensing"),
+    ("POST", "/projects/{project_id}/simulate/isac"),
+    ("GET", "/projects/{project_id}/results/isac"),
+    ("POST", "/projects/{project_id}/simulate/sensing-coverage"),
+    ("GET", "/projects/{project_id}/results/sensing-coverage"),
 ]
 
 # Being implemented by sibling agents this wave - assert-if-present only.

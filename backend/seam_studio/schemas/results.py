@@ -12,6 +12,7 @@ from typing import Literal, Optional
 from pydantic import Field, model_validator
 
 from .common import StrictModel, Vec3
+from .sensing import SensingCoverageMetric
 from .simulation import SimulationConfig
 
 PathType = Literal[
@@ -176,6 +177,101 @@ class SensingFrame(StrictModel):
     estimates: list[TargetEstimate] = Field(default_factory=list)
 
 
+class ISACBeam(StrictModel):
+    """One codebook beam of one tx, used full time for comm OR sensing (rho = 1)."""
+
+    angle_deg: float
+    # Per UE of this tx: SINR (= SNR, no inter-tx interference) [dB]; None = no path.
+    ue_sinr_db: dict[str, Optional[float]] = Field(default_factory=dict)
+    # Sum over this tx's UEs of log2(1 + SINR) with this beam [bit/s/Hz].
+    sum_rate_bps_hz: float = 0.0
+    # Per target: echo SNR with this TX beam and the best RX beam, full CPI.
+    target_snr_db: dict[str, Optional[float]] = Field(default_factory=dict)
+    target_best_rx_angle_deg: dict[str, Optional[float]] = Field(default_factory=dict)
+    # Weakest target (min over targets; None if any target has no echo).
+    sensing_snr_db: Optional[float] = None
+    # Swerling-1 Pd of sensing_snr_db (pfa when None).
+    pd: float
+    # sensing_snr_db >= threshold_db.
+    detected: bool = False
+
+
+class ISACPoint(StrictModel):
+    # Fraction of slots / pulses spent sensing.
+    rho: float
+    # Sensing-slot beam; None for rho == 0 (comm only).
+    beam_idx: Optional[int] = None
+    sum_rate_bps_hz: float
+    ue_rates_bps_hz: dict[str, float] = Field(default_factory=dict)
+    # Weakest target, rho * cpi_pulses integrated.
+    sensing_snr_db: Optional[float] = None
+    pd: float
+    pareto: bool = False
+
+
+class ISACParetoSummary(StrictModel):
+    # rho = 0: the comm beam full time.
+    comm_only_rate_bps_hz: float
+    max_pd: float
+    pd_target: float
+    # Max rate over points with pd >= pd_target (None: no point reaches it).
+    rate_at_pd_target_bps_hz: Optional[float] = None
+    rho_at_pd_target: Optional[float] = None
+    beam_idx_at_pd_target: Optional[int] = None
+    # comm_only - rate_at_pd_target.
+    rate_loss_at_pd_target_bps_hz: Optional[float] = None
+    # Max pd over points with rate >= 0.95 * comm_only.
+    pd_at_95pct_rate: float
+    num_pareto_points: int = 0
+
+
+class ISACTxResult(StrictModel):
+    tx_id: str
+    sensing_rx_id: str
+    # 0 ~ monostatic.
+    sensing_baseline_m: float
+    # UEs this tx serves.
+    ue_ids: list[str] = Field(default_factory=list)
+    target_ids: list[str] = Field(default_factory=list)
+    tx_array: list[int] = Field(min_length=2, max_length=2)  # [rows, cols]
+    rx_array: list[int] = Field(min_length=2, max_length=2)
+    # Codebook, local azimuth of the panel.
+    angles_deg: list[float] = Field(default_factory=list)
+    beams: list[ISACBeam] = Field(default_factory=list)
+    comm_beam_idx: Optional[int] = None
+    sensing_beam_idx: Optional[int] = None
+    comm_beam_angle_deg: Optional[float] = None
+    sensing_beam_angle_deg: Optional[float] = None
+    angle_gap_deg: Optional[float] = None
+    # Hand-check anchors: 1x1 both ends.
+    ue_single_element_rss_dbm: dict[str, Optional[float]] = Field(default_factory=dict)
+    target_single_element_snr_db: dict[str, Optional[float]] = Field(default_factory=dict)
+    points: list[ISACPoint] = Field(default_factory=list)
+    pareto: ISACParetoSummary
+    warnings: list[str] = Field(default_factory=list)
+
+
+class ISACResultSet(StrictModel):
+    result_id: str
+    kind: Literal["isac"] = "isac"
+    backend: str
+    simulation_config_id: str
+    created_at: Optional[str] = None
+    frequency_hz: float
+    sharing_mode: Literal["time_sharing", "dual_function"]
+    ue_association: Literal["serving", "all"]
+    # Sorted, deduped.
+    slot_ratios: list[float] = Field(default_factory=list)
+    noise_floor_dbm: float
+    # UE id -> serving tx id (None = no path to any selected tx).
+    ue_serving_tx: dict[str, Optional[str]] = Field(default_factory=dict)
+    txs: list[ISACTxResult] = Field(default_factory=list)
+    # include_paths: the echo paths, then the comm paths.
+    paths: Optional[list[RayPath]] = None
+    warnings: list[str] = Field(default_factory=list)
+    metadata: dict = Field(default_factory=dict)
+
+
 class BeamformingResult(StrictModel):
     """MIMO beamforming gain summary for one TX->RX link.
 
@@ -215,6 +311,54 @@ class RadioMapGrid(StrictModel):
     nx: int = Field(ge=1)
     ny: int = Field(ge=1)
     height_m: float = 1.5
+
+
+class SensingCoverageLink(StrictModel):
+    tx_id: str
+    rx_id: str
+    # Links with the same foci (either order) share a group.
+    geometry_group: int
+    baseline_m: float
+    # Fraction of cells with both legs LOS.
+    los_fraction: float
+    # Fraction of cells with SNR >= threshold.
+    detected_fraction: float
+
+
+class SensingCoverageSummary(StrictModel):
+    num_cells: int
+    num_links: int
+    num_geometries: int
+    # 0..100: >= 1 link with both legs LOS.
+    pct_cells_los: float
+    # 0..100: >= 1 detected link.
+    pct_cells_detected: float
+    pct_cells_fusion_feasible: float
+    # Over cells with an echo.
+    median_best_snr_db: Optional[float] = None
+
+
+class SensingCoverageResultSet(StrictModel):
+    result_id: str
+    kind: Literal["sensing_coverage"] = "sensing_coverage"
+    backend: str
+    simulation_config_id: str
+    created_at: Optional[str] = None
+    frequency_hz: float
+    rcs_dbsm: float
+    # 0 (none) or 10log10(Ntx) + 10log10(Nrx) (steered).
+    array_gain_db: float
+    tx_ids: list[str] = Field(default_factory=list)
+    sensing_rx_ids: list[str] = Field(default_factory=list)
+    grid: RadioMapGrid
+    # Row-major [ny][nx] like RadioMapResultSet.values, one array per metric:
+    # best_snr_db / pd_best: None where no link has an echo;
+    # n_links_detected: 0..num_links; fusion_feasible: 0.0 / 1.0 (never None).
+    values: dict[SensingCoverageMetric, list[list[Optional[float]]]]
+    links: list[SensingCoverageLink] = Field(default_factory=list)
+    summary: SensingCoverageSummary
+    warnings: list[str] = Field(default_factory=list)
+    metadata: dict = Field(default_factory=dict)
 
 
 class TrajectorySample(StrictModel):

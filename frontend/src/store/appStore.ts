@@ -26,6 +26,8 @@ import type {
   Environment,
   HandoverConfig,
   HealthResponse,
+  ISACRequest,
+  ISACResultSet,
   MaterialSuggestionResponse,
   MeshRadioMapResultSet,
   PathResultSet,
@@ -42,6 +44,9 @@ import type {
   ScenarioResultSet,
   Scene,
   SceneBounds,
+  SensingCoverageMetric,
+  SensingCoverageRequest,
+  SensingCoverageResultSet,
   SensingResultSet,
   SensingTrackOptions,
   SegmentationPreviewRequest,
@@ -327,6 +332,24 @@ interface AppState {
   /** Best-effort silent fetch of the latest stored sensing result. */
   loadSensing: (resultId?: string) => Promise<void>;
 
+  // --- ISAC beam trade-off + sensing coverage map ---
+  /** Latest / activated ISAC trade-off result (per-TX beams + Pareto). */
+  isac: ISACResultSet | null;
+  /** Viewport overlay: comm (cyan) / sensing (magenta) beam lobes per TX. */
+  showIsac: boolean;
+  /** Latest / activated sensing coverage map. */
+  sensingCoverage: SensingCoverageResultSet | null;
+  /** Viewport overlay: coverage heatmap plane + legend. */
+  showSensingCoverage: boolean;
+  /** Which coverage metric the heatmap draws. A view preference. */
+  coverageMetric: SensingCoverageMetric;
+  runIsac: (req: Omit<ISACRequest, "config" | "config_id">) => Promise<void>;
+  runSensingCoverage: (req: Omit<SensingCoverageRequest, "config" | "config_id">) => Promise<void>;
+  /** Best-effort silent fetches of the latest stored results (data only). */
+  loadIsac: (resultId?: string) => Promise<void>;
+  loadSensingCoverage: (resultId?: string) => Promise<void>;
+  setCoverageMetric: (m: SensingCoverageMetric) => void;
+
   // --- channel analysis ---
   channelResult: ChannelAnalysisResult | null;
 
@@ -349,6 +372,8 @@ interface AppState {
     radio_map?: number;
     scenario?: number;
     sensing?: number;
+    isac?: number;
+    sensing_coverage?: number;
   };
 
   // --- viewport pick mode (click-to-place) ---
@@ -493,7 +518,9 @@ interface AppState {
       | "trajectoryRays"
       | "playback"
       | "beamLobe"
-      | "sensing",
+      | "sensing"
+      | "isac"
+      | "sensingCoverage",
   ) => void;
   /** Per-frame trajectory rays overlay (include_paths results). Independent of
    *  the static Rays toggle: computing a trajectory turns it ON, computing
@@ -920,7 +947,9 @@ export const useAppStore = create<AppState>()((set, get) => {
       | "mesh_radio_map"
       | "radio_map"
       | "scenario"
-      | "sensing",
+      | "sensing"
+      | "isac"
+      | "sensing_coverage",
   ): void {
     set({ resultEpochs: { ...get().resultEpochs, [kind]: get().sceneEpoch } });
   }
@@ -1363,6 +1392,12 @@ export const useAppStore = create<AppState>()((set, get) => {
     sensing: null,
     showSensing: false,
 
+    isac: null,
+    showIsac: false,
+    sensingCoverage: null,
+    showSensingCoverage: false,
+    coverageMetric: "best_snr_db",
+
     channelResult: null,
     abBaseline: null,
 
@@ -1551,6 +1586,10 @@ export const useAppStore = create<AppState>()((set, get) => {
           // Sensing echoes belong to one project's targets (refetched below).
           sensing: null,
           showSensing: false,
+          isac: null,
+          showIsac: false,
+          sensingCoverage: null,
+          showSensingCoverage: false,
           // A pinned A/B baseline belongs to the previous project's scene.
           abBaseline: null,
           // The surfaced export paths belong to the previous project.
@@ -1691,6 +1730,9 @@ export const useAppStore = create<AppState>()((set, get) => {
       void get().loadPlayback();
       // Latest stored sensing result: data only, the overlay stays OFF.
       void get().loadSensing();
+      // Same for the ISAC trade-off and the sensing coverage map.
+      void get().loadIsac();
+      void get().loadSensingCoverage();
       // Latest stored mesh radio map + live-event socket: both out-of-band and
       // fully best-effort so a missing endpoint (this wave still landing on the
       // backend) never blocks or breaks project open.
@@ -2001,6 +2043,9 @@ export const useAppStore = create<AppState>()((set, get) => {
       else if (kind === "playback") set({ showPlayback: !get().showPlayback });
       else if (kind === "beamLobe") set({ showBeamLobe: !get().showBeamLobe });
       else if (kind === "sensing") set({ showSensing: !get().showSensing });
+      else if (kind === "isac") set({ showIsac: !get().showIsac });
+      else if (kind === "sensingCoverage")
+        set({ showSensingCoverage: !get().showSensingCoverage });
       else set({ showBeamforming: !get().showBeamforming });
     },
 
@@ -2154,6 +2199,14 @@ export const useAppStore = create<AppState>()((set, get) => {
           const result = await api.getSensingResult(pid, ref.result_id);
           set({ sensing: result, showSensing: true, ...resultsMode() });
           stampResult("sensing");
+        } else if (ref.kind === "isac") {
+          const result = await api.getIsacResult(pid, ref.result_id);
+          set({ isac: result, showIsac: true, ...resultsMode() });
+          stampResult("isac");
+        } else if (ref.kind === "sensing_coverage") {
+          const result = await api.getSensingCoverageResult(pid, ref.result_id);
+          set({ sensingCoverage: result, showSensingCoverage: true, ...resultsMode() });
+          stampResult("sensing_coverage");
         } else if (ref.kind === "scenario") {
           const result = await api.getScenario(pid, ref.result_id);
           set({
@@ -2279,6 +2332,86 @@ export const useAppStore = create<AppState>()((set, get) => {
         // no stored sensing result yet (or endpoint absent): ignore silently
       }
     },
+
+    runIsac: async (req) => {
+      const pid = get().projectId;
+      if (!pid) return;
+      const bound = (get().scene?.actors ?? []).some(
+        (a) => a.sensing && a.sensing.enabled !== false,
+      );
+      if (!bound && !req.target_actor_ids) {
+        set({ error: "Bind an actor as a sensing target first (Inspector → Sensing target)" });
+        return;
+      }
+      await run("Running ISAC trade-off…", async () => {
+        const result = await api.simulateIsac(pid, { ...req, config: get().pathsConfig });
+        const deg = (v: number | null) => (v === null ? "—" : `${+v.toFixed(1)}°`);
+        const beams = result.txs
+          .slice(0, 4)
+          .map((t) => `${t.tx_id} ${deg(t.comm_beam_angle_deg)}/${deg(t.sensing_beam_angle_deg)}`)
+          .join(" · ");
+        set({
+          isac: result,
+          showIsac: true,
+          ...resultsMode(),
+          notice:
+            `ISAC: ${result.txs.length} tx via ${result.backend} · comm/sensing beams ` +
+            beams +
+            (result.txs.length > 4 ? " …" : "") +
+            (result.warnings[0] ? ` · ${result.warnings[0]}` : ""),
+        });
+        stampResult("isac");
+        await refetchSceneInner(); // a ResultSetRef (kind 'isac') was appended
+      });
+    },
+
+    runSensingCoverage: async (req) => {
+      const pid = get().projectId;
+      if (!pid) return;
+      await run("Running sensing coverage…", async () => {
+        const result = await api.simulateSensingCoverage(pid, {
+          ...req,
+          config: get().pathsConfig,
+        });
+        const s = result.summary;
+        set({
+          sensingCoverage: result,
+          showSensingCoverage: true,
+          ...resultsMode(),
+          notice:
+            `Coverage: ${s.pct_cells_detected.toFixed(1)} % detected · ` +
+            `${s.pct_cells_fusion_feasible.toFixed(1)} % fusion-feasible · ` +
+            `${s.num_cells} cells via ${result.backend}` +
+            (result.warnings[0] ? ` · ${result.warnings[0]}` : ""),
+        });
+        stampResult("sensing_coverage");
+        await refetchSceneInner(); // a ResultSetRef (kind 'sensing_coverage') was appended
+      });
+    },
+
+    loadIsac: async (resultId) => {
+      const pid = get().projectId;
+      if (!pid) return;
+      try {
+        const result = await api.getIsacResult(pid, resultId);
+        if (get().projectId === pid) set({ isac: result });
+      } catch {
+        // no stored ISAC result yet (or endpoint absent): ignore silently
+      }
+    },
+
+    loadSensingCoverage: async (resultId) => {
+      const pid = get().projectId;
+      if (!pid) return;
+      try {
+        const result = await api.getSensingCoverageResult(pid, resultId);
+        if (get().projectId === pid) set({ sensingCoverage: result });
+      } catch {
+        // no stored coverage map yet (or endpoint absent): ignore silently
+      }
+    },
+
+    setCoverageMetric: (m) => set({ coverageMetric: m }),
 
     setPlaybackFrame: (i) => {
       const pb = get().playback;

@@ -24,6 +24,8 @@ from seam_studio.schemas.scene import Scene
 from seam_studio.schemas.simulation import BeamformingRequest, SimulationConfig
 
 if TYPE_CHECKING:
+    import numpy as np
+
     from seam_studio.schemas.sensing import SensingSimulateRequest
     from seam_studio.services.sensing import ResolvedSensingTarget
 
@@ -91,6 +93,9 @@ class RayTracingBackend(abc.ABC):
             "doppler": False,
             "diffraction": False,
             "sensing": False,
+            "sensing_coverage": False,
+            # segment_los tests legs against the static scene geometry.
+            "occlusion": False,
             "gpu": False,
         }
 
@@ -189,3 +194,20 @@ class RayTracingBackend(abc.ABC):
         """Radar (RCS) solve over resolved sensing targets (frame mode as in
         ``simulate_paths_with_targets``). Default: unsupported."""
         raise BackendUnavailableError(f"sensing is not supported by the {self.name} backend")
+
+    def segment_los(
+        self,
+        project_dir: Path,
+        scene: Scene,
+        library: RFMaterialLibrary,
+        config: SimulationConfig,
+        starts: "np.ndarray",
+        ends: "np.ndarray",
+    ) -> tuple[Optional["np.ndarray"], list[str]]:
+        """Bool [N]: True where segment starts[i] -> ends[i] is unobstructed by
+        the static scene (actor meshes ignored). None = no occlusion model:
+        every segment counts as line-of-sight."""
+        return None, [
+            f"{self.name} backend has no geometry occlusion: every leg counts as "
+            "line-of-sight (use the sionna backend for building blockage)"
+        ]

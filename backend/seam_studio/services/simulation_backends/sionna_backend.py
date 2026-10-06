@@ -674,6 +674,8 @@ class SionnaBackend(RayTracingBackend):
         from seam_studio.services.availability import sionna_rcs_available
 
         caps["sensing"] = sionna_rcs_available()
+        caps["sensing_coverage"] = True
+        caps["occlusion"] = True
         # Honest GPU probe: report gpu=True ONLY when a CUDA Mitsuba variant is
         # actually available (an active cuda_* variant, or a cuda_* offered by
         # this build). A drjit import alone is NOT enough — the macOS/LLVM CPU
@@ -1267,6 +1269,74 @@ class SionnaBackend(RayTracingBackend):
                 "samples_per_sp": request.samples_per_sp,
             },
         )
+
+    # ------------------------------------------------------ line of sight
+
+    def segment_los(
+        self,
+        project_dir: Path,
+        scene: Scene,
+        library: RFMaterialLibrary,
+        config: SimulationConfig,
+        starts,
+        ends,
+    ):
+        """Shadow-ray test of every segment against the cached Mitsuba scene
+        with the actor meshes taken out (a coverage map is about the static
+        site; a real drone box would sit right in the measured plane). Merged,
+        unaddressable actors stay in with a warning."""
+        import numpy as np
+
+        warnings: list[str] = []
+        _ensure_sionna_variant(warnings)
+        try:
+            import mitsuba as mi  # type: ignore[import-not-found]
+
+            xml_path = self._ensure_projection(project_dir, scene, library, warnings)
+            rt_scene = _load_scene_cached(xml_path, warnings)
+            _reset_sensing_targets(rt_scene)
+            hidden = []
+            for actor in scene.actors:
+                key = _actor_object_key(rt_scene, actor.id)
+                if key is None:
+                    warnings.append(
+                        f"actor {actor.id!r} mesh not individually addressable; it "
+                        "stays in the scene and may block coverage legs"
+                    )
+                    continue
+                hidden.append(rt_scene.objects[key])
+            # Recorded on the cached scene so _reset_sensing_targets re-adds them.
+            rt_scene._seam_hidden_actor_objects = hidden
+            if hidden:
+                rt_scene.edit(remove=hidden)
+            try:
+                starts = np.asarray(starts, dtype=float).reshape(-1, 3)
+                ends = np.asarray(ends, dtype=float).reshape(-1, 3)
+                if len(starts) == 0:
+                    return np.zeros(0, dtype=bool), warnings
+                d = ends - starts
+                length = np.linalg.norm(d, axis=1)
+                u = d / np.maximum(length, 1e-12)[:, None]
+                # Start and stop 1 cm off both end points: a rooftop TRP must
+                # not hit its own roof, nor a cell center the surface it is on.
+                eps = 1e-2
+                o = starts + u * eps
+
+                def f32(v):
+                    return np.ascontiguousarray(v, dtype=np.float32)
+
+                ray = mi.Ray3f(
+                    mi.Point3f(f32(o[:, 0]), f32(o[:, 1]), f32(o[:, 2])),
+                    mi.Vector3f(f32(u[:, 0]), f32(u[:, 1]), f32(u[:, 2])),
+                )
+                ray.maxt = mi.Float(f32(np.maximum(length - 2.0 * eps, 0.0)))
+                blocked = np.array(rt_scene.mi_scene.ray_test(ray), dtype=bool).reshape(-1)
+                return ~blocked, warnings
+            finally:
+                _reset_sensing_targets(rt_scene)
+        except Exception:
+            clear_scene_cache()
+            raise
 
     # ------------------------------------------------------ beamforming
 

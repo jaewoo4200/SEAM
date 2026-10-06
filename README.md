@@ -205,6 +205,9 @@ Studio builds on the same Sionna RT engine and adds:
   echoes, per-link SNR + MTI detection, and multistatic position/velocity
   fusion scored against the true actor track, at FR1 and mmWave alike. See
   [docs/guides/sensing.md](docs/guides/sensing.md).
+- **ISAC trade-off & sensing coverage** — per-TRP comm vs sensing beam, a
+  Pd–rate Pareto over slot sharing, and a multistatic detection/fusion
+  coverage map. See [docs/guides/sensing.md](docs/guides/sensing.md).
 - **AI model picker** — models loaded in LM Studio / Ollama are auto-discovered
   and switchable in the UI; the responding model is recorded in provenance.
 

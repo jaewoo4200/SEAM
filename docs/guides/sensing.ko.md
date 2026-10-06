@@ -301,10 +301,202 @@ MTI를 끄려면 `mti_min_doppler_hz: 0`으로 두세요.
 | 28 GHz | 0.0107 | −134.23 dBm | −4.12 dB(놓침) | 74.6 m | 0.54 m/s |
 
 그래서 28 GHz의 모노스태틱 탐지 거리는 10^(−18.06/40) = ×0.354로 줄어듭니다. 안테나
-배열이 이 손실을 되찾아 주지만 여기서는 모델링하지 않습니다(한계 참고). 반대로
-mmWave의 노치는 속도 기준으로 8배 좁습니다.
+배열이 이 손실을 되찾아 줍니다. 이 절의 프레임별 탐지는 여전히 단일 소자로 계산하지만
+(§9 한계 참고), §7은 실제 코드북 빔을 합성하고 §8의 `steered` 모드는 이상적인 배열
+이득을 더합니다. 반대로 mmWave의 노치는 속도 기준으로 8배 좁습니다.
 
-## 7. 한계
+## 7. ISAC 트레이드오프: 빔과 슬롯 공유
+
+TRP 패널 하나가 UE와 드론을 동시에 겨눌 수는 없습니다. ISAC 트레이드오프는 TX마다
+세 가지를 답합니다. UE에 가장 좋은 코드북 빔(**통신 빔**)은 무엇인지, 타깃을 가장 잘
+보는 빔(**센싱 빔**)은 무엇인지, 그리고 둘이 슬롯을 나눠 쓰면 전송률을 얼마나 잃고
+탐지 확률을 얼마나 얻는지입니다.
+
+**실행.** Results 모드에서 **ISAC trade-off** 패널을 열고 TX(아무것도 체크하지 않으면
+전부), 배열 크기, 스윕, CPI 펄스 수, P_fa, 슬롯 비율, 공유 방식을 정한 뒤 실행합니다.
+API로는 다음과 같습니다.
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/projects/demo/simulate/isac \
+  -H "Content-Type: application/json" \
+  -d '{"config_id": "default", "tx_rows": 4, "tx_cols": 4,
+       "sweep_start_deg": -60, "sweep_stop_deg": 60, "sweep_step_deg": 5,
+       "cpi_pulses": 4096, "pfa": 1e-6, "sharing_mode": "dual_function"}'
+curl http://127.0.0.1:8000/api/projects/demo/results/isac   # 마지막으로 저장된 결과
+```
+
+결과는 `isac` 결과 세트로 저장됩니다(실행 기록, prune, 라벨 모두 됨).
+`/simulate/sensing`과 마찬가지로 `auto`는 sionna-rt 2.2 이상이 깔려 있으면 sionna를,
+아니면 경고와 함께 mock을 씁니다. RCS 솔버가 없는데 sionna를 명시하면 **409**입니다.
+모르는 디바이스나 액터, UE 없음, 센싱 수신기가 없는 TX, `use_device_orientation: false`는
+아무것도 풀기 전에 **400**으로 응답합니다.
+
+| 요청 필드 | 기본값 | 의미 |
+|---|---|---|
+| `tx_ids` | `null` | 평가할 TX(기본: 모든 TX). |
+| `ue_rx_ids` / `sensing_rx_ids` | `null` | 역할 분담. 아래 *역할* 참고. |
+| `target_actor_ids` | `null` | 타깃(기본: 켜진 센싱 바인딩 전부). |
+| `ue_association` | `serving` | `serving`: UE마다 최적 빔 RSS가 가장 강한 TX에 속합니다. `all`: 모든 TX가 모든 UE를 서비스합니다(TX별 단일 셀 관점). |
+| `tx_rows` × `tx_cols` | 4 × 4 | TX 패널. 소자 간격은 디바이스 안테나 설정을 따릅니다. |
+| `rx_rows` × `rx_cols` | `null` | 센싱 RX 패널(기본: TX와 같은 크기). UE는 늘 단일 소자입니다. |
+| `use_device_orientation` | `true` | 패널이 자기 `orientation_deg`를 유지합니다. `false`는 거부됩니다. `look_at`으로는 패널 하나를 UE와 타깃 양쪽에 동시에 맞출 수 없기 때문입니다. |
+| `sweep_start_deg` / `sweep_stop_deg` / `sweep_step_deg` | −60 / 60 / 5 | 패널 로컬 좌표계의 방위각 코드북. `/simulate/beamforming`의 스윕과 똑같습니다(빔 최대 361개, TX당 빔 수 × 0이 아닌 슬롯 비율 수는 최대 4096). |
+| `cpi_pulses` | 4096 | ρ = 1일 때 코히어런트하게 적분하는 펄스 수 / OFDM 자원 요소 수. |
+| `cpi_s` | 0.01 | 메타데이터 전용(분해능 계산). |
+| `threshold_db` | 13 | 빔별 `detected` 판정 기준. |
+| `pfa` | 1e-6 | Pd 모델의 오경보 확률. |
+| `pd_target` | 0.9 | 파레토 요약의 동작점. |
+| `slot_ratios` | 0, .05, .1, .2, .3, .5, .7, 1 | 센싱에 쓰는 슬롯(펄스) 비율 ρ. 정렬하고 중복을 없앱니다. |
+| `sharing_mode` | `dual_function` | `time_sharing` 또는 `dual_function`(아래). |
+| `samples_per_sp` / `max_depth` | 1 000 000 / `null` | 에코 솔브에 그대로 넘깁니다(§3과 같음). |
+| `include_paths` | `false` | 솔브한 경로를 결과에 저장합니다. 에코가 먼저, 통신 경로가 뒤에 옵니다. |
+
+**역할.** `ue_rx_ids`와 `sensing_rx_ids`를 둘 다 비워 두면, 선택한 TX에서 1 m 안에 있는
+RX가 그 TX의 센싱 수신기(모노스태틱)가 됩니다. 씬의 어느 TX에서도 1 m 안에 있지 않은
+RX는 모두 UE입니다. 그래서 TRP 일부만 골라 평가해도 나머지 TRP의 레이더 수신기가
+서비스 대상 UE로 바뀌지 않습니다. TX마다 센싱 후보 중 가장 가까운 RX를 고르므로,
+`sensing_rx_ids`를 직접 주면 여러 TX가 수신기 하나를 나눠 쓸 수 있습니다(바이스태틱).
+`ue_rx_ids`를 주면 UE 규칙 대신 그 목록을 씁니다. 한 RX가 UE이면서 센싱 수신기일 수는
+없습니다.
+
+**모델.** t = 0에서 솔브 두 번을 돌립니다. 에코 솔브(TX → 타깃 → 센싱 RX, §3)와,
+타깃을 흡수체로 둔 통신 솔브(TX → UE, `include_comm_paths`와 같은 방식)입니다. 두 솔브
+모두 안테나를 단일 소자로 바꿔서 돌리므로, 저장된 경로는 패널 중심을 기준으로 합니다.
+빔은 그다음 경로의 월드 좌표 출발각·도래각으로부터 Sionna 합성 배열 규약에 따라
+합성합니다. 방향이 o인 패널의 n번 소자가 월드 방향 k̂로 진행하는 파에 대해 보이는 응답은
+
+`a_n = exp(+j 2π p_n · R(o)ᵀ k̂)`
+
+이고, p_n은 파장 단위의 PlanarArray 소자 위치입니다. 빔 w는 양쪽 끝에서 w^H a로 점수를
+매기는데, `/simulate/beamforming`과 같은 켤레 가중치 정합 필터입니다. sionna에서 합성한
+TX 코드북은 `/simulate/beamforming`(`codebook_sweep`, `use_device_orientation: true`)을
+빔 단위로 재현합니다. 회귀 테스트에서 최적 빔이 같고, 최고점에서 20 dB 안에 드는 빔은 모두
+0.1 dB 이내로 맞습니다(실측 0.01 dB 미만). TX t, 코드북 빔 k, UE u에 대해 다음과 같습니다.
+
+- `h_k,u = Σ_l α_l · w_kᴴ a_t(l)`, t → u 경로에 대한 합입니다(α_l은 `path_gain_db`와
+  `phase_rad`에서 얻음). `SINR_k,u = P_t + 20·log10|h_k,u| − N0`이고
+  N0 = −174 + 10·log10(B) + NF입니다. TX 간 간섭은 넣지 않으므로 SINR = SNR입니다.
+- `rate_k,u = log2(1 + SINR_k,u)`이고, `R(k) = Σ_u rate_k,u`는 이 TX가 서비스하는
+  UE에 대한 합입니다.
+- 타깃 q의 에코는 TX 빔 k와 RX 빔 m에 대해 t → s → q 에코를 모두 코히어런트하게
+  더합니다. `E_q[k, m] = Σ_e α_e (w_kᴴ a_t(e)) (w_mᴴ a_s(e))`. TX 빔마다 가장 좋은 RX
+  빔을 고르고
+
+  `SNR_q(k, ρ) = P_t + 20·log10 max_m |E_q[k, m]| − N0 + 10·log10(ρ · cpi_pulses)`
+
+  입니다. 빔의 센싱 SNR은 가장 약한 타깃이 정합니다.
+
+**Pd.** 제곱 검파기로 적분 샘플을 판정하는 Swerling-1 타깃은 P_fa = e^(−T),
+P_d = e^(−T / (1 + SNR))이므로
+
+`P_d = P_fa^(1 / (1 + SNR))`
+
+입니다. P_fa = 10⁻⁶에서 P_d = 0.9를 얻으려면 **21.1 dB**가 필요하고, 13 dB 임계값에서는
+P_d = **0.517**입니다. 에코가 없으면 P_d = P_fa입니다.
+
+**슬롯 공유.** 통신 빔은 k_c = argmax R(k)입니다. 슬롯(또는 펄스)의 비율 ρ를 빔 k로
+센싱에 쓰므로 에코는 ρ · `cpi_pulses`만큼 적분됩니다.
+
+- `time_sharing`: 센싱 슬롯은 데이터를 싣지 않습니다. rate_u = (1 − ρ) · rate_k_c,u.
+- `dual_function`: 센싱 빔도 닿는 UE에게는 데이터를 실어 보냅니다.
+  rate_u = (1 − ρ) · rate_k_c,u + ρ · rate_k,u.
+
+ρ = 0은 통신만 하는 점 하나입니다(`beam_idx` null, P_d = P_fa). `dual_function`에서
+ρ = 1인 행은 빔 자체와 같고(빔 하나가 둘 다 함), `time_sharing`에서는 전송률이 0입니다.
+
+**출력 읽기.** `txs[]` 항목마다 다음이 들어 있습니다.
+
+- `beams[]`: 코드북 각도마다 한 행. UE별 SINR, 합 전송률, 타깃별 에코 SNR과 최적 RX
+  각도, 가장 약한 타깃의 SNR, P_d, `detected`가 있습니다. 패널의 빔 표는 통신 빔 행을
+  시안, 센싱 빔 행을 마젠타로 칠하고, **ISAC lobes** 오버레이는 TX마다 두 빔을 같은
+  색으로 그립니다(빠지는 부분은 §9 참고).
+- `comm_beam_angle_deg`, `sensing_beam_angle_deg`, `angle_gap_deg`.
+  `ue_single_element_rss_dbm`과 `target_single_element_snr_db`는 손 계산용 1×1
+  기준값입니다. 타깃에 대한 빔의 배열 이득은 `target_snr_db − target_single_element_snr_db`
+  입니다. UE 기준값은 SINR이 아니라 dBm 단위 RSS이므로, UE에 대한 배열 이득은
+  `ue_sinr_db + noise_floor_dbm − ue_single_element_rss_dbm`입니다.
+- `points[]`: (ρ, 센싱 빔) 동작점마다 합 전송률, SNR, P_d, `pareto` 표시가 있습니다.
+  **파레토 차트**는 전송률을 P_d에 대해 그립니다. 프런트는 두 축 모두에서 다른 점에
+  지지 않는 점들입니다(중복은 하나로 셉니다).
+- `pareto`: `comm_only_rate_bps_hz`(ρ = 0), `max_pd`,
+  `rate_at_pd_target_bps_hz` / `rho_at_pd_target` / `beam_idx_at_pd_target`
+  (P_d ≥ `pd_target`인 점 중 가장 높은 전송률, 도달하는 점이 없으면 null),
+  `rate_loss_at_pd_target_bps_hz`, `pd_at_95pct_rate`(통신 전용 전송률의 95 %를 지키는
+  점 중 가장 높은 P_d). 전송률 차이가 10⁻¹² 이내면 같은 값으로 보고 P_d가 높은 점을
+  고르므로, 요약이 가리키는 점은 늘 프런트 위에 있습니다. `dual_function`에서는 통신 빔이
+  모든 ρ에서 전송률을 그대로 유지하므로, 통신 빔이 목표에 닿으면 기준을 넘는 가장 작은
+  ρ가 아니라 ρ = 1로 표시됩니다. 센싱 전용 TX(전송률 모두 0)는 P_d가 가장 높은 점을
+  가리킵니다.
+
+최상위에는 `ue_serving_tx`와 `noise_floor_dbm`이 있고, `metadata`에는 §6의 탐지 상수와
+`snr_for_pd_target_db`, `pd_at_threshold`가 더해집니다. 서비스할 UE가 없는 TX는 센싱
+전용 트레이드오프(전송률 모두 0)가 되고, 그 사실을 자기 `warnings`에 적습니다.
+
+## 8. 센싱 커버리지 맵
+
+60 m 높이의 드론은 어디서 보이고, 몇 개 링크가 볼까요? 커버리지 맵은 수평 격자의 셀마다
+**가상 점 타깃**을 두고 TX × 센싱 RX 링크(모노스태틱과 바이스태틱) 전부를 계산합니다.
+RCS 솔브를 돌리지 않으므로 맵 하나에 1초 정도 걸립니다.
+
+**실행.** Results 모드에서 **Sensing coverage** 패널을 열고 높이, 셀 크기, RCS(비우면
+TR 38.901 `uav-small-size`, −12.81 dBsm), 임계값, 펄스 수, P_fa, 배열 이득을 정한 뒤
+실행합니다. 지표 선택기로 아래 네 레이어를 바꿔 봅니다. API로는 다음과 같습니다.
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/projects/demo/simulate/sensing-coverage \
+  -H "Content-Type: application/json" \
+  -d '{"config_id": "default", "height_m": 60, "cell_size_m": 10,
+       "threshold_db": 13, "cpi_pulses": 4096, "array_gain": "none"}'
+curl http://127.0.0.1:8000/api/projects/demo/results/sensing-coverage
+```
+
+결과는 `sensing_coverage` 결과 세트로 저장됩니다. 센싱 수신기는 ISAC 규칙을 따릅니다
+(선택한 TX에서 1 m 안의 RX, 또는 `sensing_rx_ids`). 수신기가 없는 TX가 있으면 **400**입니다.
+
+| 요청 필드 | 기본값 | 의미 |
+|---|---|---|
+| `tx_ids` / `sensing_rx_ids` | `null` | 디바이스(기본: 모든 TX와 같은 위치의 RX). |
+| `rcs_dbsm` / `object_type` | `null` | 점 타깃의 σ. 값을 직접 주거나 TR 38.901 유형의 평균 σ_M을 씁니다(둘 다는 안 됨). 둘 다 비우면 `uav-small-size`. |
+| `height_m` | 60 | 격자 평면의 높이(타깃 중심). ±100 000 m 이내. |
+| `cell_size_m` | 10 | 셀 크기. 최대 10 000 m. 셀이 40 000개를 넘으면 경고와 함께 키웁니다. |
+| `center_xy` / `size_xy` | `null` | 범위를 직접 지정(둘 다 주거나 둘 다 비움. 중심은 ±10⁷ m 이내, 변 길이는 10⁶ m까지). 기본은 씬 경계(비주얼 메시, 디바이스, 액터)에 min(15 m, max(3 m, 긴 변의 15 %))만큼 여백을 둔 것으로, sionna 라디오맵과 같습니다. |
+| `threshold_db` / `cpi_pulses` / `pfa` | 13 / 4096 / 1e-6 | 탐지 조건. §6, §7과 같습니다. |
+| `array_gain` | `none` | `steered`는 `tx_rows`×`tx_cols` / `rx_rows`×`rx_cols` 패널의 10·log10(N_tx) + 10·log10(N_rx)를 더합니다. 모든 링크가 모든 셀에 빔을 맞춘다는 상한입니다. |
+| `min_links_for_fusion` | 3 | 셀이 융합 가능으로 판정되는 데 필요한 서로 다른 기하의 수. |
+
+**모델.** 링크와 셀마다, R_t = |셀 − TX|, R_r = |셀 − RX|로
+
+`SNR = P_t + G + G_e,t + G_e,r + 10·log10(λ² σ / ((4π)³ R_t² R_r²)) − A(R_t + R_r) − N0 + 10·log10(cpi_pulses)`
+
+를 계산하는데, **두 구간이 모두 LOS**일 때만이고 아니면 에코가 없습니다. G는 위의 배열
+이득, A는 대기 흡수입니다(설정에서 켜지 않으면 0). G_e,t와 G_e,r은 TX와 RX의 소자가 셀
+쪽으로 내는 이득으로, 디바이스마다 자기 `antenna.pattern`을 자기 좌표계(`orientation_deg`)
+에서 Sionna와 같은 방식으로 계산합니다. `iso`는 0 dB이고 `tr38901`은 최대 8 dBi, 최소
+−22 dBi(30 dB 바닥)입니다. 어떤 패턴을 썼는지는 `metadata.element_patterns`에 있습니다. `iso` 소자라면
+mock 에코와 같은 식이어서, 셀 중심에 타깃을 둔 mock 센싱 솔브는 맵 값과 정확히 같습니다
+(mock 에코는 늘 등방성입니다). sionna에서 LOS 판정은 캐시된 정적 씬에 대한 Mitsuba 그림자
+광선 테스트이고, 액터 메시는 모두 뺍니다(맵은 실제 드론이 지금 어디 있는지가 아니라 장소
+자체를 보는 것이기 때문입니다). 회귀 테스트에서 LOS 셀에 `RCSSolver`로 푼 고정 RCS 에코는
+`iso`와 `tr38901` 소자 모두 맵과 0.01 dB 이내로 맞고(실측 약 10⁻⁵ dB), 건물 그림자 속
+셀에는 직접 에코가 없습니다. mock에는 지오메트리 차폐가 없어서 모든 구간을 LOS로 보며,
+결과의 `warnings`와 `metadata.los_model`에 그렇게 적습니다.
+
+**레이어**(`values`, 라디오맵처럼 행 우선 [ny][nx]):
+
+- `best_snr_db`: 가장 좋은 링크의 SNR(에코가 있는 링크가 없으면 null).
+- `n_links_detected`: SNR ≥ `threshold_db`인 링크 수.
+- `pd_best`: 가장 좋은 링크의 Swerling-1 P_d(§7).
+- `fusion_feasible`: 탐지된 링크가 **서로 다른 기하**를 `min_links_for_fusion`개 이상
+  이루면 1, 아니면 0. 서로 1 m 안에 있는 디바이스(TRP의 TX와 그 센싱 RX, ISAC의 같은 위치
+  규칙)는 한 지점으로 보고, 같은 두 지점을 잇는 링크는 방향과 상관없이 하나로 셉니다.
+  그래서 센싱 패널이 TX에서 1 m까지 떨어져 있어도 서로 뒤바뀐 쌍(A→B, B→A)은 기하
+  하나입니다. 묶음은 링크별 `geometry_group`에서 볼 수 있습니다.
+
+`summary`에는 셀·링크·기하 수, LOS 링크가 하나 이상인 셀, 탐지가 하나 이상인 셀, 융합
+가능한 셀의 비율(%), 그리고 에코가 있는 셀에 대한 최적 SNR 중앙값이 들어갑니다.
+`links[]`에는 링크별 기선 길이와 LOS 비율, 탐지 비율이 있습니다.
+
+## 9. 한계
 
 - 타깃은 강체 평행 이동만 합니다. 회전이나 마이크로 도플러는 없습니다.
 - 직육면체 크기는 액터 박스 크기이므로 메시 액터는 `size_m`을 직접 지정해야 합니다.
@@ -327,10 +519,37 @@ mmWave의 노치는 속도 기준으로 8배 좁습니다.
   편향이 없습니다.
 - 탐지는 에코 단위의 잡음 한계 판정입니다. CFAR, 거리–도플러 맵, 클러터나 자기 간섭
   전력은 없습니다.
-- 안테나는 단일 소자로 계산합니다(배열 이득 없음). 그래서 처리 이득은 적분 이득뿐입니다.
+- 시간에 따른 센싱(§6)은 안테나를 단일 소자로 계산합니다(배열 이득 없음). 그래서 처리
+  이득은 적분 이득뿐입니다.
 - `measurement_noise`는 경험칙(셀 / sqrt(2·SNR))이지 크라메르–라오 하한이 아닙니다.
 - 프레임마다 독립된 스냅샷입니다. 추적 필터는 없고, 이전 추정치는 다음 프레임 솔버의
   출발점으로만 쓰입니다.
+- ISAC 트레이드오프(§7):
+  - 코드북은 방위각 전용이라 세로 행은 늘 정면을 봅니다. λ/2 간격 4행 패널은 패널 면에서
+    30° 벗어난 방향에 세로 널이 있고, 25°에서 35° 사이 어디서든 끝마다 정면보다 14 dB
+    이상 낮습니다(28°와 33°에서는 21–23 dB). 그래서 위로 기울인 옥상 TRP는 거리의 UE나
+    가파른 각도의 드론 쪽으로 배열 이득보다 더 많이 잃을 수 있고, 4×4 빔이 단일 소자
+    기준값보다 낮게 나오기도 합니다.
+  - 기본 `iso` 소자에서는 패널에 거울상 뒤쪽 로브가 있습니다. 빔 θ는 패널 뒤쪽의
+    180° − θ 방향도 같은 이득으로 비추므로, TRP 뒤에 있는 UE나 타깃도 잘리지 않습니다.
+    앞뒤 비가 필요하면 `tr38901` 소자를 쓰세요. λ/2 간격에서는 스윕 범위 밖의 끝쪽 방향
+    타깃(예: ±60° 스윕에서 정면 기준 78°)을 양쪽 가장자리 빔이 그레이팅 로브 자락으로
+    서로 1 dB 안팎의 차이로 보므로, 어느 쪽 가장자리가 이길지는 거의 임의입니다.
+  - **ISAC lobes** 오버레이는 빔의 방위각 단면을 패널 앞쪽 반구에만 그립니다. `iso`처럼
+    앞뒤가 대칭인 소자라면 TX가 뒤쪽 로브로 패널 뒤의 UE를 서비스하면서도 시안 통신
+    로브는 그 UE 반대쪽을 가리킬 수 있습니다.
+  - TX 간 간섭은 없고(SINR = SNR), UE마다 대역 전체를 쓴다고 보고 전송률을 계산합니다.
+  - P_d는 Swerling-1 닫힌 식입니다. CFAR도, 거리·도플러 셀 경계 손실도 없습니다.
+  - t = 0 스냅샷 하나입니다. 이중 편파 안테나는 첫 번째 편파 포트만 합성하고, UE는 단일
+    소자입니다.
+- 센싱 커버리지(§8):
+  - 타깃은 고정 점 RCS입니다. TR 38.901의 각도별 로브는 없습니다.
+  - 직접 LOS 구간만 셉니다(다중 경로 에코 없음). LOS 판정에서 액터 메시는 무시합니다.
+  - `steered`는 모든 링크·셀에 대한 이상적인 전체 배열 이득입니다.
+  - 소자 이득은 디바이스마다 자기 안테나를 씁니다. Sionna 솔브는 처음 선택한 TX(RX)의
+    안테나를 모든 TX(RX)에 적용하므로, 패턴이 섞여 있으면 둘이 달라집니다. 편파 불일치는
+    모델링하지 않습니다.
+  - mock은 모든 구간을 LOS로 봅니다.
 
 ## 관련 문서
 

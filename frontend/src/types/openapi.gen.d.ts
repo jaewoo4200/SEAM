@@ -930,6 +930,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{project_id}/results/isac": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Isac Result */
+        get: operations["get_isac_result_api_projects__project_id__results_isac_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{project_id}/results/mesh-radio-map": {
         parameters: {
             query?: never;
@@ -1051,6 +1068,23 @@ export interface paths {
         };
         /** Get Sensing Result */
         get: operations["get_sensing_result_api_projects__project_id__results_sensing_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/results/sensing-coverage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Sensing Coverage Result */
+        get: operations["get_sensing_coverage_result_api_projects__project_id__results_sensing_coverage_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -1545,6 +1579,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{project_id}/simulate/isac": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Simulate Isac
+         * @description ISAC beam trade-off: per TX, the azimuth codebook scored for its UEs'
+         *     rate and its targets' echo SNR from one t = 0 echo + comm solve, and the
+         *     Pd-rate Pareto front of sharing slots between the comm and sensing beams.
+         */
+        post: operations["simulate_isac_api_projects__project_id__simulate_isac_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{project_id}/simulate/mesh-radio-map": {
         parameters: {
             query?: never;
@@ -1683,6 +1739,28 @@ export interface paths {
          *     the TX for monostatic sensing.
          */
         post: operations["simulate_sensing_api_projects__project_id__simulate_sensing_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/simulate/sensing-coverage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Simulate Sensing Coverage
+         * @description Sensing coverage map: bistatic radar equation of a virtual point target
+         *     over a grid at one height, per TX x sensing-RX link with two-leg LOS, plus
+         *     the links detected and the multistatic fusion feasibility per cell.
+         */
+        post: operations["simulate_sensing_coverage_api_projects__project_id__simulate_sensing_coverage_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3265,6 +3343,279 @@ export interface components {
             /** Version */
             version: string;
         };
+        /**
+         * ISACBeam
+         * @description One codebook beam of one tx, used full time for comm OR sensing (rho = 1).
+         */
+        ISACBeam: {
+            /** Angle Deg */
+            angle_deg: number;
+            /**
+             * Detected
+             * @default false
+             */
+            detected: boolean;
+            /** Pd */
+            pd: number;
+            /** Sensing Snr Db */
+            sensing_snr_db?: number | null;
+            /**
+             * Sum Rate Bps Hz
+             * @default 0
+             */
+            sum_rate_bps_hz: number;
+            /** Target Best Rx Angle Deg */
+            target_best_rx_angle_deg?: {
+                [key: string]: number | null;
+            };
+            /** Target Snr Db */
+            target_snr_db?: {
+                [key: string]: number | null;
+            };
+            /** Ue Sinr Db */
+            ue_sinr_db?: {
+                [key: string]: number | null;
+            };
+        };
+        /** ISACParetoSummary */
+        ISACParetoSummary: {
+            /** Beam Idx At Pd Target */
+            beam_idx_at_pd_target?: number | null;
+            /** Comm Only Rate Bps Hz */
+            comm_only_rate_bps_hz: number;
+            /** Max Pd */
+            max_pd: number;
+            /**
+             * Num Pareto Points
+             * @default 0
+             */
+            num_pareto_points: number;
+            /** Pd At 95Pct Rate */
+            pd_at_95pct_rate: number;
+            /** Pd Target */
+            pd_target: number;
+            /** Rate At Pd Target Bps Hz */
+            rate_at_pd_target_bps_hz?: number | null;
+            /** Rate Loss At Pd Target Bps Hz */
+            rate_loss_at_pd_target_bps_hz?: number | null;
+            /** Rho At Pd Target */
+            rho_at_pd_target?: number | null;
+        };
+        /** ISACPoint */
+        ISACPoint: {
+            /** Beam Idx */
+            beam_idx?: number | null;
+            /**
+             * Pareto
+             * @default false
+             */
+            pareto: boolean;
+            /** Pd */
+            pd: number;
+            /** Rho */
+            rho: number;
+            /** Sensing Snr Db */
+            sensing_snr_db?: number | null;
+            /** Sum Rate Bps Hz */
+            sum_rate_bps_hz: number;
+            /** Ue Rates Bps Hz */
+            ue_rates_bps_hz?: {
+                [key: string]: number;
+            };
+        };
+        /**
+         * ISACRequest
+         * @description Body for POST /projects/{id}/simulate/isac.
+         */
+        ISACRequest: {
+            config?: components["schemas"]["SimulationConfig"] | null;
+            /** Config Id */
+            config_id?: string | null;
+            /**
+             * Cpi Pulses
+             * @default 4096
+             */
+            cpi_pulses: number;
+            /**
+             * Cpi S
+             * @default 0.01
+             */
+            cpi_s: number;
+            /**
+             * Include Paths
+             * @default false
+             */
+            include_paths: boolean;
+            /** Max Depth */
+            max_depth?: number | null;
+            /**
+             * Pd Target
+             * @default 0.9
+             */
+            pd_target: number;
+            /**
+             * Pfa
+             * @default 0.000001
+             */
+            pfa: number;
+            /** Rx Cols */
+            rx_cols?: number | null;
+            /** Rx Rows */
+            rx_rows?: number | null;
+            /**
+             * Samples Per Sp
+             * @default 1000000
+             */
+            samples_per_sp: number;
+            /** Sensing Rx Ids */
+            sensing_rx_ids?: string[] | null;
+            /**
+             * Sharing Mode
+             * @default dual_function
+             * @enum {string}
+             */
+            sharing_mode: "time_sharing" | "dual_function";
+            /** Slot Ratios */
+            slot_ratios?: number[];
+            /**
+             * Sweep Start Deg
+             * @default -60
+             */
+            sweep_start_deg: number;
+            /**
+             * Sweep Step Deg
+             * @default 5
+             */
+            sweep_step_deg: number;
+            /**
+             * Sweep Stop Deg
+             * @default 60
+             */
+            sweep_stop_deg: number;
+            /** Target Actor Ids */
+            target_actor_ids?: string[] | null;
+            /**
+             * Threshold Db
+             * @default 13
+             */
+            threshold_db: number;
+            /**
+             * Tx Cols
+             * @default 4
+             */
+            tx_cols: number;
+            /** Tx Ids */
+            tx_ids?: string[] | null;
+            /**
+             * Tx Rows
+             * @default 4
+             */
+            tx_rows: number;
+            /**
+             * Ue Association
+             * @default serving
+             * @enum {string}
+             */
+            ue_association: "serving" | "all";
+            /** Ue Rx Ids */
+            ue_rx_ids?: string[] | null;
+            /**
+             * Use Device Orientation
+             * @default true
+             */
+            use_device_orientation: boolean;
+        };
+        /** ISACResultSet */
+        ISACResultSet: {
+            /** Backend */
+            backend: string;
+            /** Created At */
+            created_at?: string | null;
+            /** Frequency Hz */
+            frequency_hz: number;
+            /**
+             * Kind
+             * @default isac
+             * @constant
+             */
+            kind: "isac";
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            };
+            /** Noise Floor Dbm */
+            noise_floor_dbm: number;
+            /** Paths */
+            paths?: components["schemas"]["RayPath"][] | null;
+            /** Result Id */
+            result_id: string;
+            /**
+             * Sharing Mode
+             * @enum {string}
+             */
+            sharing_mode: "time_sharing" | "dual_function";
+            /** Simulation Config Id */
+            simulation_config_id: string;
+            /** Slot Ratios */
+            slot_ratios?: number[];
+            /** Txs */
+            txs?: components["schemas"]["ISACTxResult"][];
+            /**
+             * Ue Association
+             * @enum {string}
+             */
+            ue_association: "serving" | "all";
+            /** Ue Serving Tx */
+            ue_serving_tx?: {
+                [key: string]: string | null;
+            };
+            /** Warnings */
+            warnings?: string[];
+        };
+        /** ISACTxResult */
+        ISACTxResult: {
+            /** Angle Gap Deg */
+            angle_gap_deg?: number | null;
+            /** Angles Deg */
+            angles_deg?: number[];
+            /** Beams */
+            beams?: components["schemas"]["ISACBeam"][];
+            /** Comm Beam Angle Deg */
+            comm_beam_angle_deg?: number | null;
+            /** Comm Beam Idx */
+            comm_beam_idx?: number | null;
+            pareto: components["schemas"]["ISACParetoSummary"];
+            /** Points */
+            points?: components["schemas"]["ISACPoint"][];
+            /** Rx Array */
+            rx_array: number[];
+            /** Sensing Baseline M */
+            sensing_baseline_m: number;
+            /** Sensing Beam Angle Deg */
+            sensing_beam_angle_deg?: number | null;
+            /** Sensing Beam Idx */
+            sensing_beam_idx?: number | null;
+            /** Sensing Rx Id */
+            sensing_rx_id: string;
+            /** Target Ids */
+            target_ids?: string[];
+            /** Target Single Element Snr Db */
+            target_single_element_snr_db?: {
+                [key: string]: number | null;
+            };
+            /** Tx Array */
+            tx_array: number[];
+            /** Tx Id */
+            tx_id: string;
+            /** Ue Ids */
+            ue_ids?: string[];
+            /** Ue Single Element Rss Dbm */
+            ue_single_element_rss_dbm?: {
+                [key: string]: number | null;
+            };
+            /** Warnings */
+            warnings?: string[];
+        };
         /** ImportAodtRequest */
         ImportAodtRequest: {
             /** Kinds */
@@ -4436,7 +4787,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "paths" | "radio_map" | "mesh_radio_map" | "trajectory" | "scenario" | "channel" | "playback" | "sensing";
+            kind: "paths" | "radio_map" | "mesh_radio_map" | "trajectory" | "scenario" | "channel" | "playback" | "sensing" | "isac" | "sensing_coverage";
             /** Label */
             label?: string | null;
             /** Result Id */
@@ -4463,7 +4814,7 @@ export interface components {
              */
             keep_latest: number;
             /** Kinds */
-            kinds?: ("paths" | "radio_map" | "mesh_radio_map" | "trajectory" | "scenario" | "channel" | "playback" | "sensing")[] | null;
+            kinds?: ("paths" | "radio_map" | "mesh_radio_map" | "trajectory" | "scenario" | "channel" | "playback" | "sensing" | "isac" | "sensing_coverage")[] | null;
         };
         /** RuleGenerationRequest */
         RuleGenerationRequest: {
@@ -4754,6 +5105,150 @@ export interface components {
             removed_prim_ids: string[];
             /** Restored Prim Id */
             restored_prim_id: string;
+        };
+        /** SensingCoverageLink */
+        SensingCoverageLink: {
+            /** Baseline M */
+            baseline_m: number;
+            /** Detected Fraction */
+            detected_fraction: number;
+            /** Geometry Group */
+            geometry_group: number;
+            /** Los Fraction */
+            los_fraction: number;
+            /** Rx Id */
+            rx_id: string;
+            /** Tx Id */
+            tx_id: string;
+        };
+        /**
+         * SensingCoverageRequest
+         * @description Body for POST /projects/{id}/simulate/sensing-coverage.
+         */
+        SensingCoverageRequest: {
+            /**
+             * Array Gain
+             * @default none
+             * @enum {string}
+             */
+            array_gain: "none" | "steered";
+            /**
+             * Cell Size M
+             * @default 10
+             */
+            cell_size_m: number;
+            /** Center Xy */
+            center_xy?: number[] | null;
+            config?: components["schemas"]["SimulationConfig"] | null;
+            /** Config Id */
+            config_id?: string | null;
+            /**
+             * Cpi Pulses
+             * @default 4096
+             */
+            cpi_pulses: number;
+            /**
+             * Height M
+             * @default 60
+             */
+            height_m: number;
+            /**
+             * Min Links For Fusion
+             * @default 3
+             */
+            min_links_for_fusion: number;
+            /** Object Type */
+            object_type?: ("uav-small-size" | "uav-large-size" | "human" | "vehicle-single-sp" | "vehicle-multi-sp" | "agv-single-sp" | "agv-multi-sp") | null;
+            /**
+             * Pfa
+             * @default 0.000001
+             */
+            pfa: number;
+            /** Rcs Dbsm */
+            rcs_dbsm?: number | null;
+            /** Rx Cols */
+            rx_cols?: number | null;
+            /** Rx Rows */
+            rx_rows?: number | null;
+            /** Sensing Rx Ids */
+            sensing_rx_ids?: string[] | null;
+            /** Size Xy */
+            size_xy?: number[] | null;
+            /**
+             * Threshold Db
+             * @default 13
+             */
+            threshold_db: number;
+            /**
+             * Tx Cols
+             * @default 4
+             */
+            tx_cols: number;
+            /** Tx Ids */
+            tx_ids?: string[] | null;
+            /**
+             * Tx Rows
+             * @default 4
+             */
+            tx_rows: number;
+        };
+        /** SensingCoverageResultSet */
+        SensingCoverageResultSet: {
+            /** Array Gain Db */
+            array_gain_db: number;
+            /** Backend */
+            backend: string;
+            /** Created At */
+            created_at?: string | null;
+            /** Frequency Hz */
+            frequency_hz: number;
+            grid: components["schemas"]["RadioMapGrid"];
+            /**
+             * Kind
+             * @default sensing_coverage
+             * @constant
+             */
+            kind: "sensing_coverage";
+            /** Links */
+            links?: components["schemas"]["SensingCoverageLink"][];
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            };
+            /** Rcs Dbsm */
+            rcs_dbsm: number;
+            /** Result Id */
+            result_id: string;
+            /** Sensing Rx Ids */
+            sensing_rx_ids?: string[];
+            /** Simulation Config Id */
+            simulation_config_id: string;
+            summary: components["schemas"]["SensingCoverageSummary"];
+            /** Tx Ids */
+            tx_ids?: string[];
+            /** Values */
+            values: {
+                [key: string]: (number | null)[][];
+            };
+            /** Warnings */
+            warnings?: string[];
+        };
+        /** SensingCoverageSummary */
+        SensingCoverageSummary: {
+            /** Median Best Snr Db */
+            median_best_snr_db?: number | null;
+            /** Num Cells */
+            num_cells: number;
+            /** Num Geometries */
+            num_geometries: number;
+            /** Num Links */
+            num_links: number;
+            /** Pct Cells Detected */
+            pct_cells_detected: number;
+            /** Pct Cells Fusion Feasible */
+            pct_cells_fusion_feasible: number;
+            /** Pct Cells Los */
+            pct_cells_los: number;
         };
         /** SensingFrame */
         SensingFrame: {
@@ -7316,6 +7811,39 @@ export interface operations {
             };
         };
     };
+    get_isac_result_api_projects__project_id__results_isac_get: {
+        parameters: {
+            query?: {
+                result_id?: string | null;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ISACResultSet"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_mesh_radio_map_result_api_projects__project_id__results_mesh_radio_map_get: {
         parameters: {
             query?: {
@@ -7538,6 +8066,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SensingResultSet"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_sensing_coverage_result_api_projects__project_id__results_sensing_coverage_get: {
+        parameters: {
+            query?: {
+                result_id?: string | null;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SensingCoverageResultSet"];
                 };
             };
             /** @description Validation Error */
@@ -8425,6 +8986,41 @@ export interface operations {
             };
         };
     };
+    simulate_isac_api_projects__project_id__simulate_isac_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ISACRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ISACResultSet"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     simulate_mesh_radio_map_api_projects__project_id__simulate_mesh_radio_map_post: {
         parameters: {
             query?: never;
@@ -8659,6 +9255,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SensingResultSet"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    simulate_sensing_coverage_api_projects__project_id__simulate_sensing_coverage_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["SensingCoverageRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SensingCoverageResultSet"];
                 };
             };
             /** @description Validation Error */

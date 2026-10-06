@@ -75,6 +75,10 @@ import type {
   ResultLabelRequest,
   ResultSetRef,
   SceneImportResult,
+  ISACRequest,
+  ISACResultSet,
+  SensingCoverageRequest,
+  SensingCoverageResultSet,
   SensingResultSet,
   SensingSimulateRequest,
   ScenarioResultSet,
@@ -477,6 +481,22 @@ export const api = {
     request<SensingResultSet>(
       "GET",
       `/projects/${pid}/results/sensing${resultId ? `?result_id=${encodeURIComponent(resultId)}` : ""}`,
+    ),
+  // ISAC beam trade-off: per-TX comm vs sensing beam and the Pd-rate Pareto.
+  simulateIsac: (pid: string, req: ISACRequest = {}) =>
+    request<ISACResultSet>("POST", `/projects/${pid}/simulate/isac`, req),
+  getIsacResult: (pid: string, resultId?: string) =>
+    request<ISACResultSet>(
+      "GET",
+      `/projects/${pid}/results/isac${resultId ? `?result_id=${encodeURIComponent(resultId)}` : ""}`,
+    ),
+  // Multistatic sensing coverage of a virtual point target over a height plane.
+  simulateSensingCoverage: (pid: string, req: SensingCoverageRequest = {}) =>
+    request<SensingCoverageResultSet>("POST", `/projects/${pid}/simulate/sensing-coverage`, req),
+  getSensingCoverageResult: (pid: string, resultId?: string) =>
+    request<SensingCoverageResultSet>(
+      "GET",
+      `/projects/${pid}/results/sensing-coverage${resultId ? `?result_id=${encodeURIComponent(resultId)}` : ""}`,
     ),
 
   // static project assets (GLB, textures)

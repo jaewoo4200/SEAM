@@ -1,3 +1,4 @@
+import { useState } from "react";
 import type { ReactNode } from "react";
 import { useAppStore } from "../store/appStore";
 import type {
@@ -21,7 +22,9 @@ export type ResultKind =
   | "mesh_radio_map"
   | "radio_map"
   | "scenario"
-  | "sensing";
+  | "sensing"
+  | "isac"
+  | "sensing_coverage";
 
 /** "Scene changed since this was computed" badge. Mirrors ResultExplorer's
  *  StaleChip (same class/markup) but covers every result kind, so it can mount
@@ -37,6 +40,39 @@ export function EpochStaleChip({ kind }: { kind: ResultKind }) {
     >
       ⚠ stale
     </span>
+  );
+}
+
+/** Lightweight collapsible wrapper (no index.css dependency): a header row that
+ *  toggles its children. Inline-styled to stay self-contained. */
+export function Collapsible({
+  title,
+  defaultOpen = false,
+  children,
+}: {
+  title: string;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div style={{ marginTop: 10 }}>
+      <div
+        onClick={() => setOpen((o) => !o)}
+        style={{
+          cursor: "pointer",
+          userSelect: "none",
+          fontWeight: 600,
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+        }}
+      >
+        <span style={{ fontSize: "0.8em", opacity: 0.7 }}>{open ? "▾" : "▸"}</span>
+        {title}
+      </div>
+      {open && <div style={{ marginTop: 8 }}>{children}</div>}
+    </div>
   );
 }
 

@@ -7,9 +7,12 @@ world center, velocity, RCS model) and runs the solve: the optional comm
 paths solve first, then ``backend.simulate_sensing``.
 """
 
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Optional, Sequence
+
+import numpy as np
 
 from seam_studio.schemas.actors import ActorState
 from seam_studio.schemas.materials import RFMaterialLibrary
@@ -51,6 +54,24 @@ class ResolvedSensingTarget:
 
 def dbsm_to_m2(rcs_dbsm: float) -> float:
     return 10.0 ** (rcs_dbsm / 10.0)
+
+
+def bistatic_radar_gain_db(wavelength_m, rcs_dbsm, r_tx_m, r_rx_m):
+    """10log10(lambda^2 sigma / ((4 pi)^3 R_t^2 R_r^2)): the TX -> point target
+    -> RX channel gain with isotropic antennas. Legs clamp at 0.1 m like
+    friis_dbm. Scalars in -> float out (math, so the mock's numbers do not
+    move); any array in -> numpy array out."""
+    if not any(isinstance(v, np.ndarray) for v in (wavelength_m, rcs_dbsm, r_tx_m, r_rx_m)):
+        d1, d2 = max(float(r_tx_m), 0.1), max(float(r_rx_m), 0.1)
+        return 10.0 * math.log10(
+            wavelength_m**2 * dbsm_to_m2(rcs_dbsm) / ((4.0 * math.pi) ** 3 * d1**2 * d2**2)
+        )
+    d1 = np.maximum(r_tx_m, 0.1)
+    d2 = np.maximum(r_rx_m, 0.1)
+    return 10.0 * np.log10(
+        wavelength_m**2 * 10.0 ** (np.asarray(rcs_dbsm) / 10.0)
+        / ((4.0 * np.pi) ** 3 * d1**2 * d2**2)
+    )
 
 
 def resolve_target(actor: Actor) -> ResolvedSensingTarget:

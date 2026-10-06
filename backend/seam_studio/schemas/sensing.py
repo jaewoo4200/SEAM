@@ -1,6 +1,7 @@
-"""Sensing-target binding (RCS) and the sensing solve request."""
+"""Sensing-target binding (RCS), the sensing solve request, and the ISAC
+trade-off / sensing-coverage requests."""
 
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 
 from pydantic import Field, model_validator
 
@@ -149,6 +150,130 @@ class SensingTrackOptions(StrictModel):
 
     def resolved_mti_min_doppler_hz(self) -> float:
         return 1.0 / self.cpi_s if self.mti_min_doppler_hz is None else self.mti_min_doppler_hz
+
+
+SharingMode = Literal["time_sharing", "dual_function"]
+UeAssociation = Literal["serving", "all"]
+MAX_ISAC_BEAMS = 361
+# Trade-off points per tx: codebook beams x nonzero slot ratios (+ rho = 0).
+MAX_ISAC_POINTS = 4096
+
+
+class ISACRequest(StrictModel):
+    """Body for POST /projects/{id}/simulate/isac."""
+
+    config_id: Optional[str] = None
+    config: Optional[SimulationConfig] = None
+    # None = every tx device.
+    tx_ids: Optional[list[str]] = Field(default=None, min_length=1)
+    # Role split. Both None: an rx within 1.0 m of a selected tx is that tx's
+    # sensing receiver, every other rx is a UE. See plan_isac_roles.
+    ue_rx_ids: Optional[list[str]] = Field(default=None, min_length=1)
+    sensing_rx_ids: Optional[list[str]] = Field(default=None, min_length=1)
+    # None = every actor whose sensing binding is enabled.
+    target_actor_ids: Optional[list[str]] = Field(default=None, min_length=1)
+    # serving: each UE belongs to the tx with the strongest best-beam RSS;
+    # all: every tx serves every UE (single-cell view per tx).
+    ue_association: UeAssociation = "serving"
+    tx_rows: int = Field(default=4, ge=1, le=16)
+    tx_cols: int = Field(default=4, ge=1, le=16)
+    # Sensing-RX array; None = the tx array. UEs are always single element.
+    rx_rows: Optional[int] = Field(default=None, ge=1, le=16)
+    rx_cols: Optional[int] = Field(default=None, ge=1, le=16)
+    # Fixed-bearing panels (Device.orientation_deg). False is rejected (400):
+    # look_at cannot aim one panel at UEs and targets in different directions.
+    use_device_orientation: bool = True
+    sweep_start_deg: float = Field(default=-60.0, ge=-90.0, le=90.0)
+    sweep_stop_deg: float = Field(default=60.0, ge=-90.0, le=90.0)
+    sweep_step_deg: float = Field(default=5.0, gt=0.0, allow_inf_nan=False)
+    cpi_pulses: int = Field(default=4096, ge=1, le=100_000_000)
+    # Metadata only (the resolutions in metadata).
+    cpi_s: float = Field(default=0.01, gt=0.0, le=10.0)
+    # Per-beam "detected" flag.
+    threshold_db: float = Field(default=13.0, ge=-30.0, le=60.0)
+    pfa: float = Field(default=1e-6, gt=0.0, lt=1.0)
+    # Operating point of the Pareto summary.
+    pd_target: float = Field(default=0.9, gt=0.0, lt=1.0)
+    # Fractions of slots / pulses spent sensing (sorted and deduped).
+    slot_ratios: list[Annotated[float, Field(ge=0.0, le=1.0)]] = Field(
+        default_factory=lambda: [0.0, 0.05, 0.1, 0.2, 0.3, 0.5, 0.7, 1.0],
+        min_length=1,
+        max_length=32,
+    )
+    sharing_mode: SharingMode = "dual_function"
+    samples_per_sp: int = Field(default=1_000_000, ge=1, le=100_000_000)
+    max_depth: Optional[int] = Field(default=None, ge=1, le=12)
+    # Store the echo + comm paths of the solve in the result (echoes first).
+    include_paths: bool = False
+
+    @model_validator(mode="after")
+    def _sweep(self) -> "ISACRequest":
+        if self.sweep_start_deg > self.sweep_stop_deg:
+            raise ValueError("sweep_start_deg must be <= sweep_stop_deg")
+        steps = (self.sweep_stop_deg - self.sweep_start_deg) / self.sweep_step_deg + 1e-9
+        # Not "<": also catches inf (a subnormal step overflows the division).
+        if not steps < MAX_ISAC_BEAMS:
+            n = f"{int(steps) + 1}" if steps < 1e9 else "too many"
+            raise ValueError(f"codebook has {n} beams; at most {MAX_ISAC_BEAMS}")
+        n_beams = int(steps) + 1
+        n_ratios = len({r for r in self.slot_ratios if r > 0.0})
+        if n_beams * n_ratios > MAX_ISAC_POINTS:
+            raise ValueError(
+                f"{n_beams} beams x {n_ratios} nonzero slot ratios = "
+                f"{n_beams * n_ratios} trade-off points per tx; at most {MAX_ISAC_POINTS}"
+            )
+        return self
+
+
+SensingCoverageMetric = Literal["best_snr_db", "n_links_detected", "pd_best", "fusion_feasible"]
+
+
+class SensingCoverageRequest(StrictModel):
+    """Body for POST /projects/{id}/simulate/sensing-coverage."""
+
+    config_id: Optional[str] = None
+    config: Optional[SimulationConfig] = None
+    tx_ids: Optional[list[str]] = Field(default=None, min_length=1)
+    # None = rx devices co-located (<= 1 m) with a selected tx (ISAC rule).
+    sensing_rx_ids: Optional[list[str]] = Field(default=None, min_length=1)
+    # Point target RCS. Both None = TR 38.901 uav-small-size nominal (-12.81 dBsm).
+    rcs_dbsm: Optional[float] = Field(default=None, ge=-80.0, le=80.0)
+    object_type: Optional[TR38901ObjectType] = None
+    height_m: float = Field(default=60.0, ge=-1e5, le=1e5)
+    cell_size_m: float = Field(default=10.0, gt=0.0, le=1e4)
+    # Optional explicit extent (RadioMapGridConfig semantics); None = scene bounds.
+    center_xy: Optional[list[Annotated[float, Field(ge=-1e7, le=1e7)]]] = Field(
+        default=None, min_length=2, max_length=2
+    )
+    size_xy: Optional[list[Annotated[float, Field(le=1e6, allow_inf_nan=False)]]] = Field(
+        default=None, min_length=2, max_length=2
+    )
+    threshold_db: float = Field(default=13.0, ge=-30.0, le=60.0)
+    cpi_pulses: int = Field(default=4096, ge=1, le=100_000_000)
+    pfa: float = Field(default=1e-6, gt=0.0, lt=1.0)
+    # steered: ideal full array gain on both legs (every link beams at every cell).
+    array_gain: Literal["none", "steered"] = "none"
+    tx_rows: int = Field(default=4, ge=1, le=16)
+    tx_cols: int = Field(default=4, ge=1, le=16)
+    # None = the tx array.
+    rx_rows: Optional[int] = Field(default=None, ge=1, le=16)
+    rx_cols: Optional[int] = Field(default=None, ge=1, le=16)
+    min_links_for_fusion: int = Field(default=3, ge=1, le=64)
+
+    @model_validator(mode="after")
+    def _rcs_source(self) -> "SensingCoverageRequest":
+        if self.rcs_dbsm is not None and self.object_type is not None:
+            raise ValueError("set rcs_dbsm or object_type, not both")
+        if (self.center_xy is None) != (self.size_xy is None):
+            raise ValueError("center_xy and size_xy go together")
+        if self.size_xy is not None and min(self.size_xy) <= 0:
+            raise ValueError("size_xy entries must be > 0")
+        return self
+
+    def resolved_rcs_dbsm(self) -> float:
+        if self.rcs_dbsm is not None:
+            return float(self.rcs_dbsm)
+        return TR38901_NOMINAL_RCS_DBSM[self.object_type or "uav-small-size"]
 
 
 def resolve_object_type(kind: str, spec: SensingTargetSpec) -> Optional[str]:

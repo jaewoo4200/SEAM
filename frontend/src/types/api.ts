@@ -156,7 +156,9 @@ export interface ResultSetRef {
     | "scenario"
     | "channel"
     | "playback"
-    | "sensing";
+    | "sensing"
+    | "isac"
+    | "sensing_coverage";
   backend: string;
   simulation_config_id: string;
   uri: string;
@@ -1956,4 +1958,227 @@ export interface ScenarioSensingSummary {
   frames_ge3_links_rate: number;
   median_position_error_m: number | null;
   median_velocity_error_m_s: number | null;
+}
+
+// ------------------------------------------------ ISAC beam trade-off (B1)
+
+export type SharingMode = "time_sharing" | "dual_function";
+export type UeAssociation = "serving" | "all";
+
+/** Body for POST /projects/{pid}/simulate/isac. */
+export interface ISACRequest {
+  config_id?: string | null;
+  config?: SimulationConfig | null;
+  /** null = every tx device. */
+  tx_ids?: string[] | null;
+  /** Both null: an rx within 1 m of a selected tx is its sensing receiver,
+   *  every other rx is a UE. */
+  ue_rx_ids?: string[] | null;
+  sensing_rx_ids?: string[] | null;
+  /** null = every actor whose sensing binding is enabled. */
+  target_actor_ids?: string[] | null;
+  /** serving: each UE belongs to its strongest tx; all: every tx serves every UE. */
+  ue_association?: UeAssociation;
+  tx_rows?: number;
+  tx_cols?: number;
+  /** Sensing-RX array; null = the tx array. UEs are always single element. */
+  rx_rows?: number | null;
+  rx_cols?: number | null;
+  /** false is rejected (400): one look_at panel cannot aim at UEs and targets. */
+  use_device_orientation?: boolean;
+  sweep_start_deg?: number;
+  sweep_stop_deg?: number;
+  sweep_step_deg?: number;
+  cpi_pulses?: number;
+  /** Metadata only (resolutions). */
+  cpi_s?: number;
+  /** Per-beam "detected" flag. */
+  threshold_db?: number;
+  pfa?: number;
+  /** Pareto summary operating point. */
+  pd_target?: number;
+  /** Fractions of slots/pulses spent sensing; the backend sorts and dedupes. */
+  slot_ratios?: number[];
+  sharing_mode?: SharingMode;
+  samples_per_sp?: number;
+  max_depth?: number | null;
+  /** Store the echo + comm paths of the solve in the result (echoes first). */
+  include_paths?: boolean;
+}
+
+/** One codebook beam of one tx, used full time for comm OR sensing (rho = 1). */
+export interface ISACBeam {
+  angle_deg: number;
+  /** Per UE of this tx: SINR (= SNR, no inter-tx interference) dB; null = no path. */
+  ue_sinr_db: Record<string, number | null>;
+  /** Sum over this tx's UEs of log2(1 + SINR) [bit/s/Hz]. */
+  sum_rate_bps_hz: number;
+  /** Per target: echo SNR with this TX beam and the best RX beam, full CPI. */
+  target_snr_db: Record<string, number | null>;
+  target_best_rx_angle_deg: Record<string, number | null>;
+  /** Weakest target (null if any target has no echo). */
+  sensing_snr_db: number | null;
+  /** Swerling-1 Pd of sensing_snr_db (pfa when null). */
+  pd: number;
+  detected: boolean;
+}
+
+export interface ISACPoint {
+  /** Fraction of slots/pulses spent sensing. */
+  rho: number;
+  /** Sensing-slot beam; null for rho == 0 (comm only). */
+  beam_idx: number | null;
+  sum_rate_bps_hz: number;
+  ue_rates_bps_hz: Record<string, number>;
+  /** Weakest target, rho * cpi_pulses integrated. */
+  sensing_snr_db: number | null;
+  pd: number;
+  pareto: boolean;
+}
+
+export interface ISACParetoSummary {
+  /** rho = 0: comm beam full time. */
+  comm_only_rate_bps_hz: number;
+  max_pd: number;
+  pd_target: number;
+  /** Max rate over points with pd >= pd_target. */
+  rate_at_pd_target_bps_hz: number | null;
+  rho_at_pd_target: number | null;
+  beam_idx_at_pd_target: number | null;
+  /** comm_only - rate_at_pd_target. */
+  rate_loss_at_pd_target_bps_hz: number | null;
+  /** Max pd over points with rate >= 0.95 * comm_only. */
+  pd_at_95pct_rate: number;
+  num_pareto_points: number;
+}
+
+export interface ISACTxResult {
+  tx_id: string;
+  sensing_rx_id: string;
+  /** 0 ~ monostatic. */
+  sensing_baseline_m: number;
+  /** UEs this tx serves. */
+  ue_ids: string[];
+  target_ids: string[];
+  /** [rows, cols] */
+  tx_array: [number, number];
+  rx_array: [number, number];
+  /** Codebook, local azimuth. */
+  angles_deg: number[];
+  beams: ISACBeam[];
+  comm_beam_idx: number | null;
+  sensing_beam_idx: number | null;
+  comm_beam_angle_deg: number | null;
+  sensing_beam_angle_deg: number | null;
+  angle_gap_deg: number | null;
+  /** Hand-check anchors: 1x1 both ends. */
+  ue_single_element_rss_dbm: Record<string, number | null>;
+  target_single_element_snr_db: Record<string, number | null>;
+  points: ISACPoint[];
+  pareto: ISACParetoSummary;
+  warnings: string[];
+}
+
+export interface ISACResultSet {
+  result_id: string;
+  kind: "isac";
+  backend: string;
+  simulation_config_id: string;
+  created_at: string | null;
+  frequency_hz: number;
+  sharing_mode: SharingMode;
+  ue_association: UeAssociation;
+  /** Sorted, deduped. */
+  slot_ratios: number[];
+  noise_floor_dbm: number;
+  /** UE id -> serving tx id (null = no path to any selected tx). */
+  ue_serving_tx: Record<string, string | null>;
+  txs: ISACTxResult[];
+  /** include_paths: echoes, then comm. */
+  paths?: RayPath[] | null;
+  warnings: string[];
+  metadata: Record<string, unknown>;
+}
+
+// --------------------------------------------- sensing coverage map (B2)
+
+export type SensingCoverageMetric =
+  | "best_snr_db"
+  | "n_links_detected"
+  | "pd_best"
+  | "fusion_feasible";
+
+/** Body for POST /projects/{pid}/simulate/sensing-coverage. */
+export interface SensingCoverageRequest {
+  config_id?: string | null;
+  config?: SimulationConfig | null;
+  tx_ids?: string[] | null;
+  /** null = rx devices co-located (<= 1 m) with a selected tx. */
+  sensing_rx_ids?: string[] | null;
+  /** Point target RCS; both null = TR 38.901 uav-small-size nominal (-12.81 dBsm). */
+  rcs_dbsm?: number | null;
+  object_type?: TR38901ObjectType | null;
+  height_m?: number;
+  cell_size_m?: number;
+  /** Explicit extent (RadioMapGridConfig semantics); null = scene bounds. */
+  center_xy?: [number, number] | null;
+  size_xy?: [number, number] | null;
+  threshold_db?: number;
+  cpi_pulses?: number;
+  pfa?: number;
+  array_gain?: "none" | "steered";
+  tx_rows?: number;
+  tx_cols?: number;
+  /** null = tx */
+  rx_rows?: number | null;
+  rx_cols?: number | null;
+  min_links_for_fusion?: number;
+}
+
+export interface SensingCoverageLink {
+  tx_id: string;
+  rx_id: string;
+  /** Links with the same foci (either order) share a group. */
+  geometry_group: number;
+  baseline_m: number;
+  /** Cells with both legs LOS. */
+  los_fraction: number;
+  /** Cells with SNR >= threshold. */
+  detected_fraction: number;
+}
+
+export interface SensingCoverageSummary {
+  num_cells: number;
+  num_links: number;
+  num_geometries: number;
+  /** 0..100: >= 1 link with both legs LOS. */
+  pct_cells_los: number;
+  /** >= 1 detected link. */
+  pct_cells_detected: number;
+  pct_cells_fusion_feasible: number;
+  /** Over cells with an echo. */
+  median_best_snr_db: number | null;
+}
+
+export interface SensingCoverageResultSet {
+  result_id: string;
+  kind: "sensing_coverage";
+  backend: string;
+  simulation_config_id: string;
+  created_at: string | null;
+  frequency_hz: number;
+  rcs_dbsm: number;
+  /** 0 (none) or 10log10(Ntx)+10log10(Nrx). */
+  array_gain_db: number;
+  tx_ids: string[];
+  sensing_rx_ids: string[];
+  grid: RadioMapGrid;
+  /** Row-major [ny][nx] like RadioMapResultSet.values, one array per metric:
+   *  best_snr_db / pd_best null where no link has an echo; n_links_detected
+   *  0..num_links; fusion_feasible 0 / 1 (never null). */
+  values: Record<SensingCoverageMetric, (number | null)[][]>;
+  links: SensingCoverageLink[];
+  summary: SensingCoverageSummary;
+  warnings: string[];
+  metadata: Record<string, unknown>;
 }

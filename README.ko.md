@@ -187,6 +187,9 @@ bash scripts/start.sh     # 2. 백엔드+프론트 실행
   SNR·MTI 탐지, 다중 스태틱 위치·속도 융합을 얻고, 그 결과를 실제 액터 궤적과 비교해
   오차를 냅니다. FR1과 mmWave 모두 같은 방식으로 동작합니다.
   [docs/guides/sensing.md](docs/guides/sensing.ko.md) 참조.
+- **ISAC 트레이드오프와 센싱 커버리지** — TRP별 통신 빔과 센싱 빔, 슬롯 공유에 따른
+  Pd–전송률 파레토, 다중 스태틱 탐지·융합 커버리지 맵을 제공합니다.
+  [docs/guides/sensing.md](docs/guides/sensing.ko.md) 참조.
 - **AI 모델 픽커** — LM Studio/Ollama에 로드된 모델을 자동 발견해 제안·에이전트에
   쓸 모델을 UI에서 바꿉니다. 어떤 모델이 답했는지 provenance에 기록됩니다.
 

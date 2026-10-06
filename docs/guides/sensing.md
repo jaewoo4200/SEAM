@@ -327,10 +327,228 @@ isotropic antennas, `uav-small-size` (σ = −12.81 dBsm), B = 20 MHz, NF 7 dB,
 | 28 GHz | 0.0107 | −134.23 dBm | −4.12 dB (missed) | 74.6 m | 0.54 m/s |
 
 The monostatic range therefore shrinks by 10^(−18.06/40) = ×0.354 at
-28 GHz. Antenna arrays buy that back, but they are not modelled here (see
-Limits). The mmWave notch, on the other hand, is 8× narrower in speed.
+28 GHz. Antenna arrays buy that back. The per-frame detection here still
+counts single elements (see §9 Limits), but §7 synthesizes real codebook
+beams and §8's `steered` mode adds the ideal array gain. The mmWave notch,
+on the other hand, is 8× narrower in speed.
 
-## 7. Limits
+## 7. ISAC trade-off: beams and slot sharing
+
+One TRP panel cannot point at its UEs and at a drone at the same time. The
+ISAC trade-off answers three questions per TX: which codebook beam serves
+its UEs best (the **comm beam**), which one sees the targets best (the
+**sensing beam**), and what sharing slots between the two costs in rate and
+buys in detection probability.
+
+**Running it.** In Results mode open the **ISAC trade-off** panel, pick the
+TXs (none ticked = all), the array size, the sweep, CPI pulses, P_fa, the
+slot ratios and the sharing mode, and run. Over the API:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/projects/demo/simulate/isac \
+  -H "Content-Type: application/json" \
+  -d '{"config_id": "default", "tx_rows": 4, "tx_cols": 4,
+       "sweep_start_deg": -60, "sweep_stop_deg": 60, "sweep_step_deg": 5,
+       "cpi_pulses": 4096, "pfa": 1e-6, "sharing_mode": "dual_function"}'
+curl http://127.0.0.1:8000/api/projects/demo/results/isac   # latest stored result
+```
+
+The result persists as an `isac` result set (run history, prune, label).
+Like `/simulate/sensing`, `auto` uses sionna when sionna-rt ≥ 2.2 is
+installed and otherwise the mock with a warning, and an explicit sionna
+without the RCS solver answers **409**. An unknown device or actor, no UE,
+a TX without a sensing receiver, or `use_device_orientation: false` answers
+**400** before anything is solved.
+
+| Request field | Default | Meaning |
+|---|---|---|
+| `tx_ids` | `null` | TXs to evaluate (default: every TX). |
+| `ue_rx_ids` / `sensing_rx_ids` | `null` | Role split; see *Roles* below. |
+| `target_actor_ids` | `null` | Targets (default: every enabled sensing binding). |
+| `ue_association` | `serving` | `serving`: each UE belongs to the TX with the strongest best-beam RSS. `all`: every TX serves every UE (single-cell view per TX). |
+| `tx_rows` × `tx_cols` | 4 × 4 | TX panel. Element spacing comes from the device antenna. |
+| `rx_rows` × `rx_cols` | `null` | Sensing-RX panel (default: the TX size). UEs are always single elements. |
+| `use_device_orientation` | `true` | Panels keep their `orientation_deg`. `false` is rejected: `look_at` cannot aim one panel at both its UEs and its targets. |
+| `sweep_start_deg` / `sweep_stop_deg` / `sweep_step_deg` | −60 / 60 / 5 | Azimuth codebook in the panel's local frame, exactly as `/simulate/beamforming`'s sweep (at most 361 beams, and at most 4096 beams × nonzero slot ratios per TX). |
+| `cpi_pulses` | 4096 | Coherently integrated pulses / OFDM resource elements at ρ = 1. |
+| `cpi_s` | 0.01 | Metadata only (resolutions). |
+| `threshold_db` | 13 | Per-beam `detected` flag. |
+| `pfa` | 1e-6 | False-alarm probability of the Pd model. |
+| `pd_target` | 0.9 | Operating point of the Pareto summary. |
+| `slot_ratios` | 0, .05, .1, .2, .3, .5, .7, 1 | Fractions ρ of the slots (pulses) spent sensing; sorted and deduped. |
+| `sharing_mode` | `dual_function` | `time_sharing` or `dual_function` (below). |
+| `samples_per_sp` / `max_depth` | 1 000 000 / `null` | Passed to the echo solve, as in §3. |
+| `include_paths` | `false` | Store the solve's paths in the result: echoes first, then the comm paths. |
+
+**Roles.** With `ue_rx_ids` and `sensing_rx_ids` both unset, an RX within
+1 m of a selected TX is that TX's sensing receiver (monostatic). Every RX
+that is not within 1 m of any TX of the scene is a UE, so evaluating a
+subset of TRPs never turns the other TRPs' radar receivers into served
+users. Each TX takes the nearest RX of the sensing pool, so several TXs may
+share one (bistatic) when you pass `sensing_rx_ids`. `ue_rx_ids` overrides
+the UE rule. An RX cannot be both a UE and a sensing receiver.
+
+**Model.** One t = 0 solve pair: the echo solve (TX → target → sensing RX,
+§3) and the comm solve (TX → UE with the targets as absorbers, as
+`include_comm_paths`). Both run with every antenna forced to a single
+element, so each stored path is referenced to the panel center. The beams
+are then synthesized from the paths' world-frame departure/arrival angles
+in Sionna's synthetic-array convention. Element n of a panel with
+orientation o responds to a wave along world direction k̂ with
+
+`a_n = exp(+j 2π p_n · R(o)ᵀ k̂)`,
+
+where p_n is the PlanarArray element position in wavelengths. Beam w scores
+w^H a on both ends: the conjugate-weight matched filter of
+`/simulate/beamforming`. On sionna the synthesized TX codebook reproduces
+`/simulate/beamforming` (`codebook_sweep`, `use_device_orientation: true`)
+beam for beam: the regression tests see the same best beam, and every beam
+within 20 dB of the peak agrees within 0.1 dB (measured: under 0.01 dB).
+Per TX t, codebook beam k and UE u:
+
+- `h_k,u = Σ_l α_l · w_kᴴ a_t(l)` over the paths t → u (α_l from
+  `path_gain_db` and `phase_rad`),
+  `SINR_k,u = P_t + 20·log10|h_k,u| − N0`, with
+  N0 = −174 + 10·log10(B) + NF. There is no inter-TX interference, so
+  SINR = SNR.
+- `rate_k,u = log2(1 + SINR_k,u)` and `R(k) = Σ_u rate_k,u` over the UEs
+  this TX serves.
+- Echo of target q with TX beam k and RX beam m, every echo t → s → q
+  summed coherently: `E_q[k, m] = Σ_e α_e (w_kᴴ a_t(e)) (w_mᴴ a_s(e))`. The
+  best RX beam is taken per TX beam, and
+
+  `SNR_q(k, ρ) = P_t + 20·log10 max_m |E_q[k, m]| − N0 + 10·log10(ρ · cpi_pulses)`.
+
+  The weakest target sets the sensing SNR of a beam.
+
+**Pd.** A Swerling-1 target with a square-law detector on the integrated
+sample has P_fa = e^(−T) and P_d = e^(−T / (1 + SNR)), so
+
+`P_d = P_fa^(1 / (1 + SNR))`.
+
+At P_fa = 10⁻⁶, P_d = 0.9 needs **21.1 dB**, and the 13 dB threshold gives
+P_d = **0.517**. No echo gives P_d = P_fa.
+
+**Slot sharing.** The comm beam k_c = argmax R(k). A fraction ρ of the slots
+(or pulses) senses with beam k, so the echo integrates ρ · `cpi_pulses`.
+
+- `time_sharing`: sensing slots carry no data. rate_u = (1 − ρ) · rate_k_c,u.
+- `dual_function`: the sensing beam also carries data to whoever it reaches.
+  rate_u = (1 − ρ) · rate_k_c,u + ρ · rate_k,u.
+
+ρ = 0 is one comm-only point (`beam_idx` null, P_d = P_fa). With
+`dual_function` the ρ = 1 rows equal the beams themselves (one beam does
+both). With `time_sharing` they carry no rate.
+
+**Reading the output.** Each `txs[]` entry holds:
+
+- `beams[]`: one row per codebook angle, with each UE's SINR, the sum rate,
+  each target's echo SNR and best RX angle, the weakest-target SNR, P_d and
+  `detected`. The panel's beam table tints the comm-beam row cyan and the
+  sensing-beam row magenta, and the **ISAC lobes** overlay draws both beams
+  on each TX in the same colors (see §9 for what it leaves out).
+- `comm_beam_angle_deg`, `sensing_beam_angle_deg` and `angle_gap_deg`.
+  `ue_single_element_rss_dbm` and `target_single_element_snr_db` are 1×1
+  anchors for hand checks. For a target the array gain of a beam is
+  `target_snr_db − target_single_element_snr_db`. For a UE it is
+  `ue_sinr_db + noise_floor_dbm − ue_single_element_rss_dbm`, because the
+  UE anchor is an RSS in dBm, not an SINR.
+- `points[]`: every (ρ, sensing beam) operating point with its sum rate,
+  SNR, P_d and `pareto` flag. The **Pareto chart** plots rate against P_d.
+  The front holds the points no other point beats on both axes (duplicates
+  count once).
+- `pareto`: `comm_only_rate_bps_hz` (ρ = 0), `max_pd`,
+  `rate_at_pd_target_bps_hz` / `rho_at_pd_target` / `beam_idx_at_pd_target`
+  (the best rate among points with P_d ≥ `pd_target`; null when none
+  reaches it), `rate_loss_at_pd_target_bps_hz`, and `pd_at_95pct_rate` (the
+  best P_d that keeps 95 % of the comm-only rate). Rates within 10⁻¹² tie,
+  and a tie goes to the higher P_d, so the named point is on the front. In
+  `dual_function` the comm beam keeps its full rate at every ρ, so when it
+  reaches the target it is named at ρ = 1, not at the smallest ρ that
+  qualifies. A sensing-only TX (all rates 0) names its highest-P_d point.
+
+The top level adds `ue_serving_tx`, the `noise_floor_dbm` and, in `metadata`,
+the detection constants of §6 plus `snr_for_pd_target_db` and
+`pd_at_threshold`. A TX that serves no UE gets a sensing-only trade-off (all
+rates 0) and says so in its `warnings`.
+
+## 8. Sensing coverage map
+
+Where would a drone at 60 m be seen, and by how many links? The coverage
+map puts a **virtual point target** in every cell of a horizontal grid and
+evaluates every TX × sensing-RX link (monostatic and bistatic). No RCS solve
+runs, so a whole map takes about a second.
+
+**Running it.** In Results mode open the **Sensing coverage** panel, set
+the height, cell size, RCS (blank = TR 38.901 `uav-small-size`,
+−12.81 dBsm), threshold, pulses, P_fa and the array gain, and run. The
+metric selector switches the map between the four layers below. Over the
+API:
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/projects/demo/simulate/sensing-coverage \
+  -H "Content-Type: application/json" \
+  -d '{"config_id": "default", "height_m": 60, "cell_size_m": 10,
+       "threshold_db": 13, "cpi_pulses": 4096, "array_gain": "none"}'
+curl http://127.0.0.1:8000/api/projects/demo/results/sensing-coverage
+```
+
+The result persists as a `sensing_coverage` result set. Sensing receivers
+follow the ISAC rule (an RX within 1 m of a selected TX, or
+`sensing_rx_ids`). A TX without one answers **400**.
+
+| Request field | Default | Meaning |
+|---|---|---|
+| `tx_ids` / `sensing_rx_ids` | `null` | Devices (default: every TX and its co-located RX). |
+| `rcs_dbsm` / `object_type` | `null` | Point-target σ: a value, or a TR 38.901 type's mean σ_M (not both). Both unset = `uav-small-size`. |
+| `height_m` | 60 | Height of the grid plane (target center), within ±100 000 m. |
+| `cell_size_m` | 10 | Cell size, at most 10 000 m. More than 40 000 cells coarsens it, with a warning. |
+| `center_xy` / `size_xy` | `null` | Explicit extent (both or neither; center within ±10⁷ m, sides up to 10⁶ m). Default: the scene bounds (visual mesh, devices, actors) padded by min(15 m, max(3 m, 15 % of the larger side)), as for the sionna radio map. |
+| `threshold_db` / `cpi_pulses` / `pfa` | 13 / 4096 / 1e-6 | Detection, as in §6 and §7. |
+| `array_gain` | `none` | `steered` adds 10·log10(N_tx) + 10·log10(N_rx) of the `tx_rows`×`tx_cols` / `rx_rows`×`rx_cols` panels: every link beams at every cell, an upper bound. |
+| `min_links_for_fusion` | 3 | Distinct geometries a cell needs to count as fusion-feasible. |
+
+**Model.** Per link and cell, with R_t = |cell − TX| and R_r = |cell − RX|:
+
+`SNR = P_t + G + G_e,t + G_e,r + 10·log10(λ² σ / ((4π)³ R_t² R_r²)) − A(R_t + R_r) − N0 + 10·log10(cpi_pulses)`
+
+when **both legs are line-of-sight**, and no echo otherwise. G is the array
+gain above and A the atmospheric absorption (0 unless enabled in the
+config). G_e,t and G_e,r are the TX's and the RX's element gain toward the
+cell, from each device's `antenna.pattern` in its own frame
+(`orientation_deg`), as Sionna applies them: 0 dB for `iso`, 8 dBi down to
+−22 dBi (a 30 dB floor) for `tr38901`. `metadata.element_patterns` lists them.
+With `iso` elements the equation is the mock echo's, so a mock sensing
+solve with a target at a cell center returns exactly the map's value (the
+mock's echoes are always isotropic). On sionna the LOS test is a Mitsuba
+shadow-ray test against the cached static scene with every actor mesh
+taken out (the map is about the site, not about where the real drone
+happens to be). In the regression tests a constant-RCS echo solved by
+`RCSSolver` at a LOS cell matches the map within 0.01 dB, with `iso` and
+with `tr38901` elements (measured: about 10⁻⁵ dB), and cells in a
+building's shadow have no direct echo. The mock has no geometry occlusion:
+every leg counts as LOS, and the result says so in `warnings` and
+`metadata.los_model`.
+
+**Layers** (`values`, row-major [ny][nx] like a radio map):
+
+- `best_snr_db`: the best link's SNR (null where no link has an echo).
+- `n_links_detected`: links with SNR ≥ `threshold_db`.
+- `pd_best`: the Swerling-1 P_d of the best link (§7).
+- `fusion_feasible`: 1 where the detected links span at least
+  `min_links_for_fusion` **distinct geometries**, else 0. Devices within
+  1 m of each other (a TRP's TX and its sensing RX, the ISAC co-location
+  rule) are one site, and links between the same two sites count once, in
+  either order. So a reciprocal pair (A→B, B→A) is one geometry even when
+  the sensing panels sit up to 1 m from their TXs. Each link's
+  `geometry_group` shows the grouping.
+
+`summary` gives the cell, link and geometry counts, the percentage of cells
+with ≥ 1 LOS link, ≥ 1 detection and fusion feasibility, and the median best
+SNR over the cells with an echo. `links[]` gives each link's baseline and
+its LOS and detected fractions.
+
+## 9. Limits
 
 - Targets move by rigid translation only: no rotation, no micro-Doppler.
 - The cuboid is the actor's box size; mesh actors need an explicit `size_m`.
@@ -354,12 +572,45 @@ Limits). The mmWave notch, on the other hand, is 8× narrower in speed.
   `position_error_m`. The mock uses one point at the center, so it has none.
 - Detection is per echo and noise-limited: no CFAR, no range–Doppler map, no
   clutter or self-interference power.
-- Antennas count as single elements (no array gain), so integration gain is
-  the only processing gain.
+- Sensing over time (§6) counts antennas as single elements (no array
+  gain), so integration gain is its only processing gain.
 - `measurement_noise` is a rule of thumb (cell / sqrt(2·SNR)), not a
   Cramér–Rao bound.
 - Each frame is an independent snapshot. There is no tracking filter: the
   previous estimate only seeds the next frame's solver.
+- ISAC trade-off (§7):
+  - The codebook is azimuth-only: the vertical rows stay broadside. A
+    4-row λ/2 panel has a vertical null 30° off its plane, and is at least
+    14 dB per end below broadside anywhere from 25° to 35° (21–23 dB at
+    28° and 33°). An up-tilted rooftop TRP can therefore lose more than its
+    array gain toward street UEs or a steep drone, so a 4×4 beam can come
+    out below the single-element anchor.
+  - With the default `iso` element the panel has a mirror back lobe: beam θ
+    also points at 180° − θ behind the panel at full gain, so UEs and
+    targets behind a TRP are not clipped. Use the `tr38901` element for a
+    front-to-back ratio. With λ/2 spacing, a target outside the sweep near
+    endfire (say 78° off broadside with a ±60° sweep) is seen by both edge
+    beams within about 1 dB of each other, through the grating-lobe skirt,
+    so which edge wins is nearly arbitrary.
+  - The **ISAC lobes** overlay draws each beam's azimuth cut over the
+    panel's front hemisphere only. With `iso` (or another symmetric)
+    element a TX can serve a UE behind its panel through the back lobe
+    while its cyan comm lobe points away from that UE.
+  - No inter-TX interference (SINR = SNR), and each UE's rate assumes it
+    has the full band.
+  - P_d is the Swerling-1 closed form: no CFAR, no range or Doppler
+    straddle loss.
+  - One t = 0 snapshot. Only the first polarization port of a
+    dual-polarized antenna is synthesized, and UEs are single elements.
+- Sensing coverage (§8):
+  - The target is a constant point RCS: no TR 38.901 angular lobes.
+  - Only direct LOS legs count (no multipath echoes), and actor meshes are
+    ignored by the LOS test.
+  - `steered` is the ideal full-array gain on every link and cell.
+  - Element gain uses each device's own antenna. Sionna solves apply the
+    first selected TX's (RX's) antenna to every TX (RX), so with mixed
+    patterns the two differ. Polarization mismatch is not modeled.
+  - The mock treats every leg as line-of-sight.
 
 ## Related docs
 

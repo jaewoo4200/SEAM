@@ -4,7 +4,15 @@ import { api, ApiError } from "../api/client";
 import BeamSweepHeatmap from "./BeamSweepHeatmap";
 import AngularPlot from "./AngularPlot";
 import PlaybackPanel from "./PlaybackPanel";
-import { EpochStaleChip, PATH_COLORS, SELECTED_PATH_COLOR, formatVec, materialById } from "./common";
+import {
+  Collapsible,
+  EpochStaleChip,
+  PATH_COLORS,
+  SELECTED_PATH_COLOR,
+  formatVec,
+  materialById,
+} from "./common";
+import { IsacTradeoffSection, SensingCoverageSection } from "./IsacSections";
 import { LineChart, exportCsv } from "../charts";
 import { filterPaths, pathColor, pathDepth, powerRange } from "../pathFilter";
 import { meshRadioMapRange } from "./MeshRadioMapOverlay";
@@ -2429,41 +2437,6 @@ function MaterialFilterChips({
   );
 }
 
-// ----------------------------------------------------- collapsible section
-
-/** Lightweight collapsible wrapper (no index.css dependency): a header row that
- *  toggles its children. Inline-styled to stay self-contained. */
-function Collapsible({
-  title,
-  defaultOpen = false,
-  children,
-}: {
-  title: string;
-  defaultOpen?: boolean;
-  children: React.ReactNode;
-}) {
-  const [open, setOpen] = useState(defaultOpen);
-  return (
-    <div style={{ marginTop: 10 }}>
-      <div
-        onClick={() => setOpen((o) => !o)}
-        style={{
-          cursor: "pointer",
-          userSelect: "none",
-          fontWeight: 600,
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-        }}
-      >
-        <span style={{ fontSize: "0.8em", opacity: 0.7 }}>{open ? "▾" : "▸"}</span>
-        {title}
-      </div>
-      {open && <div style={{ marginTop: 8 }}>{children}</div>}
-    </div>
-  );
-}
-
 // ------------------------------------------------------- mesh radio map
 
 /** "Mesh radio map" section: run over the current selection, toggle the
@@ -3559,6 +3532,8 @@ const RUN_HISTORY_KINDS: ResultSetRef["kind"][] = [
   "channel",
   "playback",
   "sensing",
+  "isac",
+  "sensing_coverage",
 ];
 
 /** Group headings that read better than the raw kind string. Kinds missing
@@ -3566,6 +3541,8 @@ const RUN_HISTORY_KINDS: ResultSetRef["kind"][] = [
 const RUN_HISTORY_LABELS: Partial<Record<ResultSetRef["kind"], string>> = {
   playback: "playback (GT vs DT)",
   sensing: "sensing (RCS)",
+  isac: "ISAC trade-off",
+  sensing_coverage: "sensing coverage",
 };
 
 /** One run row with an inline-editable label. Committing (blur/Enter) PATCHes
@@ -3656,6 +3633,20 @@ function RunHistorySection() {
     const sum = scenarioSensingSummary(scenario);
     return sum && scenario ? { id: scenario.result_id, text: formatSensingChip(sum) } : null;
   }, [scenario]);
+  const sensingCoverage = useAppStore((s) => s.sensingCoverage);
+  const coverageChip = useMemo(() => {
+    if (!sensingCoverage) return null;
+    const s = sensingCoverage.summary;
+    return {
+      id: sensingCoverage.result_id,
+      text: `det ${s.pct_cells_detected.toFixed(1)}% · fusion ${s.pct_cells_fusion_feasible.toFixed(1)}%`,
+    };
+  }, [sensingCoverage]);
+  const runNote = (r: ResultSetRef): string | undefined => {
+    if (r.kind === "scenario" && scenarioChip?.id === r.result_id) return scenarioChip.text;
+    if (r.kind === "sensing_coverage" && coverageChip?.id === r.result_id) return coverageChip.text;
+    return undefined;
+  };
 
   const [keepN, setKeepN] = useState(3);
   const [pruning, setPruning] = useState(false);
@@ -3743,11 +3734,7 @@ function RunHistorySection() {
                       disabled={disabled}
                       onLoad={(ref) => void activateResult(ref)}
                       onLabel={onLabel}
-                      note={
-                        r.kind === "scenario" && scenarioChip?.id === r.result_id
-                          ? scenarioChip.text
-                          : undefined
-                      }
+                      note={runNote(r)}
                     />
                   ))}
                 </tbody>
@@ -3837,7 +3824,7 @@ export default function ResultExplorer() {
   // leaving a stale result — and its "selected path" if the paths set vanished.
   const refreshAfterPrune = async (removed: number) => {
     if (!projectId) return;
-    const [paths, rmap, mesh, traj, scen, sens] = await Promise.all([
+    const [paths, rmap, mesh, traj, scen, sens, isac, cov] = await Promise.all([
       api.getPathResults(projectId).catch(() => null),
       api.getRadioMap(projectId).catch(() => null),
       // Fetch mesh directly (not the store's best-effort fetch, which never
@@ -3846,6 +3833,8 @@ export default function ResultExplorer() {
       api.getTrajectory(projectId).catch(() => null),
       api.getScenario(projectId).catch(() => null),
       api.getSensingResult(projectId).catch(() => null),
+      api.getIsacResult(projectId).catch(() => null),
+      api.getSensingCoverageResult(projectId).catch(() => null),
     ]);
     // Guard against a project switch racing the prune refresh.
     if (useAppStore.getState().projectId !== projectId) return;
@@ -3861,6 +3850,10 @@ export default function ResultExplorer() {
       showScenario: scen ? st.showScenario : false,
       sensing: sens,
       showSensing: sens ? st.showSensing : false,
+      isac,
+      showIsac: isac ? st.showIsac : false,
+      sensingCoverage: cov,
+      showSensingCoverage: cov ? st.showSensingCoverage : false,
       notice: removed > 0 ? `Pruned ${removed} result file(s)` : "No results to prune",
     }));
   };
@@ -4238,6 +4231,8 @@ export default function ResultExplorer() {
 
       <MeshRadioMapSection />
       <AltitudeSweepSection />
+      <IsacTradeoffSection />
+      <SensingCoverageSection />
       {/* Renders nothing unless the project carries sensor_data/ (it reads the
           manifest from the store and self-hides), so no gate is needed here. */}
       <PlaybackPanel />

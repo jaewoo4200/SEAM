@@ -261,6 +261,8 @@ function solveProgressLabel(kind: string): string {
     playback: "Building playback pack",
     channel_npz_export: "Exporting channel dataset",
     sensing: "Running sensing solve",
+    isac: "Running ISAC trade-off",
+    sensing_coverage: "Running sensing coverage",
   };
   return map[kind] ?? "Solving";
 }

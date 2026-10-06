@@ -17,6 +17,7 @@ import type { RadioMapColormap } from "../viewportSettings";
 import ViewportPanel from "./ViewportPanel";
 import MeshRadioMapOverlay from "./MeshRadioMapOverlay";
 import BeamLobeOverlay, { beamSweepAxisDeg } from "./BeamLobeOverlay";
+import { IsacBeamLobes } from "./IsacOverlay";
 import SensingOverlay, { SensingDopplerLegend, SensingEchoLines } from "./SensingOverlay";
 import { captureAgentViews } from "./AgentCapture";
 import { sensingDopplerRange } from "../utils/dopplerColor";
@@ -26,11 +27,14 @@ import type {
   Actor,
   PlaybackResultSet,
   Prim,
+  RadioMapGrid,
   RadioMapResultSet,
   RayPath,
   RFMaterialLibrary,
   ScenarioResultSet,
   Scene,
+  SensingCoverageMetric,
+  SensingCoverageResultSet,
   TrajectoryResultSet,
   ValidationReport,
   Vec3,
@@ -1557,8 +1561,11 @@ function ScreenshotCapture() {
 
 // -------------------------------------------------------------- radio map
 
+/** A grid of cell values (radio map or one sensing-coverage metric). */
+type GridValues = { grid: RadioMapGrid; values: (number | null)[][] };
+
 /** Auto (data) dB range of a radio map, for display + legend. */
-export function radioMapRange(rm: RadioMapResultSet): [number, number] {
+export function radioMapRange(rm: { values: (number | null)[][] }): [number, number] {
   let min = Infinity;
   let max = -Infinity;
   for (const row of rm.values) {
@@ -1573,7 +1580,7 @@ export function radioMapRange(rm: RadioMapResultSet): [number, number] {
 }
 
 function makeRadioMapTexture(
-  rm: RadioMapResultSet,
+  rm: GridValues,
   cmap: RadioMapColormap,
   vmin: number | null,
   vmax: number | null,
@@ -1623,6 +1630,68 @@ function RadioMapPlane({ radioMap }: { radioMap: RadioMapResultSet }) {
   const z = grid.origin[2] !== 0 ? grid.origin[2] : grid.height_m;
   return (
     // PlaneGeometry lies in XY facing +Z, which is exactly our ground plane.
+    <mesh position={[grid.origin[0] + w / 2, grid.origin[1] + h / 2, z]} userData={{ __noFit: true }}>
+      <planeGeometry args={[w, h]} />
+      <meshBasicMaterial
+        map={texture}
+        transparent
+        opacity={0.85}
+        side={THREE.DoubleSide}
+        depthWrite={false}
+      />
+    </mesh>
+  );
+}
+
+// ------------------------------------------------------ sensing coverage
+
+/** Fixed colormap range per coverage metric; null = the data range. */
+function coverageRange(
+  result: SensingCoverageResultSet,
+  metric: SensingCoverageMetric,
+): [number, number] | null {
+  switch (metric) {
+    case "best_snr_db":
+      return null;
+    case "n_links_detected":
+      return [0, result.summary.num_links];
+    case "pd_best":
+    case "fusion_feasible":
+      return [0, 1];
+  }
+}
+
+function coverageGrid(result: SensingCoverageResultSet, metric: SensingCoverageMetric): GridValues {
+  return { grid: result.grid, values: result.values[metric] ?? [] };
+}
+
+/** Sensing-coverage heatmap: the radio-map plane mesh at the coverage height,
+ *  colored with the viewport colormap over the metric's own range (the
+ *  radio-map vmin/vmax belong to a different quantity, so they are not reused). */
+function CoveragePlane({
+  result,
+  metric,
+}: {
+  result: SensingCoverageResultSet;
+  metric: SensingCoverageMetric;
+}) {
+  const viewport = useAppStore((s) => s.viewport);
+  const texture = useMemo(() => {
+    const range = coverageRange(result, metric);
+    return makeRadioMapTexture(
+      coverageGrid(result, metric),
+      viewport.rmColormap,
+      range ? range[0] : null,
+      range ? range[1] : null,
+    );
+  }, [result, metric, viewport.rmColormap]);
+  useEffect(() => () => texture.dispose(), [texture]);
+
+  const { grid } = result;
+  const w = grid.nx * grid.cell_size_m;
+  const h = grid.ny * grid.cell_size_m;
+  const z = grid.origin[2] !== 0 ? grid.origin[2] : grid.height_m;
+  return (
     <mesh position={[grid.origin[0] + w / 2, grid.origin[1] + h / 2, z]} userData={{ __noFit: true }}>
       <planeGeometry args={[w, h]} />
       <meshBasicMaterial
@@ -2856,6 +2925,11 @@ export default function Viewer3D() {
   const showPlayback = useAppStore((s) => s.showPlayback);
   const sensing = useAppStore((s) => s.sensing);
   const showSensing = useAppStore((s) => s.showSensing);
+  const isac = useAppStore((s) => s.isac);
+  const showIsac = useAppStore((s) => s.showIsac);
+  const sensingCoverage = useAppStore((s) => s.sensingCoverage);
+  const showSensingCoverage = useAppStore((s) => s.showSensingCoverage);
+  const coverageMetric = useAppStore((s) => s.coverageMetric);
   const showPaths = useAppStore((s) => s.showPaths);
   const showRadioMapToggle = useAppStore((s) => s.showRadioMap);
   const clearSelection = useAppStore((s) => s.clearSelection);
@@ -3092,6 +3166,8 @@ export default function Viewer3D() {
   const playbackActive =
     playback !== null && playback.frames.length > 0 && mode === "results" && showPlayback;
   const sensingActive = sensing !== null && showSensing && mode === "results";
+  const isacActive = isac !== null && showIsac && mode === "results";
+  const coverageActive = sensingCoverage !== null && showSensingCoverage && mode === "results";
   const showScenarioSensing = useAppStore((s) => s.showScenarioSensing);
   const scenarioEchoesAll = useMemo(() => scenarioEchoes(scenario), [scenario]);
   const scenarioSensingActive =
@@ -3102,6 +3178,14 @@ export default function Viewer3D() {
     () => sensingDopplerRange(scenarioEchoesAll),
     [scenarioEchoesAll],
   );
+  // Mirrors SensingDopplerLegend's own null-render rule (no echo, no legend),
+  // so the coverage legend knows whether the slot right of it is taken.
+  const dopplerLegendShown =
+    (scenarioSensingActive && scenarioEchoesAll.some((p) => p.target_id != null)) ||
+    (!scenarioSensingActive &&
+      sensingActive &&
+      sensing !== null &&
+      sensing.paths.some((p) => p.target_id != null));
   // Static beamforming lobe: the sweep row of the SELECTED RX beam, drawn at
   // the TX. Only codebook_sweep produces a curve — tx_mrt/svd report a scalar
   // gain, and a lobe invented from a scalar would be exactly the static shape
@@ -3303,6 +3387,10 @@ export default function Viewer3D() {
             each has its own toggle in the results overlay row. */}
         {pathResults && showPaths && mode === "results" && !scenarioActive && <RayPaths />}
         {showRadioMap && <RadioMapPlane radioMap={radioMap} />}
+        {coverageActive && <CoveragePlane result={sensingCoverage} metric={coverageMetric} />}
+        {isacActive && scene && (
+          <IsacBeamLobes result={isac} devices={scene.devices} radius={lobeRadius} />
+        )}
         {showMeshRadioMap && <MeshRadioMapOverlay result={meshRadioMap} />}
         {trajActive && <TrajectoryOverlay trajectory={trajectory} />}
         {/* Beam lobe from the static beamforming run; the playback overlay
@@ -3331,6 +3419,13 @@ export default function Viewer3D() {
         )}
       </Canvas>
       {showRadioMap && <RadioMapLegend radioMap={radioMap} />}
+      {coverageActive && (
+        <CoverageLegend
+          result={sensingCoverage}
+          metric={coverageMetric}
+          solo={!showRadioMap && !dopplerLegendShown}
+        />
+      )}
       {/* One Doppler legend: the scenario run's scale wins while its layer shows. */}
       {(scenarioSensingActive || sensingActive) && (
         <SensingDopplerLegend
@@ -3505,6 +3600,69 @@ function RadioMapLegend({ radioMap }: { radioMap: RadioMapResultSet }) {
           <span>{min.toFixed(0)} {unit}</span>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Colorbar for the sensing-coverage plane; sits left of the radio-map legend
+ *  (`solo` moves it to the corner when neither that nor the Doppler legend shows). */
+function CoverageLegend({
+  result,
+  metric,
+  solo,
+}: {
+  result: SensingCoverageResultSet;
+  metric: SensingCoverageMetric;
+  solo: boolean;
+}) {
+  const viewport = useAppStore((s) => s.viewport);
+  const grid = coverageGrid(result, metric);
+  // best_snr_db / pd_best are null where no link has an echo: with no echo
+  // anywhere the plane is empty, so a colorbar would show a made-up range.
+  const hasData = grid.values.some((row) => row.some((v) => v !== null));
+  const [min, max] = coverageRange(result, metric) ?? radioMapRange(grid);
+  const stops = Array.from({ length: 11 }, (_, i) =>
+    radioMapCss(i / 10, viewport.rmColormap),
+  ).join(", ");
+  const req = result.metadata?.request as { min_links_for_fusion?: unknown } | undefined;
+  const nFusion = typeof req?.min_links_for_fusion === "number" ? req.min_links_for_fusion : 3;
+  const title =
+    metric === "best_snr_db"
+      ? "Best echo SNR (dB)"
+      : metric === "n_links_detected"
+        ? "Links detected"
+        : metric === "pd_best"
+          ? "Pd (best link)"
+          : `Fusion feasible (≥ ${nFusion} geometries)`;
+  const tick = (v: number) =>
+    metric === "best_snr_db"
+      ? `${v.toFixed(0)} dB`
+      : metric === "pd_best"
+        ? v.toFixed(2)
+        : metric === "fusion_feasible"
+          ? v >= 1
+            ? "yes"
+            : v <= 0
+              ? "no"
+              : ""
+          : Number.isInteger(v)
+            ? String(v)
+            : v.toFixed(1);
+  return (
+    <div className={"radiomap-legend coverage-legend" + (solo ? " solo" : "")}>
+      <div className="radiomap-legend-title">{title}</div>
+      {hasData ? (
+        <div className="radiomap-legend-scale">
+          <div className="radiomap-legend-bar" style={{ background: `linear-gradient(to top, ${stops})` }} />
+          <div className="radiomap-legend-ticks">
+            <span>{tick(max)}</span>
+            <span>{tick((min + max) / 2)}</span>
+            <span>{tick(min)}</span>
+          </div>
+        </div>
+      ) : (
+        <div className="radiomap-legend-ticks">no echo in any cell</div>
+      )}
     </div>
   );
 }

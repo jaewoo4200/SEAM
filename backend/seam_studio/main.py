@@ -4,8 +4,13 @@ Run locally:
     uvicorn seam_studio.main:app --reload --port 8000  (from backend/)
 """
 
-from fastapi import FastAPI
+import math
+
+from fastapi import FastAPI, Request
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from seam_studio.api import (
     agent,
@@ -35,6 +40,27 @@ from seam_studio.api import (
 from seam_studio.core.config import APP_VERSION
 
 
+def _json_safe(value):
+    """Non-finite floats as strings: a 422 echoes the offending input, and a
+    JSON "Infinity" / "NaN" literal would otherwise fail to serialize (500)."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return str(value)
+    if isinstance(value, dict):
+        return {k: _json_safe(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(v) for v in value]
+    return value
+
+
+async def _request_validation_handler(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
+    # FastAPI's default handler, with the non-finite inputs made serializable.
+    return JSONResponse(
+        status_code=422, content={"detail": _json_safe(jsonable_encoder(exc.errors()))}
+    )
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title="SEAM Studio",
@@ -44,6 +70,7 @@ def create_app() -> FastAPI:
             "Sionna RT projection compilation, and simulation result APIs."
         ),
     )
+    app.add_exception_handler(RequestValidationError, _request_validation_handler)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[

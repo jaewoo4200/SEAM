@@ -905,6 +905,43 @@ h4 {
   color: var(--muted);
   text-align: center;
 }
+/* Sensing-coverage colorbar: left of the radio-map legend (top row). */
+.coverage-legend {
+  right: 132px;
+}
+.coverage-legend.solo {
+  right: 16px;
+}
+.coverage-legend .radiomap-legend-title {
+  max-width: 96px;
+}
+
+/* ISAC trade-off: beam table with the comm / sensing beam rows tinted like
+   their viewport lobes (cyan / magenta). */
+.isac-table-wrap {
+  max-height: 320px;
+  overflow: auto;
+}
+.isac-table-wrap .results-table tbody tr {
+  cursor: default;
+}
+.results-table tr.isac-comm-row {
+  background: rgba(79, 195, 247, 0.16);
+}
+.results-table tr.isac-sensing-row {
+  background: rgba(224, 64, 251, 0.16);
+}
+.results-table tr.isac-comm-row.isac-sensing-row {
+  background: linear-gradient(90deg, rgba(79, 195, 247, 0.2), rgba(224, 64, 251, 0.2));
+}
+.isac-swatch {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  margin-right: 4px;
+  vertical-align: baseline;
+}
 
 /* Sensing over time (scenario playback): run summary + per-frame readout. */
 .sensing-readout {
