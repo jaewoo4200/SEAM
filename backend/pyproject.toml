@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 # The pip-installable app: `pip install seam-studio` → `seam-studio` serves
 # the backend + the bundled frontend. ("seam" itself is taken on PyPI.)
 name = "seam-studio"
-version = "0.1.13"
+version = "0.1.14"
 description = "SEAM Studio - unified RF-visual scene authoring, RF material assignment, and Sionna RT digital-twin simulation workbench"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -50,10 +50,11 @@ dependencies = [
     # when the user opts into online evidence; import stays lazy.
     "ddgs>=9.0",
     # The real ray-tracing engine, installed by default so `pip install
-    # seam-studio` matches `pip install sionna` expectations (Dr.Jit/Mitsuba
-    # ship an LLVM CPU backend, so no GPU is required to install or run).
-    # The app still degrades gracefully to the Mock backend if the import
-    # fails at runtime (HANDOFF rule: never break when Sionna is missing).
+    # seam-studio` matches `pip install sionna` expectations. Without a CUDA
+    # GPU, Dr.Jit's LLVM CPU backend needs LLVM-C (not shipped by pip; see
+    # INSTALL: DRJIT_LIBLLVM_PATH). When no backend works, health reports why
+    # and "auto" runs the Mock backend (HANDOFF rule: never break when Sionna
+    # is missing or unusable).
     "sionna-rt>=2.2",
 ]
 
@@ -66,13 +67,19 @@ Issues = "https://github.com/jaewoo4200/SEAM/issues"
 Documentation = "https://jaewoo4200.github.io/SEAM/"
 
 [project.optional-dependencies]
-dev = ["pytest>=8.2"]
+# httpx2: starlette>=1.7's TestClient deprecates plain httpx (the runtime
+# keeps httpx). ruff: `ruff check backend` in CI (rule set in [tool.ruff]).
+dev = ["pytest>=8.2", "httpx2>=2.0", "ruff>=0.15"]
 # Back-compat alias from when sionna-rt was opt-in; it is a base dependency
 # now, so this extra is a no-op kept so `pip install "seam-studio[sionna]"`
 # instructions keep working.
 sionna = ["sionna-rt>=2.2"]
-# Future columnar result schemas (paths.parquet, radio_map.parquet, cir.zarr).
-results = ["duckdb>=1.0", "pyarrow>=16", "zarr>=2.18"]
+# pyarrow: AODT parquet import/export and parquet sensing datasets (409/400
+# without it). `pip install "seam-studio[parquet]"`.
+parquet = ["pyarrow>=16"]
+# parquet plus the future columnar result schemas (paths.parquet,
+# radio_map.parquet, cir.zarr); nothing imports duckdb or zarr yet.
+results = ["pyarrow>=16", "duckdb>=1.0", "zarr>=2.18"]
 
 [tool.setuptools.packages.find]
 include = ["seam_studio*"]
@@ -81,6 +88,13 @@ include = ["seam_studio*"]
 # default_rf_materials.yaml + the frontend bundle copied in by
 # scripts/build_wheel.py (seam_studio/static is gitignored; wheels carry it).
 seam_studio = ["data/*.yaml", "static/**/*"]
+
+[tool.ruff]
+extend-exclude = [".venv", "seam_studio/static"]
+
+[tool.ruff.lint]
+# Unused imports, redefinitions, unused locals only (`ruff check backend`).
+select = ["F401", "F811", "F841"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

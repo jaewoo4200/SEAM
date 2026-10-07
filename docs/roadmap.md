@@ -1,87 +1,111 @@
 # Roadmap
 
-Where SEAM Studio goes after the MVP vertical slice (unified scene →
-material authoring → RF compile → mock/Sionna simulation → result overlay).
-Milestone numbers follow HANDOFF.md section 12. Each item lists concrete
-next steps grounded in the current code so a future contributor can start
-without re-deriving the design.
+What SEAM Studio has shipped since the MVP vertical slice (unified scene →
+material authoring → RF compile → mock/Sionna simulation → result overlay),
+and what remains. Milestone numbers follow HANDOFF.md section 12. Remaining
+items list concrete next steps grounded in the current code so a future
+contributor can start without re-deriving the design. Paths are relative to
+`backend/seam_studio/` unless they say otherwise.
 
-## FTC / AODT alignment (from the reference bundle)
+## Shipped
 
-Alignment with `reference-bundle/` (the FTC 28 GHz ISAC digital
-twin). Status:
+### FTC / AODT alignment (from the reference bundle)
 
-- **Done** — AODT-style dark viewer palette (LOS cyan / reflection magenta /
-  diffraction orange, TX red / UE blue, jet radio map); full ITU-R P.2040
-  material set + `human_body` presets; 28 GHz default with a >10 GHz ITU-ground
-  safety warning; RFData export contract (`services/rfdata_export.py`);
-  trajectory RF metrics (`services/trajectory.py`); Mitsuba/Sionna XML import
-  (`services/mitsuba_import.py`, ships the imported `lab_room` scene); and
-  **MIMO beamforming gain** — real TX-MRT + both-ends SVD from the Sionna
-  channel (`SionnaBackend.simulate_beamforming`, `POST /simulate/beamforming`),
-  verified ~12 dB (4x4 MRT) / ~24 dB (SVD), matching the 1124 handoff numbers.
+Alignment with `reference-bundle/` (the FTC 28 GHz ISAC digital twin):
+AODT-style dark viewer palette (LOS cyan / reflection magenta / diffraction
+orange, TX red / UE blue, jet radio map); full ITU-R P.2040 material set +
+`human_body` presets; 28 GHz default with a >10 GHz ITU-ground safety
+warning; RFData export contract (`services/rfdata_export.py`); trajectory RF
+metrics (`services/trajectory.py`); Mitsuba/Sionna XML import
+(`services/mitsuba_import.py`, ships the imported `lab_room` scene); and
+**MIMO beamforming gain** — real TX-MRT + both-ends SVD from the Sionna
+channel (`SionnaBackend.simulate_beamforming`, `POST /simulate/beamforming`),
+verified ~12 dB (4x4 MRT) / ~24 dB (SVD), matching the 1124 handoff numbers.
 
-- **ISAC target tracking** (planned, DSP-heavy) — the 1124 handoff's PADP →
-  MPC peak extraction → DBSCAN clustering → Kalman tracking pipeline, with a
-  moving `human_target` mesh (material `human_body`, already in the library).
-  Next steps: a `TrackingResultSet` schema (GT + estimate + cluster samples,
-  per-frame), a target-motion + human-scatterer model, and overlays (green GT,
-  yellow clusters, red estimate/trail, black GT path) matching the handoff
-  colors. The synthetic PADP/tracking math is a research module ported from
-  `rt_isac_paper_pipeline.py`; it is not reproduced here yet.
+### Milestone 8 — Result explorer
 
-- **CV material split** (planned, external-model) — SAM2 + DINOv2/CLIP segment
-  masks → material labels → per-face mesh split. The RF side is already
-  compatible: the material taxonomy matches the CV classes
-  (concrete/glass/metal/ground/unknown) and `POST /rf/batch-assign` accepts a
-  segment→material mapping, so a CV pipeline can drive assignment today. The
-  segmentation/embedding inference itself needs the SAM2/DINOv2 models and is
-  out of scope for this environment; the integration point is the batch-assign
-  API plus the material-split PLY grouping the compiler already emits.
+The Results panel lists every path (type / power / delay / interaction
+count) with overlay filters (strongest N, minimum power, color by
+type/power/depth); a selected path shows its vertices and interactions mapped
+to canonical prim ids and RF materials, plus delay-vs-power and AoA/AoD
+plots. The backend-neutral schemas (`PathResultSet`, `RayPath`,
+`PathInteraction` in `backend/seam_studio/schemas/results.py`) carry
+everything it needs. Run history labels, loads and prunes stored runs.
 
-## Milestone 8 — Result explorer polish (near-term)
+### Milestone 9 — Mesh radio maps
 
-The backend-neutral result schemas (`PathResultSet`, `RayPath`,
-`PathInteraction` in `backend/app/schemas/results.py`) already carry
-everything the explorer needs, including per-interaction prim ids and
-optional `aod_deg`/`aoa_deg`.
-
-Next steps:
-- path table with filtering by `path_type`, interaction `rf_material_id`,
-  and interaction `prim_id` (all present in the schema — pure frontend work);
-- selected-path inspector and delay/power scatter plot;
-- click-through from a path interaction to the prim in the scene tree
-  (interactions already reference canonical prim ids).
-
-## Milestone 9 — Mesh radio maps
-
-Planar radio maps (`RadioMapResultSet` storing a `RadioMapGrid` —
-origin/cell size/nx/ny at a fixed height) are now complemented by mesh radio
-maps, which attach values to actual surfaces (roads, facades, floors,
-terrain) instead. This ships end-to-end:
-- `MeshRadioMapResultSet` (`backend/app/schemas/results.py`) carries a list
-  of `MeshRadioMapSurface` blocks — each `prim_id`-keyed with aligned
-  `centers` / `normals` / `values` lists, using the same
-  `values: list[Optional[float]]` convention so uncomputed triangles stay
-  `null`;
-- `ResultSetRef.kind` already includes `"mesh_radio_map"` (it is now a
-  `Literal["paths", "radio_map", "mesh_radio_map", "trajectory",
-  "scenario"]`);
+Values on actual surfaces (roads, facades, floors, terrain) instead of a
+horizontal plane:
+- `MeshRadioMapResultSet` (`backend/seam_studio/schemas/results.py`) carries
+  `MeshRadioMapSurface` blocks, each `prim_id`-keyed with aligned `centers` /
+  `normals` / `values` lists (`None` = not computed);
 - `services/mesh_radio_map.py` samples triangle centers from the requested
-  prims' meshes (via `mesh_tools`, reusing the compiler's mesh-extraction
-  path) and solves probe receivers in chunks through the active backend's
-  `simulate_paths`, so it is backend-agnostic — the mock backend and Sionna
-  both work with no dedicated mesh solver;
+  prims' meshes and solves probe receivers in chunks through the active
+  backend's `simulate_paths`, so the mock and Sionna both work;
 - `POST /simulate/mesh-radio-map` and `GET /results/mesh-radio-map`
-  (`backend/app/api/simulate.py`) run and fetch it;
-- frontend `MeshRadioMapOverlay.tsx` paints the values as vertex colors on
-  the existing GLB meshes.
+  (`backend/seam_studio/api/simulate.py`), painted by the frontend's
+  `MeshRadioMapOverlay.tsx`; region refinement (`center_xy`/`size_xy`),
+  multi-TX `sinr_db` and per-cell serving-TX maps.
 
-Remaining:
-- integrate Sionna RT's native mesh-based radio map solver as a faster path
-  than probe-receiver sampling, when available.
+### Milestone 11 — Measurement calibration
 
-## Milestone 10 — Progressive simulation
+- Measurement import: `POST /calibrate/measurements/import-csv` (UI:
+  Flight-log validation → **Import measurement CSV…**), stored per project
+  and listed by `GET /calibrate/measurements`;
+- error evaluation along a drive/flight log:
+  `POST /calibrate/validate-trajectory`;
+- parameter fitting: `POST /calibrate/materials` grid-searches one RF
+  material parameter against measured path gains and returns a before/after
+  report; with `apply: true` it writes the fitted value to the library,
+  promotes the affected prims to `measurement_calibrated` and appends a
+  provenance event (`ProjectStore.append_provenance`);
+- RF disambiguation of visually identical materials
+  (`POST /calibrate/disambiguate`) and material-impact analysis
+  (`POST /analyze/material-impact`, KICS 2026), both with UI.
+
+### Milestone 12 — Mobility and dynamic actors
+
+Actor waypoint trajectories (dt or constant-speed pacing, `once` / `loop` /
+`pingpong`), UAV actors with free 3D paths, UE trajectories with per-step
+handover, terrain following, devices attached to moving actors,
+**Simulate scenario** with a timeline scrubber replaying device/actor markers
+and ray overlays, and Doppler from actor/device velocities on the Sionna
+backend (see `docs/guides/trajectory_uav.md` and `docs/dynamic_scattering.md`).
+
+### Engine-neutral result import and export (AODT)
+
+- Importer: `POST /results/import-aodt` (UI: **Actions ▾ → AODT import
+  (parquet)**) reads AODT Parquet ray paths / radio maps and normalizes them
+  into the backend-neutral schemas (interaction points and types), stored like
+  any run with `backend: "aodt_import"`.
+- Exporter: `POST /export/aodt` (UI: **AODT export (parquet)**) writes stored
+  paths / sensing results and playback packs as AODT results-schema tables.
+- pyarrow is the optional `parquet` extra (`pip install "seam-studio[parquet]"`),
+  imported lazily; without it the routes answer 409 with that command.
+
+### Radar sensing and ISAC
+
+RCS targets (TR 38.901 / constant) on any actor, echo solves with per-path
+Doppler (`RCSSolver`), sensing over scenario frames with per-link detection,
+multistatic position/velocity fusion and EKF tracking, ISAC beam trade-off
+(comm vs sensing beam, Pd–rate Pareto, elevation codebooks, inter-TX
+interference), sensing coverage maps, Swerling detector models with Monte
+Carlo, and a labeled sensing dataset export (npz/csv/parquet); see
+`docs/guides/sensing.md`. Association is oracle (the ray tracer labels each
+echo); the 1124 handoff's PADP → MPC → DBSCAN front end was not ported.
+
+### CV material split
+
+Material segmentation of a monolithic mesh into per-material faces from a
+texture mask (color heuristic, local-VLM tile vote, or an uploaded SAM2-grade
+mask; `services/material_segmentation.py`), connected-parts splitting, and
+SEAM-Agent's retrieval-augmented per-segment material proposals
+(`services/seam_agent.py`). `POST /rf/batch-assign` takes segment → material
+mappings from external CV pipelines.
+
+## Remaining
+
+### Milestone 10 — Progressive simulation
 
 Goal: coarse result in seconds on consumer hardware, refinement afterwards.
 Two hooks for this already exist: `RadioMapResultSet.values` allows `None`
@@ -100,67 +124,21 @@ Next steps:
 - a time-to-first-result benchmark script under `examples/scripts/` using
   the sample_demo project as the fixed workload.
 
-## Milestone 11 — Measurement calibration
+### Native Sionna mesh radio-map solver
 
-The provenance model was designed for this from day one:
-`measurement_calibrated` is already the top of the `AssignmentStatus`
-lifecycle, and `RFMaterial.model == "constant"` gives calibrated parameters
-a place to live (`relative_permittivity`, `conductivity_s_per_m`).
+Integrate Sionna RT's native mesh-based radio map solver as a faster path
+than probe-receiver sampling (Milestone 9), when available.
 
-Next steps:
-- measurement import: CSV of (position ENU, rss_dbm | path_gain_db) into a
-  `measurements/` folder with its own small schema;
-- error evaluation: compare measurements against the latest
-  `RadioMapResultSet` / `PathResultSet`; render an error heatmap with the
-  same overlay machinery as radio maps;
-- parameter fitting: optimize constant-model material parameters (and
-  per-prim `thickness_m` overrides) to minimize error; scipy-free first pass
-  can be a coarse grid/Nelder-Mead over 2–3 parameters;
-- on acceptance, update the material in `rf/materials.yaml`
-  (`builtin: false`), promote affected prims to `measurement_calibrated`
-  with `assignment_sources` extended (e.g. `[..., "calibration:run_003"]`),
-  and write `results/calibration_report.json` plus a `provenance.json`
-  event via `ProjectStore.append_provenance`.
+### AODT import id remapping and remote engine backends
 
-## Milestone 12 — Mobility and dynamic actors
-
-Devices already carry `position` and `orientation_deg`; what is missing is
-time.
-
-Next steps:
-- trajectory schema: per-device list of `(t_s, position, orientation_deg)`
-  keyframes, imported from CSV/GPX, stored in the scene or a sidecar file;
-- time-indexed results: a timeline container that maps `t_s` to result ids,
-  reusing the existing immutable per-run result files rather than inventing
-  a new storage format;
-- batch runner that sweeps the trajectory through the existing
-  `simulate_paths` path (mock backend first — it is deterministic, so
-  playback tests are stable);
-- frontend timeline scrubber replaying device markers and path overlays;
-- dynamic scatterer placeholders (moving vehicles as boxes with RF
-  bindings) once static mobility works.
-
-## Engine-neutral result import (AODT and others)
-
-Not a numbered milestone but a standing design constraint (HANDOFF 7.3 /
-19.5): result schemas stay backend-neutral so high-end engine outputs can be
-compared against local Sionna runs.
-
-Next steps:
-- an importer service that reads AODT Parquet path/CIR outputs and
-  normalizes them into `PathResultSet` (pyarrow is already an anticipated
-  optional dependency; import it lazily like Sionna and Ollama);
-- id remapping: translate AODT object identifiers to canonical prim ids via
-  `mapping/object_map.json`, leaving `PathInteraction.prim_id` as `null`
-  when no mapping exists (the schema explicitly allows this);
-- imported results are stored like any run: `results/<result_id>.json` with
-  `backend: "aodt_import"` in the `ResultSetRef`, so the result explorer and
-  latest-by-ref logic need no changes;
-- optionally, a remote-worker backend implementing the `RayTracingBackend`
+- Id remapping: translate AODT object identifiers on imported interactions to
+  canonical prim ids via `mapping/object_map.json`; today imported
+  interactions carry `prim_id: null` (the schema allows it).
+- Optionally, a remote-worker backend implementing the `RayTracingBackend`
   protocol for live AODT sessions — `resolve_backend` and the HTTP 409
   unavailable convention already accommodate backends that come and go.
 
-## Novel features backlog
+### Novel features backlog
 
 Research-driven feature directions grounded in what the tool already ships,
 each a short hop from a working prototype. Full pitches, differentiation,
@@ -203,15 +181,10 @@ Ordered by paper-value-per-effort (see the shortlist table in
    search remains the non-GPU fallback. May need a per-material `fitted_values`
    dict on the report schema — flag as a schema contract change. *Effort:
    med–high.*
-7. **Mesh radio maps on facades/floors** (Idea 7, Milestone 9). Shipped:
-   `MeshRadioMapResultSet` (prim-keyed per-face values, `None` holes),
-   `ResultSetRef.kind` extended, measurement surfaces generated from the
-   requested prims' meshes via the compiler's mesh path, backend-agnostic
-   probe-receiver solve (mock and Sionna both work), vertex-color overlay.
-   Remaining: Sionna's native mesh solver as a faster path. *Effort: med.*
-8. **LLM scenario authoring / human-target ISAC** (Idea 8). 8A: an
-   `ai/author-scenario` provider returning a validator-guarded typed action list
-   (reuse the strict-JSON + confirm-diff pattern). 8B: a `TrackingResultSet`
-   schema plus the PADP → MPC → DBSCAN → Kalman pipeline ported from
-   `rt_isac_paper_pipeline.py`; RF/material sides are ready, DSP is the work.
-   *Effort: med (8A) / high (8B).*
+7. **Mesh radio maps on facades/floors** (Idea 7, Milestone 9) — shipped
+   (above); only the native Sionna mesh solver remains.
+8. **LLM scenario authoring** (Idea 8A). An `ai/author-scenario` provider
+   returning a validator-guarded typed action list (reuse the strict-JSON +
+   confirm-diff pattern). *Effort: med.* The human-target ISAC half (8B) ships
+   as the sensing stack above, with oracle association instead of the
+   PADP → MPC → DBSCAN front end.

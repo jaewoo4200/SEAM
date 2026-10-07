@@ -825,6 +825,11 @@ interface AppState {
   notify: (message: string) => void;
   /** Surface an error in the shared error banner. */
   notifyError: (message: string) => void;
+  /** Run a component-owned request under the shared busy flag, so every solve
+   *  button, the project switcher and auto-update wait for it (the backend
+   *  serializes solves per project too). Errors are rethrown for the caller
+   *  to show inline; the shared banner is untouched. */
+  withBusy: <T>(label: string, fn: () => Promise<T>) => Promise<T>;
 }
 
 export const useAppStore = create<AppState>()((set, get) => {
@@ -1711,50 +1716,66 @@ export const useAppStore = create<AppState>()((set, get) => {
             })
             .catch(() => undefined);
         }, 45_000);
-        // Latest stored results; a project without results 404s - that is fine.
-        try {
-          set({ pathResults: await api.getPathResults(projectId) });
-        } catch (err) {
-          if (!(err instanceof ApiError && (err.status === 404 || err.status === 501))) throw err;
+        // Latest stored results, fetched only for kinds the scene references
+        // (each GET of an absent kind is a 404 in the console); the per-kind
+        // state was reset above, so nothing leaks from the previous project.
+        const has = (kind: ResultSetRef["kind"]) => scene.result_sets.some((r) => r.kind === kind);
+        if (has("paths")) {
+          try {
+            set({ pathResults: await api.getPathResults(projectId) });
+          } catch (err) {
+            if (!(err instanceof ApiError && (err.status === 404 || err.status === 501))) throw err;
+          }
         }
-        try {
-          set({ radioMap: await api.getRadioMap(projectId) });
-        } catch {
-          // radio maps are a nice-to-have; ignore silently
+        if (has("radio_map")) {
+          try {
+            set({ radioMap: await api.getRadioMap(projectId) });
+          } catch {
+            // radio maps are a nice-to-have; ignore silently
+          }
         }
         // Latest stored trajectory (404-tolerant, guide item 4).
-        try {
-          set({ trajectory: await api.getTrajectory(projectId), trajFrame: 0, trajUeFrames: {} });
-        } catch {
-          // no trajectory yet; ignore silently
+        if (has("trajectory")) {
+          try {
+            set({ trajectory: await api.getTrajectory(projectId), trajFrame: 0, trajUeFrames: {} });
+          } catch {
+            // result file missing; ignore silently
+          }
         }
         // Latest stored scenario (404-tolerant: endpoint may 404/501 or be absent).
-        try {
-          set({ scenario: await api.getScenario(projectId), scenarioFrame: 0 });
-        } catch {
-          // no scenario yet; ignore silently
+        if (has("scenario")) {
+          try {
+            set({ scenario: await api.getScenario(projectId), scenarioFrame: 0 });
+          } catch {
+            // result file missing; ignore silently
+          }
         }
         // Latest persisted channel analysis, so the Metrics dashboard opens
-        // with what the user last analyzed instead of empty (404 = none yet).
-        try {
-          set({ channelResult: await api.getChannelResult(projectId) });
-        } catch {
-          // no persisted channel analysis; ignore silently
+        // with what the user last analyzed instead of empty.
+        if (has("channel")) {
+          try {
+            set({ channelResult: await api.getChannelResult(projectId) });
+          } catch {
+            // result file missing; ignore silently
+          }
         }
       });
+      const opened = get().projectId === projectId ? get().scene : null;
+      const stored = (kind: ResultSetRef["kind"]) =>
+        opened?.result_sets.some((r) => r.kind === kind) ?? false;
       // Sensor manifest + latest playback pack (both 404-tolerant; the
-      // playback panel only appears when the project carries sensor_data/).
+      // playback panel only appears when the project carries sensor_data/,
+      // which only /sensors can tell).
       void get().loadSensors();
-      void get().loadPlayback();
+      if (stored("playback")) void get().loadPlayback();
       // Latest stored sensing result: data only, the overlay stays OFF.
-      void get().loadSensing();
+      if (stored("sensing")) void get().loadSensing();
       // Same for the ISAC trade-off and the sensing coverage map.
-      void get().loadIsac();
-      void get().loadSensingCoverage();
+      if (stored("isac")) void get().loadIsac();
+      if (stored("sensing_coverage")) void get().loadSensingCoverage();
       // Latest stored mesh radio map + live-event socket: both out-of-band and
-      // fully best-effort so a missing endpoint (this wave still landing on the
-      // backend) never blocks or breaks project open.
-      void get().fetchLatestMeshRadioMap();
+      // fully best-effort so a missing endpoint never blocks project open.
+      if (stored("mesh_radio_map")) void get().fetchLatestMeshRadioMap();
       connectEventSocket(projectId);
       // Remember the open project so the next session reopens it (only when the
       // open actually succeeded — run() leaves projectId unchanged on failure).
@@ -3915,6 +3936,14 @@ export const useAppStore = create<AppState>()((set, get) => {
     dismissNotice: () => set({ notice: null }),
     notify: (message) => set({ notice: message }),
     notifyError: (message) => set({ error: message }),
+    withBusy: async <T>(label: string, fn: () => Promise<T>): Promise<T> => {
+      set({ busy: label, notice: null });
+      try {
+        return await fn();
+      } finally {
+        set({ busy: null });
+      }
+    },
   };
 });
 

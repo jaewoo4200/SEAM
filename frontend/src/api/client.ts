@@ -17,6 +17,12 @@ import type {
   AIProviderStatus,
   AISettings,
   AISettingsUpdate,
+  AodtExportRequest,
+  AodtExportSummary,
+  ImportAodtRequest,
+  ImportAodtResponse,
+  MeasurementImportRequest,
+  MeasurementImportResponse,
   ApplyRulesRequest,
   ApplySuggestionsRequest,
   AssignRequest,
@@ -328,6 +334,17 @@ export const api = {
   materialImpact: (pid: string, req: MaterialImpactRequest) =>
     request<MaterialImpactReport>("POST", `/projects/${pid}/analyze/material-impact`, req),
 
+  // Measurement log (flight/drive CSV) stored per project; the flight-log
+  // validation falls back to it when no rows are pasted. GET 404 = none yet.
+  importMeasurementsCsv: (pid: string, req: MeasurementImportRequest) =>
+    request<MeasurementImportResponse>(
+      "POST",
+      `/projects/${pid}/calibrate/measurements/import-csv`,
+      req,
+    ),
+  getMeasurements: (pid: string) =>
+    request<MeasurementImportResponse>("GET", `/projects/${pid}/calibrate/measurements`),
+
   // compile
   compileSionna: (pid: string) => request<CompileResult>("POST", `/projects/${pid}/compile/sionna`),
 
@@ -424,6 +441,15 @@ export const api = {
   // AODT RFData export
   exportRfdata: (pid: string, req: SimulateRequest = {}) =>
     request<RFDataExportSummary>("POST", `/projects/${pid}/export/rfdata`, req),
+
+  // NVIDIA AODT results-schema parquet (409 without pyarrow, 404 without a
+  // stored result of the chosen source kind).
+  exportAodt: (pid: string, req: AodtExportRequest = {}) =>
+    request<AodtExportSummary>("POST", `/projects/${pid}/export/aodt`, req),
+  // Import AODT parquet tables from a folder on the BACKEND machine; each kind
+  // is persisted as a result set (backend "aodt_import").
+  importAodt: (pid: string, req: ImportAodtRequest) =>
+    request<ImportAodtResponse>("POST", `/projects/${pid}/results/import-aodt`, req),
 
   // Per-link channel dataset npz in the AODT/HYRAY layout (one paths solve
   // per UE position; progress arrives over the event socket).

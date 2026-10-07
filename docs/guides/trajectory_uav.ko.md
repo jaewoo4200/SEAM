@@ -130,6 +130,12 @@ playback** 에서 합니다(`Simulate scenario` 가 모든 액터를 각자의 �
 함께 움직입니다. 예외는 액터 자신의 경로를 샘플링하는 데이터셋으로, 이때 그 액터는
 정지 상태입니다([sensing.ko.md](sensing.ko.md) 4절 참고).
 
+이 속도는 궤적 접선 × 속력입니다. 정확히 경유점 시각이면 나가는 구간의 속도, `once`
+궤적의 끝에서는 0(액터가 멈춤), pingpong 반환점에서는 반대 방향 구간의 속도입니다.
+v0.1.14 이전에는 이런 프레임이 두 구간의 평균(10 m/s로 90° 꺾이면 7.07 m/s)이나
+속력의 절반을 보고했으므로, 경유점 프레임의 도플러와 `velocity_true`는 v0.1.14에서
+바뀌었습니다.
+
 ### ⚡ Simulate paths along trajectory
 
 **`⚡ Simulate paths along trajectory`** 버튼(웨이포인트 2개 이상 *그리고*
@@ -212,3 +218,5 @@ PNG/SVG/CSV 내보내기를 지원합니다. 궤적 샘플은 ML 데이터셋(`t
 - [datasets_export.ko.md](datasets_export.ko.md) — ML 데이터셋(trajectory 샘플링 모드)과 RFData 내보내기
 - [../dynamic_scattering.ko.md](../dynamic_scattering.ko.md) — 움직이는 액터가 RF 지오메트리로 컴파일되는 방식
 - [materials_and_ai.ko.md](materials_and_ai.ko.md) — RF 재질 지정(액터에도 RF 재질이 있습니다)
+- [playback_dashboard.ko.md](playback_dashboard.ko.md) — 기록한 주행·비행(카메라, LiDAR, 빔 파워)을 트윈과 맞대어 재생
+- [sensing.ko.md](sensing.ko.md) — 액터를 레이더 타깃으로, 시나리오 프레임에 걸친 센싱, EKF 추적

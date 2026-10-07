@@ -35,6 +35,7 @@ from seam_studio.services.sensing_coverage import (
     element_gain_db,
     geometry_groups,
     mc_spot_cells,
+    polarization_loss_db,
     run_sensing_coverage,
 )
 from seam_studio.services.simulation_backends.mock_backend import MockBackend
@@ -304,6 +305,138 @@ def test_element_pattern_on_both_legs(yaw, expected):
         diff = b.values["best_snr_db"][j][i] - a.values["best_snr_db"][j][i]
         assert diff == pytest.approx(2 * _tr38901_dbi(az, el), abs=1e-9)
         assert diff == pytest.approx(delta, abs=0.05)
+
+
+# --------------------------------------------------------- polarization (v0.1.14)
+
+
+def _pol_dev(device_id, kind, position, pol="V", orientation=(0.0, 0.0, 0.0), pattern="iso"):
+    d = _dev(device_id, kind, position, orientation_deg=list(orientation))
+    d.antenna.polarization = pol
+    d.antenna.pattern = pattern
+    return d
+
+
+@pytest.mark.parametrize("pitch", [-45.0, -15.0, 15.0, 30.0])
+def test_monostatic_polarization_is_cos_2psi(pitch):
+    # A monostatic echo keeps |cos 2psi| of an element whose field is tilted
+    # by psi from the world theta-hat; along the pitch axis psi is the pitch.
+    tx = _pol_dev("t", "tx", (0.0, 0.0, 10.0), orientation=(0.0, pitch, 0.0))
+    rx = tx.model_copy(update={"id": "r", "kind": "rx"})
+    along_axis = np.array([[0.0, 35.0, 10.0], [0.0, -20.0, 10.0]])
+    f = abs(math.cos(2.0 * math.radians(pitch)))
+    got = polarization_loss_db(tx, rx, along_axis)
+    if f < 1e-10:  # 45 deg: the echo arrives cross-polarized, no echo
+        assert np.all(got == -np.inf)
+    else:
+        assert got == pytest.approx([20.0 * math.log10(f)] * 2, abs=1e-9)
+
+    # Any other direction: psi from the element's field in the world basis.
+    pts = np.array([[30.0, 12.0, 25.0], [-14.0, -35.0, 30.0], [50.0, -50.0, 2.0]])
+    expected = []
+    beta = math.radians(pitch)
+    for p in pts:
+        k = (p - np.array(tx.position)) / np.linalg.norm(p - np.array(tx.position))
+        # local = Ry(beta)^T k; V field = R theta_l.
+        kl = np.array([
+            math.cos(beta) * k[0] - math.sin(beta) * k[2], k[1],
+            math.sin(beta) * k[0] + math.cos(beta) * k[2],
+        ])
+        tl, pl = math.acos(kl[2]), math.atan2(kl[1], kl[0])
+        th_l = np.array([math.cos(tl) * math.cos(pl), math.cos(tl) * math.sin(pl), -math.sin(tl)])
+        u = np.array([
+            math.cos(beta) * th_l[0] + math.sin(beta) * th_l[2], th_l[1],
+            -math.sin(beta) * th_l[0] + math.cos(beta) * th_l[2],
+        ])
+        t, ph = math.acos(k[2]), math.atan2(k[1], k[0])
+        theta_hat = np.array([math.cos(t) * math.cos(ph), math.cos(t) * math.sin(ph), -math.sin(t)])
+        phi_hat = np.array([-math.sin(ph), math.cos(ph), 0.0])
+        psi = math.atan2(u @ phi_hat, u @ theta_hat)
+        expected.append(20.0 * math.log10(abs(math.cos(2.0 * psi))))
+    assert polarization_loss_db(tx, rx, pts) == pytest.approx(expected, abs=1e-9)
+
+
+@pytest.mark.parametrize("pol", ["V", "H", "VH"])
+@pytest.mark.parametrize("yaw", [0.0, 37.0, -120.0])
+def test_unpitched_co_polarized_links_have_no_polarization_term(pol, yaw):
+    tx = _pol_dev("t", "tx", (0.0, 0.0, 10.0), pol, (yaw, 0.0, 0.0))
+    for rx_pos in ((0.0, 0.0, 10.0), (40.0, -25.0, 3.0)):
+        rx = _pol_dev("r", "rx", rx_pos, pol, (-yaw, 0.0, 0.0))
+        pts = cell_centers(coverage_grid(
+            SensingCoverageRequest(center_xy=[0.0, 0.0], size_xy=[80.0, 80.0], cell_size_m=10.0),
+            None,
+        )[0])
+        assert np.array_equal(polarization_loss_db(tx, rx, pts), np.zeros(len(pts)))
+    # ... so the v0.1.13 map keeps its bytes and its metadata.
+    scene = Scene(scene_id="p", devices=[tx, _pol_dev("t_rx", "rx", tx.position, pol, (yaw, 0.0, 0.0))])
+    assert "polarization_model" not in _run(scene, center_xy=[50.0, 0.0], size_xy=[40.0, 40.0]).metadata
+
+
+def test_cross_polarized_colocated_panel_has_no_echo():
+    # A +-45 deg (cross, first port) co-located panel at zero tilt receives its
+    # own echo cross-polarized: Sionna's echo is a deep null there.
+    tx = _pol_dev("t", "tx", (0.0, 0.0, 10.0), "cross")
+    rx = _pol_dev("t_rx", "rx", (0.0, 0.0, 10.0), "cross")
+    pts = np.array([[30.0, 5.0, 30.0], [-20.0, 40.0, 10.0]])
+    assert np.all(polarization_loss_db(tx, rx, pts) == -np.inf)
+    result = _run(
+        Scene(scene_id="x", devices=[tx, rx]),
+        center_xy=[40.0, 0.0], size_xy=[40.0, 40.0], cell_size_m=10.0,
+    )
+    assert all(v is None for row in result.values["best_snr_db"] for v in row)
+    assert result.summary.median_best_snr_db is None
+    assert result.metadata["polarization_model"] == (
+        "per-leg projection (sionna world theta/phi basis, first port)"
+    )
+    target = ResolvedSensingTarget(
+        actor_id="a", model="constant", object_type=None, model_type=None, rcs_dbsm=10.0,
+        xpr_db=None, random_components=False, size_m=(1, 1, 1), center=(30.0, 5.0, 30.0),
+        orientation_deg=(0, 0, 0), velocity_m_s=(0, 0, 0),
+    )
+    config = SimulationConfig(**MOCK_CFG)
+    assert MockBackend._sensing_path(1, tx, target, rx, config, C / config.frequency_hz) is None
+    # A depolarizing (XPR) target is not modeled: the mock keeps its echo.
+    xpr = ResolvedSensingTarget(**{**target.__dict__, "xpr_db": 10.0})
+    assert MockBackend._sensing_path(1, tx, xpr, rx, config, C / config.frequency_hz) is not None
+
+
+@pytest.mark.parametrize("rx_pos", [(0.0, 0.0, 25.0), (60.0, 40.0, 20.0)])
+def test_mock_echo_equals_the_map_with_pattern_tilt_and_polarization(rx_pos):
+    # A target at a cell center returns the map's value on the mock with a
+    # tr38901 element at yaw 30, pitch -15 (element gains and polarization
+    # on both, mono- and bistatic).
+    orient = (30.0, -15.0, 0.0)
+    tx = _pol_dev("t1", "tx", (0.0, 0.0, 25.0), "V", orient, "tr38901")
+    tx.power_dbm = 43.0
+    rx = _pol_dev("t1_rx", "rx", rx_pos, "V", orient, "tr38901")
+    scene = Scene(scene_id="p", devices=[tx, rx])
+    config = SimulationConfig(**MOCK_CFG)
+    result = _run(
+        scene, rcs_dbsm=5.0, sensing_rx_ids=["t1_rx"],
+        center_xy=[25.0, 60.0], size_xy=[20.0, 20.0], cell_size_m=10.0, height_m=50.0,
+    )
+    center = (30.0, 65.0, 50.0)  # cell (j, i) = (1, 1)
+    pol = polarization_loss_db(tx, rx, np.array([center]))[0]
+    assert pol < -0.1  # the tilt costs something here
+    target = ResolvedSensingTarget(
+        actor_id="a", model="constant", object_type=None, model_type=None, rcs_dbsm=5.0,
+        xpr_db=None, random_components=False, size_m=(1, 1, 1), center=center,
+        orientation_deg=(0, 0, 0), velocity_m_s=(0, 0, 0),
+    )
+    path = MockBackend._sensing_path(1, tx, target, rx, config, C / config.frequency_hz)
+    expected = path.power_dbm - noise_floor_dbm(config) + 10 * math.log10(4096)
+    assert result.values["best_snr_db"][1][1] == pytest.approx(expected, abs=1e-9)
+    gains = (
+        element_gain_db(tx, np.array([center]) - np.array(tx.position))[0]
+        + element_gain_db(rx, np.array([center]) - np.array(rx.position))[0]
+    )
+    iso_tx = tx.model_copy(deep=True)
+    iso_rx = rx.model_copy(deep=True)
+    for d in (iso_tx, iso_rx):
+        d.antenna.pattern = "iso"
+        d.orientation_deg = [0.0, 0.0, 0.0]
+    iso = MockBackend._sensing_path(1, iso_tx, target, iso_rx, config, C / config.frequency_hz)
+    assert path.power_dbm == pytest.approx(iso.power_dbm + gains + pol, abs=1e-9)
 
 
 # ------------------------------------------------------------ blocking

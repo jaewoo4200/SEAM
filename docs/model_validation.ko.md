@@ -10,7 +10,7 @@
 
 ## 1. 검증 대상 및 감사 총평
 
-- **대상 파일:** `backend/app/services/channel_analysis.py`, `backend/app/services/simulation_backends/sionna_backend.py`, `plugins/example_two_ray/plugin.py`
+- **대상 파일:** `backend/seam_studio/services/channel_analysis.py`, `backend/seam_studio/services/simulation_backends/sionna_backend.py`, `plugins/example_two_ray/plugin.py`
 - **1차 기준:** 3GPP TR 38.901 V17.0.0 (2022-03) Table 7.4.1-1 [1] (V16/V17 수식 동일). 교과서 [7][8][9].
 
 **총평:** 감사한 20개 수식이 모두 인용 기준과 일치했다(**CORRECT**). 모든 3GPP 상수가 스펙과 문자 단위로 일치한다. **명백한 편차(DEVIATION)는 발견되지 않았다.** 다만 유효 범위/관례상 주석이 필요한 2개 항목을 **NEEDS-CHECK(낮음)** 으로 플래그한다. 즉, 아래 "채택할 수정" 은 계산 버그 수정이 아니라 **주석/문서화 수준의 보완**이다.
@@ -287,4 +287,4 @@ exp(−j2πf_k τ_l)`, `|g_l|=sqrt(선형전력)` 은 §2.4 CFR 및 채널분석
 - NYURay 리뷰 PDF의 arXiv 미러(2507.22027) 식별자 — 원 노트 값 미확인, npj 정식 링크 [11] 로 대체 인용.
 - 반사계수 ≤ 1 에너지 불변식 — 인용 도구에 형식적 수용기준으로 명시된 바 없음(권장 테스트) **(미검증)**.
 
-**저장소 근거:** `backend/app/services/channel_analysis.py` (FSPL `:59-67`, 38.901 `:93-221`, CI `:75-83`, CIR/CFR/DS `:271-360`, delta-vs-RT `:247-260`, RSRP/RSSI/RSRQ `:539-609`); `backend/app/services/calibration.py:71-204`; `backend/app/services/simulation_backends/sionna_backend.py` (엔진 디스패치 `:326,:350`, 경로별 전력 `:882`, 소자전력 합 `:843-848`, 배열 `:159-189`, 잡음 `:302`, 스티어링/코드북/MRT/SVD `:49-85, :693-699`); `plugins/example_two_ray/plugin.py:104-123`; `backend/app/services/rfdata_export.py:196-217`.
+**저장소 근거:** `backend/seam_studio/services/channel_analysis.py` (FSPL `:59-67`, 38.901 `:93-221`, CI `:75-83`, CIR/CFR/DS `:271-360`, delta-vs-RT `:247-260`, RSRP/RSSI/RSRQ `:539-609`); `backend/seam_studio/services/calibration.py:71-204`; `backend/seam_studio/services/simulation_backends/sionna_backend.py` (엔진 디스패치 `:326,:350`, 경로별 전력 `:882`, 소자전력 합 `:843-848`, 배열 `:159-189`, 잡음 `:302`, 스티어링/코드북/MRT/SVD `:49-85, :693-699`); `plugins/example_two_ray/plugin.py:104-123`; `backend/seam_studio/services/rfdata_export.py:196-217`.

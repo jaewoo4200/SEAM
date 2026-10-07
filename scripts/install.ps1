@@ -3,13 +3,15 @@
   SEAM Studio one-command installer (Windows / PowerShell).
 
   Idempotent: re-running is safe. Creates backend/.venv if missing, installs the
-  backend (editable, with dev extras), installs the frontend, regenerates the
-  demo projects, and prints next steps.
+  backend (editable, with the dev and parquet extras), installs the frontend,
+  regenerates the demo projects, checks which Dr.Jit compute backend works, and
+  prints next steps.
 
   The real ray-tracing engine (sionna-rt) is a base backend dependency, so it
-  installs here too (Dr.Jit/Mitsuba, no GPU needed to install). The app still
-  falls back to the Mock backend whenever Sionna cannot load at runtime. See
-  INSTALL.md for alternate engine venvs.
+  installs here too (Dr.Jit/Mitsuba, no GPU needed to install). Running it needs
+  an NVIDIA GPU (CUDA) or LLVM-C for the CPU backend (LLVM 18+ and
+  DRJIT_LIBLLVM_PATH, see INSTALL.md); with neither, 'auto' solves use the Mock
+  backend. See INSTALL.md for alternate engine venvs.
 
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File scripts\install.ps1
@@ -66,11 +68,35 @@ if (-not (Test-Path $VenvPython)) {
 }
 if (-not (Test-Path $VenvPython)) { Fail "venv python missing after creation: $VenvPython" }
 
-Step "Installing backend (editable + dev extras)"
+Step "Installing backend (editable + dev and parquet extras)"
 & $VenvPython -m pip install --upgrade pip
 if ($LASTEXITCODE -ne 0) { Fail "pip upgrade failed." }
-& $VenvPython -m pip install -e "backend[dev]"
-if ($LASTEXITCODE -ne 0) { Fail "backend install failed (pip install -e `"backend[dev]`")." }
+& $VenvPython -m pip install -e "backend[dev,parquet]"
+if ($LASTEXITCODE -ne 0) { Fail "backend install failed (pip install -e `"backend[dev,parquet]`")." }
+
+# ------------------------------------------------------------ compute backend
+Step "Checking the Sionna RT compute backend (Dr.Jit CUDA / LLVM)"
+# drjit prints a harmless 'jitc_llvm_init(): LLVM API initialization failed'
+# on stderr when LLVM-C is absent; Windows PowerShell turns native stderr into
+# errors under "Stop", so relax it for this one probe.
+$prevEap = $ErrorActionPreference
+$ErrorActionPreference = "Continue"
+$probeOut = & $VenvPython -c "import drjit as dr; print(int(dr.has_backend(dr.JitBackend.CUDA)), int(dr.has_backend(dr.JitBackend.LLVM)))" 2>$null
+$probeCode = $LASTEXITCODE
+$ErrorActionPreference = $prevEap
+$probeLine = @($probeOut | Where-Object { $_ -match '^[01] [01]$' } | Select-Object -Last 1)
+if ($probeCode -ne 0 -or $probeLine.Count -eq 0) {
+    Write-Host "  could not probe Dr.Jit (import drjit failed); solves will use the Mock backend. See INSTALL.md." -ForegroundColor Yellow
+} elseif ($probeLine[0] -eq "0 0") {
+    Write-Host "  No CUDA device and no LLVM-C found: Sionna RT cannot run here, so 'auto' solves use the Mock backend." -ForegroundColor Yellow
+    Write-Host "  For the CPU backend install LLVM 18+ (https://github.com/llvm/llvm-project/releases), then:" -ForegroundColor Yellow
+    Write-Host "     setx DRJIT_LIBLLVM_PATH `"C:\Program Files\LLVM\bin\LLVM-C.dll`"" -ForegroundColor Yellow
+    Write-Host "  and open a new terminal. See INSTALL.md (The real Sionna RT engine)." -ForegroundColor Yellow
+} elseif ($probeLine[0].StartsWith("1")) {
+    Write-Host "  CUDA backend available (GPU solves)."
+} else {
+    Write-Host "  LLVM CPU backend available (no CUDA device; solves run on the CPU)."
+}
 
 # ------------------------------------------------------------ frontend
 Step "Installing frontend (npm install in frontend\)"

@@ -12,11 +12,9 @@ classes so the color heuristic yields a real multi-material split.
 """
 
 import io
-import json
 from pathlib import Path
 
 import numpy as np
-import pytest
 import trimesh
 from PIL import Image
 

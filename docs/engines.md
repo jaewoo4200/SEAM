@@ -83,8 +83,8 @@ error (including the venv's Python version) as the tooltip/detail.
 
 | adapter | target | status |
 |---|---|---|
-| `builtin` | sionna-rt in the backend venv (currently 2.0.1) | full features |
-| `sionna_rt` | standalone sionna-rt 1.x / 2.x venv | paths solve (verified: 1.2.2 vs 2.0.1 lab_room, 62 paths match) |
+| `builtin` | sionna-rt in the backend venv (2.2.x) | full features |
+| `sionna_rt` | standalone sionna-rt 1.x / 2.x venv | paths solve (verified when builtin was 2.0.1: 1.2.2 vs 2.0.1 lab_room, 62 paths match) |
 | (roadmap) | TF-based sionna ≤ 0.19 | not implemented — requires a Python 3.11 + TensorFlow venv and a dedicated worker. 0.x uses a different `scene.compute_paths()` API and different material handling, so it must be written as a separate adapter, and it also needs a plain-bsdf variant XML rather than this repo's compiler XML (the `itu-radio-material` plugin). |
 
 ## Protocol summary

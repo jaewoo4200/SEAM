@@ -51,8 +51,9 @@ def create_project(body: ProjectCreateRequest) -> ProjectInfo:
     """Create a new project folder under the first configured project root.
 
     ``template="demo"`` generates the Sample Demo content (toy urban scene
-    GLB, TX/RX pair, car + pedestrian actors) programmatically — this is how
-    a pip install gets its first project without shipping binary assets.
+    GLB, TX/RX pair plus a sensing RX at the TX, car + pedestrian actors and a
+    drone sensing target) programmatically — this is how a pip install gets
+    its first project without shipping binary assets.
     """
     store = deps.get_store()
     try:

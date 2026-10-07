@@ -151,13 +151,20 @@ def test_apply_custom_materials_accepts_unprefixed_name(tmp_path: Path):
 def test_sionna_available_never_raises(monkeypatch):
     from seam_studio.services import availability
 
-    availability.sionna_available.cache_clear()
+    def clear():
+        for probe in (availability.sionna_installed, availability.sionna_available,
+                      availability.sionna_rcs_available):
+            probe.cache_clear()
+
+    clear()
     monkeypatch.setattr(
         "seam_studio.services.availability.util.find_spec",
         lambda name: (_ for _ in ()).throw(OSError("broken DLL")),
     )
+    assert availability.sionna_installed() is False
     assert availability.sionna_available() is False
-    availability.sionna_available.cache_clear()
+    assert availability.sionna_unavailable_reason() is None  # not installed: no reason
+    clear()
 
 
 # ---------------------------------------------------- result id collisions

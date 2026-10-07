@@ -992,32 +992,34 @@ function LinkMetricsTable({ links }: { links: LinkMetrics[] }) {
     (l) => (l as { interference_dbm?: number | null }).interference_dbm != null,
   );
   return (
-    <table className="results-table">
-      <thead>
-        <tr>
-          <th>tx</th>
-          <th>rx</th>
-          <th>RSS</th>
-          {hasInterference ? (
-            <th title="S/(I+N) incl. co-channel interference from other TXs">SINR</th>
-          ) : (
-            <th title="SNR (no interference model — SINR equals SNR here)">SNR</th>
-          )}
-          <th>#p</th>
-        </tr>
-      </thead>
-      <tbody>
-        {links.map((l, i) => (
-          <tr key={`${l.tx_id}_${l.rx_id}_${i}`}>
-            <td className="mono">{l.tx_id}</td>
-            <td className="mono">{l.rx_id}</td>
-            <td className="mono">{fmt(l.rss_dbm)}</td>
-            <td className="mono">{fmt(l.sinr_db)}</td>
-            <td className="mono">{l.path_count}</td>
+    <div className="table-scroll">
+      <table className="results-table">
+        <thead>
+          <tr>
+            <th>tx</th>
+            <th>rx</th>
+            <th>RSS</th>
+            {hasInterference ? (
+              <th title="S/(I+N) incl. co-channel interference from other TXs">SINR</th>
+            ) : (
+              <th title="SNR (no interference model — SINR equals SNR here)">SNR</th>
+            )}
+            <th>#p</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {links.map((l, i) => (
+            <tr key={`${l.tx_id}_${l.rx_id}_${i}`}>
+              <td className="mono">{l.tx_id}</td>
+              <td className="mono">{l.rx_id}</td>
+              <td className="mono">{fmt(l.rss_dbm)}</td>
+              <td className="mono">{fmt(l.sinr_db)}</td>
+              <td className="mono">{l.path_count}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -1199,96 +1201,111 @@ function ScenarioSensingSummaryTable({ summary }: { summary: ScenarioSensingSumm
   );
   return (
     <>
-      <table className="results-table">
-        <thead>
-          <tr>
-            <th>target</th>
-            <th title="Frames with at least one detected link">det</th>
-            <th title="Frames with ≥3 geometrically distinct direct-echo links fused">≥3 links</th>
-            <th title="Median position error over frames with an ok estimate">med err</th>
-            <th title="90th-percentile position error over ok frames">p90 err</th>
-            <th title="Median velocity error over ok frames">med v err</th>
-            <th title="Median GDOP: position error per metre of range error">GDOP</th>
-          </tr>
-        </thead>
-        <tbody>
-          {summary.target_ids.map((id) => {
-            const t = summary.targets[id];
-            if (!t) return null;
-            return (
-              <tr key={id}>
-                <td className="mono">{id}</td>
-                <td
-                  className="mono"
-                  title={`${t.detected_frames}/${t.frames} frames · per-link detection ${fmtPct(t.link_detection_rate)}`}
-                >
-                  {fmtPct(t.detection_rate)}
-                </td>
-                <td
-                  className="mono"
-                  title={`${t.frames_ge3_links}/${t.frames} frames · ${t.ok_frames} ok estimate(s)`}
-                >
-                  {fmtPct(t.frames_ge3_links_rate)}
-                </td>
-                <td className="mono">{fmtOr(t.median_position_error_m, 2, " m")}</td>
-                <td className="mono">{fmtOr(t.p90_position_error_m, 2, " m")}</td>
-                <td className="mono">{fmtOr(t.median_velocity_error_m_s, 2, " m/s")}</td>
-                <td className="mono">{fmtOr(t.median_gdop, 2)}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-      {tracked && (
-        <table className="results-table track-summary" title={summary.tracking_model ?? undefined}>
+      <div className="table-scroll">
+        <table className="results-table">
           <thead>
             <tr>
-              <th title="EKF (filtered track)">EKF</th>
-              <th title="Frames with a live track (init / tracking / coasting)">tracked</th>
-              <th title="Frames predicted without an accepted measurement">coast</th>
-              <th title="Frames whose track was dropped (after coast_max_frames, or σ above max_position_std_m)">
-                lost
-              </th>
-              <th title="Median filtered position error over tracked frames">med err</th>
-              <th title="90th-percentile filtered position error">p90 err</th>
-              <th title="Median filtered velocity error">med v err</th>
-              <th title="Frames where the fusion was ok and the filtered error is below it · frames with a track but no ok fusion">
-                better / no fix
-              </th>
+              <th>target</th>
+              <th title="Frames with at least one detected link">det</th>
+              <th title="Frames with ≥3 geometrically distinct direct-echo links fused">≥3 links</th>
+              <th title="Median position error over frames with an ok estimate">med err</th>
+              <th title="90th-percentile position error over ok frames">p90 err</th>
+              <th title="Median velocity error over ok frames">med v err</th>
+              <th title="Median GDOP: position error per metre of range error">GDOP</th>
             </tr>
           </thead>
           <tbody>
             {summary.target_ids.map((id) => {
               const t = summary.targets[id];
-              if (!t || t.tracked_frames == null) return null;
+              if (!t) return null;
               return (
                 <tr key={id}>
                   <td className="mono">{id}</td>
-                  <td className="mono">
-                    {t.tracked_frames}/{t.frames}
-                  </td>
-                  <td className="mono">{t.coasting_frames ?? "—"}</td>
                   <td
                     className="mono"
-                    title={
-                      t.lost_by_std_frames != null
-                        ? `${t.lost_by_std_frames} drop(s) by the σ cap`
-                        : undefined
-                    }
+                    title={`${t.detected_frames}/${t.frames} frames · per-link detection ${fmtPct(t.link_detection_rate)}`}
                   >
-                    {t.lost_frames ?? "—"}
+                    {fmtPct(t.detection_rate)}
                   </td>
-                  <td className="mono">{fmtOr(t.median_track_position_error_m, 2, " m")}</td>
-                  <td className="mono">{fmtOr(t.p90_track_position_error_m, 2, " m")}</td>
-                  <td className="mono">{fmtOr(t.median_track_velocity_error_m_s, 2, " m/s")}</td>
-                  <td className="mono">
-                    {t.frames_improved_over_fusion ?? "—"} / {t.frames_track_without_fusion ?? "—"}
+                  <td
+                    className="mono"
+                    title={`${t.frames_ge3_links}/${t.frames} frames · ${t.ok_frames} ok estimate(s)`}
+                  >
+                    {fmtPct(t.frames_ge3_links_rate)}
                   </td>
+                  <td className="mono">{fmtOr(t.median_position_error_m, 2, " m")}</td>
+                  <td className="mono">{fmtOr(t.p90_position_error_m, 2, " m")}</td>
+                  <td className="mono">{fmtOr(t.median_velocity_error_m_s, 2, " m/s")}</td>
+                  <td className="mono">{fmtOr(t.median_gdop, 2)}</td>
                 </tr>
               );
             })}
           </tbody>
         </table>
+      </div>
+      {tracked && (
+        <div className="table-scroll">
+          <table className="results-table track-summary" title={summary.tracking_model ?? undefined}>
+            <thead>
+              <tr>
+                <th title="EKF (filtered track)">EKF</th>
+                <th title="Frames with a live track (init / tracking / coasting)">tracked</th>
+                <th title="Frames predicted without an accepted measurement">coast</th>
+                <th title="Frames whose track was dropped (after coast_max_frames, or σ above max_position_std_m)">
+                  lost
+                </th>
+                <th title="Median filtered position error over tracked frames">med err</th>
+                <th title="90th-percentile filtered position error">p90 err</th>
+                <th title="Median filtered velocity error">med v err</th>
+                <th title="Frames where the fusion was ok and the filtered error is below it · frames with a track but no ok fusion">
+                  better / no fix
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {summary.target_ids.map((id) => {
+                const t = summary.targets[id];
+                if (!t || t.tracked_frames == null) return null;
+                return (
+                  <tr key={id}>
+                    <td className="mono">{id}</td>
+                    <td className="mono">
+                      {t.tracked_frames}/{t.frames}
+                    </td>
+                    <td className="mono">{t.coasting_frames ?? "—"}</td>
+                    <td
+                      className="mono"
+                      title={
+                        t.lost_by_std_frames != null
+                          ? `${t.lost_by_std_frames} drop(s) by the σ cap`
+                          : undefined
+                      }
+                    >
+                      {t.lost_frames ?? "—"}
+                    </td>
+                    <td className="mono">{fmtOr(t.median_track_position_error_m, 2, " m")}</td>
+                    <td className="mono">{fmtOr(t.p90_track_position_error_m, 2, " m")}</td>
+                    <td className="mono">{fmtOr(t.median_track_velocity_error_m_s, 2, " m/s")}</td>
+                    <td className="mono">
+                      {t.frames_improved_over_fusion ?? "—"} / {t.frames_track_without_fusion ?? "—"}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {summary.sensing_rx_ids && summary.sensing_rx_ids.length > 0 && (
+        <div
+          className="results-meta"
+          title="Bistatic radar receivers of this run; the comm link tables still cover every RX"
+        >
+          radar RX <span className="mono">{summary.sensing_rx_ids.join(", ")}</span>
+          {summary.sensing_rx_rule && (
+            <> ({SENSING_RX_RULE_LABEL[summary.sensing_rx_rule] ?? summary.sensing_rx_rule})</>
+          )}
+        </div>
       )}
       <div
         className="results-meta"
@@ -1377,50 +1394,52 @@ function SensingLinkTable({
   const hasPd = links.some((l) => l.pd != null);
   const hasPdMc = links.some((l) => l.pd_mc != null);
   return (
-    <table className="results-table">
-      <thead>
-        <tr>
-          <th>tx</th>
-          <th>rx</th>
-          {showTarget && <th>target</th>}
-          <th title="Bistatic range sum c·τ of the reported echo">R m</th>
-          <th title="Doppler, + = closing">f_D Hz</th>
-          <th title="Post-integration SNR">SNR dB</th>
-          {hasPd && (
-            <th title="Pd of this SNR under the run's detector model at its Pfa (detection itself stays SNR ≥ threshold)">
-              Pd
+    <div className="table-scroll">
+      <table className="results-table">
+        <thead>
+          <tr>
+            <th>tx</th>
+            <th>rx</th>
+            {showTarget && <th>target</th>}
+            <th title="Bistatic range sum c·τ of the reported echo">R m</th>
+            <th title="Doppler, + = closing">f_D Hz</th>
+            <th title="Post-integration SNR">SNR dB</th>
+            {hasPd && (
+              <th title="Pd of this SNR under the run's detector model at its Pfa (detection itself stays SNR ≥ threshold)">
+                Pd
+              </th>
+            )}
+            {hasPdMc && <th title="Monte Carlo estimate of Pd">Pd MC</th>}
+            <th title="✓ detected · MTI rejected by the MTI notch · <thr below threshold · mp = multipath echo (not fused)">
+              result
             </th>
-          )}
-          {hasPdMc && <th title="Monte Carlo estimate of Pd">Pd MC</th>}
-          <th title="✓ detected · MTI rejected by the MTI notch · <thr below threshold · mp = multipath echo (not fused)">
-            result
-          </th>
-        </tr>
-      </thead>
-      <tbody>
-        {links.map((l, i) => (
-          <tr key={`${l.tx_id}_${l.rx_id}_${l.target_id}_${i}`}>
-            <td className="mono">{l.tx_id}</td>
-            <td className="mono">{l.rx_id}</td>
-            {showTarget && <td className="mono">{l.target_id}</td>}
-            <td className="mono" title={`measured ${fmtOr(l.measured_range_m, 2, " m")}`}>
-              {fmtOr(l.bistatic_range_m, 2)}
-            </td>
-            <td className="mono" title={`measured ${fmtOr(l.measured_doppler_hz, 1, " Hz")}`}>
-              {l.doppler_hz != null && l.doppler_hz > 0 ? "+" : ""}
-              {fmtOr(l.doppler_hz, 1)}
-            </td>
-            <td className="mono">{fmtOr(l.snr_db, 1)}</td>
-            {hasPd && <td className="mono">{fmtOr(l.pd, 3)}</td>}
-            {hasPdMc && <td className="mono">{fmtOr(l.pd_mc, 3)}</td>}
-            <td className={"mono " + (l.detected ? "sensing-ok" : "sensing-miss")}>
-              {LINK_RESULT_LABEL[l.reason] ?? l.reason}
-              {l.multipath && " mp"}
-            </td>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {links.map((l, i) => (
+            <tr key={`${l.tx_id}_${l.rx_id}_${l.target_id}_${i}`}>
+              <td className="mono">{l.tx_id}</td>
+              <td className="mono">{l.rx_id}</td>
+              {showTarget && <td className="mono">{l.target_id}</td>}
+              <td className="mono" title={`measured ${fmtOr(l.measured_range_m, 2, " m")}`}>
+                {fmtOr(l.bistatic_range_m, 2)}
+              </td>
+              <td className="mono" title={`measured ${fmtOr(l.measured_doppler_hz, 1, " Hz")}`}>
+                {l.doppler_hz != null && l.doppler_hz > 0 ? "+" : ""}
+                {fmtOr(l.doppler_hz, 1)}
+              </td>
+              <td className="mono">{fmtOr(l.snr_db, 1)}</td>
+              {hasPd && <td className="mono">{fmtOr(l.pd, 3)}</td>}
+              {hasPdMc && <td className="mono">{fmtOr(l.pd_mc, 3)}</td>}
+              <td className={"mono " + (l.detected ? "sensing-ok" : "sensing-miss")}>
+                {LINK_RESULT_LABEL[l.reason] ?? l.reason}
+                {l.multipath && " mp"}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -1500,6 +1519,19 @@ function ScenarioOverlayToggle() {
 const SENSING_TRACK_HINT =
   "MTI rejects |f_D| < 1/CPI; needs ≥1 actor bound as sensing target";
 
+const SENSING_RX_HINT =
+  "Auto: RX within 1 m of a TX (monostatic/TRP receivers); if none, every RX. " +
+  "Other RX keep their comm links.";
+
+/** Backend COLOCATED_SENSING_RX_M: an rx this close to a tx is its radar receiver. */
+const COLOCATED_SENSING_RX_M = 1.0;
+
+const SENSING_RX_RULE_LABEL: Record<string, string> = {
+  explicit: "selected",
+  colocated: "auto: within 1 m of a TX",
+  all_rx: "auto: every RX",
+};
+
 /** Clamp a number input on commit (live clamping fights partial typing). */
 function clampNum(v: number, lo: number, hi: number, fallback: number): number {
   return Number.isFinite(v) ? Math.max(lo, Math.min(hi, v)) : fallback;
@@ -1531,7 +1563,36 @@ export function ScenarioSection() {
   const [accelSigma, setAccelSigma] = useState(2);
   const [gateChi2, setGateChi2] = useState(16);
   const [maxStd, setMaxStd] = useState(25);
+  // Explicit radar receivers; empty = Auto (the key is not sent).
+  const [sensingRxIds, setSensingRxIds] = useState<string[]>([]);
   const sensingActive = sensingOn && sensingAvailable;
+
+  // The solve's selected devices (config tx_ids / rx_ids; null = all), as the
+  // backend resolves them: only these rx may be named in sensing_rx_ids.
+  const pathsConfig = useAppStore((s) => s.pathsConfig);
+  const { rxDevices, autoRx } = useMemo(() => {
+    const devices = scene?.devices ?? [];
+    const txs = devices.filter(
+      (d) => d.kind === "tx" && (pathsConfig.tx_ids == null || pathsConfig.tx_ids.includes(d.id)),
+    );
+    const rxs = devices.filter(
+      (d) => d.kind === "rx" && (pathsConfig.rx_ids == null || pathsConfig.rx_ids.includes(d.id)),
+    );
+    const colocated = rxs.filter((r) =>
+      txs.some(
+        (t) =>
+          Math.hypot(
+            r.position[0] - t.position[0],
+            r.position[1] - t.position[1],
+            r.position[2] - t.position[2],
+          ) <= COLOCATED_SENSING_RX_M,
+      ),
+    );
+    return { rxDevices: rxs, autoRx: colocated.length > 0 ? colocated : rxs };
+  }, [scene, pathsConfig.tx_ids, pathsConfig.rx_ids]);
+  // Ids of deleted / deselected devices drop out (back to Auto when none is left).
+  const pickedRxIds = rxDevices.map((d) => d.id).filter((id) => sensingRxIds.includes(id));
+  const autoColocated = autoRx.length > 0 && autoRx.length < rxDevices.length;
 
   const simulate = () =>
     void simulateScenario({
@@ -1545,6 +1606,8 @@ export function ScenarioSection() {
             cpi_s: clampNum(cpiMs, 0.1, 10000, 10) / 1000,
             cpi_pulses: Math.round(clampNum(cpiPulses, 1, 1e8, 1)),
             measurement_noise: measurementNoise,
+            // Omitted on Auto: a pre-v0.1.14 backend rejects unknown keys.
+            ...(pickedRxIds.length > 0 ? { sensing_rx_ids: pickedRxIds } : {}),
             // Key omitted when off: a pre-v0.1.13 backend rejects unknown keys.
             ...(trackingOn
               ? {
@@ -1624,6 +1687,52 @@ export function ScenarioSection() {
       </label>
       {sensingActive && (
         <>
+          <div className="sensing-rx-field" role="group" aria-label="Sensing receivers">
+            <span className="solver-field-label">Sensing receivers</span>
+            {rxDevices.length === 0 ? (
+              <span className="hint">No RX device in the scene.</span>
+            ) : (
+              <div className="sensing-rx-list">
+                <label
+                  className="solver-check"
+                  title={`Auto now resolves to: ${autoRx.map((d) => d.id).join(", ")}`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={pickedRxIds.length === 0}
+                    disabled={disabled}
+                    onChange={() => setSensingRxIds([])}
+                  />
+                  <span>
+                    Auto{" "}
+                    <span className="hint">
+                      ({autoColocated ? `${autoRx.length} co-located` : "every RX"})
+                    </span>
+                  </span>
+                </label>
+                {rxDevices.map((d) => (
+                  <label key={d.id} className="solver-check" title={d.id}>
+                    <input
+                      type="checkbox"
+                      checked={pickedRxIds.includes(d.id)}
+                      disabled={disabled}
+                      onChange={(e) =>
+                        setSensingRxIds(
+                          e.target.checked
+                            ? [...pickedRxIds, d.id]
+                            : pickedRxIds.filter((id) => id !== d.id),
+                        )
+                      }
+                    />
+                    <span>
+                      {d.name} <span className="mono hint">{d.id}</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            )}
+            <p className="hint">{SENSING_RX_HINT}</p>
+          </div>
           <label className="solver-field">
             <span className="solver-field-label">Threshold</span>
             <span className="solver-field-input">
@@ -2278,71 +2387,73 @@ export function MlDatasetSection() {
         <p className="hint">No datasets yet.</p>
       )}
       {datasets.length > 0 && (
-        <table className="results-table">
-          <thead>
-            <tr>
-              <th>name</th>
-              <th>#</th>
-              <th>created</th>
-              <th>size</th>
-              <th>files</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {datasets.map((d) => {
-              const zeroRaw = d.metadata?.num_zero_path_samples;
-              const zero = typeof zeroRaw === "number" ? zeroRaw : 0;
-              return (
-              <tr key={d.dataset_id}>
-                <td className="mono">
-                  {d.name}
-                  {zero > 0 && (
-                    <span
-                      className="dataset-flag"
-                      title={`${zero}/${d.num_samples} samples have zero paths (UE outside the scene or occluded)`}
-                    >
-                      ⚠ {zero} zero-path
-                    </span>
-                  )}
-                </td>
-                <td className="mono">{d.num_samples}</td>
-                <td className="mono">{formatCreatedAt(d.created_at)}</td>
-                <td className="mono">{formatBytes(d.size_bytes)}</td>
-                <td>
-                  {["dataset.npz", "metadata.json"]
-                    .filter((f) => d.files.includes(f))
-                    .map((f) => (
-                      <a
-                        key={f}
-                        className="mono"
-                        href={projectId ? api.datasetFileUrl(projectId, d.dataset_id, f) : "#"}
-                        download
-                        style={{ marginRight: 8 }}
-                      >
-                        {f === "dataset.npz" ? "npz" : "json"}
-                      </a>
-                    ))}
-                </td>
-                <td>
-                  <DatasetDeleteButton
-                    disabled={generating}
-                    onConfirm={() => {
-                      void deleteDataset(d.dataset_id).then((ok) => {
-                        if (ok) {
-                          setDatasets((prev) =>
-                            prev.filter((x) => x.dataset_id !== d.dataset_id),
-                          );
-                        }
-                      });
-                    }}
-                  />
-                </td>
+        <div className="table-scroll">
+          <table className="results-table">
+            <thead>
+              <tr>
+                <th>name</th>
+                <th>#</th>
+                <th>created</th>
+                <th>size</th>
+                <th>files</th>
+                <th></th>
               </tr>
-              );
-            })}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {datasets.map((d) => {
+                const zeroRaw = d.metadata?.num_zero_path_samples;
+                const zero = typeof zeroRaw === "number" ? zeroRaw : 0;
+                return (
+                <tr key={d.dataset_id}>
+                  <td className="mono">
+                    {d.name}
+                    {zero > 0 && (
+                      <span
+                        className="dataset-flag"
+                        title={`${zero}/${d.num_samples} samples have zero paths (UE outside the scene or occluded)`}
+                      >
+                        ⚠ {zero} zero-path
+                      </span>
+                    )}
+                  </td>
+                  <td className="mono">{d.num_samples}</td>
+                  <td className="mono">{formatCreatedAt(d.created_at)}</td>
+                  <td className="mono">{formatBytes(d.size_bytes)}</td>
+                  <td>
+                    {["dataset.npz", "metadata.json"]
+                      .filter((f) => d.files.includes(f))
+                      .map((f) => (
+                        <a
+                          key={f}
+                          className="mono"
+                          href={projectId ? api.datasetFileUrl(projectId, d.dataset_id, f) : "#"}
+                          download
+                          style={{ marginRight: 8 }}
+                        >
+                          {f === "dataset.npz" ? "npz" : "json"}
+                        </a>
+                      ))}
+                  </td>
+                  <td>
+                    <DatasetDeleteButton
+                      disabled={generating}
+                      onConfirm={() => {
+                        void deleteDataset(d.dataset_id).then((ok) => {
+                          if (ok) {
+                            setDatasets((prev) =>
+                              prev.filter((x) => x.dataset_id !== d.dataset_id),
+                            );
+                          }
+                        });
+                      }}
+                    />
+                  </td>
+                </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );
@@ -2439,67 +2550,71 @@ function SensingCard({ sensing }: { sensing: SensingResultSet }) {
         {commCount > 0 && <> · {commCount} comm path(s)</>}
       </div>
       {sensing.targets.length > 0 && (
-        <table className="results-table">
-          <thead>
-            <tr>
-              <th>actor</th>
-              <th>model</th>
-              <th title="Scattering points">SPs</th>
-              <th title="constant: bound RCS · TR 38.901: mean monostatic σ_M">σ dBsm</th>
-              <th>paths</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sensing.targets.map((t) => (
-              <tr key={t.actor_id}>
-                <td className="mono">{t.actor_id}</td>
-                <td className="mono">
-                  {t.model === "tr38901"
-                    ? `${t.object_type ?? "?"}${t.model_type != null ? ` (m${t.model_type})` : ""}`
-                    : "constant"}
-                </td>
-                <td className="mono">{t.num_scattering_points}</td>
-                <td className="mono">{fmt(t.rcs_dbsm, 2)}</td>
-                <td className="mono">{t.path_count}</td>
+        <div className="table-scroll">
+          <table className="results-table">
+            <thead>
+              <tr>
+                <th>actor</th>
+                <th>model</th>
+                <th title="Scattering points">SPs</th>
+                <th title="constant: bound RCS · TR 38.901: mean monostatic σ_M">σ dBsm</th>
+                <th>paths</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {sensing.targets.map((t) => (
+                <tr key={t.actor_id}>
+                  <td className="mono">{t.actor_id}</td>
+                  <td className="mono">
+                    {t.model === "tr38901"
+                      ? `${t.object_type ?? "?"}${t.model_type != null ? ` (m${t.model_type})` : ""}`
+                      : "constant"}
+                  </td>
+                  <td className="mono">{t.num_scattering_points}</td>
+                  <td className="mono">{fmt(t.rcs_dbsm, 2)}</td>
+                  <td className="mono">{t.path_count}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
       {strongest.length > 0 && (
         <>
           <div className="results-meta">
             strongest {strongest.length} echo path(s) · Doppler + = approaching
           </div>
-          <table className="results-table">
-            <thead>
-              <tr>
-                <th>path</th>
-                <th>tx→rx</th>
-                <th>target</th>
-                <th>dBm</th>
-                <th>ns</th>
-                <th>Doppler Hz</th>
-              </tr>
-            </thead>
-            <tbody>
-              {strongest.map((p) => (
-                <tr key={p.path_id}>
-                  <td className="mono">{p.path_id}</td>
-                  <td className="mono">
-                    {p.tx_id}→{p.rx_id}
-                  </td>
-                  <td className="mono">{p.target_id}</td>
-                  <td className="mono">{fmt(p.power_dbm, 1)}</td>
-                  <td className="mono">{fmt(p.delay_ns, 1)}</td>
-                  <td className="mono" style={{ color: dopplerColor(p.doppler_hz, maxAbs) }}>
-                    {p.doppler_hz != null && p.doppler_hz > 0 ? "+" : ""}
-                    {fmt(p.doppler_hz, 1)}
-                  </td>
+          <div className="table-scroll">
+            <table className="results-table">
+              <thead>
+                <tr>
+                  <th>path</th>
+                  <th>tx→rx</th>
+                  <th>target</th>
+                  <th>dBm</th>
+                  <th>ns</th>
+                  <th>Doppler Hz</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {strongest.map((p) => (
+                  <tr key={p.path_id}>
+                    <td className="mono">{p.path_id}</td>
+                    <td className="mono">
+                      {p.tx_id}→{p.rx_id}
+                    </td>
+                    <td className="mono">{p.target_id}</td>
+                    <td className="mono">{fmt(p.power_dbm, 1)}</td>
+                    <td className="mono">{fmt(p.delay_ns, 1)}</td>
+                    <td className="mono" style={{ color: dopplerColor(p.doppler_hz, maxAbs) }}>
+                      {p.doppler_hz != null && p.doppler_hz > 0 ? "+" : ""}
+                      {fmt(p.doppler_hz, 1)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </>
       )}
       {sensing.warnings.length > 0 && (
@@ -3308,37 +3423,39 @@ function AbCompareSection() {
               channel rows compare different links.
             </p>
           )}
-          <table className="results-table">
-            <thead>
-              <tr>
-                <th>KPI</th>
-                <th>A</th>
-                <th>B</th>
-                <th>Δ (B−A)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => {
-                const d = deltaOf(r);
-                return (
-                  <tr key={r.label}>
-                    <td title={r.title}>
-                      {r.label}
-                      {r.unit ? ` (${r.unit})` : ""}
-                    </td>
-                    <td className="mono">{fmt(r.a, r.digits)}</td>
-                    <td className="mono">{fmt(r.b, r.digits)}</td>
-                    <td
-                      className="mono"
-                      style={d === null ? undefined : deltaStyle(r, d)}
-                    >
-                      {d === null ? "—" : `${d > 0 ? "+" : ""}${d.toFixed(r.digits)}`}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <div className="table-scroll">
+            <table className="results-table">
+              <thead>
+                <tr>
+                  <th>KPI</th>
+                  <th>A</th>
+                  <th>B</th>
+                  <th>Δ (B−A)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => {
+                  const d = deltaOf(r);
+                  return (
+                    <tr key={r.label}>
+                      <td title={r.title}>
+                        {r.label}
+                        {r.unit ? ` (${r.unit})` : ""}
+                      </td>
+                      <td className="mono">{fmt(r.a, r.digits)}</td>
+                      <td className="mono">{fmt(r.b, r.digits)}</td>
+                      <td
+                        className="mono"
+                        style={d === null ? undefined : deltaStyle(r, d)}
+                      >
+                        {d === null ? "—" : `${d > 0 ? "+" : ""}${d.toFixed(r.digits)}`}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
           {(solverSame !== null || sceneSame !== null) && (
             <div className="results-meta">
               {solverSame !== null && (
@@ -3717,22 +3834,24 @@ function AltitudeSweepSection() {
           ) : (
             <p className="hint">No threshold set — coverage not computed. Run ids below.</p>
           )}
-          <table className="results-table">
-            <thead>
-              <tr>
-                <th>height</th>
-                <th>result_id</th>
-              </tr>
-            </thead>
-            <tbody>
-              {result.runs.map((r) => (
-                <tr key={r.result_id}>
-                  <td className="mono">{r.height_m} m</td>
-                  <td className="mono">{r.result_id}</td>
+          <div className="table-scroll">
+            <table className="results-table">
+              <thead>
+                <tr>
+                  <th>height</th>
+                  <th>result_id</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {result.runs.map((r) => (
+                  <tr key={r.result_id}>
+                    <td className="mono">{r.height_m} m</td>
+                    <td className="mono">{r.result_id}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </>
       )}
     </Collapsible>
@@ -3934,30 +4053,32 @@ function RunHistorySection() {
               <h4>
                 {RUN_HISTORY_LABELS[kind] ?? kind} ({grouped.get(kind)!.length})
               </h4>
-              <table className="results-table">
-                <thead>
-                  <tr>
-                    <th>label</th>
-                    <th>result_id</th>
-                    <th>backend</th>
-                    <th>created</th>
-                    <th>size</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {grouped.get(kind)!.map((r) => (
-                    <RunHistoryRow
-                      key={r.result_id}
-                      refItem={r}
-                      disabled={disabled}
-                      onLoad={(ref) => void activateResult(ref)}
-                      onLabel={onLabel}
-                      note={runNote(r)}
-                    />
-                  ))}
-                </tbody>
-              </table>
+              <div className="table-scroll">
+                <table className="results-table">
+                  <thead>
+                    <tr>
+                      <th>label</th>
+                      <th>result_id</th>
+                      <th>backend</th>
+                      <th>created</th>
+                      <th>size</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {grouped.get(kind)!.map((r) => (
+                      <RunHistoryRow
+                        key={r.result_id}
+                        refItem={r}
+                        disabled={disabled}
+                        onLoad={(ref) => void activateResult(ref)}
+                        onLabel={onLabel}
+                        note={runNote(r)}
+                      />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           ))}
         </>
@@ -4395,41 +4516,43 @@ export default function ResultExplorer() {
                   Export filtered CSV ({visible.length})
                 </button>
               </div>
-              <table className="results-table">
-                <thead>
-                  <tr>
-                    <th onClick={() => toggleSort("path_id")}>path{sortMark("path_id")}</th>
-                    <th onClick={() => toggleSort("path_type")}>type{sortMark("path_type")}</th>
-                    <th onClick={() => toggleSort("power_dbm")}>dBm{sortMark("power_dbm")}</th>
-                    <th onClick={() => toggleSort("delay_ns")}>ns{sortMark("delay_ns")}</th>
-                    <th onClick={() => toggleSort("interactions")}>#int{sortMark("interactions")}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sorted.map((p) => (
-                    <tr
-                      key={p.path_id}
-                      className={p.path_id === selectedPathId ? "selected" : ""}
-                      onClick={() => selectPath(p.path_id === selectedPathId ? null : p.path_id)}
-                    >
-                      <td className="mono">{p.path_id}</td>
-                      <td>
-                        <span className="path-type">
-                          <span
-                            className="dot"
-                            style={{ background: pathColor(p, colorBy, range) }}
-                            title={colorBy === "depth" ? `depth ${pathDepth(p)}` : undefined}
-                          />
-                          {p.path_type}
-                        </span>
-                      </td>
-                      <td className="mono">{p.power_dbm.toFixed(1)}</td>
-                      <td className="mono">{p.delay_ns.toFixed(1)}</td>
-                      <td className="mono">{p.interactions.length}</td>
+              <div className="table-scroll">
+                <table className="results-table">
+                  <thead>
+                    <tr>
+                      <th onClick={() => toggleSort("path_id")}>path{sortMark("path_id")}</th>
+                      <th onClick={() => toggleSort("path_type")}>type{sortMark("path_type")}</th>
+                      <th onClick={() => toggleSort("power_dbm")}>dBm{sortMark("power_dbm")}</th>
+                      <th onClick={() => toggleSort("delay_ns")}>ns{sortMark("delay_ns")}</th>
+                      <th onClick={() => toggleSort("interactions")}>#int{sortMark("interactions")}</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {sorted.map((p) => (
+                      <tr
+                        key={p.path_id}
+                        className={p.path_id === selectedPathId ? "selected" : ""}
+                        onClick={() => selectPath(p.path_id === selectedPathId ? null : p.path_id)}
+                      >
+                        <td className="mono">{p.path_id}</td>
+                        <td>
+                          <span className="path-type">
+                            <span
+                              className="dot"
+                              style={{ background: pathColor(p, colorBy, range) }}
+                              title={colorBy === "depth" ? `depth ${pathDepth(p)}` : undefined}
+                            />
+                            {p.path_type}
+                          </span>
+                        </td>
+                        <td className="mono">{p.power_dbm.toFixed(1)}</td>
+                        <td className="mono">{p.delay_ns.toFixed(1)}</td>
+                        <td className="mono">{p.interactions.length}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
 
               {selectedPath && <PathDetail path={selectedPath} />}
 

@@ -239,3 +239,30 @@ def test_api_material_impact_unknown_project_404(api_client):
         json={"config": {"backend": "mock"}, "baseline_material_id": "ground"},
     )
     assert resp.status_code == 404
+
+
+def test_api_material_impact_waits_for_the_project_solve_lock(api_client):
+    # It compiles the baseline variant onto the on-disk RF projection: a
+    # concurrent solve on the project would see a stale projection and
+    # recompile under it, so the route takes the per-project solve lock.
+    import threading
+
+    from seam_studio.api.simulate import _project_lock
+
+    done = threading.Event()
+    result: dict = {}
+
+    def post() -> None:
+        result["resp"] = api_client.post(
+            "/api/projects/mi_test/analyze/material-impact",
+            json={"config": {"backend": "mock"}, "baseline_material_id": "ground"},
+        )
+        done.set()
+
+    lock = _project_lock("mi_test")
+    with lock:  # an in-flight solve on the same project
+        worker = threading.Thread(target=post, daemon=True)
+        worker.start()
+        assert not done.wait(0.5)
+    worker.join(10)
+    assert done.is_set() and result["resp"].status_code == 200, result

@@ -26,8 +26,8 @@ The **Global** section is the shared solver configuration — every solver
 | Field | What it does |
 |---|---|
 | **Preset** | Applies a canonical solver configuration to both Paths and Radio map: `28 GHz Indoor Lab`, `28 GHz Outdoor Campus`, `3.5 GHz Urban Macro`, `60 GHz Indoor`, `28 GHz UAV A2G`. Editing any knob by hand flips it to `Custom`. |
-| **Backend** | `auto` / `mock` / `sionna`. `auto` uses Sionna RT when installed and falls back to the mock solver otherwise. |
-| **Engine** | Only shown when more than one Sionna RT version is registered — pick which version solves paths (e.g. `Sionna RT 2.0.1`). See [../engines.md](../engines.md). |
+| **Backend** | `auto` / `mock` / `sionna`. `auto` uses Sionna RT when it is installed and has a working Dr.Jit backend (a CUDA GPU, or LLVM on the CPU: see [INSTALL](../../INSTALL.md#the-real-sionna-rt-engine-installed-automatically)), and falls back to the mock solver otherwise; the result's warnings then say why. |
+| **Engine** | Only shown when more than one Sionna RT version is registered — pick which version solves paths (e.g. `Sionna RT 1.2.2`). See [../engines.md](../engines.md). |
 | **Frequency** (GHz) | Carrier frequency (default 28 GHz). |
 | **Bandwidth** (MHz) | Channel bandwidth used for noise, CFR, and capacity. |
 | **Noise figure** (dB) | Receiver noise figure for SNR/SINR. |
@@ -35,6 +35,12 @@ The **Global** section is the shared solver configuration — every solver
 
 The Global section also hosts the **Beamforming array** settings (section 4)
 and the **Live sync** toggle.
+
+**Device antennas.** Each TX and RX carries its own antenna (pattern,
+polarization, array size) in the device inspector, but Sionna RT has one
+scene-level TX array and one RX array: a Sionna paths, sensing or scenario
+solve applies the first selected TX's (RX's) antenna to every TX (RX), and
+since v0.1.14 it warns, naming the devices whose antennas differ.
 
 ---
 

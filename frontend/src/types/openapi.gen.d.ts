@@ -95,8 +95,9 @@ export interface paths {
          * @description Create a new project folder under the first configured project root.
          *
          *     ``template="demo"`` generates the Sample Demo content (toy urban scene
-         *     GLB, TX/RX pair, car + pedestrian actors) programmatically — this is how
-         *     a pip install gets its first project without shipping binary assets.
+         *     GLB, TX/RX pair plus a sensing RX at the TX, car + pedestrian actors and a
+         *     drone sensing target) programmatically — this is how a pip install gets
+         *     its first project without shipping binary assets.
          */
         post: operations["create_project_api_projects_post"];
         delete?: never;
@@ -485,6 +486,10 @@ export interface paths {
          * Analyze Material Impact
          * @description Material-aware vs single-material-baseline CFR comparison (NMSE,
          *     cosine similarity, dRSS, capacity proxy) - the KICS 2026 evaluation.
+         *
+         *     Runs under the project's solve guard: it compiles the baseline variant
+         *     onto the on-disk RF projection, which a concurrent solve would otherwise
+         *     see as stale and recompile under it.
          */
         post: operations["analyze_material_impact_api_projects__project_id__analyze_material_impact_post"];
         delete?: never;
@@ -603,7 +608,9 @@ export interface paths {
          * @description Import measurement samples from CSV text and persist the raw CSV.
          *
          *     Bad rows are skipped and counted (never fatal). The uploaded CSV is stored
-         *     verbatim so a later GET re-parses the exact source the user provided.
+         *     verbatim so a later GET re-parses the exact source the user provided. A
+         *     CSV that yields no measurement at all (wrong headers or delimiter, not
+         *     UTF-8 text) answers 400 and leaves the stored import untouched.
          */
         post: operations["import_measurements_csv_api_projects__project_id__calibrate_measurements_import_csv_post"];
         delete?: never;
@@ -5847,6 +5854,8 @@ export interface components {
              * @default 1000000
              */
             samples_per_sp: number;
+            /** Sensing Rx Ids */
+            sensing_rx_ids?: string[] | null;
             /** Target Actor Ids */
             target_actor_ids?: string[] | null;
             /**

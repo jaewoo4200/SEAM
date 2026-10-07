@@ -28,7 +28,6 @@ def _scene() -> Scene:
 
 def test_overlay_applies_and_clears(tmp_path: Path) -> None:
     live_state.clear("live_test")  # isolate from other tests / prior runs
-    scene = _scene()
     assert not live_state.has_overlay("live_test")
 
     # A non-persisted push records device positions into the overlay.

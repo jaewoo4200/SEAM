@@ -154,10 +154,7 @@ def test_import_unavailable_when_pyarrow_missing(monkeypatch, tmp_path):
         aodt_import.import_aodt_results(tmp_path, "paths")
 
 
-def test_require_pyarrow_guard_actionable_message(monkeypatch):
-    """The real _require_pyarrow guard (import forced to fail) raises the typed
-    unavailable error with an ACTIONABLE message naming the [results] extra -
-    not a bare ImportError. Monkeypatches the import itself, not the guard."""
+def _fail_pyarrow_import(monkeypatch):
     import builtins
 
     real_import = builtins.__import__
@@ -168,11 +165,32 @@ def test_require_pyarrow_guard_actionable_message(monkeypatch):
         return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", fake_import)
+
+
+def _assert_names_parquet_extra(msg: str) -> None:
+    assert "seam-studio[parquet]" in msg
+    assert "pyarrow" in msg
+    assert "seam-backend" not in msg and "backend venv" not in msg
+
+
+def test_require_pyarrow_guard_actionable_message(monkeypatch):
+    """The real _require_pyarrow guard (import forced to fail) raises the typed
+    unavailable error with an ACTIONABLE message naming the [parquet] extra of
+    the real distribution - not a bare ImportError. Monkeypatches the import
+    itself, not the guard."""
+    _fail_pyarrow_import(monkeypatch)
     with pytest.raises(aodt_import.AodtImportUnavailable) as excinfo:
         aodt_import._require_pyarrow()
-    msg = str(excinfo.value)
-    assert "seam-backend[results]" in msg
-    assert "pyarrow" in msg
+    _assert_names_parquet_extra(str(excinfo.value))
+
+
+def test_export_require_pyarrow_guard_actionable_message(monkeypatch):
+    from seam_studio.services import aodt_export
+
+    _fail_pyarrow_import(monkeypatch)
+    with pytest.raises(aodt_export.AodtExportUnavailable) as excinfo:
+        aodt_export._require_pyarrow()
+    _assert_names_parquet_extra(str(excinfo.value))
 
 
 def test_import_bad_kind_and_missing_dir():
@@ -347,3 +365,62 @@ def test_import_aodt_route_409_without_pyarrow(api_client, tmp_path, monkeypatch
         json={"source_dir": str(tmp_path), "kinds": ["paths"]},
     )
     assert resp.status_code == 409, resp.text
+
+
+def _write_paths_parquet(folder) -> None:
+    pq.write_table(
+        pa.table(
+            {
+                "path_id": ["p0"], "tx_id": ["t"], "rx_id": ["r"], "power_dbm": [-70.0],
+                "delay_ns": [12.0], "points": [[[0.0, 0.0, 5.0], [20.0, 0.0, 1.5]]],
+            }
+        ),
+        folder / "paths.parquet",
+    )
+
+
+@pytest.mark.skipif(not HAS_PYARROW, reason="pyarrow not installed")
+def test_import_aodt_reads_every_kind_before_storing_any(api_client, tmp_path):
+    # paths parses but radio_map.parquet is missing: the 400 must not leave the
+    # paths result stored behind the error (the UI would hide it, a retry dups it).
+    api_client.post("/api/projects", json={"name": "Partial", "project_id": "partial"})
+    _write_paths_parquet(tmp_path)
+    resp = api_client.post(
+        "/api/projects/partial/results/import-aodt",
+        json={"source_dir": str(tmp_path), "kinds": ["paths", "radio_map"]},
+    )
+    assert resp.status_code == 400, resp.text
+    assert api_client.get("/api/projects/partial/scene").json()["result_sets"] == []
+
+
+@pytest.mark.skipif(not HAS_PYARROW, reason="pyarrow not installed")
+def test_auto_prune_never_removes_imports_nor_runs_on_import(api_client, tmp_path, monkeypatch):
+    # SEAM_AUTO_PRUNE_KEEP is "after each stored solve": an import neither prunes
+    # local runs nor is ever pruned itself (it cannot be re-solved).
+    from seam_studio.core import config
+
+    monkeypatch.setenv("SEAM_AUTO_PRUNE_KEEP", "1")
+    config.get_settings.cache_clear()
+    try:
+        api_client.post("/api/projects", json={"name": "Prune", "project_id": "prune_imp"})
+        base = "/api/projects/prune_imp"
+        mock = {"config": {"backend": "mock"}}
+        first = api_client.post(f"{base}/simulate/paths", json=mock).json()["result_id"]
+        _write_paths_parquet(tmp_path)
+        resp = api_client.post(
+            f"{base}/results/import-aodt",
+            json={"source_dir": str(tmp_path), "kinds": ["paths"]},
+        )
+        assert resp.status_code == 200, resp.text
+        imported = resp.json()["imported"][0]["result_id"]
+        ids = [r["result_id"] for r in api_client.get(f"{base}/scene").json()["result_sets"]]
+        assert ids == [first, imported]
+
+        second = api_client.post(f"{base}/simulate/paths", json=mock).json()["result_id"]
+        ids = [r["result_id"] for r in api_client.get(f"{base}/scene").json()["result_sets"]]
+        assert ids == [imported, second]
+        got = api_client.get(f"{base}/results/paths?result_id={imported}")
+        assert got.status_code == 200 and got.json()["backend"] == "aodt_import"
+    finally:
+        monkeypatch.delenv("SEAM_AUTO_PRUNE_KEEP", raising=False)
+        config.get_settings.cache_clear()

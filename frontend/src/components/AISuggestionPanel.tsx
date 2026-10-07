@@ -6,6 +6,7 @@ import type {
   AssignmentRule,
   DisambiguationReport,
   GenerateRulesRequest,
+  MaterialImpactReport,
   MaterialSuggestion,
   MeasurementSample,
   Vec3,
@@ -30,6 +31,8 @@ function DisambiguateForm({ suggestion }: { suggestion: MaterialSuggestion }) {
   const projectId = useAppStore((s) => s.projectId);
   const materials = useAppStore((s) => s.materials);
   const setDecision = useAppStore((s) => s.setDecision);
+  const withBusy = useAppStore((s) => s.withBusy);
+  const appBusy = useAppStore((s) => s.busy) !== null;
 
   const [rows, setRows] = useState<MeasRow[]>([emptyRow()]);
   const [report, setReport] = useState<DisambiguationReport | null>(null);
@@ -64,11 +67,13 @@ function DisambiguateForm({ suggestion }: { suggestion: MaterialSuggestion }) {
     setBusy(true);
     setError(null);
     try {
-      const rep = await api.disambiguate(projectId, {
-        prim_ids: [suggestion.prim_id],
-        candidate_material_ids: candidateIds,
-        measurements,
-      });
+      const rep = await withBusy("Ranking candidate materials…", () =>
+        api.disambiguate(projectId, {
+          prim_ids: [suggestion.prim_id],
+          candidate_material_ids: candidateIds,
+          measurements,
+        }),
+      );
       setReport(rep);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -187,7 +192,7 @@ function DisambiguateForm({ suggestion }: { suggestion: MaterialSuggestion }) {
         </button>
         <button
           className="primary"
-          disabled={busy || candidateIds.length < 2}
+          disabled={busy || appBusy || candidateIds.length < 2}
           title={candidateIds.length < 2 ? "Needs at least 2 candidate materials" : ""}
           onClick={() => void run()}
         >
@@ -968,9 +973,164 @@ export default function AISuggestionPanel() {
           </button>
         </div>
       )}
-      {/* Assignment-impact (NMSE vs single-material baseline) UI removed after
-          verification feedback — the research API stays at
-          POST /rf/materials/assignment-impact; ImpactSection is unmounted. */}
+      {/* Keyed by project: a report never outlives the project it was run on. */}
+      <MaterialImpactSection key={projectId ?? "none"} />
+    </div>
+  );
+}
+
+// ------------------------------------------------------------ material impact
+
+const fmtNum = (v: number | null | undefined, digits: number) =>
+  v == null || !Number.isFinite(v) ? "—" : v.toFixed(digits);
+
+/** Material impact (Lee et al., KICS 2026): the scene's assigned materials vs
+ *  every prim rebound to one baseline material, at the current first TX -> RX
+ *  link, with the solver panel's config. Collapsed by default: one compact
+ *  check next to the RF disambiguation, not a dashboard. */
+function MaterialImpactSection() {
+  const projectId = useAppStore((s) => s.projectId);
+  const pathsConfig = useAppStore((s) => s.pathsConfig);
+  const materials = useAppStore((s) => s.materials);
+  const appBusy = useAppStore((s) => s.busy) !== null;
+  const withBusy = useAppStore((s) => s.withBusy);
+
+  const [open, setOpen] = useState(false);
+  const [baseline, setBaseline] = useState("itu_concrete");
+  const [running, setRunning] = useState(false);
+  const [report, setReport] = useState<MaterialImpactReport | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const library = materials?.materials ?? [];
+  // The backend 400s on a baseline outside the project library.
+  const baselineId = library.some((m) => m.id === baseline) ? baseline : (library[0]?.id ?? baseline);
+
+  const run = async () => {
+    const pid = projectId;
+    if (!pid) return;
+    // An answer that lands after a project switch belongs to the old project.
+    const current = () => useAppStore.getState().projectId === pid;
+    setRunning(true);
+    setError(null);
+    try {
+      // Shared busy: the solve compiles the baseline variant onto the RF
+      // projection, so no other solve or auto-update may run meanwhile.
+      const res = await withBusy("Material impact…", () =>
+        api.materialImpact(pid, {
+          config: pathsConfig,
+          tx_id: null,
+          rx_id: null,
+          baseline_material_id: baselineId,
+        }),
+      );
+      if (current()) setReport(res);
+    } catch (err) {
+      if (current()) setError(errMessage(err));
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <div className="rules-section">
+      <button
+        className={"seg-expander" + (open ? " open" : "")}
+        onClick={() => setOpen((o) => !o)}
+        title="How much the assigned materials change the channel vs one baseline material"
+      >
+        {open ? "▾" : "▸"} Material impact…
+      </button>
+      {open && (
+        <>
+          <p className="hint">
+            Re-solves the first TX → RX link with every prim rebound to the baseline material and
+            compares the CFRs (NMSE, cosine similarity, ΔRSS = assigned − baseline). Positions
+            with NMSE above −60 dB are material-sensitive.
+          </p>
+          <label className="solver-field">
+            <span className="solver-field-label">Baseline</span>
+            <select
+              value={baselineId}
+              disabled={running || library.length === 0}
+              onChange={(e) => setBaseline(e.target.value)}
+            >
+              {library.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.display_name} ({m.id})
+                </option>
+              ))}
+            </select>
+          </label>
+          <div className="panel-actions">
+            <button
+              className="primary"
+              disabled={!projectId || running || appBusy || library.length === 0}
+              onClick={() => void run()}
+            >
+              {running ? "Running…" : "Material impact"}
+            </button>
+          </div>
+          {error && <div className="disambig-error">{error}</div>}
+          {report && (
+            <>
+              <div className="results-meta">
+                <span className="mono">
+                  {report.tx_id} → {report.rx_id}
+                </span>{" "}
+                vs <span className="mono">{report.baseline_material_id}</span> · backend{" "}
+                <span className="mono">{report.backend}</span> · NMSE{" "}
+                <span className="mono">{fmtNum(report.global_nmse_db, 1)} dB</span> · cos{" "}
+                <span className="mono">{fmtNum(report.mean_cosine_similarity, 4)}</span> · ΔRSS{" "}
+                <span className="mono">{fmtNum(report.mean_delta_rss_db, 2)} dB</span> ·{" "}
+                <span className="mono">{report.material_sensitive_count}</span> sensitive
+              </div>
+              {(report.mean_capacity_material_mbps != null ||
+                report.mean_capacity_baseline_mbps != null) && (
+                <div className="results-meta">
+                  capacity proxy <span className="mono">{fmtNum(report.mean_capacity_material_mbps, 1)}</span>{" "}
+                  vs <span className="mono">{fmtNum(report.mean_capacity_baseline_mbps, 1)}</span> Mbps
+                  (assigned vs baseline)
+                </div>
+              )}
+              {report.positions.length > 0 && (
+                <div className="isac-table-wrap">
+                  <table className="results-table">
+                    <thead>
+                      <tr>
+                        <th>position (m)</th>
+                        <th title="Assigned minus baseline RSS">ΔRSS dB</th>
+                        <th title="Cosine similarity of the two CFRs">cos</th>
+                        <th title="CFR NMSE of the assigned materials vs the baseline">NMSE dB</th>
+                        <th title="NMSE above -60 dB">sensitive</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {report.positions.map((p, i) => (
+                        <tr key={i}>
+                          <td className="mono">
+                            {p.position.map((c) => c.toFixed(1)).join(", ")}
+                          </td>
+                          <td className="mono">{fmtNum(p.delta_rss_db, 2)}</td>
+                          <td className="mono">{fmtNum(p.cosine_similarity, 4)}</td>
+                          <td className="mono">{fmtNum(p.nmse_db, 1)}</td>
+                          <td className="mono">{p.material_sensitive ? "yes" : "no"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {report.warnings.length > 0 && (
+                <ul className="disambig-warnings">
+                  {report.warnings.map((w, i) => (
+                    <li key={i}>{w}</li>
+                  ))}
+                </ul>
+              )}
+            </>
+          )}
+        </>
+      )}
     </div>
   );
 }

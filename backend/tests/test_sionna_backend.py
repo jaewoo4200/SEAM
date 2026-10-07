@@ -10,18 +10,15 @@ from pathlib import Path
 import pytest
 import trimesh
 
-from seam_studio.schemas.materials import AssignRequest
 from seam_studio.schemas.results import PathResultSet, RadioMapResultSet
 from seam_studio.schemas.scene import Device, MeshRef, Prim, RFBinding, Scene
 from seam_studio.schemas.simulation import RadioMapGridConfig, SimulationConfig
-from seam_studio.services.availability import sionna_available
-from seam_studio.services.material_assignment import assign_materials
 from seam_studio.services.project_store import load_default_library
 from seam_studio.services.simulation_backends.sionna_backend import SionnaBackend
 
-pytestmark = pytest.mark.skipif(
-    not sionna_available(), reason="sionna-rt not installed (optional backend)"
-)
+from .conftest import requires_sionna
+
+pytestmark = requires_sionna
 
 
 def _demo_scene() -> Scene:
@@ -253,3 +250,53 @@ def test_codebook_sweep_sign_convention_and_orientation(project: Path):
         project, scene, load_default_library(), cfg, req_bad
     )
     assert any("tx_cols=1" in w for w in result_bad.warnings)
+
+
+def test_api_solve_surfaces_compile_warnings_of_a_stale_projection(api_client):
+    """Edit a material, press Simulate: the auto-recompile's own warnings (the
+    itu_name collision) reach the response, not only the fixed 'recompiled'
+    line (open DEV_HANDOFF since v0.1.4)."""
+    from seam_studio.api import deps
+
+    store = deps.get_store()
+    store.create_project("Stale", project_id="stale_proj")
+    project_dir = store.resolve("stale_proj")
+    (project_dir / "visual").mkdir(parents=True, exist_ok=True)
+    tm = trimesh.Scene()
+    ground = trimesh.creation.box(extents=(60.0, 60.0, 0.2))
+    ground.apply_translation((0.0, 0.0, -0.1))
+    tm.add_geometry(ground, geom_name="ground", node_name="ground")
+    for name, y in (("wall", 6.0), ("wall2", -6.0)):
+        wall = trimesh.creation.box(extents=(0.3, 6.0, 8.0))
+        wall.apply_translation((8.0, y, 4.0))
+        tm.add_geometry(wall, geom_name=name, node_name=name)
+    (project_dir / "visual" / "scene.glb").write_bytes(tm.export(file_type="glb"))
+
+    scene = _demo_scene()
+    scene.scene_id = "stale_proj"
+    scene.prims[1].rf.material_id = "itu_concrete"
+    scene.prims.append(scene.prims[1].model_copy(
+        update={"id": "/wall2", "name": "wall2", "mesh_ref": MeshRef(mesh_name="wall2")}, deep=True,
+    ))
+    store.save_scene("stale_proj", scene)
+    body = {"config": {"backend": "sionna", "frequency_hz": 3.5e9, "max_depth": 1,
+                       "num_samples": 100_000}}
+    first = api_client.post("/api/projects/stale_proj/simulate/paths", json=body)
+    assert first.status_code == 200
+    assert not any("share itu_name" in w for w in first.json()["warnings"])
+
+    library = store.load_materials("stale_proj")
+    clone = library.get("itu_concrete").model_copy(deep=True)
+    clone.id = "itu_concrete_rough"
+    clone.scattering_coefficient = 0.4
+    library.materials.append(clone)
+    store.save_materials("stale_proj", library)
+    scene = store.load_scene("stale_proj")
+    scene.prims[2].rf.material_id = "itu_concrete_rough"
+    store.save_scene("stale_proj", scene)
+
+    second = api_client.post("/api/projects/stale_proj/simulate/paths", json=body)
+    assert second.status_code == 200
+    warnings = second.json()["warnings"]
+    assert any("share itu_name='itu_concrete'" in w for w in warnings), warnings
+    assert any("recompiled" in w for w in warnings), warnings

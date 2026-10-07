@@ -115,7 +115,9 @@ through the project folder.
 
 The bundle above is the *viewer* contract. For tooling written against NVIDIA
 AODT's own [results schemas](https://docs.nvidia.com/aerial/aodt/), there is a
-second export that writes those tables as Parquet:
+second export that writes those tables as Parquet. In the UI: **Actions ▾ →
+AODT export (parquet)** (pick the source and, optionally, a result id; blank
+= the latest). Over the API:
 
 ```
 POST /api/projects/{project_id}/export/aodt
@@ -167,12 +169,14 @@ Caveats worth knowing before you consume the tables:
   left out of `raypaths` with a warning;
   its tap still counts in `cirs`/`cfrs`.
 
-This export needs `pyarrow` (`pip install "seam-studio[results]"`); without it
-the endpoint answers **409**, and it answers **404** when the project has no
-stored result of the requested source kind. The written `raypaths.parquet`
-reads back through SEAM's own AODT importer (`POST /results/import-aodt`),
-which rebuilds one interaction per interior point (`diffuse` becomes
-`scattering`).
+This export needs `pyarrow` (`pip install "seam-studio[parquet]"`, the
+`parquet` extra; a source checkout installed with `backend[dev,parquet]` has
+it); without it the endpoint answers **409** with that command, and it answers
+**404** when the project has no stored result of the requested source kind.
+The written `raypaths.parquet` reads back through SEAM's own AODT importer
+(`POST /results/import-aodt`, or **Actions ▾ → AODT import (parquet)** with a
+folder path on the machine running SEAM), which rebuilds one interaction per
+interior point (`diffuse` becomes `scattering`).
 
 ---
 
@@ -304,3 +308,7 @@ has its own camera button that saves the POV frame as a full-resolution PNG.
   `metadata.json` for reproducibility.
 - [15-minute tutorial](../../TUTORIAL.md) — the full first-session loop,
   including dataset generation.
+- [Radar sensing](sensing.md) — the sensing dataset export (§10) and the
+  sensing source of the AODT export.
+- [Playback dashboard](playback_dashboard.md) — GT-vs-DT playback packs, the
+  `playback` source of the AODT export.

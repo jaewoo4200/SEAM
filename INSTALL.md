@@ -21,7 +21,7 @@ when you need them.
 
 | Item | Required version | Notes |
 |---|---|---|
-| Python | **3.11 – 3.14** | Backend (FastAPI). Check with `python --version`. 3.11 is exercised by CI on Linux, 3.12 is the everyday dev interpreter, 3.13 passed a clean-venv `pip install seam-studio` + a real `sionna.rt` path solve on macOS (2026-07-23), and 3.14 passed a clean-venv install + `sionna.rt` load on Windows (2026-07-15) |
+| Python | **3.11 – 3.14** | Backend (FastAPI). Check with `python --version`. 3.14 is the everyday dev interpreter (Windows); CI runs 3.11 and 3.14 (Linux). 3.13 passed a clean-venv `pip install seam-studio` + a real `sionna.rt` path solve on macOS (2026-07-23) |
 | Node.js | **20 or higher** (18+ generally works too) | Frontend (Vite). Check with `node --version`. Not preinstalled on most machines — Windows: `winget install OpenJS.NodeJS.LTS`, macOS: `brew install node@20`, Ubuntu: NodeSource 20.x. Open a **new** terminal after installing. Only needed for this source-checkout route; the pip package ships a pre-built frontend and needs no Node |
 | OS | Windows 10/11, Linux, macOS | Scripts are provided for both Windows (PowerShell) and Unix (bash) |
 
@@ -34,14 +34,16 @@ when you need them.
 | Item | What | When needed |
 |---|---|---|
 | **`sionna-rt` package** | The real ray tracing engine (includes Mitsuba 3 / Dr.Jit, several hundred MB) | **Installed automatically** — it is a base dependency of both the source install and the pip package (the old `backend[sionna]` extra remains as a no-op alias). Verified version `sionna-rt 2.2.x` (2.2+ is required for radar sensing). → [section below](#the-real-sionna-rt-engine-installed-automatically) |
-| **NVIDIA GPU + driver** | CUDA (Dr.Jit) acceleration for `sionna-rt` | An additional layer *on top of the package install*. Without it Sionna runs on CPU/LLVM (works fine, just slower). macOS has no Metal/MPS backend, so it is **always CPU/LLVM** |
+| **NVIDIA GPU + driver** | CUDA (Dr.Jit) acceleration for `sionna-rt` | An additional layer *on top of the package install*. Without it Sionna runs on the CPU (LLVM) backend, which needs **LLVM installed** (the drjit wheels do not bundle it) and is slower → [CPU-only machines](#cpu-only-machines-no-nvidia-gpu-install-llvm). Without CUDA or LLVM, Sionna is reported unavailable and `auto` runs the Mock backend. macOS has no Metal/MPS backend, so it is **always CPU/LLVM** |
+| **pyarrow** (`pip install "seam-studio[parquet]"`) | AODT parquet import/export, parquet sensing datasets | without it those routes answer 409/400 with that command. The source install below (`backend[dev,parquet]`) includes it |
 | **Local LLM server** | LM Studio (`:1234`) or Ollama (`:11434`) + a (VLM) model | For AI material assist / SEAM-Agent. Falls back to rule-based without it. → [Local LLM setup](#optional-local-llmvlm--ai-material-suggestions) |
 
-> **Key point:** All three are **optional**. The Mock backend
+> **Key point:** All of these are **optional**. The Mock backend
 > always runs on CPU alone with no installation, computing deterministic example paths/radiomaps.
-> The real gate for "real ray tracing" is
-> **installing the `sionna-rt` package, not a GPU**, and the GPU is an
-> additional acceleration layer on top of it.
+> The real gate for "real ray tracing" is the **`sionna-rt` package plus one
+> working Dr.Jit backend**: CUDA on an NVIDIA GPU, or LLVM on the CPU (LLVM must
+> be installed separately on Windows/Linux CPU-only machines and on macOS). The GPU
+> is the faster of the two, not a requirement.
 >
 > **Native libraries:** Among the base dependencies, `rtree` (libspatialindex) and `shapely` (GEOS)
 > use C libraries, but on mainstream Windows/Linux/macOS environments they are **bundled into the
@@ -100,7 +102,14 @@ Differences vs the source-checkout route (Route B below):
 - The UI is served by the backend on one port (no separate Vite dev server),
   and modifying the frontend requires the source route.
 
-Upgrade with `pip install -U seam-studio`.
+Upgrade with `pip install -U seam-studio`. For AODT parquet import/export and
+parquet sensing datasets add the `parquet` extra:
+`pip install "seam-studio[parquet]"` (it only adds `pyarrow`).
+
+On a machine **without an NVIDIA GPU**, also follow
+[CPU-only machines](#cpu-only-machines-no-nvidia-gpu-install-llvm) (install
+LLVM, set `DRJIT_LIBLLVM_PATH`) if you want the real Sionna engine; otherwise
+the app runs on the Mock backend.
 
 ## Route B — Quick Install from source (one line)
 
@@ -131,14 +140,16 @@ relative to the **repo root**.
 ### 1. Create the backend venv + install
 
 This project manages dependencies with **`backend/pyproject.toml`**, not a `requirements.txt`.
-It performs an editable install (`-e`) along with the `dev` extra (which includes pytest).
+It performs an editable install (`-e`) along with the `dev` extra (pytest, the
+test client and ruff) and the `parquet` extra (pyarrow, for AODT parquet
+import/export and parquet sensing datasets), the same extras the install scripts and CI use.
 
 **Windows:**
 
 ```powershell
 python -m venv backend\.venv
 backend\.venv\Scripts\python.exe -m pip install --upgrade pip
-backend\.venv\Scripts\python.exe -m pip install -e "backend[dev]"
+backend\.venv\Scripts\python.exe -m pip install -e "backend[dev,parquet]"
 ```
 
 **Linux / macOS:**
@@ -146,7 +157,7 @@ backend\.venv\Scripts\python.exe -m pip install -e "backend[dev]"
 ```bash
 python3 -m venv backend/.venv
 backend/.venv/bin/python -m pip install --upgrade pip
-backend/.venv/bin/python -m pip install -e "backend[dev]"
+backend/.venv/bin/python -m pip install -e "backend[dev,parquet]"
 ```
 
 Base dependencies (per `backend/pyproject.toml`): `fastapi`, `uvicorn[standard]`,
@@ -165,10 +176,21 @@ npm install
 ### 3. (Optional) Regenerate the demo projects
 
 The generated artifacts of the 3 demos (**sample_demo · lab_room · ftc_outdoor**) are already
-**committed** to the repo, so they appear in the app right after install. This step is not required
+**committed** to the repo under `examples/demo_project/`, so they appear in the app right after install. This step is not required
 and is only run when you want to rebuild the demos from scratch. (The one-line install script also calls
 these scripts, but the bundle import below only runs when `reference-bundle/` is present, and
 otherwise warns and skips it — using the committed demos as-is.)
+
+> **The app works on copies.** In a source checkout the backend's project root is
+> `projects/` (gitignored). On first start it copies each demo that is missing there
+> from `examples/demo_project/` into `projects/` (a one-time copy; `ftc_outdoor` is the
+> large one) and opens the copies, so your sessions never modify the tracked examples.
+> A copy is renamed into place only when complete: an interrupted one (file lock, full
+> disk, Ctrl-C) leaves nothing behind and is retried on the next start.
+> The `sample_demo` copy also gains the v0.1.14 drone target and co-located sensing RX.
+> Regenerating the examples below does **not** touch copies already in `projects/`: to
+> reset a demo, delete `projects/<name>.seam` and restart — it is re-copied from
+> `examples/demo_project/`.
 
 `create_demo_project.py` always works without the bundle. The `import_bundle_scene.py`
 family is only needed when `reference-bundle/` (the large scene assets, ~450 MB, not included in git) is
@@ -264,11 +286,20 @@ extra to run. The verified version is `sionna-rt 2.2.x` (2.2+ adds the RCS
 solver radar sensing needs), and the old `backend[sionna]` extra remains as a
 harmless no-op alias.
 
-When Sionna loaded correctly, the status chip at the top-right of the toolbar shows
+The package alone is not enough: Dr.Jit needs one working backend, **CUDA** (an
+NVIDIA GPU + driver) or **LLVM** (the CPU; LLVM must be installed separately, see
+[CPU-only machines](#cpu-only-machines-no-nvidia-gpu-install-llvm)). The backend
+checks this once per process in a short subprocess (which Dr.Jit backends work, and
+whether `import sionna.rt` succeeds).
+
+When Sionna is usable, the status chip at the top-right of the toolbar shows
 **Sionna** (instead of **Mock only**) and you can choose `auto`/`sionna` in the Simulation
-panel's **Backend** select. If the import ever breaks (e.g. an unsupported Python/wheel
-combination), the app emits a warning and keeps running on the Mock backend — to repair,
-reinstall into the backend venv:
+panel's **Backend** select. When it is not (no CUDA device and no LLVM, or the import
+fails, e.g. an unsupported Python/wheel combination), Sionna is reported **unavailable
+with the reason**: `/api/health` and `/api/backends` show it, `auto` runs the Mock
+backend and each such result says so in its warnings (`auto backend: <reason>; ran the
+mock backend`), and an explicit `"backend": "sionna"` answers **409** with the reason.
+For a broken install, reinstall into the backend venv:
 
 ```powershell
 # Windows                                   # Linux/macOS
@@ -280,8 +311,12 @@ backend/.venv/bin/python -m pip install --force-reinstall "sionna-rt>=2.2"
 > - **Mock backend**: needs nothing — always runs on CPU alone (no install required).
 > - **Linux / Windows + NVIDIA GPU**: `sionna-rt` **auto-selects** the CUDA (Dr.Jit)
 >   backend. As long as the driver is fine, no extra configuration is needed.
+> - **Linux / Windows without an NVIDIA GPU**: Sionna can only run on **CPU/LLVM**, and
+>   the drjit wheels do not bundle LLVM. Install it once as described in
+>   [CPU-only machines](#cpu-only-machines-no-nvidia-gpu-install-llvm); without it Sionna is
+>   reported unavailable and `auto` runs the Mock backend.
 > - **macOS (including Apple Silicon)**: Dr.Jit has **no Metal/MPS backend**, so Sionna
->   always runs on **CPU/LLVM**. It works fine but is **slower** than a GPU.
+>   always runs on **CPU/LLVM**. It runs once LLVM is found (below) but is **slower** than a GPU.
 >   If it cannot find CUDA, the app automatically falls back to LLVM and leaves one line in the result
 >   warnings: "CUDA unavailable — using LLVM (CPU) ray tracing …" (harmless).
 >   **One-time macOS prerequisite**: the macOS drjit wheels do NOT bundle the LLVM shared
@@ -290,6 +325,41 @@ backend/.venv/bin/python -m pip install --force-reinstall "sionna-rt>=2.2"
 >   Xcode CLT ships one at `/Library/Developer/CommandLineTools/usr/lib/libLLVM.dylib`;
 >   otherwise `brew install llvm` and use `"$(brew --prefix llvm)/lib/libLLVM.dylib"`.
 >   Export it (e.g. in `~/.zshrc`) before running `seam-studio`.
+
+### CPU-only machines (no NVIDIA GPU): install LLVM
+
+On Windows and Linux without a CUDA device, Dr.Jit's CPU backend needs the LLVM
+shared library (**LLVM 18 or newer**; Dr.Jit 1.5, which sionna-rt 2.2 pins, accepts
+15+, newer Dr.Jit releases need 18), which pip does not install. Without it the
+backend reports Sionna as unavailable with the reason *"sionna-rt installed but no
+Dr.Jit backend works (no CUDA device and LLVM-C not found); set DRJIT_LIBLLVM_PATH to
+LLVM-C.dll/libLLVM"*, and `auto` runs the Mock backend.
+
+**Windows:** install LLVM with the official installer (LLVM-<version>-win64.exe from
+<https://github.com/llvm/llvm-project/releases>), then point Dr.Jit at its `LLVM-C.dll`
+and open a **new** terminal before starting the backend:
+
+```powershell
+setx DRJIT_LIBLLVM_PATH "C:\Program Files\LLVM\bin\LLVM-C.dll"
+```
+
+**Linux (Debian/Ubuntu):** install the LLVM runtime library. Dr.Jit finds
+`/usr/lib/<arch>-linux-gnu/libLLVM*.so.*` by itself, so no variable is needed:
+
+```bash
+sudo apt install libllvm18       # Ubuntu 24.04; newer releases: any libllvmNN with NN >= 18
+```
+
+Ubuntu 22.04 and Debian 12 install LLVM 14 as their default `llvm`, which Dr.Jit
+rejects: add `libllvm18` from <https://apt.llvm.org> there. Set `DRJIT_LIBLLVM_PATH`
+only for a library outside those folders, and point it at a file that exists (for
+example `/usr/lib/x86_64-linux-gnu/libLLVM.so.18.1`): when the variable is set
+Dr.Jit loads only that file, so a wrong path turns the CPU backend off even with a
+valid libLLVM installed.
+
+Restart the backend, then check `http://127.0.0.1:8000/api/backends`: the `sionna`
+entry should say `"available": true` with `"compute": "llvm"` in its `capabilities`.
+CPU ray tracing works but is much slower than CUDA, so start with low sample counts.
 
 ---
 
@@ -357,7 +427,8 @@ For the full list and comments see `backend/.env.example`.
 
 | Variable | Default | Description |
 |---|---|---|
-| `SEAM_PROJECT_ROOTS` | (built-in default: `projects/`, then `examples/demo_project/`) | Project discovery roots (listed with the path separator). The first root is where new projects/UI imports are saved |
+| `SEAM_PROJECT_ROOTS` | (built-in default: `projects/` in a source checkout — the examples are copied in on first start; `~/.seam/projects` after a pip install) | Project discovery roots (listed with the path separator). The first root is where new projects/UI imports are saved. Setting it turns off the example copy |
+| `SEAM_AUTO_PRUNE_KEEP` | (unset = keep everything) | After each stored solve, keep only the newest N unlabeled results of that kind (labeled runs and imported AODT results are never pruned). |
 | `SEAM_AI_ENABLED` | `auto` | `auto` / `on` / `off` (manual only) |
 | `SEAM_OLLAMA_URL` | `http://localhost:11434` | Ollama endpoint |
 | `SEAM_AI_TEXT_MODEL` | `qwen3:8b` | Ollama text model |
@@ -396,12 +467,16 @@ cd frontend && npm run build
 |---|---|
 | **Port 8000/5173 in use** | Another process is holding it. Run the backend on a different port like `--port 8001`, or terminate the existing process. Note that the frontend proxy points to `127.0.0.1:8000`, so if you change the backend port you must also change the proxy target in `frontend/vite.config.ts`. |
 | **PowerShell: "running scripts is disabled"** (npm/script execution policy error) | This is due to the execution policy. Prefix the command with `powershell -ExecutionPolicy Bypass -File ...`, or run `Set-ExecutionPolicy -Scope Process Bypass` for the current session only. |
-| **GPU not detected / no CUDA** | This is normal. The app automatically runs on the **Mock backend**. To use real Sionna you need an NVIDIA driver+CUDA (or Sionna's LLVM CPU backend). |
-| **`LLVM ... ` warning log** | Harmless. It is an informational warning emitted when Sionna's Dr.Jit initializes the CPU (LLVM) backend, and does not affect operation. |
+| **GPU not detected / no CUDA** | This is normal. The app automatically runs on the **Mock backend**. To use real Sionna you need an NVIDIA driver+CUDA, or LLVM for the CPU backend ([CPU-only machines](#cpu-only-machines-no-nvidia-gpu-install-llvm)). |
+| **Health/backends say "sionna-rt installed but no Dr.Jit backend works (no CUDA device and LLVM-C not found)"** | Windows/Linux without an NVIDIA GPU and without a usable LLVM (not installed, older than 15, or `DRJIT_LIBLLVM_PATH` pointing at a missing file). Install LLVM 18+ ([CPU-only machines](#cpu-only-machines-no-nvidia-gpu-install-llvm)), then restart the backend. Until then `auto` runs the Mock backend and each result says so in its warnings. |
+| **Health/backends say "sionna-rt installed but its Dr.Jit/Mitsuba runtime failed to load: …"** | `drjit` or `mitsuba` could not be imported (the text after the colon is the error, e.g. a DLL load failure or wheels built for another Python version). Installing LLVM does not help: reinstall `sionna-rt` in the backend venv on a Python version it ships wheels for, then restart the backend. |
+| **`jitc_llvm_init(): LLVM API initialization failed` on stderr** | Harmless on a CUDA machine: Dr.Jit probes its CPU (LLVM) backend too, and LLVM is not installed. Solves run on CUDA. On a machine without CUDA it means Sionna has no backend (row above). |
 | **macOS: solve fails with "the LLVM backend is inactive … libLLVM.dylib could not be found"** | The macOS drjit wheels do not bundle LLVM. Set `DRJIT_LIBLLVM_PATH` to a libLLVM before launching: Xcode CLT ships `/Library/Developer/CommandLineTools/usr/lib/libLLVM.dylib`; otherwise `brew install llvm` and use `"$(brew --prefix llvm)/lib/libLLVM.dylib"`. |
-| **Status chip shows "Mock only"** | The `sionna-rt` import failed (broken/partial install — reinstall with `pip install --force-reinstall "sionna-rt>=2.2"` in the backend venv) or Sionna disabled itself because there is no CUDA/LLVM backend. The entire workflow remains usable with Mock. |
+| **Status chip shows "Mock only"** | Sionna is unavailable; `/api/health` (or `/api/backends`) gives the reason. Either the `sionna-rt` import failed (broken/partial install — reinstall with `pip install --force-reinstall "sionna-rt>=2.2"` in the backend venv) or there is no CUDA/LLVM backend (see the rows above). The entire workflow remains usable with Mock. |
+| **AODT export/import (409) or a parquet sensing dataset (400) asks for pyarrow** | Install the `parquet` extra: `pip install "seam-studio[parquet]"` (source checkout: `pip install -e "backend[dev,parquet]"` in the backend venv), then restart the backend. |
 | **Status chip shows "AI off"** | Not connected to an AI server (Ollama/LM Studio). Rule-based suggestions still work. To turn on a local LLM see [Local LLM/VLM](#optional-local-llmvlm--ai-material-suggestions) above. |
-| **Project list is empty** | The 3 demos are **included by default** in the repo, so they usually appear right away. The backend searches two locations in order — first the repo root's `projects/` (root #1, where projects imported from the UI are saved; may be empty or absent in a fresh clone), then `examples/demo_project/` which has the committed demos. If it is empty, the backend did not find these two — check that you ran the server from the repo root and did not override `SEAM_PROJECT_ROOTS` (legacy `SIONNATWIN_PROJECT_ROOTS`) in a way that hides the default roots. The [3. (Optional) Regenerate the demo projects](#3-optional-regenerate-the-demo-projects) scripts are only needed to *regenerate* the demos. |
+| **Project list is empty** | In a source checkout the backend has one project root, the repo's `projects/`, and on start it copies the 3 committed demos from `examples/demo_project/` into it (only those missing there). If the list is empty, check that you started the backend from this repo and did not set `SEAM_PROJECT_ROOTS` (legacy `SIONNATWIN_PROJECT_ROOTS`) — a custom root turns the copy off. The [3. (Optional) Regenerate the demo projects](#3-optional-regenerate-the-demo-projects) scripts are only needed to *regenerate* the demos. |
+| **Reset a demo to its committed state** | Delete `projects/<name>.seam` (e.g. `projects/sample_demo.seam`) and restart the backend: it is re-copied from `examples/demo_project/`. The app no longer writes into `examples/`; if an older version left edits there, `git restore examples/demo_project` discards them. |
 | **`import sionna.rt` cold import is slow** | The first probe of an alternative engine can take tens of seconds (cached once per process). Subsequent ones are fast. |
 | **`localhost` proxy fails on Windows** | The Vite proxy deliberately uses `127.0.0.1:8000` (to avoid the issue where, on Windows, `localhost` resolves to IPv6 `::1` first and diverges from uvicorn's IPv4 binding). Check that the backend is bound to the IPv4 loopback. |
 
@@ -416,4 +491,4 @@ cd frontend && npm run build
 - Architecture / scene format: [docs/architecture.md](docs/architecture.md),
   [docs/scene_format.md](docs/scene_format.md)
 
-> Verified interpreters: Python 3.11 (CI, Linux) / 3.12 (dev, Windows) / 3.13 (clean-venv pip install + solve, macOS) / 3.14 (clean-venv install check, Windows). Node 20+.
+> Verified interpreters: Python 3.11 and 3.14 (CI, Linux) / 3.14 (everyday dev, Windows) / 3.13 (clean-venv pip install + solve, macOS). Node 20+.

@@ -67,6 +67,9 @@ class ScenarioSimulateRequest(StrictModel):
     config: Optional[SimulationConfig] = None
     num_frames: int = Field(default=20, ge=1, le=1000)
     dt_s: float = Field(default=0.1, gt=0.0)
+    # Comm paths per frame. A sensing run stores every frame's echoes
+    # (SensingFrame.echoes) whatever this says: ~45 KB per frame (compact
+    # JSON) with 16 sionna links, ~45 MB per 1000 frames.
     include_paths: bool = True
     # None or enabled=False: no sensing (frames identical to v0.1.10).
     sensing: Optional[SensingTrackOptions] = None

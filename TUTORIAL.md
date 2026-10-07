@@ -26,7 +26,7 @@ bash scripts/start.sh
 
 Open **http://localhost:5173** in your browser. On the left of the top toolbar
 there is the **SEAM Studio** title and a project select, and the **Sample Demo**
-project loads automatically. (You can also switch to `Lab Room` or `FTC Outdoor` from the select.)
+project loads automatically. (In a source checkout you can also switch to `Lab Room` or `FTC Outdoor` from the select.)
 
 Check the two status chips on the right of the toolbar:
 
@@ -102,7 +102,7 @@ rationale, and the scene does not change until you approve. Prims you already **
 as-is and are not proposed again.
 
 **(Optional) Get an explanation of validation results.** If you're unsure what the warnings from
-**Validate** mean and what to do about them, press *Explain validation* (`POST …/ai/explain-validation`).
+**Validate** mean and what to do about them, press **Explain with AI** in the Validation panel (`POST …/ai/explain-validation`).
 It runs scene validation and then explains each issue in plain language (e.g. "3 prims are unassigned,
 and at 28 GHz the ITU ground material is out of band, so change it to `ground_28ghz`"). It is a
 read-only feature that never changes the scene, and each issue comes with `suggested_actions`
@@ -291,22 +291,31 @@ The two buttons on the right of the viewport save scene images:
 3. If you keep the **Auto update** checkbox (present in each of the Paths / Radio map / Beamforming sections)
    on, the corresponding results are automatically recomputed every time you move the device.
 
-> Note: the in-viewport drag gizmo is a roadmap item; for now use the inspector's
-> position fields for precise movement.
+> Tip: a selected device or actor also shows an X/Y/Z translate gizmo in the
+> viewport — drag it to move the device; use the inspector's position fields
+> for exact values.
 
 ---
 
 ## 8. Actors + scenario playback (Simulate scenario) (1 min)
 
-The Sample Demo has moving **actors**: a **car (car_001)** driving on the road and a
-**pedestrian (human_001)** walking in front of the building. Each actor is compiled into
-its own RF geometry and moves per frame.
+The Sample Demo has moving **actors**: a **car (car_001)** driving on the road, a
+**pedestrian (human_001)** walking in front of the building and, since v0.1.14, a
+**drone (uav_001)** flying an L at 40 m that is bound as a radar sensing target. Each
+actor is compiled into its own RF geometry and moves per frame. The demo also has a
+**TX 1 sensing RX (tx_001_rx)** at the rooftop TX's position, the co-located radar
+receiver for sensing ([docs/guides/sensing.md](docs/guides/sensing.md)).
 
-1. In **Results** mode, go to the **Scenario (V2X)** section.
+1. In **Results** mode, open the **Scenario playback** panel.
 2. Set **Num frames** (e.g. 20), **dt** (s), and if needed **Include paths (per frame)**.
 3. Press **Simulate scenario**.
 4. With the playback transport (▶ / ⏸, frame slider, ⟳ loop, speed 0.5×–4×), play the timeline
    and check the per-frame **Link metrics** (RSS / SINR / number of paths).
+5. (Optional) Tick **Sensing (ISAC)** under *Include paths*, set **Integrated pulses** to
+   `1000000` (the whole 10 ms CPI at the demo's 100 MHz bandwidth; with fewer the drone stays
+   below the 13 dB threshold at 28 GHz) and run again: every frame then also solves the drone's
+   radar echo at the sensing RX and reports its detection, range and Doppler
+   ([docs/guides/sensing.md §6](docs/guides/sensing.md#6-sensing-over-time-detection-and-multistatic-fusion)).
 
 ---
 
@@ -345,7 +354,8 @@ reflects the device/actor positions in the viewer.
 
 ### Where files are saved
 
-Outputs accumulate under the project folder (e.g. `examples/demo_project/sample_demo.seam/`):
+Outputs accumulate under the project folder (e.g. `projects/sample_demo.seam/` in a source
+checkout, `~/.seam/projects/sample_demo.seam/` after a pip install):
 
 | Artifact | Path |
 |---|---|
@@ -366,4 +376,5 @@ Outputs accumulate under the project folder (e.g. `examples/demo_project/sample_
   [docs/scene_format.md](docs/scene_format.md)
 - RF material library and AI assistant: [docs/rf_materials.md](docs/rf_materials.md),
   [docs/ai_assistant.md](docs/ai_assistant.md)
-- Roadmap (mesh radio map, mobility, measurement calibration, extension points): [docs/roadmap.md](docs/roadmap.md)
+- Radar sensing, ISAC over time, EKF tracking and the sensing dataset: [docs/guides/sensing.md](docs/guides/sensing.md)
+- Roadmap (what has shipped and what remains): [docs/roadmap.md](docs/roadmap.md)

@@ -1,0 +1,1397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script>(function(){try{var t=localStorage.getItem('seam-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
+<title>Radar sensing: RCS targets, echo solves, and Doppler — SEAM Studio</title>
+<meta name="description" content="Radar sensing in SEAM Studio: RCS targets, echo solves with Doppler, ISAC over time with EKF tracking, beam trade-offs, sensing coverage maps, Pd/Pfa detectors, and labeled sensing datasets.">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Cdefs%3E%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%22%20x2%3D%221%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23173a8a%22/%3E%3Cstop%20offset%3D%22.5%22%20stop-color%3D%22%232fd0c0%22/%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23e2632e%22/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect%20width%3D%2264%22%20height%3D%2264%22%20rx%3D%2212%22%20fill%3D%22%230b111b%22/%3E%3Ctext%20x%3D%2232%22%20y%3D%2242%22%20font-family%3D%22Segoe%20UI%2CArial%2Csans-serif%22%20font-size%3D%2236%22%20font-weight%3D%22700%22%20fill%3D%22%232e9bff%22%20text-anchor%3D%22middle%22%3ES%3C/text%3E%3Crect%20x%3D%2214%22%20y%3D%2250%22%20width%3D%2236%22%20height%3D%225%22%20rx%3D%222.5%22%20fill%3D%22url%28%23g%29%22/%3E%3C/svg%3E">
+<link rel="canonical" href="https://jaewoo4200.github.io/SEAM/en/guides/sensing.html">
+<link rel="alternate" hreflang="ko" href="https://jaewoo4200.github.io/SEAM/ko/guides/sensing.html">
+<link rel="alternate" hreflang="en" href="https://jaewoo4200.github.io/SEAM/en/guides/sensing.html">
+<meta name="theme-color" content="#0b111b" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f4f7fc" media="(prefers-color-scheme: light)">
+<style>
+:root{
+  --bg:#0b111b; --panel:#141d2b; --line:#233246; --ink:#e2eaf4; --mut:#8a9cb0;
+  --acc:#2e9bff; --mut2:#6f8299; --link-mut:#8fb4dd; --code-acc:#7bb8f5;
+}
+:root[data-theme="light"]{ --bg:#f4f7fc; --panel:#ffffff; --line:#dde5ef; --ink:#17242f; --mut:#54677a; --acc:#1f77dd; --mut2:#54677a; --link-mut:#3a6ea5; --code-acc:#2f6595 }
+@media (prefers-color-scheme: light){
+  :root:not([data-theme="dark"]){ --bg:#f4f7fc; --panel:#ffffff; --line:#dde5ef; --ink:#17242f; --mut:#54677a; --acc:#1f77dd; --mut2:#54677a; --link-mut:#3a6ea5; --code-acc:#2f6595 }
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:16px/1.7 "Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,sans-serif}
+img{max-width:100%;display:block}
+a{color:var(--acc);text-decoration:none}
+a:hover{text-decoration:underline}
+.mono{font-family:"Cascadia Code",Consolas,ui-monospace,monospace}
+.wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+
+/* top tab bar (flat research-site style) */
+.topbar{position:sticky;top:0;z-index:20;background:var(--panel);border-bottom:1px solid var(--line)}
+.topbar .in{max-width:1120px;margin:0 auto;padding:0 24px;display:flex;align-items:center;gap:20px;height:52px}
+.topbar .brand{font:700 15px/1 "Segoe UI Variable Display","Segoe UI",sans-serif;color:var(--ink);letter-spacing:-.01em;white-space:nowrap}
+.topbar .brand .studio{color:var(--acc)}
+.topbar a{text-decoration:none}
+.topbar nav.tabs{display:flex;gap:2px;overflow-x:auto;scrollbar-width:none;flex:1}
+.topbar nav.tabs::-webkit-scrollbar{display:none}
+.topbar nav.tabs a{color:var(--mut);font-size:13.5px;font-weight:600;padding:6px 11px;border-radius:4px;white-space:nowrap}
+.topbar nav.tabs a:hover{color:var(--ink);text-decoration:none}
+.topbar nav.tabs a.active{color:var(--acc)}
+.topbar .side{display:flex;gap:10px;align-items:center;white-space:nowrap}
+.topbar .side .lang{font-family:Consolas,monospace;font-size:12px;letter-spacing:.08em;color:var(--mut)}
+.topbar .side .lang a{color:var(--link-mut)}
+.topbar .side .lang b{color:var(--ink)}
+.topbar .side .lang span{margin:0 5px;color:var(--mut2)}
+.theme-sw{display:flex;gap:2px;background:transparent;border:1px solid var(--line);border-radius:999px;padding:3px}
+.theme-sw button{font:600 11px/1 Consolas,monospace;letter-spacing:.04em;color:var(--mut);
+  background:transparent;border:0;border-radius:999px;padding:5px 9px;cursor:pointer}
+.theme-sw button[aria-pressed="true"]{background:var(--acc);color:#04101f}
+a:focus-visible,button:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+
+/* docs layout */
+.docwrap{display:grid;grid-template-columns:230px minmax(0,1fr);gap:44px;padding:44px 0 72px}
+@media (max-width:860px){ .docwrap{grid-template-columns:1fr} aside.sidenav{position:static;order:2;border-top:1px solid var(--line);padding-top:20px} }
+aside.sidenav{position:sticky;top:76px;align-self:start}
+aside.sidenav .cap{font-family:Consolas,monospace;font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--mut2);margin:0 0 10px}
+aside.sidenav a{display:block;color:var(--mut);font-size:13.5px;padding:6px 10px;border-left:2px solid var(--line);text-decoration:none}
+aside.sidenav a:hover{color:var(--ink)}
+aside.sidenav a.active{color:var(--acc);border-left-color:var(--acc);font-weight:600}
+aside.sidenav .all{margin-top:12px;border-left:0;padding-left:10px;font-weight:600;color:var(--link-mut)}
+
+article{max-width:820px;min-width:0}
+article .eyebrow{font-family:Consolas,monospace;font-size:12px;letter-spacing:.22em;color:var(--acc);text-transform:uppercase}
+article h1{font:650 clamp(28px,4vw,40px)/1.15 "Segoe UI Variable Display","Segoe UI",sans-serif;letter-spacing:-.02em;margin:8px 0 10px}
+article p.lead{color:var(--mut);font-size:16.5px;margin:0 0 8px}
+article .spectrum{height:3px;background:linear-gradient(90deg,#173a8a,#2e9bff,#2fd0c0,#8fd45e,#e8b93c,#e2632e);border-radius:2px;width:110px;margin:18px 0 26px}
+article h2{font:650 22px/1.3 "Segoe UI Variable Display","Segoe UI",sans-serif;margin:40px 0 12px;padding-top:18px;border-top:1px solid var(--line)}
+article h3{font:600 17px/1.35 "Segoe UI",sans-serif;margin:26px 0 8px}
+article p{margin:10px 0;color:var(--ink)}
+article p.note, article li{color:var(--ink)}
+article ul,article ol{padding-left:24px;margin:10px 0}
+article li{margin:5px 0}
+article table{border-collapse:collapse;width:100%;font-size:14px;margin:14px 0;display:block;overflow-x:auto}
+article th,article td{border:1px solid var(--line);padding:8px 12px;text-align:left;vertical-align:top}
+article th{background:var(--panel);font-weight:600}
+article code{font-family:"Cascadia Code",Consolas,ui-monospace,monospace;font-size:.92em;color:var(--code-acc);background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:1px 6px}
+article pre{background:#0e1622;border:1px solid #233246;border-radius:6px;padding:16px 18px;overflow-x:auto;
+  font-family:"Cascadia Code",Consolas,monospace;font-size:13px;line-height:1.8;color:#cfe0f2;margin:14px 0}
+article pre code{background:none;border:0;padding:0;color:inherit}
+article figure.doc-shot{margin:20px 0;background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+article figure.doc-shot img{width:100%}
+article figure.doc-shot figcaption{padding:10px 14px;font-size:13px;color:var(--mut);border-top:1px solid var(--line)}
+article blockquote{margin:14px 0;padding:10px 16px;border-left:3px solid var(--acc);background:var(--panel);border-radius:0 6px 6px 0;color:var(--mut);font-size:14.5px}
+article blockquote p{color:var(--mut)}
+.pn{display:flex;justify-content:space-between;gap:14px;margin-top:48px;padding-top:18px;border-top:1px solid var(--line);font-size:14px;font-weight:600}
+.pn a{max-width:48%}
+.pn .lbl{display:block;font:400 11px/1 Consolas,monospace;letter-spacing:.14em;text-transform:uppercase;color:var(--mut2);margin-bottom:4px}
+
+footer{border-top:1px solid var(--line)}
+.fineprint{padding:26px 0 40px;color:var(--mut2);font-size:12.5px;line-height:1.8;text-align:center}
+.fineprint a{color:var(--link-mut)}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="in">
+    <a class="brand" href="../">SEAM <span class="studio">Studio</span></a>
+    <nav class="tabs" aria-label="Site">
+      <a href="../">Overview</a>
+      <a href="../#features">Features</a>
+      <a href="../#capabilities">Capabilities</a>
+      <a href="../#agent">SEAM-Agent</a>
+      <a class="active" href="./">Guides</a>
+      <a href="../#quickstart">Quickstart</a>
+    </nav>
+    <div class="side">
+      <nav class="theme-sw" aria-label="Theme"><button data-theme="auto">Auto</button><button data-theme="light">Light</button><button data-theme="dark">Dark</button></nav>
+      <nav class="lang" aria-label="Language"><a href="../../ko/guides/sensing.html">KO</a><span>·</span><b>EN</b></nav>
+    </div>
+  </div>
+</div>
+
+<div class="wrap docwrap">
+  <aside class="sidenav">
+    <p class="cap">User guides</p>
+    <a href="getting_started.html">Getting started</a>
+    <a href="scene_import.html">Importing scenes</a>
+    <a href="materials_and_ai.html">RF materials &amp; AI</a>
+    <a href="simulation.html">Simulating</a>
+    <a href="trajectory_uav.html">Trajectories &amp; UAVs</a>
+    <a href="datasets_export.html">ML datasets &amp; exports</a>
+    <a class="active" href="sensing.html">Radar sensing &amp; ISAC</a>
+    <a href="playback_dashboard.html">Multimodal playback</a>
+    <a class="all" href="./">← All guides</a>
+  </aside>
+
+  <article>
+    <div class="eyebrow">Guide 07 · SEAM Studio docs</div>
+    <h1>Radar sensing: RCS targets, echo solves, and Doppler</h1>
+    <p class="lead">SEAM Studio can treat any actor (car, pedestrian, UAV, custom object) as a <b>radar sensing target</b> and solve the echo paths TX → target → RX with Sionna RT's radar cross-section solver (<code>sionna.rt.rcs.RCSSolver</code>, new in sionna-rt 2.2). Every echo carries its own Doppler shift, so a moving target shows up as a colored velocity signature in the viewport. Without sionna-rt 2.2 the whole workflow still runs on the <b>Mock backend</b> (bistatic radar equation), so you can try it without a GPU.</p>
+
+    <div class="spectrum"></div>
+
+    <p>The <b>Sample Demo</b> (v0.1.14 and later) is ready for sensing: it ships a
+    drone target (<code>uav_001</code>, TR 38.901 <code>uav-small-size</code>, flying a 90 m L at 40 m
+    and 10 m/s, then hovering) and a sensing receiver co-located with the rooftop
+    TX (<code>tx_001_rx</code>, "TX 1 sensing RX"), so the API examples below run on
+    <code>sample_demo</code> as they are. A project created before v0.1.14 keeps its devices
+    and actors; add a target and a co-located RX yourself (§2, §3).</p>
+
+    <h2 id="1-what-rcs-is">1. What RCS is</h2>
+
+    <ul>
+      <li>The <b>radar cross-section</b> σ (m², or dBsm = 10·log10(σ / 1 m²)) is the
+        area of an isotropic re-radiator that would send back the same power as the
+        real target.</li>
+      <li>The received echo follows the bistatic radar equation
+        <code>Pr / Pt = Gt · Gr · λ² · σ / ((4π)³ · d1² · d2²)</code>, with d1 = TX→target and
+        d2 = target→RX. Monostatic (RX at the TX) gives the familiar <code>d⁴</code> law.</li>
+      <li>3GPP <b>TR 38.901 §7.9</b> goes further: each target type has one or more
+        scattering points whose RCS depends on the incident/scattered directions
+        (angular lobes), plus optional random components. Sionna RT 2.2 implements
+        that model; SEAM exposes it per actor.</li>
+    </ul>
+
+    <h2 id="2-binding-an-actor">2. Binding an actor</h2>
+
+    <p>Select an actor and open <b>Inspector → Sensing target</b>. The binding is
+    stored on the actor as <code>actor.sensing</code> (see
+    <a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/scene_format.md">../scene_format.md</a>); <code>null</code> means "not a target".</p>
+
+    <p><b>Model</b> is one of:</p>
+
+    <ul>
+      <li><b>TR 38.901</b> (<code>"tr38901"</code>) — the 3GPP target models below. <code>object_type</code>
+        defaults from the actor kind (car → <code>vehicle-multi-sp</code>, human → <code>human</code>,
+        UAV → <code>uav-small-size</code>); a <code>custom</code> actor must pick one. <code>model_type</code>
+        defaults to the highest model the type defines.</li>
+      <li><b>Constant RCS</b> (<code>"constant"</code>) — one isotropic scattering point at the
+        target center with <code>rcs_dbsm</code> (blank = 0 dBsm) and an optional <code>xpr_db</code>
+        cross-polarization ratio (blank = no depolarization).</li>
+    </ul>
+
+    <table>
+      <thead>
+        <tr><th><code>object_type</code></th><th>Model types</th><th>Default for kind</th><th>Mean monostatic σ_M (dBsm)</th><th>Scattering points</th><th>TR 38.901 default size L×W×H (m)</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>uav-small-size</code></td><td>1</td><td>uav</td><td>−12.81</td><td>1</td><td>0.3 × 0.4 × 0.2</td></tr>
+        <tr><td><code>uav-large-size</code></td><td>2</td><td>—</td><td>−5.85</td><td>1</td><td>1.6 × 1.5 × 0.7</td></tr>
+        <tr><td><code>human</code></td><td>1, 2</td><td>human</td><td>−1.37</td><td>1</td><td>0.5 × 0.5 × 1.75</td></tr>
+        <tr><td><code>vehicle-single-sp</code></td><td>2</td><td>—</td><td>11.25</td><td>1</td><td>5.0 × 2.0 × 1.6</td></tr>
+        <tr><td><code>vehicle-multi-sp</code></td><td>2</td><td>car</td><td>11.25</td><td>5 (left, back, right, front, roof)</td><td>5.0 × 2.0 × 1.6</td></tr>
+        <tr><td><code>agv-single-sp</code></td><td>2</td><td>—</td><td>−4.25</td><td>1</td><td>0.5 × 1.0 × 0.5</td></tr>
+        <tr><td><code>agv-multi-sp</code></td><td>2</td><td>—</td><td>−4.25</td><td>5</td><td>0.5 × 1.0 × 0.5</td></tr>
+      </tbody>
+    </table>
+
+    <p>Plain <code>"vehicle"</code> / <code>"agv"</code> are not valid: Sionna requires the single- or
+    multi-scattering-point variant. A model type the object type does not define
+    (e.g. model 2 on <code>uav-small-size</code>) is rejected with a 422 on save.</p>
+
+    <p>Other fields (both models unless noted):</p>
+
+    <table>
+      <thead>
+        <tr><th>Field</th><th>Meaning</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>size_m</code></td><td>Target cuboid <code>[length, width, height]</code> m. Blank = the actor's own box size (<code>shape.size_m</code>) — not the TR 38.901 default above. Mesh actors should set it.</td></tr>
+        <tr><td><code>velocity_m_s</code></td><td>World-frame velocity of the target. Blank = the actor trajectory's tangent at t = 0; a static actor is at rest.</td></tr>
+        <tr><td><code>random_components</code></td><td>TR 38.901 only: draw σ_S, XPR and initial phases per direction pair (off = deterministic RCS).</td></tr>
+        <tr><td><code>enabled</code></td><td>Untick to keep the binding but skip the target.</td></tr>
+      </tbody>
+    </table>
+
+    <p>The target cuboid is centered at the actor base plus half its height and
+    takes the actor's <code>[yaw, pitch, roll]</code>. When the velocity comes from the
+    trajectory (blank <code>velocity_m_s</code> on an actor with waypoints), the whole pose
+    does too: the base sits at the trajectory's t = 0 position and the yaw faces
+    the direction of travel, exactly as playback shows the first frame, so the
+    scattering lobes and the Doppler describe the same motion. An explicit
+    <code>velocity_m_s</code> keeps the authored pose. Other actors with a trajectory keep
+    their authored pose in the solve but move at their t = 0 velocity, so legs
+    that reflect off them carry their Doppler. Plain paths solves follow the
+    same rule (§4).</p>
+
+    <h2 id="3-running-a-sensing-solve">3. Running a sensing solve</h2>
+
+    <p>Place at least one TX and one RX. For <b>monostatic</b> sensing put an RX at the
+    TX position; any other RX gives a <b>bistatic</b> geometry. Then choose
+    <b>Actions ▾ → Sensing solve</b> in Results mode. The solve covers every actor
+    whose binding is enabled and persists as a <code>sensing</code> result set (it appears
+    in the run history like any other solve).</p>
+
+    <p>The same solve over the API:</p>
+
+    <pre><code>curl -X POST http://127.0.0.1:8000/api/projects/sample_demo/simulate/sensing \
+  -H "Content-Type: application/json" \
+  -d '{"config": {"backend": "auto", "frequency_hz": 28e9}, "include_comm_paths": false}'
+curl http://127.0.0.1:8000/api/projects/sample_demo/results/sensing   # latest stored result</code></pre>
+
+    <table>
+      <thead>
+        <tr><th>Request field</th><th>Meaning</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>config_id</code> / <code>config</code></td><td>Solver configuration, exactly as for <code>/simulate/paths</code>.</td></tr>
+        <tr><td><code>tx_ids</code> / <code>rx_ids</code></td><td>Override the config's device selection.</td></tr>
+        <tr><td><code>target_actor_ids</code></td><td>Restrict the solve to these actors (default: every enabled binding).</td></tr>
+        <tr><td><code>max_depth</code></td><td>RCS depth. It <b>counts the scattering event itself</b>, so <code>1</code> = direct legs only and each leg can bounce at most <code>max_depth − 1</code> times. Default <code>max(1, config.max_depth)</code>.</td></tr>
+        <tr><td><code>samples_per_sp</code></td><td>Rays launched per scattering point (default 1 000 000).</td></tr>
+        <tr><td><code>include_comm_paths</code></td><td>Also run the normal paths solve and append its paths after the echoes (<code>target_id</code> null, ids <code>path_…</code>). In that solve each target stands in for its actor as an absorber cuboid (how Sionna's <code>PathSolver</code> treats sensing targets), so no comm path also reflects off the target's own mesh.</td></tr>
+      </tbody>
+    </table>
+
+    <p><b>Backends.</b> <code>sionna</code> runs <code>RCSSolver</code> (LoS, specular reflection and
+    refraction legs). <code>mock</code> evaluates the bistatic radar equation over one
+    scattering point at each target center (LoS legs, no occlusion), with each
+    device's element gain toward the target and the per-leg polarization term of
+    §8 (v0.1.14; earlier mock echoes were isotropic). <code>auto</code> picks sionna when
+    sionna-rt ≥ 2.2 is installed and has a working Dr.Jit backend (a CUDA GPU, or
+    LLVM on the CPU: see <a href="https://github.com/jaewoo4200/SEAM/blob/master/INSTALL.md#the-real-sionna-rt-engine-installed-automatically">INSTALL</a>),
+    and otherwise falls back to the mock with a warning; an explicit
+    <code>"backend": "sionna"</code> on an older sionna-rt answers <b>409</b> (<code>sensing requires sionna-rt&gt;=2.2</code>). Requests with no bound actor, an unknown actor or device id,
+    or no TX/RX answer <b>400</b>.</p>
+
+    <p><b>Antennas.</b> Sionna applies the first selected TX's (RX's) antenna to every
+    TX (RX) and warns when they differ; the mock applies each device's own
+    element pattern and orientation (and the polarization term of §8).</p>
+
+    <h2 id="4-reading-doppler">4. Reading Doppler</h2>
+
+    <p>Each echo path carries <code>doppler_hz</code>, <b>positive when the path is closing</b>
+    (target approaching). For a single scattering point Sionna computes</p>
+
+    <p><code>f_D = (v_tx · k̂₁ − v_rx · k̂₂ + v_t · (k̂₂ − k̂₁)) / λ</code></p>
+
+    <p>with k̂₁ the unit vector TX → target and k̂₂ target → RX; a target receding
+    from a monostatic radar at v gives −2v/λ (−1868 Hz at 10 m/s, 28 GHz).</p>
+
+    <p>In the viewport, tick <b>Show: Sensing</b> in the Results panel: echo paths are
+    colored by Doppler (red approaching, gray static, blue receding) with a
+    legend, and every scattering point gets a marker. The <b>sensing card</b> lists
+    each target (model, scattering points, σ, path count) and the strongest
+    echoes (power, delay, Doppler).</p>
+
+    <p><b>Comm paths.</b> On the Sionna backend, paths solves give actors a velocity
+    too, so a communication path that reflects off a moving actor is
+    Doppler-shifted even when the TX and RX are static. Each bounce off an actor
+    moving at v adds <code>v · (k̂_out − k̂_in) / λ</code>, with k̂_in the unit vector into
+    the bounce and k̂_out the one leaving it. For example, a
+    car 20 m out, driving away at 10 m/s from a static TX/RX pair 8 m apart,
+    gives about −228 Hz at 3.5 GHz on its face reflection and 0 Hz on the LoS
+    and ground paths. Which velocity an actor gets:</p>
+
+    <ul>
+      <li><b>Simulate scenario</b>: the actor's velocity at each frame's time.</li>
+      <li><b>Every other paths solve</b> (Simulate paths, channel analysis, datasets,
+        UE trajectories, GT playback, <code>include_comm_paths</code>): the trajectory
+        velocity at t = 0. These solves do not move actors between steps, so each
+        actor stays at its authored pose for the whole run.</li>
+      <li><b>An actor without a trajectory</b> is at rest.</li>
+      <li><b>The actor whose path a dataset samples</b> (<code>sampling.actor_id</code>) is at
+        rest as well: the UE travels that path while the actor's mesh stays
+        parked at its authored pose.</li>
+    </ul>
+
+    <p>A device attached to a moving actor (<code>attached_device_ids</code>) moves with it
+    at the actor's velocity, in every solve above and in a sensing solve.
+    Outside Simulate scenario, a device's own <code>velocity_m_s</code> takes precedence.
+    A UE riding a car is therefore Doppler-shifted on every path, the LoS
+    included.</p>
+
+    <p>A plain solve reports this Doppler in <code>metadata.doppler_hz</code>, a list aligned
+    with <code>paths</code>. The list is present when the TX or RX has a velocity or any
+    actor in the scene moves at t = 0, even if no path touches that actor (the
+    paths then read 0 Hz); an all-static solve has no Doppler field, as before.
+    The comm paths of a sensing result also carry it per path, in
+    <code>doppler_hz</code>. The mock backend has
+    no Doppler on paths solves, and alternate <code>engine</code>s (subprocess worker) apply
+    no velocities.</p>
+
+    <h2 id="5-export">5. Export</h2>
+
+    <ul>
+      <li><b>RFData</b> (<code>POST /export/rfdata</code>) writes <code>export/rfdata/sensing.json</code> when a
+        sensing result exists: target summaries plus the echo paths
+        (<code>type: "SENSING"</code>, <code>doppler_hz</code>, <code>target_id</code>); <code>has_sensing</code> in the summary.</li>
+      <li><b>AODT parquet</b> (<code>POST /export/aodt</code> with <code>"source": "sensing"</code>) writes one
+        snapshot of the stored sensing result. Each row runs <code>"emission"</code> …
+        <code>"reception"</code>; AODT has no sensing token, so the target vertex uses its
+        documented diffuse-scattering token <code>"diffuse"</code>; its <code>object_ids</code> entry is
+        1 000 000 + the target's position in <b>sorted actor-id order</b> (not the
+        order of <code>targets</code>); map it back with <code>sensing_targets</code> in <code>id_map.json</code>.</li>
+      <li><b>Channel npz</b> (<code>POST /export/channel-npz</code> with <code>"include_sensing": true</code>)
+        appends each echo to the UE × TX link whose UE sits at the echo's RX and
+        whose TX still sits at the echo's TX (1 mm match) before strongest-first
+        sorting; <code>is_nlos</code> ignores echoes and <code>sensing_path_count</code> reports how many
+        were matched. The per-UE comm solves treat the result's targets as absorbers
+        (as <code>include_comm_paths</code> does). A sensing result solved at another
+        frequency answers <b>400</b>; echoes whose TX has moved since are skipped with
+        a warning.</li>
+      <li><b>Sensing dataset</b> (<code>POST /export/sensing-dataset</code>) flattens the sensing
+        frames of scenario results into links and echoes tables (§10).</li>
+    </ul>
+
+    <h2 id="6-sensing-over-time-detection-and-multistatic-fusion">6. Sensing over time: detection and multistatic fusion</h2>
+
+    <p>A sensing solve is one snapshot. <b>Simulate scenario</b> with sensing on runs a
+    sensing solve in <b>every frame</b>, at the frame's actor poses and velocities
+    (and rider positions), turns each echo into a per-link detection, and fuses
+    the detected links into a position/velocity estimate that is scored against
+    the true actor track.</p>
+
+    <p><b>Running it.</b> In Results mode open <b>Scenario playback</b>, tick
+    <b>Sensing (ISAC)</b> under <em>Include paths</em>, set the threshold, CPI and
+    integrated pulses, pick the <b>Sensing receivers</b> (default <b>Auto</b>, below),
+    and run. The checkbox stays disabled until at least one actor has an enabled
+    sensing binding. Over the API, add a <code>sensing</code> block to the scenario request:</p>
+
+    <pre><code>curl -X POST http://127.0.0.1:8000/api/projects/sample_demo/simulate/scenario \
+  -H "Content-Type: application/json" \
+  -d '{"config_id": "default", "num_frames": 19, "dt_s": 0.5, "include_paths": false,
+       "sensing": {"enabled": true, "threshold_db": 13, "cpi_s": 0.01,
+                   "cpi_pulses": 1000000, "measurement_noise": true}}'</code></pre>
+
+    <p>On the Sample Demo that covers the drone's 9 s flight. The demo's 28 GHz
+    config has a 100 MHz bandwidth, so the example integrates the whole 10 ms CPI,
+    B · cpi_s = 10⁶ samples (+60 dB): the drone, 40–53 m from the 30 dBm rooftop
+    TX, then clears the 13 dB threshold (23–28 dB on the mock), while 4096 pulses
+    (+36 dB) leave every frame <code>below_threshold</code>. On the mock 16 of the 19 frames
+    detect it; the other three are <code>mti_rejected</code> (Doppler under the 100 Hz MTI
+    notch): t = 1.5 s and 7.5 s, where the drone flies almost across the line of
+    sight, and t = 9 s, where it has stopped. It has one TRP, so each frame has a single
+    monostatic link: detection, range and Doppler per frame, but the fusion needs
+    three distinct links and reports <code>insufficient_links</code>. Add TRPs (a TX with a
+    co-located RX each) for multistatic fusion and tracking.</p>
+
+    <p>The result is an ordinary <code>scenario</code> result. Each frame gains
+    <code>sensing: {echoes, links, estimates}</code> and <code>metadata.sensing</code> holds the run
+    summary. With <code>sensing</code> absent or <code>enabled: false</code> the result is the same as
+    before (each frame's <code>sensing</code> is <code>null</code>). Comm and sensing share one backend:
+    <code>auto</code> resolves as for any scenario, and a backend without sensing (sionna-rt
+    &lt; 2.2) answers <b>409</b> instead of falling back to the mock. No TX or no RX
+    answers <b>400</b>, and so does no bound actor, an unknown
+    <code>target_actor_ids</code> entry or a <code>sensing_rx_ids</code> entry that is not a selected
+    RX. The run holds the per-project solve lock and
+    reports progress per frame, and <b>Cancel</b> works.</p>
+
+    <p>A scenario with sensing always stores every frame's echoes (whatever
+    <code>include_paths</code> says): about 45 KB per frame on sionna with 16 links
+    (≈ 2.6 MB for 61 frames, ≈ 45 MB per 1 000 frames), which the browser also
+    loads. (Results are stored as compact JSON since v0.1.14; the pretty-printed
+    files of earlier versions were about twice that size.)</p>
+
+    <table>
+      <thead>
+        <tr><th><code>sensing</code> field</th><th>Default</th><th>Meaning</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>enabled</code></td><td><code>false</code></td><td>Run the per-frame sensing solve.</td></tr>
+        <tr><td><code>threshold_db</code></td><td>13</td><td>Detection threshold on the post-integration SNR (dB, −30…60).</td></tr>
+        <tr><td><code>cpi_s</code></td><td>0.01</td><td>Coherent processing interval (s). Doppler resolution = 1 / CPI.</td></tr>
+        <tr><td><code>cpi_pulses</code></td><td>1</td><td>Coherently integrated pulses or OFDM resource elements. Gain = 10·log10(N).</td></tr>
+        <tr><td><code>mti_min_doppler_hz</code></td><td><code>null</code></td><td>MTI notch: |f_D − f_nodes| below it is rejected (f_nodes = 0 with static TX/RX; see MTI below). <code>null</code> = 1 / CPI (one Doppler cell); <code>0</code> disables MTI.</td></tr>
+        <tr><td><code>include_comm_paths</code></td><td><code>false</code></td><td>Also solve each frame's comm paths with the targets as absorbers and append them to <code>echoes</code> (<code>target_id</code> null). One extra solve per frame.</td></tr>
+        <tr><td><code>target_actor_ids</code></td><td><code>null</code></td><td>Restrict to these actors (default: every enabled binding).</td></tr>
+        <tr><td><code>sensing_rx_ids</code></td><td><code>null</code></td><td>Bistatic radar receivers. <code>null</code> = auto: the selected RX within 1 m of a selected TX (as §7/§8), else every selected RX (v0.1.13). Comm links still cover every RX. Unknown id: 400.</td></tr>
+        <tr><td><code>samples_per_sp</code> / <code>max_depth</code></td><td>1 000 000 / <code>null</code></td><td>Passed to each frame's sensing solve, as in §3.</td></tr>
+        <tr><td><code>measurement_noise</code></td><td><code>false</code></td><td>Add Gaussian noise to the range and Doppler fed to the fusion (below).</td></tr>
+        <tr><td><code>noise_seed</code></td><td>0</td><td>Seed of that noise. Same seed = same numbers.</td></tr>
+        <tr><td><code>tracking</code></td><td><code>null</code></td><td>EKF tracking over the frames (see <em>Tracking (EKF)</em> below): <code>{"enabled": true}</code> plus optional <code>process_accel_sigma_m_s2</code> (2), <code>gate_chi2</code> (16), <code>coast_max_frames</code> (10), <code>max_position_std_m</code> (25), <code>use_as_prior</code> (<code>true</code>). <code>null</code> or <code>enabled: false</code> = no tracking.</td></tr>
+        <tr><td><code>pfa</code></td><td><code>null</code></td><td>False-alarm probability of a per-link <code>pd</code> (§9). <code>null</code> = the link reports carry no Pd.</td></tr>
+        <tr><td><code>detector</code></td><td>Swerling 1, no Monte Carlo</td><td>Model of that <code>pd</code>, and <code>monte_carlo_trials</code> for a Monte Carlo <code>pd_mc</code> per link with an echo (§9; needs <code>pfa</code>). Detection itself stays <code>SNR ≥ threshold_db</code>.</td></tr>
+      </tbody>
+    </table>
+
+    <p><b>Sensing receivers.</b> Only the sensing receivers form radar links; every
+    selected RX keeps its comm link in the same frames. In the form, <b>Auto</b>
+    (the default) sends nothing; picking devices from the list sends
+    <code>sensing_rx_ids</code>. Auto is the §7/§8 rule: the selected RXs within 1 m of a
+    selected TX (monostatic/TRP receivers) when there is at least one, else every
+    selected RX. The resolved list and the rule (<code>explicit</code>, <code>colocated</code> or
+    <code>all_rx</code>) are stored in <code>metadata.sensing.sensing_rx_ids</code> and
+    <code>sensing_rx_rule</code>. <b>v0.1.14:</b> a project with co-located RXs now uses only
+    those as radar receivers by default; before, every selected RX (UEs
+    included) was a bistatic radar receiver. A project without co-located RXs
+    runs exactly as in v0.1.13.</p>
+
+    <p><b>Detection.</b> For each TX → sensing RX link and target, the strongest <b>direct</b>
+    echo (TX → scattering point → RX, no other bounce) is reported. If there is
+    none, the strongest echo of any kind is reported and flagged <code>multipath</code>. Then</p>
+
+    <p><code>SNR = P_echo − (−174 + 10·log10(B) + NF) + 10·log10(cpi_pulses)</code>  [dB]</p>
+
+    <p>with B = <code>config.bandwidth_hz</code> and NF = <code>config.noise_figure_db</code>.
+    <code>cpi_pulses</code> counts the samples integrated coherently over the CPI: radar
+    pulses, or OFDM resource elements (subcarriers × symbols). The full CPI caps
+    it at <code>B · cpi_s</code> (20 MHz × 10 ms = 2·10⁵, +53 dB). A link is <b>detected</b>
+    when <code>SNR ≥ threshold_db</code> and <code>|f_D − f_nodes| ≥ mti_min_doppler_hz</code> (below).</p>
+
+    <p><b>MTI.</b> The notch defaults to one Doppler cell, 1 / CPI (100 Hz at 10 ms).
+    That rejects everything slower than the monostatic <b>blind speed</b>
+    λ · f_min / 2: 4.28 m/s at 3.5 GHz and 0.54 m/s at 28 GHz (10 ms CPI). With
+    static TX and RX, static scene returns sit at 0 Hz, so MTI is what separates
+    the drone from the buildings. A TX or RX riding a moving actor shifts the
+    static scene too, so the notch is centred on that shift: f_nodes =
+    (v_tx · k̂_dep − v_rx · k̂_arr) / λ, the Doppler a static scatterer on the
+    echo's own path would have (k̂_dep = TX → first bounce, k̂_arr = last
+    bounce → RX; 0 for static nodes). A hovering drone seen from a moving radar
+    is therefore rejected, and one flying alongside it is detected. The
+    reported <code>doppler_hz</code> stays the raw f_D. Comm paths and clutter are never
+    target echoes, so they never count as a detection either way. Set
+    <code>mti_min_doppler_hz: 0</code> to switch MTI off.</p>
+
+    <p><b>Fusion.</b> Per target and frame, the detected direct echoes are sorted by
+    SNR, and links between the same two sites, in either order (a reciprocal
+    pair, or a repeated link), are kept once, the strongest. A site is a cluster
+    of TX/RX positions chained within 1 m, the co-location rule §7 and §8 use
+    too, so a sensing RX up to 1 m from its TX is the same focus (v0.1.12 merged
+    foci within 0.5 m). With at least <b>3</b> geometrically distinct links, the
+    position p solves the bistatic range sums</p>
+
+    <p><code>|p − TX_i| + |p − RX_i| = R_i</code>,  R_i = c · τ_i</p>
+
+    <p>by Gauss–Newton. Each R_i is an ellipsoid with foci TX_i and RX_i (a sphere
+    for a monostatic link). Rooftop TRPs are nearly coplanar, so the ellipsoids
+    also meet at a mirror image across that plane. The solver therefore starts
+    from the previous frame's estimate (advanced by its velocity) and from
+    points above and below the TRPs; without a previous estimate it also starts
+    above each link's midpoint. A tie goes to the candidate nearest the previous
+    estimate. Without one it goes to the candidate nearest the ground (z = 0)
+    for a <code>car</code> or <code>human</code> target, and to the highest one otherwise (a drone is
+    assumed above the TRPs). With <code>measurement_noise</code> on, candidates whose cost
+    is within Δχ² ≤ 9 of the best (½·Σr² within 4.5σ̄², σ̄² = the mean of
+    σ² = ((c/B)/√(2·SNR))² over the links) also count as tied: with noisy ranges
+    the mirror often fits slightly better by chance. With exactly <b>3</b> links
+    every root fits exactly, so the cost cannot choose: without a previous
+    estimate, two or more distinct roots not underground (z ≥ −2 m) make the
+    estimate <code>diverged</code> (ambiguous). The velocity then
+    follows from a linear least-squares fit of the measured Doppler with the
+    convention of §4 (positive = closing):</p>
+
+    <p><code>λ · f_D,i + v_rx · k̂₂ − v_tx · k̂₁ = v_t · (k̂₂ − k̂₁)</code></p>
+
+    <p>Three links that touch only <b>two</b> nodes (TRP A monostatic, B monostatic and
+    A→B) are degenerate. All three ellipsoids are symmetric about the A–B axis,
+    so the solutions form a circle, and the estimate reports <code>diverged</code>.</p>
+
+    <p><b>Reading the output.</b></p>
+
+    <ul>
+      <li><code>links[]</code> has one row per TX × sensing RX × target, in that order: <code>bistatic_range_m</code>,
+        <code>doppler_hz</code>, <code>snr_db</code>, the <code>measured_*</code> values the fusion used, <code>range_bin</code>
+        (floor(R / (c/B))), <code>doppler_bin</code> (round(f_D · CPI)) and <code>reason</code>:
+        <code>detected</code>, <code>below_threshold</code>, <code>mti_rejected</code> or <code>no_echo</code>. With <code>pfa</code>
+        set, <code>pd</code> (and <code>pd_mc</code>) give the detection probability of <code>snr_db</code> (§9);
+        no echo gives <code>pd = pfa</code>.</li>
+      <li><code>estimates[]</code> has one row per target: <code>status</code> is <code>ok</code>,
+        <code>insufficient_links</code> (&lt; 3 distinct links) or <code>diverged</code> (no convergence,
+        degenerate geometry, an ambiguous 3-link fit, or an RMS residual above one
+        range-sum cell c/B). It
+        also carries <code>links_used</code>, <code>position_est</code> / <code>velocity_est</code>, the truth
+        (<code>position_true</code> = the target cuboid center, <code>velocity_true</code>), and their
+        errors. <code>gdop</code> = sqrt(trace((JᵀJ)⁻¹)): the position error is about
+        GDOP × the range error. With tracking on, it also carries the <code>track_*</code>
+        fields (below).</li>
+      <li><code>nodes[]</code> lists every selected TX, then every sensing RX, with the position
+        and velocity the frame used (a device riding an actor moves with it).
+        Results from before v0.1.13 have <code>null</code> here.</li>
+      <li><code>metadata.sensing</code> holds the constants (noise floor, integration gain,
+        λ, range and Doppler resolutions, MTI notch, blind speed), the
+        <code>sensing_rx_ids</code> and <code>sensing_rx_rule</code> of the run and, per target,
+        <code>detection_rate</code> (frames with ≥1 detected link), <code>link_detection_rate</code>,
+        <code>frames_ge3_links_rate</code>, <code>ok_frames</code>, the median and p90 position error,
+        the median velocity error and the median GDOP.</li>
+    </ul>
+
+    <p><b>Velocity truth.</b> <code>velocity_true</code> (and the Doppler the solver uses) is the
+    trajectory tangent × speed. At an exact waypoint time it is the outgoing
+    leg's velocity, at the end of a <code>once</code> trajectory it is 0 (the actor stops),
+    and at a pingpong turnaround it is the reversed leg. Before v0.1.14 those
+    frames reported the average of the two legs (7.07 m/s at a 90° turn at
+    10 m/s) or half the speed, so Doppler and <code>velocity_true</code> at waypoint frames
+    changed in v0.1.14.</p>
+
+    <p>Without <code>measurement_noise</code> the measured values are the solver's exact
+    delay and Doppler, so an <code>ok</code> estimate is exact to rounding (useful as a
+    sanity check). The one exception is an exact mirror tie: when all nodes of
+    the fused links lie in one plane (always so for three nodes), the mirror
+    across that plane fits exactly too, and the tie rule above picks the side.
+    With <code>measurement_noise</code> on, the range and Doppler get noise of
+    σ = cell / sqrt(2 · SNR), with cell = c/B for range and 1/CPI for Doppler.
+    The noise is seeded per frame, link and target. Detection decisions always
+    use the exact values.</p>
+
+    <p><b>FR1 vs mmWave.</b> The echo SNR is</p>
+
+    <p><code>SNR = P_t G_t G_r λ² σ N_int / ((4π)³ R_t² R_r² · kTB · NF)</code></p>
+
+    <p>so at equal antennas, power and bandwidth the λ² term costs 28 GHz
+    20·log10(8) = <b>18.06 dB</b> against 3.5 GHz. Monostatic, P_t = 43 dBm,
+    isotropic antennas, <code>uav-small-size</code> (σ = −12.81 dBsm), B = 20 MHz, NF 7 dB,
+    <code>cpi_pulses</code> 4096 (+36.12 dB):</p>
+
+    <table>
+      <thead>
+        <tr><th>f</th><th>λ (m)</th><th>P_r at 200 m</th><th>SNR at 200 m</th><th>Range at 13 dB</th><th>MTI blind speed (10 ms)</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>3.5 GHz</td><td>0.0857</td><td>−116.17 dBm</td><td>13.94 dB (detected)</td><td>211 m</td><td>4.28 m/s</td></tr>
+        <tr><td>28 GHz</td><td>0.0107</td><td>−134.23 dBm</td><td>−4.12 dB (missed)</td><td>74.6 m</td><td>0.54 m/s</td></tr>
+      </tbody>
+    </table>
+
+    <p>The monostatic range therefore shrinks by 10^(−18.06/40) = ×0.354 at
+    28 GHz. Antenna arrays buy that back. The per-frame detection here still
+    counts single elements (see §11 Limits), but §7 synthesizes real codebook
+    beams and §8's <code>steered</code> mode adds the ideal array gain. The mmWave notch,
+    on the other hand, is 8× narrower in speed.</p>
+
+    <h3 id="tracking-ekf">Tracking (EKF)</h3>
+
+    <p>Fusion needs three distinct links in one frame. With
+    <code>"tracking": {"enabled": true}</code> in the <code>sensing</code> block (or <b>Tracking (EKF)</b>
+    in the form), a constant-velocity extended Kalman filter per target carries
+    the estimate from frame to frame. A frame with only one or two detected
+    links still refines it, and a frame with none still predicts.</p>
+
+    <ul>
+      <li><b>Motion.</b> State x = [p, v] in the world frame. Between frames (dt = the
+        frame spacing) x ← F·x and P ← F·P·Fᵀ + Q, with discrete white-noise
+        acceleration Q = σ_a²·[[dt⁴/4·I, dt³/2·I], [dt³/2·I, dt²·I]] and
+        σ_a = <code>process_accel_sigma_m_s2</code> (2 m/s²).</li>
+      <li><b>Measurements.</b> Every detected direct link of the target, strongest
+        first, gives two scalars: its range sum <code>measured_range_m</code>
+        (h = |p − TX| + |p − RX|) and its Doppler <code>measured_doppler_hz</code>
+        (h = (v_tx · k̂₁ − v_rx · k̂₂ + v · (k̂₂ − k̂₁)) / λ, the §4 sign). There is no
+        geometry merge here: two links of one ellipsoid are independent receiver
+        draws. σ_R = (c/B)/√(2·SNR) and σ_f = (1/CPI)/√(2·SNR) (at least 1 mm and
+        1 mHz), the <code>measurement_noise</code> rule, whether the noise is on or not. A
+        moving TX or RX enters with its frame position and velocity.</li>
+      <li><b>Update.</b> One scalar at a time, re-linearized at the current state:
+        ν = z − h(x), S = H·P·Hᵀ + σ². A scalar with ν²/S &gt; <code>gate_chi2</code> (16 = 4σ,
+        chi-square with 1 dof) is rejected and counted in <code>track_gated</code>. Otherwise
+        the Joseph-form update runs and it counts in <code>track_updates</code>.</li>
+      <li><b>Start.</b> The first frame whose fusion is <code>ok</code> starts the track at the
+        fused position and velocity (0 without a Doppler velocity). P starts at
+        max(GDOP²·σ̄_R²/3, 0.25 m²) per position axis (σ̄_R² = the mean σ_R² of the
+        fused links; 100 m² without a GDOP) and 25 (m/s)² per velocity axis
+        (400 without a velocity). That frame does not also update with the same
+        data.</li>
+      <li><b>Restart.</b> The track restarts from the frame's fusion when two things
+        hold together: the gate rejected at least one of the frame's scalars, and
+        the fusion is <code>ok</code> but outside the predicted track's 3-D gate. That gate
+        is a Mahalanobis distance² over P_pred + the start covariance above the
+        chi-square (3 dof) value with the tail of <code>gate_chi2</code> (22.1 for 16). A
+        waypoint corner is the usual case: the prediction keeps the old velocity,
+        the Doppler scalars that would correct it are gated, and the range sums
+        alone cannot turn it. The fusion test alone is not enough: the fusion's
+        error has heavier tails than its covariance says, so on a straight path
+        an occasional outlier fusion would replace a good track even though every
+        raw scalar of that frame agrees with it. Such a frame updates the track
+        instead.</li>
+      <li><b>Coast and loss.</b> A frame without an accepted scalar is <code>coasting</code>
+        (prediction only, P grows). On the frame that makes more than
+        <code>coast_max_frames</code> (10) of them in a row the track is dropped (<code>lost</code>). It
+        is also dropped once its posterior <code>track_position_std_m</code> exceeds
+        <code>max_position_std_m</code> (25 m): long stretches on one or two links keep it
+        <code>tracking</code> while it drifts along the directions they do not observe.
+        Either way it starts again at the next <code>ok</code> fusion.</li>
+      <li><b>Fusion prior.</b> With <code>use_as_prior</code> (default) the frame's Gauss–Newton
+        fusion starts from the track's prediction instead of the last <code>ok</code>
+        estimate advanced by its velocity. With <code>false</code> every fusion field is
+        exactly what it would be without tracking.</li>
+    </ul>
+
+    <p>Each <code>estimates[]</code> row then carries:</p>
+
+    <table>
+      <thead>
+        <tr><th>Field</th><th>Meaning</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>track_status</code></td><td><code>none</code> (no track yet), <code>init</code> (started or restarted from this frame's fusion), <code>tracking</code> (≥ 1 scalar accepted), <code>coasting</code> (none accepted), <code>lost</code> (dropped; until the next start)</td></tr>
+        <tr><td><code>track_position</code>, <code>track_velocity</code></td><td>Posterior state (<code>null</code> for <code>none</code> and <code>lost</code>)</td></tr>
+        <tr><td><code>track_position_error_m</code>, <code>track_velocity_error_m_s</code></td><td>Against <code>position_true</code> and <code>velocity_true</code></td></tr>
+        <tr><td><code>track_position_std_m</code></td><td>sqrt(trace(P_pos)): the 3-D RMS error the filter expects, comparable to <code>track_position_error_m</code></td></tr>
+        <tr><td><code>track_updates</code>, <code>track_gated</code></td><td>Scalars accepted and gated in this frame (0 and 0 on <code>init</code>; still counted on the frame the track is lost, <code>null</code> after it)</td></tr>
+      </tbody>
+    </table>
+
+    <p>With tracking off all of them are <code>null</code>. Per target, <code>metadata.sensing</code>
+    adds <code>tracked_frames</code> (<code>init</code>, <code>tracking</code> or <code>coasting</code>), <code>coasting_frames</code>,
+    <code>lost_frames</code>, <code>lost_by_std_frames</code> (drops by the <code>max_position_std_m</code> cap;
+    a frame whose own fusion restarts the track at once shows <code>init</code>, not
+    <code>lost</code>), the median and p90 track position error, the median track
+    velocity error, <code>frames_improved_over_fusion</code> (fusion <code>ok</code> and the track
+    closer to the truth) and <code>frames_track_without_fusion</code> (a track in a frame
+    whose fusion is not <code>ok</code>). The run adds <code>median_track_position_error_m</code> and
+    <code>tracking_model</code>.</p>
+
+    <h2 id="7-isac-trade-off-beams-and-slot-sharing">7. ISAC trade-off: beams and slot sharing</h2>
+
+    <p>One TRP panel cannot point at its UEs and at a drone at the same time. The
+    ISAC trade-off answers three questions per TX: which codebook beam serves
+    its UEs best (the <b>comm beam</b>), which one sees the targets best (the
+    <b>sensing beam</b>), and what sharing slots between the two costs in rate and
+    buys in detection probability.</p>
+
+    <p><b>Running it.</b> In Results mode open the <b>ISAC trade-off</b> panel, pick the
+    TXs (none ticked = all), the array size, the sweep, CPI pulses, P_fa, the
+    slot ratios and the sharing mode, and run. Over the API:</p>
+
+    <pre><code>curl -X POST http://127.0.0.1:8000/api/projects/sample_demo/simulate/isac \
+  -H "Content-Type: application/json" \
+  -d '{"config_id": "default", "tx_rows": 4, "tx_cols": 4,
+       "sweep_start_deg": -60, "sweep_stop_deg": 60, "sweep_step_deg": 5,
+       "cpi_pulses": 4096, "pfa": 1e-6, "sharing_mode": "dual_function"}'
+curl http://127.0.0.1:8000/api/projects/sample_demo/results/isac   # latest stored result</code></pre>
+
+    <p>The result persists as an <code>isac</code> result set (run history, prune, label).
+    Like <code>/simulate/sensing</code>, <code>auto</code> uses sionna when sionna-rt ≥ 2.2 is
+    installed and otherwise the mock with a warning, and an explicit sionna
+    without the RCS solver answers <b>409</b>. An unknown device or actor, no UE,
+    a TX without a sensing receiver, or <code>use_device_orientation: false</code> answers
+    <b>400</b> before anything is solved.</p>
+
+    <table>
+      <thead>
+        <tr><th>Request field</th><th>Default</th><th>Meaning</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>tx_ids</code></td><td><code>null</code></td><td>TXs to evaluate (default: every TX).</td></tr>
+        <tr><td><code>ue_rx_ids</code> / <code>sensing_rx_ids</code></td><td><code>null</code></td><td>Role split; see <em>Roles</em> below.</td></tr>
+        <tr><td><code>target_actor_ids</code></td><td><code>null</code></td><td>Targets (default: every enabled sensing binding).</td></tr>
+        <tr><td><code>ue_association</code></td><td><code>serving</code></td><td><code>serving</code>: each UE belongs to the TX with the strongest best-beam RSS. <code>all</code>: every TX serves every UE (single-cell view per TX).</td></tr>
+        <tr><td><code>tx_rows</code> × <code>tx_cols</code></td><td>4 × 4</td><td>TX panel. Element spacing comes from the device antenna.</td></tr>
+        <tr><td><code>rx_rows</code> × <code>rx_cols</code></td><td><code>null</code></td><td>Sensing-RX panel (default: the TX size). UEs are always single elements.</td></tr>
+        <tr><td><code>use_device_orientation</code></td><td><code>true</code></td><td>Panels keep their <code>orientation_deg</code>. <code>false</code> is rejected: <code>look_at</code> cannot aim one panel at both its UEs and its targets.</td></tr>
+        <tr><td><code>sweep_start_deg</code> / <code>sweep_stop_deg</code> / <code>sweep_step_deg</code></td><td>−60 / 60 / 5</td><td>Azimuth codebook in the panel's local frame, exactly as <code>/simulate/beamforming</code>'s sweep (at most 361 beams, and at most 4096 beams × nonzero slot ratios per TX).</td></tr>
+        <tr><td><code>cpi_pulses</code></td><td>4096</td><td>Coherently integrated pulses / OFDM resource elements at ρ = 1.</td></tr>
+        <tr><td><code>cpi_s</code></td><td>0.01</td><td>Metadata only (resolutions).</td></tr>
+        <tr><td><code>threshold_db</code></td><td>13</td><td>Per-beam <code>detected</code> flag.</td></tr>
+        <tr><td><code>pfa</code></td><td>1e-6</td><td>False-alarm probability of the Pd model.</td></tr>
+        <tr><td><code>pd_target</code></td><td>0.9</td><td>Operating point of the Pareto summary.</td></tr>
+        <tr><td><code>slot_ratios</code></td><td>0, .05, .1, .2, .3, .5, .7, 1</td><td>Fractions ρ of the slots (pulses) spent sensing; sorted and deduped.</td></tr>
+        <tr><td><code>sharing_mode</code></td><td><code>dual_function</code></td><td><code>time_sharing</code> or <code>dual_function</code> (below).</td></tr>
+        <tr><td><code>samples_per_sp</code> / <code>max_depth</code></td><td>1 000 000 / <code>null</code></td><td>Passed to the echo solve, as in §3.</td></tr>
+        <tr><td><code>include_paths</code></td><td><code>false</code></td><td>Store the solve's paths in the result: echoes first, then the comm paths.</td></tr>
+        <tr><td><code>elevation_start_deg</code> / <code>elevation_stop_deg</code> / <code>elevation_step_deg</code></td><td><code>null</code></td><td>Elevation sweep of a 2-D codebook in the panel's local frame (all three or none; at most 361 elevations and 4096 beams in all). <code>null</code> = the azimuth-only codebook. See <em>Elevation codebook</em>.</td></tr>
+        <tr><td><code>interference</code></td><td><code>false</code></td><td>Inter-TX interference in the UE SINR (needs <code>ue_association: serving</code>). See <em>Interference</em>.</td></tr>
+        <tr><td><code>detector</code></td><td>Swerling 1, no Monte Carlo</td><td>P_d model, Monte Carlo trials, empirical threshold and seed (§9).</td></tr>
+      </tbody>
+    </table>
+
+    <p><b>Roles.</b> With <code>ue_rx_ids</code> and <code>sensing_rx_ids</code> both unset, an RX within
+    1 m of a selected TX is that TX's sensing receiver (monostatic). Every RX
+    that is not within 1 m of any TX of the scene is a UE, so evaluating a
+    subset of TRPs never turns the other TRPs' radar receivers into served
+    users. Each TX takes the nearest RX of the sensing pool, so several TXs may
+    share one (bistatic) when you pass <code>sensing_rx_ids</code>. <code>ue_rx_ids</code> overrides
+    the UE rule. An RX cannot be both a UE and a sensing receiver.</p>
+
+    <p><b>Model.</b> One t = 0 solve pair: the echo solve (TX → target → sensing RX,
+    §3) and the comm solve (TX → UE with the targets as absorbers, as
+    <code>include_comm_paths</code>). Both run with every antenna forced to a single
+    element, so each stored path is referenced to the panel center. The beams
+    are then synthesized from the paths' world-frame departure/arrival angles
+    in Sionna's synthetic-array convention. Element n of a panel with
+    orientation o responds to a wave along world direction k̂ with</p>
+
+    <p><code>a_n = exp(+j 2π p_n · R(o)ᵀ k̂)</code>,</p>
+
+    <p>where p_n is the PlanarArray element position in wavelengths. Beam w scores
+    w^H a on both ends: the conjugate-weight matched filter of
+    <code>/simulate/beamforming</code>. On sionna the synthesized TX codebook reproduces
+    <code>/simulate/beamforming</code> (<code>codebook_sweep</code>, <code>use_device_orientation: true</code>)
+    beam for beam: the regression tests see the same best beam, and every beam
+    within 20 dB of the peak agrees within 0.1 dB (measured: under 0.01 dB).
+    Per TX t, codebook beam k and UE u:</p>
+
+    <ul>
+      <li><code>h_k,u = Σ_l α_l · w_kᴴ a_t(l)</code> over the paths t → u (α_l from
+        <code>path_gain_db</code> and <code>phase_rad</code>),
+        <code>SINR_k,u = P_t + 20·log10|h_k,u| − N0</code>, with
+        N0 = −174 + 10·log10(B) + NF. Without <code>interference</code> there is no
+        inter-TX interference, so SINR = SNR (see <em>Interference</em>).</li>
+      <li><code>rate_k,u = log2(1 + SINR_k,u)</code> and <code>R(k) = Σ_u rate_k,u</code> over the UEs
+        this TX serves.</li>
+      <li>Echo of target q with TX beam k and RX beam m, every echo t → s → q
+        summed coherently: <code>E_q[k, m] = Σ_e α_e (w_kᴴ a_t(e)) (w_mᴴ a_s(e))</code>. The
+        best RX beam is taken per TX beam, and
+        <p><code>SNR_q(k, ρ) = P_t + 20·log10 max_m |E_q[k, m]| − N0 + 10·log10(ρ · cpi_pulses)</code>.</p>
+        <p>The weakest target sets the sensing SNR of a beam.</p>
+      </li>
+    </ul>
+
+    <p><b>Elevation codebook.</b> With the three <code>elevation_*</code> fields set, the
+    codebook is every azimuth of the sweep at every elevation, elevation outer:
+    beam k = i_el · n_az + i_az. Beam (φ, θ) steers toward the panel-local
+    direction [cos θ cos φ, cos θ sin φ, sin θ]:</p>
+
+    <p><code>w_n(φ, θ) = exp(+j 2π (y_n cos θ sin φ + z_n sin θ)) / sqrt(N)</code>.</p>
+
+    <p>On the planar grid this is kron(w_z(θ), w_y(φ, θ)). It has unit norm and
+    the full 10·log10(N) toward its own direction, and at θ = 0 it is the
+    azimuth beam above. The sensing RX uses the same grid, and its best beam is
+    taken over all of it. A drone at local elevation 32.6° on a 4×4 panel shows
+    what this buys: the best azimuth-only beam gives −9.84 dB per end, the
+    −10…40° / 5° grid 11.98 dB, so about 22 dB comes back per end. On sionna,
+    the elevation beams of a 4×1 vertical ULA (TX side and RX side) match the
+    same steering vectors applied to Sionna's own synthetic-array channel. In
+    the regression tests the best beam agrees and sits on the LoS elevation,
+    and every beam within 20 dB of the peak agrees within 0.1 dB (measured:
+    under 0.005 dB). Without the fields the azimuth-only code runs unchanged.</p>
+
+    <p><b>Interference.</b> With <code>interference: true</code> (only with <code>ue_association: serving</code>), a UE served by TX t hears every other selected TX that has a
+    comm path to it. All TXs share ρ and the slot timing (synchronized slots).
+    In comm slots each other TX radiates its comm beam c (none if it serves
+    nobody); in sensing slots it radiates its sensing beam s (none without an
+    echo). With RSS_t2,u(k) = P_t2 + 20·log10|h_k,u| of TX t2, in mW:</p>
+
+    <p><code>I_comm(u) = Σ_t2 10^(RSS_t2,u(c_t2)/10)</code>, <code>I_sens(u) = Σ_t2 10^(RSS_t2,u(s_t2)/10)</code></p>
+
+    <p><code>SINR_k,u = RSS_t,u(k) − 10·log10(10^(N0/10) + I_comm(u))</code>.</p>
+
+    <p>Each TX's comm beam depends on the others' comm beams, so the choice is
+    iterated. Round 0 is the interference-free choice. Each later round lets
+    every TX in turn pick the beam with the best interference-aware sum rate
+    given the others' current beams. It stops when a round changes nothing, or
+    after 10 rounds with a warning (the last round's beams are reported).
+    Sensing beams do not depend on interference, and echo SNRs stay
+    noise-limited. With one selected TX nothing changes: SINR = SNR exactly.</p>
+
+    <p><b>Pd.</b> A Swerling-1 target with a square-law detector on the integrated
+    sample has P_fa = e^(−T) and P_d = e^(−T / (1 + SNR)), so</p>
+
+    <p><code>P_d = P_fa^(1 / (1 + SNR))</code>.</p>
+
+    <p>At P_fa = 10⁻⁶, P_d = 0.9 needs <b>21.1 dB</b>, and the 13 dB threshold gives
+    P_d = <b>0.517</b>. No echo gives P_d = P_fa. Swerling 1 is the default
+    <code>detector.model</code>; §9 has Swerling 0 and 3 and the Monte Carlo. With
+    <code>detector.monte_carlo_trials</code> &gt; 0 every beam with an echo and every Pareto
+    point with ρ &gt; 0 also get <code>pd_mc</code>. A run may spend at most 2·10⁸ trials,
+    counted as TXs × beams × (1 + nonzero slot ratios) × trials (that is
+    250 000 trials for the default request with 4 TXs). A larger request
+    answers <b>400</b> before anything is solved.</p>
+
+    <p><b>Slot sharing.</b> The comm beam k_c = argmax R(k). A fraction ρ of the slots
+    (or pulses) senses with beam k, so the echo integrates ρ · <code>cpi_pulses</code>.</p>
+
+    <ul>
+      <li><code>time_sharing</code>: sensing slots carry no data. rate_u = (1 − ρ) · rate_k_c,u.</li>
+      <li><code>dual_function</code>: the sensing beam also carries data to whoever it reaches.
+        rate_u = (1 − ρ) · rate_k_c,u + ρ · rate_k,u.</li>
+    </ul>
+
+    <p>ρ = 0 is one comm-only point (<code>beam_idx</code> null, P_d = P_fa). With
+    <code>dual_function</code> the ρ = 1 rows equal the beams themselves (one beam does
+    both). With <code>time_sharing</code> they carry no rate. With <code>interference</code> each
+    slot sees the other TXs' beams of that slot, with S the interference-free
+    signal power:</p>
+
+    <ul>
+      <li><code>time_sharing</code>: rate_u = (1 − ρ) · log2(1 + S_k_c,u / (N0 + I_comm)).</li>
+      <li><code>dual_function</code>: rate_u = (1 − ρ) · log2(1 + S_k_c,u / (N0 + I_comm)) +
+        ρ · log2(1 + S_k,u / (N0 + I_sens)).</li>
+    </ul>
+
+    <p>Under these synchronized slots the rate can rise with ρ: when the other TXs'
+    sensing beams reach a UE more weakly than their comm beams (I_sens &lt;
+    I_comm), a <code>dual_function</code> point beats the comm-only rate, and its loss
+    against comm-only comes out negative. That is the model, not a bug.</p>
+
+    <p><b>Reading the output.</b> Each <code>txs[]</code> entry holds:</p>
+
+    <ul>
+      <li><code>beams[]</code>: one row per codebook angle, with each UE's SINR, the sum rate,
+        each target's echo SNR and best RX angle, the weakest-target SNR, P_d and
+        <code>detected</code>. The panel's beam table tints the comm-beam row cyan and the
+        sensing-beam row magenta, and the <b>ISAC lobes</b> overlay draws both beams
+        on each TX in the same colors (see §11 for what it leaves out). With an
+        elevation sweep each beam also has <code>elevation_deg</code> and, per target,
+        <code>target_best_rx_elevation_deg</code>, and the overlay draws the azimuth cuts of
+        the elevation slice that holds the comm (sensing) beam. With
+        <code>interference</code> each beam also has <code>ue_snr_db</code> (interference-free) and
+        <code>ue_interference_dbm</code> (I_comm; null when no other TX reaches the UE).</li>
+      <li><code>comm_beam_angle_deg</code>, <code>sensing_beam_angle_deg</code> and <code>angle_gap_deg</code> (the
+        azimuth gap). <code>angles_deg</code> stays aligned with <code>beams</code> (each azimuth
+        repeated per elevation). With an elevation sweep <code>elevations_deg</code> is
+        aligned the same way, and <code>comm_beam_elevation_deg</code>,
+        <code>sensing_beam_elevation_deg</code> and <code>elevation_gap_deg</code> complete the pair.
+        With <code>interference</code>, <code>ue_interference_sensing_dbm</code> gives I_sens per UE.
+        <code>ue_single_element_rss_dbm</code> and <code>target_single_element_snr_db</code> are 1×1
+        anchors for hand checks. For a target the array gain of a beam is
+        <code>target_snr_db − target_single_element_snr_db</code>. For a UE it is
+        <code>ue_sinr_db + noise_floor_dbm − ue_single_element_rss_dbm</code>, because the
+        UE anchor is an RSS in dBm, not an SINR.</li>
+      <li><code>points[]</code>: every (ρ, sensing beam) operating point with its sum rate,
+        SNR, P_d and <code>pareto</code> flag. The <b>Pareto chart</b> plots rate against P_d.
+        The front holds the points no other point beats on both axes (duplicates
+        count once).</li>
+      <li><code>pareto</code>: <code>comm_only_rate_bps_hz</code> (ρ = 0), <code>max_pd</code>,
+        <code>rate_at_pd_target_bps_hz</code> / <code>rho_at_pd_target</code> / <code>beam_idx_at_pd_target</code>
+        (the best rate among points with P_d ≥ <code>pd_target</code>; null when none
+        reaches it), <code>rate_loss_at_pd_target_bps_hz</code>, and <code>pd_at_95pct_rate</code> (the
+        best P_d that keeps 95 % of the comm-only rate). Rates within 10⁻¹² tie,
+        and a tie goes to the higher P_d, so the named point is on the front. In
+        <code>dual_function</code> the comm beam keeps its full rate at every ρ, so when it
+        reaches the target it is named at ρ = 1, not at the smallest ρ that
+        qualifies. A sensing-only TX (all rates 0) names its highest-P_d point.</li>
+    </ul>
+
+    <p>The top level adds <code>ue_serving_tx</code>, the <code>noise_floor_dbm</code> and, in <code>metadata</code>,
+    the detection constants of §6 plus <code>snr_for_pd_target_db</code> and
+    <code>pd_at_threshold</code> (both under <code>detector.model</code>). A TX that serves no UE gets
+    a sensing-only trade-off (all rates 0) and says so in its <code>warnings</code>. Keys
+    appear only with their option: <code>codebook_shape</code> ([n_el, n_az]) with an
+    elevation sweep; <code>interference</code>, <code>ue_interferers</code> (per UE, the other TXs
+    that reach it), <code>interference_rounds</code>, <code>interference_converged</code> and
+    <code>interference_model</code> with <code>interference</code>; <code>detector</code> (model, threshold and
+    the measured P_fa of the Monte Carlo) with a non-default <code>detector</code>. A
+    request with every new field at its default stores the same
+    <code>metadata.request</code> and <code>request_hash</code> as v0.1.12.</p>
+
+    <h2 id="8-sensing-coverage-map">8. Sensing coverage map</h2>
+
+    <p>Where would a drone at 60 m be seen, and by how many links? The coverage
+    map puts a <b>virtual point target</b> in every cell of a horizontal grid and
+    evaluates every TX × sensing-RX link (monostatic and bistatic). No RCS solve
+    runs, so a whole map takes about a second.</p>
+
+    <p><b>Running it.</b> In Results mode open the <b>Sensing coverage</b> panel, set
+    the height, cell size, RCS (blank = TR 38.901 <code>uav-small-size</code>,
+    −12.81 dBsm), threshold, pulses, P_fa and the array gain, and run. The
+    metric selector switches the map between the four layers below. Over the
+    API:</p>
+
+    <pre><code>curl -X POST http://127.0.0.1:8000/api/projects/sample_demo/simulate/sensing-coverage \
+  -H "Content-Type: application/json" \
+  -d '{"config_id": "default", "height_m": 60, "cell_size_m": 10,
+       "threshold_db": 13, "cpi_pulses": 4096, "array_gain": "none"}'
+curl http://127.0.0.1:8000/api/projects/sample_demo/results/sensing-coverage</code></pre>
+
+    <p>The result persists as a <code>sensing_coverage</code> result set. Sensing receivers
+    follow the ISAC rule (an RX within 1 m of a selected TX, or
+    <code>sensing_rx_ids</code>). A TX without one answers <b>400</b>.</p>
+
+    <table>
+      <thead>
+        <tr><th>Request field</th><th>Default</th><th>Meaning</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>tx_ids</code> / <code>sensing_rx_ids</code></td><td><code>null</code></td><td>Devices (default: every TX and its co-located RX).</td></tr>
+        <tr><td><code>rcs_dbsm</code> / <code>object_type</code></td><td><code>null</code></td><td>Point-target σ: a value, or a TR 38.901 type's mean σ_M (not both). Both unset = <code>uav-small-size</code>.</td></tr>
+        <tr><td><code>height_m</code></td><td>60</td><td>Height of the grid plane (target center), within ±100 000 m.</td></tr>
+        <tr><td><code>cell_size_m</code></td><td>10</td><td>Cell size, at most 10 000 m. More than 40 000 cells coarsens it, with a warning.</td></tr>
+        <tr><td><code>center_xy</code> / <code>size_xy</code></td><td><code>null</code></td><td>Explicit extent (both or neither; center within ±10⁷ m, sides up to 10⁶ m). Default: the scene bounds (visual mesh, devices, actors) padded by min(15 m, max(3 m, 15 % of the larger side)), as for the sionna radio map.</td></tr>
+        <tr><td><code>threshold_db</code> / <code>cpi_pulses</code> / <code>pfa</code></td><td>13 / 4096 / 1e-6</td><td>Detection, as in §6 and §7.</td></tr>
+        <tr><td><code>array_gain</code></td><td><code>none</code></td><td><code>steered</code> adds 10·log10(N_tx) + 10·log10(N_rx) of the <code>tx_rows</code>×<code>tx_cols</code> / <code>rx_rows</code>×<code>rx_cols</code> panels: every link beams at every cell, an upper bound.</td></tr>
+        <tr><td><code>min_links_for_fusion</code></td><td>3</td><td>Distinct geometries a cell needs to count as fusion-feasible.</td></tr>
+        <tr><td><code>detector</code></td><td>Swerling 1, no Monte Carlo</td><td>Model of <code>pd_best</code> (§9). <code>monte_carlo_trials</code> &gt; 0 adds a Monte Carlo spot check of 5 cells.</td></tr>
+      </tbody>
+    </table>
+
+    <p><b>Model.</b> Per link and cell, with R_t = |cell − TX| and R_r = |cell − RX|:</p>
+
+    <p><code>SNR = P_t + G + G_e,t + G_e,r + L_pol + 10·log10(λ² σ / ((4π)³ R_t² R_r²)) − A(R_t + R_r) − N0 + 10·log10(cpi_pulses)</code></p>
+
+    <p>when <b>both legs are line-of-sight</b>, and no echo otherwise. G is the array
+    gain above and A the atmospheric absorption (0 unless enabled in the
+    config). G_e,t and G_e,r are the TX's and the RX's element gain toward the
+    cell, from each device's <code>antenna.pattern</code> in its own frame
+    (<code>orientation_deg</code>): 0 dB for <code>iso</code>, 8 dBi down to −22 dBi (a 30 dB floor)
+    for <code>tr38901</code>. <code>metadata.element_patterns</code> lists them. L_pol is the
+    polarization term below (v0.1.14).</p>
+
+    <p><b>Polarization.</b> Each element radiates one linear field (the first port, as
+    in Sionna's echo): along its local θ̂ for <code>V</code> and <code>VH</code>, along φ̂ for <code>H</code>, and
+    θ̂ turned by −45° for <code>cross</code>. Pitch or roll tilts that field in the world.
+    Sionna's RCS scattering is the identity in the world θ̂/φ̂ bases of the
+    incident direction k_i (TX → target) and the scattered direction k_s
+    (target → RX), so with p_t the TX element's world field toward the target
+    and p_r the RX element's field toward the target:</p>
+
+    <p><code>F = (p_t · θ̂(k_i)) (p_r · θ̂(k_s)) + (p_t · φ̂(k_i)) (p_r · φ̂(k_s))</code>,  <code>L_pol = 20·log10|F|</code> (≤ 0 dB)</p>
+
+    <p>where θ̂(k) and φ̂(k) are the world spherical unit vectors of a direction.
+    What follows from it:</p>
+
+    <ul>
+      <li>Unpitched, unrolled elements with the same <code>V</code> (or <code>H</code>) polarization on
+        both ends give F = ±1 exactly, so L_pol = 0 and such maps are unchanged
+        from v0.1.13 (and carry no <code>metadata.polarization_model</code>).</li>
+      <li>On a monostatic link φ̂ flips sign between the two legs, so the echo keeps
+        20·log10|cos 2ψ| of a single element whose field is tilted by ψ from θ̂
+        toward the cell. A down-tilted rooftop TRP loses echo power toward most
+        cells.</li>
+      <li><code>cross</code> (±45°, first port) panels at zero tilt receive the echo
+        cross-polarized, a co-located panel its own echo included: F = 0, so such a
+        link has <b>no echo</b> at the cell, monostatic or bistatic, as if a leg were
+        blocked (Sionna's echo there is float32 noise, about 150 dB down), and a
+        mock solve has no echo path for it (<code>no_echo</code>). Use <code>V</code> (or <code>H</code>) elements
+        on sensing links.</li>
+    </ul>
+
+    <p>Measured on the L2 regression site (TRP at (0, 0, 10) m, 3.5 GHz, a 10 dBsm
+    constant target 30 m up, <code>iso</code> elements, V polarization; monostatic = RX at
+    the TX, bistatic = RX at (0, 40, 10) m with the same orientation), the Sionna
+    echo minus the v0.1.13 map over five LOS cells (four on the bistatic link):</p>
+
+    <table>
+      <thead>
+        <tr><th>Link</th><th>Pitch</th><th>Echo loss (dB)</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>monostatic</td><td>0°</td><td>0.000</td></tr>
+        <tr><td>monostatic</td><td>−15°</td><td>−0.35 … −1.51</td></tr>
+        <tr><td>monostatic</td><td>+15°</td><td>−0.42 … −1.52</td></tr>
+        <tr><td>monostatic</td><td>−45°</td><td>−3.99 … −29.03</td></tr>
+        <tr><td>bistatic</td><td>−15°</td><td>−0.12 … −1.88</td></tr>
+        <tr><td>bistatic</td><td>−45°</td><td>−1.20 … −18.69</td></tr>
+        <tr><td>monostatic, <code>cross</code></td><td>−15°</td><td>−5.32 … −6.61</td></tr>
+      </tbody>
+    </table>
+
+    <p>So a rooftop TRP tilted −13…−16° loses about 0.4–1.5 dB per monostatic link,
+    which v0.1.13 maps and mock echoes did not show: they were optimistic by that
+    much, and the Sionna echo was right. With L_pol the map matches <code>RCSSolver</code>
+    echoes within 0.01 dB (measured ≤ 3·10⁻⁵ dB) for V, H, VH and <code>cross</code>
+    elements at pitch 0, ±15° and −45°, monostatic and bistatic. When any link's
+    loss is nonzero, <code>metadata.polarization_model</code> names the model.</p>
+
+    <p><b>Mock and LOS.</b> The mock echo applies the same element gains and L_pol
+    (v0.1.14), so a mock sensing solve with a target at a cell center still
+    returns the map's value, for <code>iso</code> and <code>tr38901</code> elements in any
+    orientation. A constant target with <code>xpr_db</code> set gets no L_pol in the mock
+    (its depolarization is not modeled). On sionna the LOS test is a Mitsuba
+    shadow-ray test against the cached static scene with every actor mesh
+    taken out (the map is about the site, not about where the real drone
+    happens to be). In the regression tests a constant-RCS echo solved by
+    <code>RCSSolver</code> at a LOS cell matches the map within 0.01 dB, with <code>iso</code> and
+    with <code>tr38901</code> elements (measured: about 10⁻⁵ dB), and cells in a
+    building's shadow have no direct echo. The mock has no geometry occlusion:
+    every leg counts as LOS, and the result says so in <code>warnings</code> and
+    <code>metadata.los_model</code>.</p>
+
+    <p><b>Layers</b> (<code>values</code>, row-major [ny][nx] like a radio map):</p>
+
+    <ul>
+      <li><code>best_snr_db</code>: the best link's SNR (null where no link has an echo).</li>
+      <li><code>n_links_detected</code>: links with SNR ≥ <code>threshold_db</code>.</li>
+      <li><code>pd_best</code>: the P_d of the best link under <code>detector.model</code> (Swerling 1 by
+        default, §7 and §9).</li>
+      <li><code>fusion_feasible</code>: 1 where the detected links span at least
+        <code>min_links_for_fusion</code> <b>distinct geometries</b>, else 0. Devices within
+        1 m of each other (a TRP's TX and its sensing RX, the ISAC co-location
+        rule) are one site, and links between the same two sites count once, in
+        either order. So a reciprocal pair (A→B, B→A) is one geometry even when
+        the sensing panels sit up to 1 m from their TXs. Each link's
+        <code>geometry_group</code> shows the grouping.</li>
+    </ul>
+
+    <p><code>summary</code> gives the cell, link and geometry counts, the percentage of cells
+    with ≥ 1 LOS link, ≥ 1 detection and fusion feasibility, and the median best
+    SNR over the cells with an echo. <code>links[]</code> gives each link's baseline and
+    its LOS and detected fractions. With <code>detector.monte_carlo_trials</code> &gt; 0,
+    <code>summary.mc_spot_check</code> holds 5 distinct cells at the 0/25/50/75/100 %
+    quantiles of <code>best_snr_db</code> over the cells with an echo (nearest rank; a
+    value shared by several cells goes to the lowest cell index not yet taken;
+    fewer cells when fewer have an echo). Each gives <code>cell</code> [ix, iy], <code>snr_db</code>,
+    the analytic <code>pd</code>, <code>pd_mc</code> and its 95 % interval (<code>ci_low</code>, <code>ci_high</code>).
+    <code>metadata.detector</code> appears with a non-default <code>detector</code>.</p>
+
+    <h2 id="9-detector-models-and-pdpfa-monte-carlo">9. Detector models and Pd/Pfa Monte Carlo</h2>
+
+    <p>Every P_d SEAM reports models a square-law detector on the coherently
+    integrated sample, at the post-integration SNR (the link <code>snr_db</code> of §6,
+    the beam SNRs of §7, <code>best_snr_db</code> of §8). The integrated noise sample is
+    normalized to CN(0, 1), so noise alone gives y = |z|² ~ Exp(1), and the
+    threshold T = −ln P_fa gives exactly P_fa. S = 10^(SNR/10) is the mean |A|²
+    of the target amplitude A. A stays constant over the CPI and fluctuates
+    from scan to scan as <code>detector.model</code> says:</p>
+
+    <table>
+      <thead>
+        <tr><th><code>model</code></th><th>Target</th><th>P_d</th><th>SNR for P_d 0.9 / 0.5 at P_fa 10⁻⁶</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>swerling0</code></td><td>Steady</td><td>Q₁(√(2S), √(2T)) (Marcum Q)</td><td>13.18 / 11.24 dB</td></tr>
+        <tr><td><code>swerling1</code> (default)</td><td>Rayleigh, |A|² ~ Exp(S)</td><td>P_fa^(1/(1 + S))</td><td>21.14 / 12.77 dB</td></tr>
+        <tr><td><code>swerling3</code></td><td>One dominant scatterer, |A|² ~ Gamma(2, S/2)</td><td>e^(−T/(1 + S/2)) · (1 + T·(S/2)/(1 + S/2)²)</td><td>17.30 / 11.95 dB</td></tr>
+      </tbody>
+    </table>
+
+    <p>A fluctuating target needs more SNR for a high P_d: 8 dB more for Swerling 1
+    than for a steady target at P_d 0.9.</p>
+
+    <p><b>Derivation.</b> For a fixed |A|² = s, P(y &gt; T) = P(X ≤ K) with K ~ Pois(s)
+    and X ~ Pois(T) independent (the Poisson mixture of the noncentral
+    chi-square). Swerling 0 sums that series in log space over the window
+    S ± (40√S + 40); it matches scipy's <code>ncx2.sf</code> to about 10⁻¹³ from P_fa 0.1
+    down to 10⁻³⁰⁰. Mixing s over Gamma(2, θ) makes K negative binomial,
+    P(K = k) = (k + 1) p² qᵏ with p = 1/(1 + θ) and q = θ/(1 + θ). Then
+    Σ_{k≥x} (k + 1) p² qᵏ = qˣ((x + 1)p + q), and averaging over X gives
+    e^(−Tp)(1 + Tpq): Swerling 3 with θ = S/2. Gamma(1, S) in the same steps
+    gives e^(−T/(1 + S)), Swerling 1. Swerling 1 is evaluated with the v0.1.12
+    expression, so the default numbers do not move.</p>
+
+    <p><b>Where the model applies.</b> ISAC (§7): every beam's and point's <code>pd</code>, plus
+    <code>snr_for_pd_target_db</code> and <code>pd_at_threshold</code>. Coverage (§8): <code>pd_best</code>.
+    Scenario sensing (§6): with <code>sensing.pfa</code> set, the link reports' <code>pd</code>.
+    Detection there stays the <code>snr_db ≥ threshold_db</code> test.</p>
+
+    <p><b>Monte Carlo.</b> <code>detector.monte_carlo_trials</code> &gt; 0 adds a Monte Carlo
+    estimate <code>pd_mc</code> next to the analytic <code>pd</code>. Each trial draws the target
+    amplitude for the model (Swerling 0: √S·e^(jφ); Swerling 1: CN(0, S);
+    Swerling 3: √Gamma(2, S/2)·e^(jφ); φ uniform) and the integrated sample
+    z = A + CN(0, 1), and detects when |z|² exceeds the threshold. That is the
+    law of the N = <code>cpi_pulses</code> pulses A/√N + n_i summed coherently and divided
+    by √N (N iid CN(0, 1) summed and divided by √N is CN(0, 1)), so each trial
+    costs one sample whatever N is and the caps below bound the run time.
+    Drawing every pulse gives the same numbers at N times the cost; the
+    regression tests check that the two agree.</p>
+
+    <ul>
+      <li><b>Seeds</b> are streams keyed by position, so a result does not depend on
+        evaluation order: <code>[seed, model index, SNR index]</code> on the Pd curve,
+        <code>[seed, tx index, beam index]</code> and <code>[seed, tx index, 10⁶ + point index]</code>
+        in ISAC, <code>[seed, frame index, link index]</code> in a scenario and
+        <code>[seed, cell index]</code> in coverage.</li>
+      <li><b>Threshold.</b> −ln P_fa, or with <code>empirical_threshold</code> the (1 − P_fa)
+        quantile of a noise-only run. That needs trials ≥ 20 / P_fa (at least 20
+        exceedances), so at P_fa 10⁻⁶ it is out of reach of the 2·10⁶-trial cap.
+        The Pd curve, ISAC and coverage take the threshold and the measured P_fa
+        from one noise-only pair per request (stream <code>[seed, 999, 0, 1]</code>): run 1
+        gives the empirical threshold, and run 2, drawn independently of it,
+        counts false alarms against the threshold in use. The key has four
+        entries because numpy pads shorter keys with zeros (<code>[seed, 999]</code> and
+        <code>[seed, 999, 0]</code> are one stream), so the nonzero last entry keeps it
+        apart from every estimate's stream. A scenario link with
+        <code>empirical_threshold</code> draws its own noise-only run for its threshold
+        (first in the link's stream, then the signal run). Scenario runs measure
+        and report no P_fa.</li>
+      <li><b>Intervals</b> are 95 % Wilson score intervals. In the regression tests,
+        200 000 trials per point hold the closed forms at five SNRs per model
+        (checked against a 99.9 % interval, so the fixed-seed tests cannot flake).</li>
+      <li><b>Caps.</b> At most 2·10⁶ trials per estimate and 2·10⁸ per request,
+        counted as trials × estimates: Pd-curve points × models (<b>422</b>), ISAC
+        TXs × beams × (1 + nonzero slot ratios) (<b>400</b>), scenario frames × TXs ×
+        sensing RXs × targets (<b>400</b>; trials count twice with <code>empirical_threshold</code>,
+        for each link's noise run), coverage 5.</li>
+    </ul>
+
+    <p><b>Pd curve.</b> <code>POST /analysis/pd-curve</code> plots P_d against SNR without a
+    solve and stores nothing. In the UI: Results ▸ <b>Detector (Pd curve)</b>.</p>
+
+    <pre><code>curl -X POST http://127.0.0.1:8000/api/projects/sample_demo/analysis/pd-curve \
+  -H "Content-Type: application/json" \
+  -d '{"pfa": 1e-6, "cpi_pulses": 4096, "monte_carlo_trials": 200000}'</code></pre>
+
+    <table>
+      <thead>
+        <tr><th>Field</th><th>Default</th><th>Meaning</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>pfa</code></td><td>1e-6</td><td>False-alarm probability.</td></tr>
+        <tr><td><code>snr_min_db</code> / <code>snr_max_db</code> / <code>step_db</code></td><td>−5 / 30 / 0.5</td><td>SNR axis (71 points; at most 1001).</td></tr>
+        <tr><td><code>models</code></td><td>all three</td><td>Deduplicated, order kept.</td></tr>
+        <tr><td><code>monte_carlo_trials</code></td><td>0</td><td>Trials per point (0 = analytic only).</td></tr>
+        <tr><td><code>empirical_threshold</code></td><td><code>false</code></td><td>Threshold from a noise-only run (needs trials ≥ 20 / P_fa).</td></tr>
+        <tr><td><code>seed</code></td><td>0</td><td>Base of the Monte Carlo streams.</td></tr>
+        <tr><td><code>cpi_pulses</code></td><td>1</td><td>Pulses per trial. The SNR axis is post-integration and the Monte Carlo draws the integrated sample, so no number depends on it.</td></tr>
+        <tr><td><code>pd_target</code></td><td>0.9</td><td>Gives <code>snr_for_pd_target_db</code> per model.</td></tr>
+      </tbody>
+    </table>
+
+    <p>The response holds <code>snr_db</code> and <code>threshold</code> (−ln P_fa). Per model it gives
+    <code>pd</code> and <code>snr_for_pd_target_db</code>, and with trials &gt; 0 also <code>pd_mc</code> with
+    <code>pd_mc_ci_low</code> / <code>pd_mc_ci_high</code>, <code>mc_max_abs_deviation</code> and
+    <code>mc_within_ci_fraction</code>. The top level then adds <code>empirical_threshold</code>,
+    <code>pfa_measured</code> and <code>pfa_measured_ci</code>, and <code>metadata.mc_method</code> says which
+    draw ran. An unknown project answers <b>404</b> and an invalid request,
+    including one over the trial budget, <b>422</b>.</p>
+
+    <h2 id="10-sensing-dataset-export">10. Sensing dataset export</h2>
+
+    <p><code>POST /export/sensing-dataset</code> flattens the per-frame sensing of stored
+    scenario results (§6) into tables for learning or offline analysis, in one
+    zip under <code>export/sensing_dataset/</code>. It runs no solve. In the UI: Toolbar ▸
+    Actions ▸ <b>Sensing dataset (.npz)</b>.</p>
+
+    <pre><code>curl -X POST http://127.0.0.1:8000/api/projects/sample_demo/export/sensing-dataset \
+  -H "Content-Type: application/json" \
+  -d '{"formats": ["npz", "csv"], "include_echo_paths": true,
+       "split": {"train": 0.8, "val": 0.1, "test": 0.1, "seed": 0}}'</code></pre>
+
+    <table>
+      <thead>
+        <tr><th>Field</th><th>Default</th><th>Meaning</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>result_ids</code></td><td><code>null</code></td><td>Scenario results to export, in this order. <code>null</code> = every stored scenario result that has sensing frames.</td></tr>
+        <tr><td><code>skip_without_sensing</code></td><td><code>false</code></td><td>With <code>result_ids</code>: skip a listed result without sensing frames (named in <code>warnings</code>) instead of answering 400. The UI sends it for a partial selection.</td></tr>
+        <tr><td><code>formats</code></td><td><code>["npz"]</code></td><td>Any of <code>npz</code>, <code>csv</code>, <code>parquet</code> (parquet needs pyarrow: <code>pip install "seam-studio[parquet]"</code>, the <code>parquet</code> extra).</td></tr>
+        <tr><td><code>include_echo_paths</code></td><td><code>false</code></td><td>Also write the <code>echoes</code> table.</td></tr>
+        <tr><td><code>split</code></td><td><code>null</code></td><td>Frame-level split <code>{train, val, test, seed}</code> (fractions sum to 1). <code>null</code> = every row is <code>all</code>.</td></tr>
+      </tbody>
+    </table>
+
+    <p>The response gives <code>zip_name</code> and <code>download_url</code> (the project assets route),
+    the zip's <code>files</code>, the row counts (<code>num_rows</code>, <code>rows_per_result</code>,
+    <code>rows_per_split</code>, <code>num_echo_rows</code>), <code>detected_fraction</code>, <code>size_bytes</code> and
+    <code>warnings</code>. The zip holds:</p>
+
+    <ul>
+      <li><code>links.&lt;fmt&gt;</code>: one row per result × frame × TX → sensing RX link × target,
+        in the frame's <code>links[]</code> order (frames × TX × sensing RX × targets rows per
+        result).</li>
+      <li><code>echoes.&lt;fmt&gt;</code> (<code>include_echo_paths</code>): one row per echo path of each frame.</li>
+      <li><code>manifest.json</code>: every column's dtype, unit, role and description; per
+        result its label, backend, frequency, frames, dt, rows, <code>scene_hash</code> (and
+        the current one), <code>kinematics_source</code> and the run constants of
+        <code>metadata.sensing</code> (without the per-target statistics); the split, rows per
+        split, the label balance (<code>detected_fraction</code>, <code>reason_counts</code>) and the
+        conventions.</li>
+      <li><code>README.txt</code>: what each file is, how to load it, and the caveats.</li>
+    </ul>
+
+    <p>Every column is always there, so the schema is stable. A missing value is
+    NaN in a float column and <code>""</code> in a string column. <b>npz</b> has one 1-D array
+    per column (strings as <code>&lt;U</code>, so <code>np.load(..., allow_pickle=False)</code> works).
+    <b>csv</b> has a header, floats in shortest round-trip form, NaN as an empty
+    field and <code>true</code>/<code>false</code>. <b>parquet</b> keeps NaN as NaN.</p>
+
+    <p><b>links columns</b></p>
+
+    <table>
+      <thead>
+        <tr><th>Column</th><th>dtype</th><th>Unit</th><th>Role</th><th>Source</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>result_id</code>, <code>split</code></td><td>str</td><td></td><td>meta</td><td></td></tr>
+        <tr><td><code>frame_index</code></td><td>int64</td><td></td><td>meta</td><td>index in <code>frames</code></td></tr>
+        <tr><td><code>time_s</code></td><td>float64</td><td>s</td><td>meta</td><td><code>frame.time_s</code></td></tr>
+        <tr><td><code>tx_id</code>, <code>rx_id</code>, <code>target_id</code></td><td>str</td><td></td><td>meta</td><td>link report</td></tr>
+        <tr><td><code>tx_pos_x/y/z</code>, <code>rx_pos_x/y/z</code></td><td>float64</td><td>m</td><td>feature</td><td><code>frame.sensing.nodes</code></td></tr>
+        <tr><td><code>tx_vel_x/y/z</code>, <code>rx_vel_x/y/z</code></td><td>float64</td><td>m/s</td><td>feature</td><td><code>frame.sensing.nodes</code></td></tr>
+        <tr><td><code>bistatic_range_m</code>, <code>doppler_hz</code>, <code>echo_power_dbm</code>, <code>snr_db</code>, <code>measured_range_m</code>, <code>measured_doppler_hz</code></td><td>float64</td><td>m, Hz, dBm, dB</td><td>feature</td><td>link report</td></tr>
+        <tr><td><code>range_bin</code>, <code>doppler_bin</code></td><td>float64 (NaN = none)</td><td>cell</td><td>feature</td><td>link report</td></tr>
+        <tr><td><code>num_echoes</code></td><td>int64</td><td></td><td>feature</td><td>link report</td></tr>
+        <tr><td><code>multipath</code></td><td>bool</td><td></td><td>feature</td><td>link report</td></tr>
+        <tr><td><code>aod_az_deg</code>, <code>aod_el_deg</code>, <code>aoa_az_deg</code>, <code>aoa_el_deg</code></td><td>float64</td><td>deg</td><td>feature</td><td>the reported echo (<code>path_id</code> in <code>frame.sensing.echoes</code>)</td></tr>
+        <tr><td><code>pd</code>, <code>pd_mc</code></td><td>float64</td><td></td><td>feature</td><td>link report (NaN unless the run set <code>pfa</code>)</td></tr>
+        <tr><td><code>detected</code></td><td>bool</td><td></td><td>label</td><td></td></tr>
+        <tr><td><code>reason</code></td><td>str</td><td></td><td>label</td><td><code>detected</code> / <code>no_echo</code> / <code>below_threshold</code> / <code>mti_rejected</code></td></tr>
+        <tr><td><code>position_true_x/y/z</code>, <code>velocity_true_x/y/z</code></td><td>float64</td><td>m, m/s</td><td>label</td><td>the target's <code>estimates[]</code> row</td></tr>
+        <tr><td><code>est_status</code></td><td>str</td><td></td><td>estimate</td><td><code>ok</code> / <code>insufficient_links</code> / <code>diverged</code></td></tr>
+        <tr><td><code>n_links_detected</code>, <code>n_links_used</code></td><td>int64</td><td></td><td>estimate</td><td></td></tr>
+        <tr><td><code>position_est_x/y/z</code>, <code>velocity_est_x/y/z</code>, <code>position_error_m</code>, <code>velocity_error_m_s</code>, <code>gdop</code></td><td>float64</td><td>m, m/s</td><td>estimate</td><td></td></tr>
+        <tr><td><code>track_status</code></td><td>str</td><td></td><td>track</td><td><code>""</code> when tracking was off</td></tr>
+        <tr><td><code>track_position_x/y/z</code>, <code>track_velocity_x/y/z</code>, <code>track_position_error_m</code>, <code>track_velocity_error_m_s</code>, <code>track_position_std_m</code>, <code>track_updates</code>, <code>track_gated</code></td><td>float64</td><td>m, m/s</td><td>track</td><td>NaN when absent</td></tr>
+      </tbody>
+    </table>
+
+    <p>The estimate and track columns hold one value per target and frame, repeated
+    on each of its link rows. The <code>velocity_true_*</code> labels follow §6: at an exact
+    waypoint time they hold the outgoing leg's velocity, and 0 at the end of a
+    <code>once</code> trajectory. Results from before v0.1.14 hold the two-leg average (or
+    half the speed) at those frames, so a dataset that mixes old and new results
+    mixes both conventions there.</p>
+
+    <p><b>echoes columns</b>: <code>result_id</code>, <code>split</code>, <code>frame_index</code>, <code>time_s</code>, <code>path_id</code>,
+    <code>tx_id</code>, <code>rx_id</code>, <code>target_id</code> (<code>""</code> = a comm path from
+    <code>include_comm_paths</code>), <code>path_type</code>, <code>delay_ns</code>, <code>bistatic_range_m</code> (c·τ),
+    <code>power_dbm</code>, <code>path_gain_db</code>, <code>phase_rad</code>, <code>doppler_hz</code>, <code>aod_az_deg</code>,
+    <code>aod_el_deg</code>, <code>aoa_az_deg</code>, <code>aoa_el_deg</code>, <code>num_interactions</code> (int64),
+    <code>direct</code> (bool: interactions == [sensing]) and <code>reported</code> (bool: the echo its
+    link report was built from).</p>
+
+    <p><b>Split.</b> The unit is the frame: the (result, frame) pairs, in export order,
+    are permuted with <code>numpy.random.default_rng(seed)</code>. The first n_train are
+    <code>train</code>, the next n_val <code>val</code> and the rest <code>test</code>. The counts are train·F,
+    val·F and test·F rounded by largest remainder (a tie goes to the smaller
+    fraction, then train, val, test), so they add up to F, each is within one
+    frame of its exact share, and a fraction of 0 never gets a frame. Every row
+    of one frame, links and echoes alike, lands in the same split, and the same
+    seed gives the same split.</p>
+
+    <p><b>Older results.</b> Results from before v0.1.13 did not store <code>nodes</code>. Their
+    TX/RX positions come from the frame's <code>device_states</code>, else the current
+    scene, and their velocities from the current scene's trajectories (the way
+    the run computed them, except at exact waypoint times, where the v0.1.14 rule
+    of §6 applies). The export then warns "predates v0.1.13" (adding
+    "scene changed since the run" when the scene hash differs) and the manifest
+    says <code>"kinematics_source": "current_scene"</code>.</p>
+
+    <p><b>Errors.</b> Unknown project, or a <code>result_ids</code> entry that is unknown or whose
+    file is missing or unreadable (also: not a valid scenario result): <b>404</b>.
+    With <code>result_ids</code> null such a file is skipped and named in <code>warnings</code>. A
+    listed result without sensing frames (unless <code>skip_without_sensing</code>), no
+    such result left at all, parquet without pyarrow, or more than 500 000 rows
+    (links + echoes): <b>400</b>, and nothing is written. An unknown format:
+    <b>422</b>.</p>
+
+    <p><b>Memory.</b> Rows are built in memory: about 1.9 KB per row as Python lists
+    plus about 0.6 KB per row of arrays and the encoded files, so an export at
+    the 500 000-row cap peaks around 1.3 GB of RAM; export fewer results on a
+    small machine.</p>
+
+    <h2 id="11-limits">11. Limits</h2>
+
+    <ul>
+      <li>Targets move by rigid translation only: no rotation, no micro-Doppler.</li>
+      <li>The cuboid is the actor's box size; mesh actors need an explicit <code>size_m</code>.</li>
+      <li>The actor's own mesh is removed from the scene during its sensing solve (its
+        scattering model describes it completely) and restored afterwards.</li>
+      <li>No diffuse-scattering or diffraction legs; sensing (echoes and
+        <code>include_comm_paths</code> alike) always runs on the builtin sionna-rt engine.</li>
+      <li>The mock uses one LoS scattering point at the target center with σ_M — no
+        angular lobes, no multi-point layouts, no occlusion. Like Sionna, it has no
+        LoS comm path between a co-located (monostatic) TX and RX. Since v0.1.14
+        its echoes include each device's element gain and the polarization term of
+        §8 (before, they were isotropic).</li>
+      <li>Mixed antennas: Sionna applies the first selected TX's (RX's) antenna to
+        every TX (RX) and warns when they differ; the mock applies each device's
+        own element pattern and orientation (and the polarization term of §8). With
+        mixed antennas the two backends therefore differ.</li>
+      <li>Random components are off by default. The solver runs with
+        <code>deterministic=False</code> in float32 on the GPU: identical inputs can differ by
+        about 1e-6 dB on strong paths and up to about 0.1 dB near beam nulls, and
+        path order and <code>path_id</code> can change between runs, so compare results by
+        geometry or path type rather than by <code>path_id</code> or exact dB. The same
+        <code>noise_seed</code> reproduces the measurement noise exactly.</li>
+      <li>Sensing over time (§6) uses <b>oracle association</b>: the ray tracer labels
+        each echo with its target and as direct or multipath. A real receiver would
+        have to infer both.</li>
+      <li>Multi-scattering-point targets (<code>vehicle-multi-sp</code>, <code>agv-multi-sp</code>): each
+        link reports its strongest direct echo, which may come from a different
+        scattering point on each link, while <code>position_true</code> is the cuboid center.
+        Expect a bias of up to half the target size (about 2.5 m for a car) in
+        <code>position_error_m</code>. The mock uses one point at the center, so it has none.</li>
+      <li>Detection is per echo and noise-limited: no CFAR, no range–Doppler map, no
+        clutter or self-interference power.</li>
+      <li>Sensing over time (§6) counts antennas as single elements (no array
+        gain), so integration gain is its only processing gain.</li>
+      <li><code>measurement_noise</code> is a rule of thumb (cell / sqrt(2·SNR)), not a
+        Cramér–Rao bound.</li>
+      <li>Without <code>tracking</code> each frame is an independent snapshot: the previous
+        estimate only seeds the next frame's solver.</li>
+      <li>Tracking (§6) is one constant-velocity EKF per target with oracle
+        association. There is no manoeuvre model or IMM (a turn is handled by
+        restarting from the fusion, so a frame or two after a sharp corner is the
+        fusion's accuracy), no false tracks and no track-to-track fusion, and the
+        measurement sigmas are the <code>measurement_noise</code> rule of thumb. With only one or two
+        links in a frame the range sums leave the position free along the
+        ellipsoids, so long stretches without three links drift. On such a
+        stretch <code>track_position_std_m</code> can understate the error several-fold, so
+        the <code>max_position_std_m</code> cap
+        drops the track later than its true error would warrant, and
+        <code>coast_max_frames</code> never does while one scalar per frame is still
+        accepted.</li>
+      <li>Sensing dataset (§10): labels come from the ray tracer (oracle
+        association). The split is by frame, so neighbouring frames of one run are
+        correlated across splits: hold out whole results for a strict test.</li>
+      <li>ISAC trade-off (§7):
+        <ul>
+          <li>Without an elevation sweep the codebook is azimuth-only: the vertical
+            rows stay broadside. A 4-row λ/2 panel has a vertical null 30° off its
+            plane, and is at least 14 dB per end below broadside anywhere from 25°
+            to 35° (21–23 dB at 28° and 33°). An up-tilted rooftop TRP can therefore
+            lose more than its array gain toward street UEs or a steep drone, so a
+            4×4 beam can come out below the single-element anchor. The <code>elevation_*</code>
+            sweep steers the rows too; it is still a fixed grid, so a path between
+            two grid elevations loses up to the grid's scalloping.</li>
+          <li>With the default <code>iso</code> element the panel has a mirror back lobe: beam θ
+            also points at 180° − θ behind the panel at full gain, so UEs and
+            targets behind a TRP are not clipped. Use the <code>tr38901</code> element for a
+            front-to-back ratio. With λ/2 spacing, a target outside the sweep near
+            endfire (say 78° off broadside with a ±60° sweep) is seen by both edge
+            beams within about 1 dB of each other, through the grating-lobe skirt,
+            so which edge wins is nearly arbitrary.</li>
+          <li>The <b>ISAC lobes</b> overlay draws each beam's azimuth cut over the
+            panel's front hemisphere only (with an elevation sweep, the slice of the
+            comm or sensing beam's elevation). With <code>iso</code> (or another symmetric)
+            element a TX can serve a UE behind its panel through the back lobe
+            while its cyan comm lobe points away from that UE.</li>
+          <li>Without <code>interference</code>, SINR = SNR. With it, every TX is full-buffer
+            and always radiates its comm or sensing beam in synchronized slots,
+            interference reaches only the UEs (the sensing receivers stay
+            noise-limited: no cross-TX echo or direct-path leakage), and the comm
+            beams are a best-response equilibrium, not a joint optimum. Each UE's
+            rate assumes it has the full band.</li>
+          <li>P_d is a closed form (Swerling 0, 1 or 3; §9) with a fixed threshold:
+            no CFAR, no range or Doppler straddle loss, and no pulse-to-pulse
+            fluctuation (Swerling 2 and 4).</li>
+          <li>One t = 0 snapshot. Only the first polarization port of a
+            dual-polarized antenna is synthesized, and UEs are single elements.</li>
+        </ul>
+      </li>
+      <li>Sensing coverage (§8):
+        <ul>
+          <li>The target is a constant point RCS: no TR 38.901 angular lobes.</li>
+          <li>Only direct LOS legs count (no multipath echoes), and actor meshes are
+            ignored by the LOS test.</li>
+          <li><code>steered</code> is the ideal full-array gain on every link and cell.</li>
+          <li>Element gain uses each device's own antenna. Sionna solves apply the
+            first selected TX's (RX's) antenna to every TX (RX) and warn, so with
+            mixed patterns the two differ.</li>
+          <li>Polarization: the first port of each array only (as Sionna's echo); a
+            TR 38.901 target on a bistatic link deviates from the projection by up
+            to 0.2 dB at 15° tilt and 2.5 dB at 45°; targets with <code>xpr_db</code>
+            (depolarizing) are not modeled on the map or the mock.</li>
+          <li>The mock treats every leg as line-of-sight.</li>
+        </ul>
+      </li>
+      <li>Detector models (§9): the Monte Carlo draws the same idealized model the
+        closed forms describe (constant amplitude over the CPI, white Gaussian
+        noise, ideal coherent integration). It checks the arithmetic and shows
+        the sampling spread; it is not a waveform-level simulation.</li>
+    </ul>
+
+    <h2 id="related-docs">Related docs</h2>
+
+    <ul>
+      <li><a href="simulation.html">simulation.md</a> — paths, radio maps, beamforming, channel analysis</li>
+      <li><a href="trajectory_uav.html">trajectory_uav.md</a> — actor trajectories (the default target velocity)</li>
+      <li><a href="datasets_export.html">datasets_export.md</a> — RFData / AODT / channel npz exports</li>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/dynamic_scattering.md">../dynamic_scattering.md</a> — Doppler of moving devices and actors in plain paths solves</li>
+    </ul>
+
+    <div class="pn">
+      <a href="datasets_export.html"><span class="lbl">Previous</span>ML datasets and exports</a>
+      <a href="playback_dashboard.html"><span class="lbl">Next</span>Multimodal playback: measured reality vs. digital twin</a>
+    </div>
+  </article>
+</div>
+
+<footer>
+  <div class="wrap fineprint">
+    SEAM Studio · Apache License 2.0 · <a href="https://github.com/jaewoo4200/SEAM">github.com/jaewoo4200/SEAM</a> · <a href="../../ko/guides/sensing.html">한국어 가이드</a><br>
+    Developed by <b>Jaewoo Lee (이재우)</b> · Wireless Systems Laboratory (WSL), Hanyang University · BEYOND-G Global Innovation Center
+  </div>
+</footer>
+
+<script>(function(){
+  var root=document.documentElement, sw=document.querySelector('.theme-sw');
+  if(!sw)return;
+  function cur(){return localStorage.getItem('seam-theme')||'auto';}
+  function paint(m){sw.querySelectorAll('button').forEach(function(b){
+    b.setAttribute('aria-pressed', String(b.dataset.theme===m));});}
+  function apply(m){
+    if(m==='auto'){root.removeAttribute('data-theme');try{localStorage.removeItem('seam-theme');}catch(e){}}
+    else{root.setAttribute('data-theme',m);try{localStorage.setItem('seam-theme',m);}catch(e){}}
+    paint(m);}
+  sw.addEventListener('click',function(e){var b=e.target.closest('button');if(b)apply(b.dataset.theme);});
+  paint(cur());
+})();</script>
+</body>
+</html>

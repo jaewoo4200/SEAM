@@ -124,6 +124,8 @@ footer{border-top:1px solid var(--line)}
     <a href="simulation.html">Simulating</a>
     <a href="trajectory_uav.html">Trajectories &amp; UAVs</a>
     <a href="datasets_export.html">ML datasets &amp; exports</a>
+    <a href="sensing.html">Radar sensing &amp; ISAC</a>
+    <a href="playback_dashboard.html">Multimodal playback</a>
     <a class="all" href="./">← All guides</a>
   </aside>
 
@@ -131,34 +133,57 @@ footer{border-top:1px solid var(--line)}
     <div class="eyebrow">Guide 01 · SEAM Studio docs</div>
     <h1>Getting Started: First Launch and UI Tour</h1>
     <p class="lead">This guide takes you from a fresh install to knowing your way around the SEAM Studio window: the toolbar, the five mode tabs, the scene tree, the inspector, and the dockable panels. No GPU, no Sionna, no LLM required — everything here works with the built-in <b>Mock backend</b>. For the full installation reference see <a href="https://github.com/jaewoo4200/SEAM/blob/master/INSTALL.md">INSTALL.md</a>.</p>
+
     <div class="spectrum"></div>
 
-    <h2>1. Install and launch</h2>
+    <h2 id="1-install-and-launch">1. Install and launch</h2>
+
     <p>There are two ways to run SEAM Studio. Pick one.</p>
 
-    <h3>Route A — pip install (the packaged app)</h3>
+    <h3 id="route-a--pip-install-the-packaged-app">Route A — pip install (the packaged app)</h3>
+
     <pre><code>pip install seam-studio
 seam-studio</code></pre>
-    <p>The <code>seam-studio</code> command starts the server on <b>http://127.0.0.1:8000</b> and opens your browser. On first run it bootstraps the <b>Sample Demo</b> project into <code>~/.seam/projects</code>, so the app never starts empty. Useful flags: <code>--port 9000</code>, <code>--project-root D:\twins</code>, <code>--no-browser</code>.</p>
 
-    <h3>Route B — source checkout (dev servers)</h3>
-    <p>Clone the repo, run the install script once (<a href="https://github.com/jaewoo4200/SEAM/blob/master/INSTALL.md">INSTALL.md</a> walks through it), then start both servers:</p>
+    <p>The <code>seam-studio</code> command starts the server on <b>http://127.0.0.1:8000</b>
+    and opens your browser. On first run it bootstraps the <b>Sample Demo</b>
+    project into <code>~/.seam/projects</code>, so the app never starts empty. Useful
+    flags: <code>--port 9000</code>, <code>--project-root D:\twins</code>, <code>--no-browser</code>.</p>
+
+    <h3 id="route-b--source-checkout-dev-servers">Route B — source checkout (dev servers)</h3>
+
+    <p>Clone the repo, run the install script once
+    (<a href="https://github.com/jaewoo4200/SEAM/blob/master/INSTALL.md">INSTALL.md</a> walks through it), then start both servers:</p>
+
     <pre><code># Windows
 powershell -ExecutionPolicy Bypass -File scripts\start.ps1
 # Linux/macOS
 bash scripts/start.sh</code></pre>
-    <p>This runs the backend on :8000 and the Vite dev frontend on <b>http://localhost:5173</b> — open the :5173 address. The rest of this guide assumes the dev URL, but the packaged app looks identical.</p>
 
-    <h2>2. The toolbar</h2>
+    <p>This runs the backend on :8000 and the Vite dev frontend on
+    <b>http://localhost:5173</b> — open the :5173 address. The rest of this guide
+    assumes the dev URL, but the packaged app looks identical.</p>
+
+    <h2 id="2-the-toolbar">2. The toolbar</h2>
+
     <figure class="doc-shot"><img loading="lazy" decoding="async" src="../../assets/guides/01_visual_mode.png" alt="Visual mode with the Sample Demo project: scene tree on the left, textured 3D viewport in the middle, mode tabs and status chips in the toolbar"><figcaption>Visual mode on the Sample Demo project — scene tree, devices <code>tx_001</code> / <code>rx_001</code>, actors <code>car_001</code> / <code>human_001</code>, and the toolbar.</figcaption></figure>
+
     <p>From left to right, the top toolbar shows:</p>
+
     <ol>
-      <li>The <b>SEAM Studio</b> title and the <b>project select</b>. The Sample Demo project loads automatically; switch projects here.</li>
-      <li><b>Rename</b> and <b>Duplicate</b> — rename the current project's display name inline (Enter to save, Esc to cancel) or deep-copy the whole project folder and open the copy.</li>
-      <li><b>Import</b> — bring in a new scene as a new project, either a <b>Mitsuba XML</b> file (or a .zip bundle with meshes and textures) or an <b>OpenStreetMap</b> rectangle fetched by coordinate.</li>
+      <li>The <b>SEAM Studio</b> title and the <b>project select</b>. The Sample Demo
+        project loads automatically; switch projects here.</li>
+      <li><b>Rename</b> and <b>Duplicate</b> — rename the current project's display
+        name inline (Enter to save, Esc to cancel) or deep-copy the whole
+        project folder and open the copy.</li>
+      <li><b>Import</b> — bring in a new scene as a new project, either a
+        <b>Mitsuba XML</b> file (or a .zip bundle with meshes and textures) or an
+        <b>OpenStreetMap</b> rectangle fetched by coordinate.</li>
       <li>The five <b>mode tabs</b>:
         <table>
-          <thead><tr><th>Tab</th><th>What it does</th></tr></thead>
+          <thead>
+            <tr><th>Tab</th><th>What it does</th></tr>
+          </thead>
           <tbody>
             <tr><td><b>Visual</b></td><td>3D scene navigation, picking, scene tree, inspector.</td></tr>
             <tr><td><b>RF Materials</b></td><td>Color overlay per RF material; assign from a dropdown.</td></tr>
@@ -168,78 +193,144 @@ bash scripts/start.sh</code></pre>
           </tbody>
         </table>
       </li>
-      <li><b>Panels ▾</b> — lists every dockable panel with its current dock state; click a row to float it (see <a href="#5-dockable-panels">section 5</a>).</li>
-      <li>The <b>Env</b> select — <code>Auto (indoor)</code>, <code>Indoor</code>, or <code>Outdoor</code>. On <code>Auto</code> the app infers the environment and applies matching solver presets; the inferred value shows in parentheses.</li>
+      <li><b>Panels ▾</b> — lists every dockable panel with its current dock state;
+        click a row to float it (see <a href="#5-dockable-panels">section 5</a>).</li>
+      <li>The <b>Env</b> select — <code>Auto (indoor)</code>, <code>Indoor</code>, or <code>Outdoor</code>. On
+        <code>Auto</code> the app infers the environment and applies matching solver
+        presets; the inferred value shows in parentheses.</li>
       <li>Two <b>status chips</b>:
         <ul>
-          <li><b>Sionna</b> / <b>Mock only</b> — whether the real ray-tracing backend is installed. <code>Mock only</code> is fine for learning the UI.</li>
-          <li>Provider name (e.g. <code>rule_based</code>) / <b>AI off</b> — which AI suggestion provider is active.</li>
+          <li><b>Sionna</b> / <b>Mock only</b> — whether the real ray-tracing backend is
+            installed and has a working Dr.Jit backend (a CUDA GPU, or LLVM on the
+            CPU; <code>/api/health</code> says why when it does not). <code>Mock only</code> is fine for
+            learning the UI.</li>
+          <li>Provider name (e.g. <code>rule_based</code>) / <b>AI off</b> — which AI suggestion
+            provider is active.</li>
         </ul>
       </li>
-      <li><b>Actions ▾</b> (Validate, Compile RF, Beamforming, Export RFData, Delete project…) and the blue <b>Simulate paths</b> button.</li>
+      <li><b>Actions ▾</b> (Validate, Compile RF, Beamforming, Sensing solve, Export
+        RFData, Channel dataset (.npz), Sensing dataset (.npz), AODT export
+        (parquet), AODT import (parquet), Delete project…) and the blue
+        <b>Simulate paths</b> button.</li>
     </ol>
 
-    <h2>3. Visual mode tour</h2>
+    <h2 id="3-visual-mode-tour">3. Visual mode tour</h2>
+
     <p>Stay on the <b>Visual</b> tab and look at the left sidebar.</p>
 
-    <h3>Scene tree</h3>
-    <p>The tree mirrors the scene hierarchy (<code>/buildings/b01/walls</code>, <code>/roads/r01/surface</code>, …). Each mesh row carries a status dot showing its RF-material assignment state, the assigned material id, and an eye toggle (◉/◌) to hide or show it in the viewer. Click a row to select the object; Ctrl-click to multi-select.</p>
+    <h3 id="scene-tree">Scene tree</h3>
 
-    <h3>Devices section</h3>
+    <p>The tree mirrors the scene hierarchy (<code>/buildings/b01/walls</code>,
+    <code>/roads/r01/surface</code>, …). Each mesh row carries a status dot showing its
+    RF-material assignment state, the assigned material id, and an eye toggle
+    (◉/◌) to hide or show it in the viewer. Click a row to select the object;
+    Ctrl-click to multi-select.</p>
+
+    <h3 id="devices-section">Devices section</h3>
+
     <p>The <b>Devices</b> header has four buttons:</p>
+
     <ul>
       <li><b>+TX</b> / <b>+RX</b> — add a transmitter or a receiver.</li>
-      <li><b>⤓ JSON</b> — import TX/RX devices from a JSON file (cartesian x/y/z or geographic lat/lon; see <a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/point_import.md">point_import.md</a>).</li>
+      <li><b>⤓ JSON</b> — import TX/RX devices from a JSON file (cartesian x/y/z or
+        geographic lat/lon; see <a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/point_import.md">point_import.md</a>).</li>
       <li><b>Clear all</b> — remove every radio device (click twice to confirm).</li>
     </ul>
-    <p>The Sample Demo ships with <code>tx_001</code> ("Rooftop TX", red ▲) and <code>rx_001</code> ("Street RX", blue ●). Each row has a × delete button.</p>
 
-    <h3>Actors section</h3>
-    <p>Actors are movable scatterers with their own RF geometry. The <b>Actors</b> header adds them with <b>+Car</b>, <b>+Human</b>, <b>+UAV</b>, and <b>+Custom</b>. The demo includes <code>car_001</code> (a sedan driving down the road) and <code>human_001</code> (a pedestrian).</p>
+    <p>The Sample Demo ships with <code>tx_001</code> ("Rooftop TX", red ▲), <code>rx_001</code>
+    ("Street RX", blue ●) and <code>tx_001_rx</code> ("TX 1 sensing RX", blue ●, at the
+    TX's position: the co-located radar receiver that sensing, ISAC and the
+    sensing coverage map use). Each row has a × delete button.</p>
 
-    <h3>Navigating and picking</h3>
+    <h3 id="actors-section">Actors section</h3>
+
+    <p>Actors are movable scatterers with their own RF geometry. The <b>Actors</b>
+    header adds them with <b>+Car</b>, <b>+Human</b>, <b>+UAV</b>, and <b>+Custom</b>.
+    The demo includes <code>car_001</code> (a sedan driving down the road), <code>human_001</code>
+    (a pedestrian) and <code>uav_001</code> ("Drone", a TR 38.901 sensing target flying
+    an L at 40 m; see <a href="sensing.html">sensing.md</a>). The sensing RX and the drone
+    arrived in v0.1.14: a Sample Demo created by an earlier version keeps its
+    original devices and actors.</p>
+
+    <h3 id="navigating-and-picking">Navigating and picking</h3>
+
     <ul>
       <li><b>Left-drag</b> — orbit around the scene.</li>
       <li><b>Right-drag</b> — pan.</li>
       <li><b>Scroll wheel</b> — zoom.</li>
-      <li><b>Click an object</b> — select it (the inspector on the right updates). Clicking a device or actor also shows an X/Y/Z translate gizmo you can drag to move it.</li>
+      <li><b>Click an object</b> — select it (the inspector on the right updates).
+        Clicking a device or actor also shows an X/Y/Z translate gizmo you can
+        drag to move it.</li>
     </ul>
 
-    <h2>4. The inspector</h2>
+    <h2 id="4-the-inspector">4. The inspector</h2>
+
     <figure class="doc-shot"><img loading="lazy" decoding="async" src="../../assets/guides/02_inspector.png" alt="Inspector with the window prim selected: name and semantic tags, visual material and RF material side by side, and the material authoring buttons"><figcaption>The inspector for <code>window_01</code> — semantic tags <code>building, window</code>, visual material <code>blue_glass_pbr</code>, RF material still unassigned.</figcaption></figure>
-    <p>Click the window prim (<code>/buildings/b01/window_01</code>) in the tree or the viewport. The inspector shows, top to bottom:</p>
+
+    <p>Click the window prim (<code>/buildings/b01/window_01</code>) in the tree or the
+    viewport. The inspector shows, top to bottom:</p>
+
     <ol>
-      <li><b>Name &amp; tags</b> — the prim's display name and its comma-separated <b>Semantic tags</b> (here <code>building, window</code>). Tags drive rule-based and AI material suggestions; both fields commit on Enter or blur.</li>
+      <li><b>Name &amp; tags</b> — the prim's display name and its comma-separated
+        <b>Semantic tags</b> (here <code>building, window</code>). Tags drive rule-based and
+        AI material suggestions; both fields commit on Enter or blur.</li>
       <li>Two side-by-side columns:
         <ul>
-          <li><b>Visual material</b> — what the object <em>looks like</em>: material name/id (<code>blue_glass_pbr</code>), texture, base color.</li>
-          <li><b>RF material</b> — how it <em>behaves electromagnetically</em>: material, assignment status badge (the demo window starts <code>unassigned</code>), sources, confidence, thickness, scattering, XPD.</li>
+          <li><b>Visual material</b> — what the object <em>looks like</em>: material name/id
+            (<code>blue_glass_pbr</code>), texture, base color.</li>
+          <li><b>RF material</b> — how it <em>behaves electromagnetically</em>: material,
+            assignment status badge (the demo window starts <code>unassigned</code>),
+            sources, confidence, thickness, scattering, XPD.</li>
         </ul>
-        <p>This split is the core idea of the app: a blue-glass texture tells you nothing certain about RF penetration loss, so the two bindings are authored and validated separately.</p>
+        <p>This split is the core idea of the app: a blue-glass texture tells you
+        nothing certain about RF penetration loss, so the two bindings are
+        authored and validated separately.</p>
       </li>
       <li><b>Material authoring</b> — one home for every way to fix that:
         <ul>
-          <li>a dropdown to assign an RF material directly (saved as user-confirmed),</li>
-          <li><b>Suggest with AI</b> — asks the AI provider for a proposal and jumps to the AI Assist review screen,</li>
-          <li><b>Split into connected parts…</b> — break a merged mesh (e.g. a whole city block exported as one blob) into per-part prims,</li>
-          <li><b>SEAM-Agent (AI material authoring)…</b> — an agent that captures multi-view renders of the mesh, segments it, and proposes an RF material per region with evidence.</li>
+          <li>a dropdown to assign an RF material directly (saved as
+            user-confirmed),</li>
+          <li><b>Suggest with AI</b> — asks the AI provider for a proposal and jumps
+            to the AI Assist review screen,</li>
+          <li><b>Split into connected parts…</b> — break a merged mesh (e.g. a whole
+            city block exported as one blob) into per-part prims,</li>
+          <li><b>SEAM-Agent (AI material authoring)…</b> — an agent that captures
+            multi-view renders of the mesh, segments it, and proposes an RF
+            material per region with evidence.</li>
         </ul>
       </li>
     </ol>
-    <p>Selecting a device instead shows an editable device card (position, power, antenna array, orientation); selecting an actor shows pose, size, RF material, attached devices, and a waypoint trajectory editor.</p>
+
+    <p>Selecting a device instead shows an editable device card (position,
+    power, antenna array, orientation); selecting an actor shows pose, size,
+    RF material, attached devices, and a waypoint trajectory editor.</p>
 
     <h2 id="5-dockable-panels">5. Dockable panels</h2>
-    <p>Result panels (Metrics dashboard, Channel analysis, UE trajectory, Scenario playback, ML dataset) are dockable, photo-editor style. Small buttons on the right of each panel header move it:</p>
+
+    <p>Result panels (Metrics dashboard, Channel analysis, UE trajectory,
+    Scenario playback, ML dataset) are dockable, photo-editor style. Small
+    buttons on the right of each panel header move it:</p>
+
     <ul>
       <li><b>◧ / ◨</b> — dock to the left / right sidebar.</li>
-      <li><b>⧉</b> — detach as a <b>floating window</b> over the viewport; drag its header to move it, drag edges to resize.</li>
+      <li><b>⧉</b> — detach as a <b>floating window</b> over the viewport; drag its
+        header to move it, drag edges to resize.</li>
     </ul>
-    <p>A floated panel survives mode-tab switches — float the Channel analysis panel and it stays visible while you edit the scene in Visual mode. The <b>Panels ▾</b> toolbar menu reaches every panel from any mode: clicking a row floats it (or focuses it if already floating), and the ◧/◨ buttons next to each row dock it back.</p>
 
-    <h2>Where to go next</h2>
-    <p>Work through the <a href="https://github.com/jaewoo4200/SEAM/blob/master/TUTORIAL.md">15-minute tutorial</a> — it runs the whole loop from material assignment to path simulation, radio maps, and ML dataset export, entirely on the Mock backend if needed.</p>
+    <p>A floated panel survives mode-tab switches — float the Channel analysis
+    panel and it stays visible while you edit the scene in Visual mode. The
+    <b>Panels ▾</b> toolbar menu reaches every panel from any mode: clicking a
+    row floats it (or focuses it if already floating), and the ◧/◨ buttons
+    next to each row dock it back.</p>
 
-    <h2>Related docs</h2>
+    <h2 id="where-to-go-next">Where to go next</h2>
+
+    <p>Work through the <a href="https://github.com/jaewoo4200/SEAM/blob/master/TUTORIAL.md">15-minute tutorial</a> — it runs the
+    whole loop from material assignment to path simulation, radio maps, and
+    ML dataset export, entirely on the Mock backend if needed.</p>
+
+    <h2 id="related-docs">Related docs</h2>
+
     <ul>
       <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/TUTORIAL.md">TUTORIAL.md</a> — 15-minute first session, end to end</li>
       <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/INSTALL.md">INSTALL.md</a> — full installation guide (Sionna RT, local LLM)</li>

@@ -1,7 +1,7 @@
 """Generate the sample_demo example project.
 
 Thin wrapper: the actual generator lives in the shipped package at
-``app.services.demo_project`` (so ``pip install seam-studio`` can create the
+``seam_studio.services.demo_project`` (so ``pip install seam-studio`` can create the
 same demo on first run without bundled binary assets). This script just calls
 it against a chosen output root.
 
@@ -64,9 +64,10 @@ def main() -> None:
 
     scene = store.load_scene(PROJECT_ID)
     n_prims, n_devices, n_actors = len(scene.prims), len(scene.devices), len(scene.actors)
-    if n_prims != 13 or n_devices != 2 or n_actors != 2:
+    # v0.1.14: + the co-located sensing RX and the drone sensing target.
+    if n_prims != 13 or n_devices != 3 or n_actors != 3:
         raise RuntimeError(
-            f"expected 13 prims, 2 devices and 2 actors, got {n_prims} prims / "
+            f"expected 13 prims, 3 devices and 3 actors, got {n_prims} prims / "
             f"{n_devices} devices / {n_actors} actors"
         )
     print(f"project: {project_dir}")

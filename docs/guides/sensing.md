@@ -10,6 +10,13 @@ shows up as a colored velocity signature in the viewport. Without sionna-rt
 2.2 the whole workflow still runs on the **Mock backend** (bistatic radar
 equation), so you can try it without a GPU.
 
+The **Sample Demo** (v0.1.14 and later) is ready for sensing: it ships a
+drone target (`uav_001`, TR 38.901 `uav-small-size`, flying a 90 m L at 40 m
+and 10 m/s, then hovering) and a sensing receiver co-located with the rooftop
+TX (`tx_001_rx`, "TX 1 sensing RX"), so the API examples below run on
+`sample_demo` as they are. A project created before v0.1.14 keeps its devices
+and actors; add a target and a co-located RX yourself (§2, §3).
+
 ---
 
 ## 1. What RCS is
@@ -86,10 +93,10 @@ in the run history like any other solve).
 The same solve over the API:
 
 ```bash
-curl -X POST http://127.0.0.1:8000/api/projects/demo/simulate/sensing \
+curl -X POST http://127.0.0.1:8000/api/projects/sample_demo/simulate/sensing \
   -H "Content-Type: application/json" \
   -d '{"config": {"backend": "auto", "frequency_hz": 28e9}, "include_comm_paths": false}'
-curl http://127.0.0.1:8000/api/projects/demo/results/sensing   # latest stored result
+curl http://127.0.0.1:8000/api/projects/sample_demo/results/sensing   # latest stored result
 ```
 
 | Request field | Meaning |
@@ -103,11 +110,19 @@ curl http://127.0.0.1:8000/api/projects/demo/results/sensing   # latest stored r
 
 **Backends.** `sionna` runs `RCSSolver` (LoS, specular reflection and
 refraction legs). `mock` evaluates the bistatic radar equation over one
-scattering point at each target center (LoS legs, no occlusion). `auto`
-picks sionna when sionna-rt ≥ 2.2 is installed and otherwise falls back to
-the mock with a warning; an explicit `"backend": "sionna"` on an older
-sionna-rt answers **409** (`sensing requires sionna-rt>=2.2`). Requests with
-no bound actor, an unknown actor or device id, or no TX/RX answer **400**.
+scattering point at each target center (LoS legs, no occlusion), with each
+device's element gain toward the target and the per-leg polarization term of
+§8 (v0.1.14; earlier mock echoes were isotropic). `auto` picks sionna when
+sionna-rt ≥ 2.2 is installed and has a working Dr.Jit backend (a CUDA GPU, or
+LLVM on the CPU: see [INSTALL](../../INSTALL.md#the-real-sionna-rt-engine-installed-automatically)),
+and otherwise falls back to the mock with a warning; an explicit
+`"backend": "sionna"` on an older sionna-rt answers **409** (`sensing requires
+sionna-rt>=2.2`). Requests with no bound actor, an unknown actor or device id,
+or no TX/RX answer **400**.
+
+**Antennas.** Sionna applies the first selected TX's (RX's) antenna to every
+TX (RX) and warns when they differ; the mock applies each device's own
+element pattern and orientation (and the polarization term of §8).
 
 ## 4. Reading Doppler
 
@@ -191,17 +206,29 @@ the true actor track.
 
 **Running it.** In Results mode open **Scenario playback**, tick
 **Sensing (ISAC)** under *Include paths*, set the threshold, CPI and
-integrated pulses, and run. The checkbox stays disabled until at least one
-actor has an enabled sensing binding. Over the API, add a `sensing` block to
-the scenario request:
+integrated pulses, pick the **Sensing receivers** (default **Auto**, below),
+and run. The checkbox stays disabled until at least one actor has an enabled
+sensing binding. Over the API, add a `sensing` block to the scenario request:
 
 ```bash
-curl -X POST http://127.0.0.1:8000/api/projects/demo/simulate/scenario \
+curl -X POST http://127.0.0.1:8000/api/projects/sample_demo/simulate/scenario \
   -H "Content-Type: application/json" \
-  -d '{"config_id": "default", "num_frames": 61, "dt_s": 0.5, "include_paths": false,
+  -d '{"config_id": "default", "num_frames": 19, "dt_s": 0.5, "include_paths": false,
        "sensing": {"enabled": true, "threshold_db": 13, "cpi_s": 0.01,
-                   "cpi_pulses": 4096, "measurement_noise": true}}'
+                   "cpi_pulses": 1000000, "measurement_noise": true}}'
 ```
+
+On the Sample Demo that covers the drone's 9 s flight. The demo's 28 GHz
+config has a 100 MHz bandwidth, so the example integrates the whole 10 ms CPI,
+B · cpi_s = 10⁶ samples (+60 dB): the drone, 40–53 m from the 30 dBm rooftop
+TX, then clears the 13 dB threshold (23–28 dB on the mock), while 4096 pulses
+(+36 dB) leave every frame `below_threshold`. On the mock 16 of the 19 frames
+detect it; the other three are `mti_rejected` (Doppler under the 100 Hz MTI
+notch): t = 1.5 s and 7.5 s, where the drone flies almost across the line of
+sight, and t = 9 s, where it has stopped. It has one TRP, so each frame has a single
+monostatic link: detection, range and Doppler per frame, but the fusion needs
+three distinct links and reports `insufficient_links`. Add TRPs (a TX with a
+co-located RX each) for multistatic fusion and tracking.
 
 The result is an ordinary `scenario` result. Each frame gains
 `sensing: {echoes, links, estimates}` and `metadata.sensing` holds the run
@@ -209,9 +236,16 @@ summary. With `sensing` absent or `enabled: false` the result is the same as
 before (each frame's `sensing` is `null`). Comm and sensing share one backend:
 `auto` resolves as for any scenario, and a backend without sensing (sionna-rt
 < 2.2) answers **409** instead of falling back to the mock. No TX or no RX
-answers **400**, and so does no bound actor or an unknown
-`target_actor_ids` entry. The run holds the per-project solve lock and
+answers **400**, and so does no bound actor, an unknown
+`target_actor_ids` entry or a `sensing_rx_ids` entry that is not a selected
+RX. The run holds the per-project solve lock and
 reports progress per frame, and **Cancel** works.
+
+A scenario with sensing always stores every frame's echoes (whatever
+`include_paths` says): about 45 KB per frame on sionna with 16 links
+(≈ 2.6 MB for 61 frames, ≈ 45 MB per 1 000 frames), which the browser also
+loads. (Results are stored as compact JSON since v0.1.14; the pretty-printed
+files of earlier versions were about twice that size.)
 
 | `sensing` field | Default | Meaning |
 |---|---|---|
@@ -222,6 +256,7 @@ reports progress per frame, and **Cancel** works.
 | `mti_min_doppler_hz` | `null` | MTI notch: \|f_D − f_nodes\| below it is rejected (f_nodes = 0 with static TX/RX; see MTI below). `null` = 1 / CPI (one Doppler cell); `0` disables MTI. |
 | `include_comm_paths` | `false` | Also solve each frame's comm paths with the targets as absorbers and append them to `echoes` (`target_id` null). One extra solve per frame. |
 | `target_actor_ids` | `null` | Restrict to these actors (default: every enabled binding). |
+| `sensing_rx_ids` | `null` | Bistatic radar receivers. `null` = auto: the selected RX within 1 m of a selected TX (as §7/§8), else every selected RX (v0.1.13). Comm links still cover every RX. Unknown id: 400. |
 | `samples_per_sp` / `max_depth` | 1 000 000 / `null` | Passed to each frame's sensing solve, as in §3. |
 | `measurement_noise` | `false` | Add Gaussian noise to the range and Doppler fed to the fusion (below). |
 | `noise_seed` | 0 | Seed of that noise. Same seed = same numbers. |
@@ -229,7 +264,19 @@ reports progress per frame, and **Cancel** works.
 | `pfa` | `null` | False-alarm probability of a per-link `pd` (§9). `null` = the link reports carry no Pd. |
 | `detector` | Swerling 1, no Monte Carlo | Model of that `pd`, and `monte_carlo_trials` for a Monte Carlo `pd_mc` per link with an echo (§9; needs `pfa`). Detection itself stays `SNR ≥ threshold_db`. |
 
-**Detection.** For each TX → RX link and target, the strongest **direct**
+**Sensing receivers.** Only the sensing receivers form radar links; every
+selected RX keeps its comm link in the same frames. In the form, **Auto**
+(the default) sends nothing; picking devices from the list sends
+`sensing_rx_ids`. Auto is the §7/§8 rule: the selected RXs within 1 m of a
+selected TX (monostatic/TRP receivers) when there is at least one, else every
+selected RX. The resolved list and the rule (`explicit`, `colocated` or
+`all_rx`) are stored in `metadata.sensing.sensing_rx_ids` and
+`sensing_rx_rule`. **v0.1.14:** a project with co-located RXs now uses only
+those as radar receivers by default; before, every selected RX (UEs
+included) was a bistatic radar receiver. A project without co-located RXs
+runs exactly as in v0.1.13.
+
+**Detection.** For each TX → sensing RX link and target, the strongest **direct**
 echo (TX → scattering point → RX, no other bounce) is reported. If there is
 none, the strongest echo of any kind is reported and flagged `multipath`. Then
 
@@ -291,7 +338,7 @@ so the solutions form a circle, and the estimate reports `diverged`.
 
 **Reading the output.**
 
-- `links[]` has one row per TX × RX × target, in that order: `bistatic_range_m`,
+- `links[]` has one row per TX × sensing RX × target, in that order: `bistatic_range_m`,
   `doppler_hz`, `snr_db`, the `measured_*` values the fusion used, `range_bin`
   (floor(R / (c/B))), `doppler_bin` (round(f_D · CPI)) and `reason`:
   `detected`, `below_threshold`, `mti_rejected` or `no_echo`. With `pfa`
@@ -306,22 +353,30 @@ so the solutions form a circle, and the estimate reports `diverged`.
   errors. `gdop` = sqrt(trace((JᵀJ)⁻¹)): the position error is about
   GDOP × the range error. With tracking on, it also carries the `track_*`
   fields (below).
-- `nodes[]` lists every selected TX, then every RX, with the position and
-  velocity the frame used (a device riding an actor moves with it). Results
-  from before v0.1.13 have `null` here.
+- `nodes[]` lists every selected TX, then every sensing RX, with the position
+  and velocity the frame used (a device riding an actor moves with it).
+  Results from before v0.1.13 have `null` here.
 - `metadata.sensing` holds the constants (noise floor, integration gain,
-  λ, range and Doppler resolutions, MTI notch, blind speed) and, per target,
+  λ, range and Doppler resolutions, MTI notch, blind speed), the
+  `sensing_rx_ids` and `sensing_rx_rule` of the run and, per target,
   `detection_rate` (frames with ≥1 detected link), `link_detection_rate`,
   `frames_ge3_links_rate`, `ok_frames`, the median and p90 position error,
   the median velocity error and the median GDOP.
+
+**Velocity truth.** `velocity_true` (and the Doppler the solver uses) is the
+trajectory tangent × speed. At an exact waypoint time it is the outgoing
+leg's velocity, at the end of a `once` trajectory it is 0 (the actor stops),
+and at a pingpong turnaround it is the reversed leg. Before v0.1.14 those
+frames reported the average of the two legs (7.07 m/s at a 90° turn at
+10 m/s) or half the speed, so Doppler and `velocity_true` at waypoint frames
+changed in v0.1.14.
 
 Without `measurement_noise` the measured values are the solver's exact
 delay and Doppler, so an `ok` estimate is exact to rounding (useful as a
 sanity check). The one exception is an exact mirror tie: when all nodes of
 the fused links lie in one plane (always so for three nodes), the mirror
 across that plane fits exactly too, and the tie rule above picks the side.
-With it, the range and
-Doppler get noise of
+With `measurement_noise` on, the range and Doppler get noise of
 σ = cell / sqrt(2 · SNR), with cell = c/B for range and 1/CPI for Doppler.
 The noise is seeded per frame, link and target. Detection decisions always
 use the exact values.
@@ -433,12 +488,12 @@ TXs (none ticked = all), the array size, the sweep, CPI pulses, P_fa, the
 slot ratios and the sharing mode, and run. Over the API:
 
 ```bash
-curl -X POST http://127.0.0.1:8000/api/projects/demo/simulate/isac \
+curl -X POST http://127.0.0.1:8000/api/projects/sample_demo/simulate/isac \
   -H "Content-Type: application/json" \
   -d '{"config_id": "default", "tx_rows": 4, "tx_cols": 4,
        "sweep_start_deg": -60, "sweep_stop_deg": 60, "sweep_step_deg": 5,
        "cpi_pulses": 4096, "pfa": 1e-6, "sharing_mode": "dual_function"}'
-curl http://127.0.0.1:8000/api/projects/demo/results/isac   # latest stored result
+curl http://127.0.0.1:8000/api/projects/sample_demo/results/isac   # latest stored result
 ```
 
 The result persists as an `isac` result set (run history, prune, label).
@@ -649,11 +704,11 @@ metric selector switches the map between the four layers below. Over the
 API:
 
 ```bash
-curl -X POST http://127.0.0.1:8000/api/projects/demo/simulate/sensing-coverage \
+curl -X POST http://127.0.0.1:8000/api/projects/sample_demo/simulate/sensing-coverage \
   -H "Content-Type: application/json" \
   -d '{"config_id": "default", "height_m": 60, "cell_size_m": 10,
        "threshold_db": 13, "cpi_pulses": 4096, "array_gain": "none"}'
-curl http://127.0.0.1:8000/api/projects/demo/results/sensing-coverage
+curl http://127.0.0.1:8000/api/projects/sample_demo/results/sensing-coverage
 ```
 
 The result persists as a `sensing_coverage` result set. Sensing receivers
@@ -674,17 +729,70 @@ follow the ISAC rule (an RX within 1 m of a selected TX, or
 
 **Model.** Per link and cell, with R_t = |cell − TX| and R_r = |cell − RX|:
 
-`SNR = P_t + G + G_e,t + G_e,r + 10·log10(λ² σ / ((4π)³ R_t² R_r²)) − A(R_t + R_r) − N0 + 10·log10(cpi_pulses)`
+`SNR = P_t + G + G_e,t + G_e,r + L_pol + 10·log10(λ² σ / ((4π)³ R_t² R_r²)) − A(R_t + R_r) − N0 + 10·log10(cpi_pulses)`
 
 when **both legs are line-of-sight**, and no echo otherwise. G is the array
 gain above and A the atmospheric absorption (0 unless enabled in the
 config). G_e,t and G_e,r are the TX's and the RX's element gain toward the
 cell, from each device's `antenna.pattern` in its own frame
-(`orientation_deg`), as Sionna applies them: 0 dB for `iso`, 8 dBi down to
-−22 dBi (a 30 dB floor) for `tr38901`. `metadata.element_patterns` lists them.
-With `iso` elements the equation is the mock echo's, so a mock sensing
-solve with a target at a cell center returns exactly the map's value (the
-mock's echoes are always isotropic). On sionna the LOS test is a Mitsuba
+(`orientation_deg`): 0 dB for `iso`, 8 dBi down to −22 dBi (a 30 dB floor)
+for `tr38901`. `metadata.element_patterns` lists them. L_pol is the
+polarization term below (v0.1.14).
+
+**Polarization.** Each element radiates one linear field (the first port, as
+in Sionna's echo): along its local θ̂ for `V` and `VH`, along φ̂ for `H`, and
+θ̂ turned by −45° for `cross`. Pitch or roll tilts that field in the world.
+Sionna's RCS scattering is the identity in the world θ̂/φ̂ bases of the
+incident direction k_i (TX → target) and the scattered direction k_s
+(target → RX), so with p_t the TX element's world field toward the target
+and p_r the RX element's field toward the target:
+
+`F = (p_t · θ̂(k_i)) (p_r · θ̂(k_s)) + (p_t · φ̂(k_i)) (p_r · φ̂(k_s))`,  `L_pol = 20·log10|F|` (≤ 0 dB)
+
+where θ̂(k) and φ̂(k) are the world spherical unit vectors of a direction.
+What follows from it:
+
+- Unpitched, unrolled elements with the same `V` (or `H`) polarization on
+  both ends give F = ±1 exactly, so L_pol = 0 and such maps are unchanged
+  from v0.1.13 (and carry no `metadata.polarization_model`).
+- On a monostatic link φ̂ flips sign between the two legs, so the echo keeps
+  20·log10|cos 2ψ| of a single element whose field is tilted by ψ from θ̂
+  toward the cell. A down-tilted rooftop TRP loses echo power toward most
+  cells.
+- `cross` (±45°, first port) panels at zero tilt receive the echo
+  cross-polarized, a co-located panel its own echo included: F = 0, so such a
+  link has **no echo** at the cell, monostatic or bistatic, as if a leg were
+  blocked (Sionna's echo there is float32 noise, about 150 dB down), and a
+  mock solve has no echo path for it (`no_echo`). Use `V` (or `H`) elements
+  on sensing links.
+
+Measured on the L2 regression site (TRP at (0, 0, 10) m, 3.5 GHz, a 10 dBsm
+constant target 30 m up, `iso` elements, V polarization; monostatic = RX at
+the TX, bistatic = RX at (0, 40, 10) m with the same orientation), the Sionna
+echo minus the v0.1.13 map over five LOS cells (four on the bistatic link):
+
+| Link | Pitch | Echo loss (dB) |
+|---|---|---|
+| monostatic | 0° | 0.000 |
+| monostatic | −15° | −0.35 … −1.51 |
+| monostatic | +15° | −0.42 … −1.52 |
+| monostatic | −45° | −3.99 … −29.03 |
+| bistatic | −15° | −0.12 … −1.88 |
+| bistatic | −45° | −1.20 … −18.69 |
+| monostatic, `cross` | −15° | −5.32 … −6.61 |
+
+So a rooftop TRP tilted −13…−16° loses about 0.4–1.5 dB per monostatic link,
+which v0.1.13 maps and mock echoes did not show: they were optimistic by that
+much, and the Sionna echo was right. With L_pol the map matches `RCSSolver`
+echoes within 0.01 dB (measured ≤ 3·10⁻⁵ dB) for V, H, VH and `cross`
+elements at pitch 0, ±15° and −45°, monostatic and bistatic. When any link's
+loss is nonzero, `metadata.polarization_model` names the model.
+
+**Mock and LOS.** The mock echo applies the same element gains and L_pol
+(v0.1.14), so a mock sensing solve with a target at a cell center still
+returns the map's value, for `iso` and `tr38901` elements in any
+orientation. A constant target with `xpr_db` set gets no L_pol in the mock
+(its depolarization is not modeled). On sionna the LOS test is a Mitsuba
 shadow-ray test against the cached static scene with every actor mesh
 taken out (the map is about the site, not about where the real drone
 happens to be). In the regression tests a constant-RCS echo solved by
@@ -789,14 +897,14 @@ regression tests check that the two agree.
 - **Caps.** At most 2·10⁶ trials per estimate and 2·10⁸ per request,
   counted as trials × estimates: Pd-curve points × models (**422**), ISAC
   TXs × beams × (1 + nonzero slot ratios) (**400**), scenario frames × TXs ×
-  RXs × targets (**400**; trials count twice with `empirical_threshold`, for
-  each link's noise run), coverage 5.
+  sensing RXs × targets (**400**; trials count twice with `empirical_threshold`,
+  for each link's noise run), coverage 5.
 
 **Pd curve.** `POST /analysis/pd-curve` plots P_d against SNR without a
 solve and stores nothing. In the UI: Results ▸ **Detector (Pd curve)**.
 
 ```bash
-curl -X POST http://127.0.0.1:8000/api/projects/demo/analysis/pd-curve \
+curl -X POST http://127.0.0.1:8000/api/projects/sample_demo/analysis/pd-curve \
   -H "Content-Type: application/json" \
   -d '{"pfa": 1e-6, "cpi_pulses": 4096, "monte_carlo_trials": 200000}'
 ```
@@ -828,7 +936,7 @@ zip under `export/sensing_dataset/`. It runs no solve. In the UI: Toolbar ▸
 Actions ▸ **Sensing dataset (.npz)**.
 
 ```bash
-curl -X POST http://127.0.0.1:8000/api/projects/demo/export/sensing-dataset \
+curl -X POST http://127.0.0.1:8000/api/projects/sample_demo/export/sensing-dataset \
   -H "Content-Type: application/json" \
   -d '{"formats": ["npz", "csv"], "include_echo_paths": true,
        "split": {"train": 0.8, "val": 0.1, "test": 0.1, "seed": 0}}'
@@ -838,7 +946,7 @@ curl -X POST http://127.0.0.1:8000/api/projects/demo/export/sensing-dataset \
 |---|---|---|
 | `result_ids` | `null` | Scenario results to export, in this order. `null` = every stored scenario result that has sensing frames. |
 | `skip_without_sensing` | `false` | With `result_ids`: skip a listed result without sensing frames (named in `warnings`) instead of answering 400. The UI sends it for a partial selection. |
-| `formats` | `["npz"]` | Any of `npz`, `csv`, `parquet` (parquet needs pyarrow, the `results` extra). |
+| `formats` | `["npz"]` | Any of `npz`, `csv`, `parquet` (parquet needs pyarrow: `pip install "seam-studio[parquet]"`, the `parquet` extra). |
 | `include_echo_paths` | `false` | Also write the `echoes` table. |
 | `split` | `null` | Frame-level split `{train, val, test, seed}` (fractions sum to 1). `null` = every row is `all`. |
 
@@ -847,8 +955,9 @@ the zip's `files`, the row counts (`num_rows`, `rows_per_result`,
 `rows_per_split`, `num_echo_rows`), `detected_fraction`, `size_bytes` and
 `warnings`. The zip holds:
 
-- `links.<fmt>`: one row per result × frame × TX → RX link × target, in the
-  frame's `links[]` order (frames × TX × RX × targets rows per result).
+- `links.<fmt>`: one row per result × frame × TX → sensing RX link × target,
+  in the frame's `links[]` order (frames × TX × sensing RX × targets rows per
+  result).
 - `echoes.<fmt>` (`include_echo_paths`): one row per echo path of each frame.
 - `manifest.json`: every column's dtype, unit, role and description; per
   result its label, backend, frequency, frames, dt, rows, `scene_hash` (and
@@ -890,7 +999,11 @@ field and `true`/`false`. **parquet** keeps NaN as NaN.
 | `track_position_x/y/z`, `track_velocity_x/y/z`, `track_position_error_m`, `track_velocity_error_m_s`, `track_position_std_m`, `track_updates`, `track_gated` | float64 | m, m/s | track | NaN when absent |
 
 The estimate and track columns hold one value per target and frame, repeated
-on each of its link rows.
+on each of its link rows. The `velocity_true_*` labels follow §6: at an exact
+waypoint time they hold the outgoing leg's velocity, and 0 at the end of a
+`once` trajectory. Results from before v0.1.14 hold the two-leg average (or
+half the speed) at those frames, so a dataset that mixes old and new results
+mixes both conventions there.
 
 **echoes columns**: `result_id`, `split`, `frame_index`, `time_s`, `path_id`,
 `tx_id`, `rx_id`, `target_id` (`""` = a comm path from
@@ -912,7 +1025,8 @@ seed gives the same split.
 **Older results.** Results from before v0.1.13 did not store `nodes`. Their
 TX/RX positions come from the frame's `device_states`, else the current
 scene, and their velocities from the current scene's trajectories (the way
-the run computed them). The export then warns "predates v0.1.13" (adding
+the run computed them, except at exact waypoint times, where the v0.1.14 rule
+of §6 applies). The export then warns "predates v0.1.13" (adding
 "scene changed since the run" when the scene hash differs) and the manifest
 says `"kinematics_source": "current_scene"`.
 
@@ -920,9 +1034,14 @@ says `"kinematics_source": "current_scene"`.
 file is missing or unreadable (also: not a valid scenario result): **404**.
 With `result_ids` null such a file is skipped and named in `warnings`. A
 listed result without sensing frames (unless `skip_without_sensing`), no
-such result left at all, parquet without pyarrow, or more than 2 000 000
-rows (links + echoes): **400**, and nothing is written. An unknown format:
+such result left at all, parquet without pyarrow, or more than 500 000 rows
+(links + echoes): **400**, and nothing is written. An unknown format:
 **422**.
+
+**Memory.** Rows are built in memory: about 1.9 KB per row as Python lists
+plus about 0.6 KB per row of arrays and the encoded files, so an export at
+the 500 000-row cap peaks around 1.3 GB of RAM; export fewer results on a
+small machine.
 
 ## 11. Limits
 
@@ -934,10 +1053,19 @@ rows (links + echoes): **400**, and nothing is written. An unknown format:
   `include_comm_paths` alike) always runs on the builtin sionna-rt engine.
 - The mock uses one LoS scattering point at the target center with σ_M — no
   angular lobes, no multi-point layouts, no occlusion. Like Sionna, it has no
-  LoS comm path between a co-located (monostatic) TX and RX.
-- Random components are off by default; the solver runs with
-  `deterministic=False`, so the same seed reproduces in practice but Sionna
-  does not guarantee it.
+  LoS comm path between a co-located (monostatic) TX and RX. Since v0.1.14
+  its echoes include each device's element gain and the polarization term of
+  §8 (before, they were isotropic).
+- Mixed antennas: Sionna applies the first selected TX's (RX's) antenna to
+  every TX (RX) and warns when they differ; the mock applies each device's
+  own element pattern and orientation (and the polarization term of §8). With
+  mixed antennas the two backends therefore differ.
+- Random components are off by default. The solver runs with
+  `deterministic=False` in float32 on the GPU: identical inputs can differ by
+  about 1e-6 dB on strong paths and up to about 0.1 dB near beam nulls, and
+  path order and `path_id` can change between runs, so compare results by
+  geometry or path type rather than by `path_id` or exact dB. The same
+  `noise_seed` reproduces the measurement noise exactly.
 - Sensing over time (§6) uses **oracle association**: the ray tracer labels
   each echo with its target and as direct or multipath. A real receiver would
   have to infer both.
@@ -1007,8 +1135,12 @@ rows (links + echoes): **400**, and nothing is written. An unknown format:
     ignored by the LOS test.
   - `steered` is the ideal full-array gain on every link and cell.
   - Element gain uses each device's own antenna. Sionna solves apply the
-    first selected TX's (RX's) antenna to every TX (RX), so with mixed
-    patterns the two differ. Polarization mismatch is not modeled.
+    first selected TX's (RX's) antenna to every TX (RX) and warn, so with
+    mixed patterns the two differ.
+  - Polarization: the first port of each array only (as Sionna's echo); a
+    TR 38.901 target on a bistatic link deviates from the projection by up
+    to 0.2 dB at 15° tilt and 2.5 dB at 45°; targets with `xpr_db`
+    (depolarizing) are not modeled on the map or the mock.
   - The mock treats every leg as line-of-sight.
 - Detector models (§9): the Monte Carlo draws the same idealized model the
   closed forms describe (constant amplitude over the CPI, white Gaussian

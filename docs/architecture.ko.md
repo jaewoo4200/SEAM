@@ -10,7 +10,7 @@ SEAM Studio는 Sionna RT 위에서 RF 인식형 디지털 트윈을 저작하는
 ## 통합 씬 그래프와 두 개의 투영(projection)
 
 프로젝트마다 source of truth는 정확히 하나, 정규(canonical) 통합 씬 그래프인
-`scene.seam.json`(`app.schemas.scene.Scene`)뿐입니다. 시각·RF 양면은 여기서 컴파일해 낸
+`scene.seam.json`(`seam_studio.schemas.scene.Scene`)뿐입니다. 시각·RF 양면은 여기서 컴파일해 낸
 *투영*일 뿐, 따로 놀며 어긋날 수 있는 독립 파일이 아닙니다.
 
 > **레거시 `.sionnatwin`.** SEAM으로 이름을 바꾸기 전에 만든 프로젝트는
@@ -43,12 +43,12 @@ SEAM Studio는 Sionna RT 위에서 RF 인식형 디지털 트윈을 저작하는
 
 시각 재질 정보는 절대 RF 진실이 되지 않습니다. `concrete.jpg`라는 텍스처가 출처를
 남기며 `itu_concrete`를 *제안*할 수는 있지만, 이를 실제로 승격하는 것은 사용자 확인
-(또는 향후 캘리브레이션 실행)뿐입니다.
+(또는 적용한 측정 캘리브레이션, 즉 `apply: true`인 `POST /calibrate/materials`)뿐입니다.
 
 ## 모듈 맵
 
 ```text
-backend/app/
+backend/seam_studio/
   main.py                     FastAPI factory; mounts routers under /api
   core/
     config.py                 env-driven Settings (project roots, AI config)
@@ -114,13 +114,20 @@ POST /api/projects/{id}/compile/sionna
 POST /api/projects/{id}/simulate/paths       body: SimulateRequest
   resolve SimulationConfig (inline config wins over config_id; 404/400)
   simulation_backends.resolve_backend(config)
-      "auto"  -> sionna when importable, else mock
-      "sionna" when not installed -> BackendUnavailableError -> HTTP 409
+      "auto"  -> sionna when usable (installed, a Dr.Jit CUDA/LLVM backend
+                 works and sionna.rt imports: availability.sionna_runtime(),
+                 probed once per process in a subprocess), else mock; the
+                 result then carries "auto backend: <reason>; ran the mock backend"
+      "sionna" when unusable -> BackendUnavailableError -> HTTP 409 (+ reason)
   backend.simulate_paths(...) -> PathResultSet (backend-neutral schema)
-  persist results/<result_id>.json
+  persist results/<result_id>.json   (compact JSON, no indentation)
       result_id = f"{backend_name}_{kind}_{n:03d}",
-      n = 1 + count of existing refs of that kind in scene.result_sets
+      n = 1 + highest existing suffix of that kind (skipping ids whose
+          ref or results file already exists)
   append ResultSetRef to scene.result_sets; save scene
+  with SEAM_AUTO_PRUNE_KEEP=N: drop all but the newest N unlabeled refs of
+      that kind (files too; labeled runs and imported AODT results are
+      kept; a provenance event)
   -> PathResultSet
 GET /api/projects/{id}/results/paths         latest = last ref of that kind
 ```
@@ -132,7 +139,7 @@ GET /api/projects/{id}/results/paths         latest = last ref of that kind
 
 ## 결과 스키마, 재현성, 이벤트
 
-백엔드 중립적 결과 모델(`app.schemas.results`)은 원시 전력(raw power) 이상을 담습니다.
+백엔드 중립적 결과 모델(`seam_studio.schemas.results`)은 원시 전력(raw power) 이상을 담습니다.
 프런트엔드가 여기서 읽어내는 정보는 다음과 같습니다.
 
 ### 도착/출발 각도 (AoA / AoD)
@@ -196,9 +203,10 @@ GET /api/projects/{id}/results/paths         latest = last ref of that kind
   재질 재할당만으로도 변화를 감지할 수 있음.
 - `sim_config_hash` — 정확한 솔버 노브(knob); 전체 `config_snapshot`이
   함께 저장됨.
-- `request_hash`(센싱 결과 전용) — 설정 필드가 아닌 센싱 전용 노브
-  (`target_actor_ids`, `max_depth`, `samples_per_sp`, `include_comm_paths` 등),
-  즉 `metadata.sensing_request`의 해시.
+- `request_hash`(sensing, isac, sensing_coverage 결과) — `metadata.sensing_request`
+  (sensing) 또는 `metadata.request`(isac / coverage)의 sha256, 즉 설정에 없는 솔브 전용
+  노브. 릴리스 뒤에 추가된 필드는 기본값인 동안 그 덤프에서 빠지므로
+  (`PHASE_C_FIELDS`), 예전 요청은 같은 해시를 유지합니다.
 
 프런트엔드는 결과에 찍힌 해시를 라이브 씬과 대조해, 솔브 이후 씬이나 할당이 바뀌었으면
 결과에 오래됨(stale) 배지를 붙입니다.
@@ -209,8 +217,13 @@ GET /api/projects/{id}/results/paths         latest = last ref of that kind
 반환합니다. `capabilities`는 안정적이고 가산적(additive)인 기능 맵
 (`paths`, `radio_map`, `mesh_radio_map`, `cir`, `beamforming`, `doppler`,
 `diffraction`, `sensing`, `gpu`, …)이며, **프런트엔드는 없는 키를 `false`로 간주합니다**. `mock`
-백엔드는 항상 사용할 수 있고, `sionna`는 Sionna RT를 임포트할 수 없으면
-"not installed (optional)" 상세와 함께 `available: false`를 보고합니다.
+백엔드는 항상 사용할 수 있고, `sionna`는 쓸 수 없으면 `available: false`와 함께 그 이유를
+`detail`에 보고합니다. "not installed (optional)", "sionna-rt installed but no Dr.Jit
+backend works (no CUDA device and LLVM-C not found); set DRJIT_LIBLLVM_PATH to
+LLVM-C.dll/libLLVM", "sionna-rt installed but its Dr.Jit/Mitsuba runtime failed to load:
+<오류>"(drjit/mitsuba 임포트나 프로브 자식 프로세스가 실패), 또는 `sionna.rt` 임포트 오류입니다. 솔브가 Mitsuba 변형을 활성화하기
+전까지 `capabilities.gpu` / `compute`(`cuda` / `llvm` / `none`)는 같은 런타임 프로브에서
+가져옵니다.
 
 ### 라이브 이벤트 (WebSocket)
 
@@ -229,13 +242,16 @@ JSON 프레임을 스트리밍합니다. 일회성 `{type: "connected"}` 인사�
 (tx/rx id는 parquet 열에서 곧바로 읽으며 기본값은 `"tx"`/`"rx"`, 현재로선
 object-id→prim-id 재매핑 없음), 공용 `_persist_result` 헬퍼로 저장합니다. 덕분에
 임포트한 세트도 로컬 솔브와 똑같이 정규 id와 출처 해시, `backend: "aodt_import"`인
-`ResultSetRef`를 얻습니다. `pyarrow`가 설치돼 있지 않으면 409를 반환합니다.
+`ResultSetRef`를 얻습니다. `pyarrow`가 설치돼 있지 않으면 409를 반환합니다(`parquet` extra:
+`pip install "seam-studio[parquet]"`). UI에서는 SEAM이 돌아가는 기기의 폴더 경로를 주는
+**Actions ▾ → AODT import (parquet)**로 호출합니다.
 
 ### 측정 CSV 임포트
 
 `POST /projects/{id}/calibrate/measurements/import-csv {csv_text}`는 측정된 링크별
 샘플(RX 위치 + 측정 경로 이득)을 `MeasurementSample`(각각 선택적 `measurement_id` 보유)로
-파싱하고, `skipped` 행과 `warnings`를 보고합니다. `GET /projects/{id}/calibrate/measurements`는
+파싱하고, `skipped` 행과 `warnings`를 보고합니다. 샘플을 하나도 얻지 못한 CSV는 400으로
+답하고 저장된 세트를 그대로 둡니다. `GET /projects/{id}/calibrate/measurements`는
 저장된 세트를 돌려줍니다. 이 데이터는 재질 캘리브레이션과 RF 모호성 해소(disambiguation)에
 쓰입니다(`docs/ai_assistant.md`, `docs/accuracy.md` 참조).
 
@@ -261,7 +277,7 @@ XML이 참조하는 비트맵 텍스처(`<texture type="bitmap">`, `twosided` �
 
 ### 재질 분할 (다중 재질 건물)
 
-실제 건물은 유리·콘크리트·금속이 섞여 있습니다. `app/services/material_segmentation.py`는
+실제 건물은 유리·콘크리트·금속이 섞여 있습니다. `seam_studio/services/material_segmentation.py`는
 FTC SAM2/DINOv2 연구의 분할 스캐폴드를 이식한 것으로, 텍스처 아틀라스 + UV 메시 ->
 재질 마스크 -> 면별 할당(마스크는 각 면의 UV 무게중심에서 샘플링,
 `y=(1-v)*(H-1)`) -> `visual/scene.glb`에 베이크되는 재질별 명명 서브 메시로의
@@ -285,7 +301,7 @@ AI suggest 경로에는 사용자용 모델 선택기도 생겼습니다. 모델
 
 ### SEAM-Agent (검색 증강 재질 저작)
 
-`app/services/seam_agent.py` + `/projects/{id}/agent/material-assignment/*`.
+`seam_studio/services/seam_agent.py` + `/projects/{id}/agent/material-assignment/*`.
 건물 수준 프림 하나를 RF 구성요소로 분할하고 재질을 제안합니다.
 FE는 r3f 월드 안에서 다중 뷰 정사영 렌더(RGB + triangle-id 버퍼,
 uint24 정점 색상으로 인코딩한 faceIndex)를 캡처합니다. 백엔드는 제한된(BOUNDED) 에이전트
@@ -302,7 +318,7 @@ trace 엔드포인트는 관찰 가능한 활동 로그(단계, 쿼리, 근거 �
 
 `POST /projects/import-osm {name, lat, lon, width_m, height_m, ...}`는 지리적 사각형
 하나로 시뮬레이션 바로 가능한 실외 프로젝트를 한 번에 만듭니다
-(`app.services.osm_import`). Overpass API에서 건물 풋프린트를 가져와, 각 way의
+(`seam_studio.services.osm_import`). Overpass API에서 건물 풋프린트를 가져와, 각 way의
 경위도 링을 중심 기준 등장방형(equirectangular) 접평면 근사로 로컬 ENU 미터에 투영하고
 (허용 범위인 ≤3 km 사각형에서 미터 미만 정확도), `trimesh.creation.extrude_polygon`으로
 풋프린트를 돌출시키며(높이는 OSM `height` / `building:levels` 태그에서, 없으면 기본값),
@@ -319,7 +335,7 @@ trace 엔드포인트는 관찰 가능한 활동 로그(단계, 쿼리, 근거 �
 ## 시뮬레이션 백엔드 인터페이스
 
 모든 백엔드는 단일 추상 기반 클래스
-(`app.services.simulation_backends`)를 구현합니다.
+(`seam_studio.services.simulation_backends`)를 구현합니다.
 
 ```python
 class RayTracingBackend(abc.ABC):
@@ -339,15 +355,18 @@ available_backends() -> list[HealthBackendStatus]                # feeds /api/he
 - **mock**은 항상 사용 가능하며 결정론적입니다. LoS 경로, prim-id 상호작용이 있는
   반사 경로, 합성 라디오 맵을 냅니다. 전체 앱(프런트엔드, 테스트, 결과
   탐색기)이 GPU도 Sionna도 없이 돌아가도록 존재합니다.
-- **sionna**는 함수 안에서 Sionna RT를 지연(lazy) 임포트합니다
-  (`availability.sionna_available()`는 모듈 스펙만 확인). 임포트나 실행이
-  실패하면 API는 앱을 죽이는 대신 409를 보고합니다.
-- **AODT (향후)**는 스키마를 건드리지 않고 두 가지 방식으로 붙습니다.
-  원격 AODT 워커를 감싸는 또 다른 `RayTracingBackend`로, 또는 AODT Parquet
-  출력을 `PathResultSet` / `RadioMapResultSet`으로 정규화하는 임포터로 붙어
-  `mapping/object_map.json`으로 AODT 객체 id를 정규 prim id에 재매핑합니다.
-  어느 쪽이든 결과는 출처를 `backend` 필드에 기록한 `ResultSetRef`와 함께
-  `results/`에 놓입니다.
+- **sionna**는 함수 안에서 Sionna RT를 지연(lazy) 임포트합니다.
+  `availability.sionna_available()`는 설치된 패키지와, 프로세스마다 한 번 도는
+  서브프로세스 런타임 프로브(`sionna_runtime()`: 어떤 Dr.Jit 백엔드가 동작하는지,
+  `sionna.rt`가 임포트되는지. 프로브 시간 초과는 사용 가능으로 봄)를 확인합니다. 쓸 수
+  없으면 `auto`는 경고와 함께 mock으로 넘어가고, `sionna`를 명시한 요청은 앱을 죽이는
+  대신 이유를 담아 409로 응답합니다.
+- **AODT** 결과는 AODT Parquet 출력을 스키마 변경 없이 `PathResultSet` /
+  `RadioMapResultSet`으로 정규화하는 임포터(`POST /results/import-aodt`,
+  `services/aodt_import.py`)로 들어오고, `backend`가 `aodt_import`인 `ResultSetRef`와 함께
+  `results/`에 놓입니다(상호작용의 점과 종류는 유지하지만, AODT 객체 id를 prim id로
+  매핑하는 일은 아직 하지 않아 `prim_id`는 `null`). 반대 방향은 `POST /export/aodt`가
+  씁니다. 원격 AODT 워커는 여전히 또 다른 `RayTracingBackend`로 붙을 수 있습니다.
 
 ## 주요 결정
 
@@ -372,9 +391,13 @@ available_backends() -> list[HealthBackendStatus]                # feeds /api/he
   불일치는 사용자가 그냥 넘겨도 되는 경고이고, 컴파일을 중단시키는 것은 구조적
   오류뿐입니다.
 - **결과는 id별로 저장, 최신은 ref 순서로.** 모든 실행은 불변의
-  `results/<result_id>.json`을 씁니다. 씬은 순서가 있는
-  `result_sets` 리스트를 유지하고, "최신"이란 특정 종류의 마지막 ref일 뿐입니다. 이력은
-  절대 덮어쓰지 않습니다.
+  `results/<result_id>.json`을 씁니다(v0.1.14부터 들여쓰기 없는 압축 JSON이라 약 2배 작고,
+  씬·provenance·사이드카는 들여쓰기를 유지). 씬은 순서가 있는 `result_sets` 리스트를
+  유지하고, "최신"이란 특정 종류의 마지막 ref일 뿐입니다. 이력은 덮어쓰지 않고, 요청할
+  때만 정리합니다(`POST /results/prune`, 또는 `SEAM_AUTO_PRUNE_KEEP`으로 자동. 라벨을
+  붙인 실행과 가져온 AODT 결과는 지우지 않음). 파싱할 수 없는 `provenance.json`은
+  `provenance.corrupt-<UTC 타임스탬프>.json`으로 이름을 바꾸고 `provenance_recovered`
+  이벤트로 새 로그를 시작하므로, 이력이 조용히 사라지지 않습니다.
 - **이동 RX(UE) 궤적은 기존 디바이스를 옮김.** 각 웨이포인트/스텝은
   씬을 깊은 복사한 뒤 라우팅된 UE의 `position`과 유한 차분 `velocity_m_s`만
   변형합니다. 나머지 필드(안테나
@@ -397,6 +420,6 @@ available_backends() -> list[HealthBackendStatus]                # feeds /api/he
 - **AI 폴백 체인: ollama → rule_based.** 제안은 로컬 Ollama 모델이 구성돼 있고
   도달 가능하면 이를 우선합니다. 그렇지 않거나 AI JSON이 유효하지 않으면
   결정론적 규칙 기반 제공자로 폴백합니다. 제안은 기본적으로 절대 자동 적용되지 않습니다.
-- **이식 가능한 로컬 툴체인.** 전체 스택은 사용자 로컬의 재배치 가능한 설치본,
-  즉 `backend/.venv` 아래 백엔드 venv와 프런트엔드용 이식형 Node 배포판에서
-  돌아갑니다. 관리자 권한도, 시스템 서비스도, 클라우드 의존성도 필요 없습니다.
+- **로컬 툴체인.** 전체 스택은 사용자 로컬 설치본, 즉 `backend/.venv` 아래 백엔드
+  venv와 PATH에 있는 Node.js 20+(소스 경로에서만. pip 패키지는 빌드된 프런트엔드를
+  포함)에서 돌아갑니다. 관리자 권한도, 시스템 서비스도, 클라우드 의존성도 필요 없습니다.

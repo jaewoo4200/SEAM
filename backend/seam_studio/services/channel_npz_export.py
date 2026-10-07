@@ -66,6 +66,7 @@ from seam_studio.schemas.materials import RFMaterialLibrary
 from seam_studio.schemas.results import ChannelNpzExportRequest, RayPath
 from seam_studio.schemas.scene import Scene
 from seam_studio.schemas.simulation import SimulationConfig
+from seam_studio.services import availability
 from seam_studio.services.sensing import ResolvedSensingTarget
 from seam_studio.services.simulation_backends.base import RayTracingBackend
 
@@ -210,6 +211,7 @@ def export_channel_npz(
     norm_scale = 10.0 ** (float(request.normalization_db) / 20.0)
 
     warnings: list[str] = []
+    availability.note_auto_fallback(warnings, config, backend.name)
     truncated_links = 0
     empty_links = 0
     total_paths = 0

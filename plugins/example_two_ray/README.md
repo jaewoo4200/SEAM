@@ -18,7 +18,7 @@ plugins/
     README.md     ← optional: docs / notes (this file)
 ```
 
-The loader (`backend/app/services/plugins.py`) scans `plugins/*/plugin.py`,
+The loader (`backend/seam_studio/services/plugins.py`) scans `plugins/*/plugin.py`,
 imports each module in isolation via `importlib`, and calls its
 `register(registry)` function. That is the entire contract.
 

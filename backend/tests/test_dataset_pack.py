@@ -24,7 +24,7 @@ from .conftest import make_demo_scene
 
 @pytest.fixture()
 def project_dir(store, demo_scene):
-    info = store.create_project(name="DSP", project_id="dsp_proj")
+    store.create_project(name="DSP", project_id="dsp_proj")
     store.save_scene("dsp_proj", demo_scene)
     return store.resolve("dsp_proj")
 

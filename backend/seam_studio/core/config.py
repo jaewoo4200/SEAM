@@ -24,9 +24,14 @@ and falls back to the legacy ``SIONNATWIN_*`` name via the ``_env`` helper -
 - SEAM_AI_TIMEOUT_S    default 60
 - SEAM_AI_AUTO_APPLY   "1"/"true" to let high-confidence suggestions
                        auto-apply (never the default; HANDOFF 9.5)
+- SEAM_AUTO_PRUNE_KEEP integer >= 1: after each stored solve keep only the
+                       newest N unlabeled results of that kind (unset = keep
+                       everything; labeled runs and imported AODT results
+                       are never pruned)
 """
 
 import json
+import logging
 import os
 import uuid
 from dataclasses import dataclass, field
@@ -36,7 +41,9 @@ from typing import Optional
 
 from .paths import DEFAULT_PROJECT_ROOTS
 
-APP_VERSION = "0.1.13"
+APP_VERSION = "0.1.14"
+
+_logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -63,6 +70,9 @@ class Settings:
         default_factory=lambda: tuple(DEFAULT_PROJECT_ROOTS)
     )
     ai: AISettings = field(default_factory=AISettings)
+    # SEAM_AUTO_PRUNE_KEEP: newest unlabeled results kept per kind after each
+    # stored solve; None keeps everything.
+    auto_prune_keep: Optional[int] = None
 
 
 def _env(name: str, default: Optional[str] = None) -> Optional[str]:
@@ -121,6 +131,22 @@ def load_ai_overlay() -> tuple[dict[str, str], list[str]]:
     return out, []
 
 
+def _auto_prune_keep() -> Optional[int]:
+    raw = _env("AUTO_PRUNE_KEEP")
+    if raw is None or not raw.strip():
+        return None
+    try:
+        keep = int(raw.strip())
+    except ValueError:
+        keep = 0
+    if keep < 1:
+        _logger.warning(
+            "SEAM_AUTO_PRUNE_KEEP=%r is not an integer >= 1; automatic pruning is off", raw
+        )
+        return None
+    return keep
+
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     roots_raw = _env("PROJECT_ROOTS")
@@ -148,7 +174,7 @@ def get_settings() -> Settings:
         vision_timeout_s=float(_env("AI_VISION_TIMEOUT_S", "300")),
         auto_apply=_bool_env("AI_AUTO_APPLY", False),
     )
-    return Settings(project_roots=roots, ai=ai)
+    return Settings(project_roots=roots, ai=ai, auto_prune_keep=_auto_prune_keep())
 
 
 def _atomic_write_text(path: Path, text: str) -> None:

@@ -13,7 +13,6 @@ import pytest
 import trimesh
 from PIL import Image
 
-from seam_studio.services import material_segmentation as seg
 from seam_studio.services.material_segmentation import (
     SegmentationError,
     assign_face_materials,

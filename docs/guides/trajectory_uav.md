@@ -135,6 +135,13 @@ attached to the actor moves with it. The exception is a dataset that
 samples the actor's own path: that actor stays at rest (see §4 of
 [sensing.md](sensing.md)).
 
+That velocity is the trajectory tangent × speed. At an exact waypoint time
+it is the outgoing leg's velocity, at the end of a `once` trajectory it is 0
+(the actor stops), and at a pingpong turnaround it is the reversed leg.
+Before v0.1.14 those frames reported the average of the two legs (7.07 m/s
+at a 90° turn at 10 m/s) or half the speed, so Doppler and `velocity_true`
+at waypoint frames changed in v0.1.14.
+
 ### ⚡ Simulate paths along trajectory
 
 The **`⚡ Simulate paths along trajectory`** button (enabled with ≥ 2
@@ -221,3 +228,5 @@ Trajectory samples also feed ML datasets (`trajectory` sampling mode, see
 - [datasets_export.md](datasets_export.md) — ML datasets (trajectory sampling mode) and RFData export
 - [../dynamic_scattering.md](../dynamic_scattering.md) — how moving actors are compiled into RF geometry
 - [materials_and_ai.md](materials_and_ai.md) — assigning RF materials (actors have an RF material too)
+- [playback_dashboard.md](playback_dashboard.md) — replaying a recorded drive/flight (camera, LiDAR, beam power) against the twin
+- [sensing.md](sensing.md) — actors as radar targets, sensing over scenario frames, EKF tracking

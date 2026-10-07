@@ -5,6 +5,7 @@ Run locally:
 """
 
 import math
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.encoders import jsonable_encoder
@@ -61,8 +62,19 @@ async def _request_validation_handler(
     )
 
 
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    # Source checkout on its default root: copy the committed examples into
+    # projects/ once, so sessions never edit tracked files. Best-effort.
+    from seam_studio.services.demo_project import seed_default_checkout_projects
+
+    seed_default_checkout_projects()
+    yield
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
+        lifespan=_lifespan,
         title="SEAM Studio",
         version=APP_VERSION,
         description=(

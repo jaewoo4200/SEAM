@@ -32,6 +32,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import Field
 
 from seam_studio.api.deps import get_store, load_scene_live, load_scene_or_404
+from seam_studio.core.config import get_settings
 from seam_studio.schemas.actors import ScenarioResultSet
 from seam_studio.schemas.channel import ChannelAnalysisResult
 from seam_studio.schemas.common import StrictModel
@@ -63,7 +64,7 @@ from seam_studio.schemas.simulation import (
     SimulationConfig,
     TrajectorySimulateRequest,
 )
-from seam_studio.services import solve_ctx
+from seam_studio.services import availability, solve_ctx
 from seam_studio.services.simulation_backends import (
     BackendUnavailableError,
     RayTracingBackend,
@@ -125,6 +126,20 @@ def _solve_guard(project_id: str, kind: str) -> Iterator[None]:
                     {"type": "simulation_failed", "kind": kind, "error": str(exc)},
                 )
                 raise
+
+@contextmanager
+def _readout_guard(project_id: str, kind: str, backend_name: str) -> Iterator[None]:
+    """_solve_guard for a solve that stores no result set: on success it
+    publishes the finished event _persist_result would otherwise send."""
+    from seam_studio.services.events import publish_event
+
+    with _solve_guard(project_id, kind):
+        yield
+        publish_event(
+            project_id,
+            {"type": "simulation_finished", "kind": kind, "backend": backend_name},
+        )
+
 
 ResultKind = Literal[
     "paths", "radio_map", "mesh_radio_map", "trajectory", "scenario",
@@ -219,9 +234,11 @@ def _persist_result(
     result: AnyResult,
     config: Optional[SimulationConfig] = None,
     label: Optional[str] = None,
+    auto_prune: bool = True,
 ) -> AnyResult:
     """Allocate a collision-free result id, save it, append a ResultSetRef,
-    and log provenance. Shared by every simulate endpoint."""
+    and log provenance. Shared by every simulate endpoint. ``auto_prune``
+    False (imports) skips the SEAM_AUTO_PRUNE_KEEP sweep."""
     prefix = f"{backend_name}_{kind}_"
     existing_ids = {ref.result_id for ref in scene.result_sets}
     n = 1 + max(
@@ -253,9 +270,12 @@ def _persist_result(
         result.metadata["request_hash"] = _sha256(req)
     if config is not None:
         result.metadata.setdefault("config_snapshot", config.model_dump(mode="json"))
+    availability.note_auto_fallback(result.warnings, config, backend_name)
 
     uri = f"results/{result.result_id}.json"
-    saved_path = store.save_json(project_id, uri, result.model_dump(mode="json"))
+    saved_path = store.save_json(
+        project_id, uri, result.model_dump(mode="json"), compact=True
+    )
     ref = ResultSetRef(
         result_id=result.result_id,
         kind=kind,
@@ -273,10 +293,20 @@ def _persist_result(
     # and save that — and keep the overlay (clear_live_overlay=False) so a
     # periodic/live re-solve keeps following the live feed.
     scene.result_sets.append(ref)  # keep the in-memory scene consistent
+    keep = get_settings().auto_prune_keep if auto_prune else None
+    pruned: list[str] = []
     with _refs_lock:
         clean = load_scene_or_404(store, project_id)
         clean.result_sets.append(ref)
+        if keep is not None:
+            # The new ref is the newest of its kind, so it always survives.
+            pruned, _kept, _freed = _prune_refs(
+                store, project_id, clean, [kind], keep, keep_imported=True
+            )
         store.save_scene(project_id, clean, clear_live_overlay=False)
+    if pruned:
+        gone = set(pruned)
+        scene.result_sets = [r for r in scene.result_sets if r.result_id not in gone]
     store.append_provenance(
         project_id,
         {
@@ -288,6 +318,11 @@ def _persist_result(
             "uri": uri,
         },
     )
+    if pruned:
+        store.append_provenance(
+            project_id,
+            {"type": "results_pruned", "removed_count": len(pruned), "auto": True, "kind": kind},
+        )
     # Lazy import to avoid an import cycle (events -> nothing here, but keep the
     # hook self-contained and never fatal to a solve).
     from seam_studio.services.events import publish_event
@@ -480,27 +515,53 @@ def prune_results(project_id: str, request: Optional[ResultsPruneRequest] = None
     # Pruning only edits result_sets — never device/actor positions — so load
     # the CLEAN scene (no live overlay) and keep any overlay intact on save.
     scene = load_scene_or_404(store, project_id)
-    project_dir = store.resolve(project_id)
+    removed_ids, kept_ids, freed_bytes = _prune_refs(
+        store, project_id, scene, request.kinds, request.keep_latest
+    )
+    # Not a position edit: keep any live overlay so a running live session
+    # is not ended by a housekeeping prune.
+    store.save_scene(project_id, scene, clear_live_overlay=False)
+    store.append_provenance(
+        project_id,
+        {"type": "results_pruned", "removed_count": len(removed_ids)},
+    )
+    return {"removed": removed_ids, "kept": kept_ids, "freed_bytes": freed_bytes}
 
-    scope = set(request.kinds) if request.kinds is not None else set(RESULT_KINDS)
 
+def _prune_refs(
+    store,
+    project_id: str,
+    scene: Scene,
+    kinds: Optional[list[str]],
+    keep_latest: int,
+    *,
+    keep_imported: bool = False,
+) -> tuple[list[str], list[str], int]:
+    """Drop all but the newest ``keep_latest`` unlabeled refs of each kind in
+    ``kinds`` (None = every kind) from ``scene.result_sets`` and delete their
+    files; returns (removed ids, kept ids, freed bytes), both id lists
+    chronological. Labeled runs are named baselines: never removed and not
+    counted in the keep window; ``keep_imported`` (the automatic prune) treats
+    imported AODT results the same way, since they cannot be re-solved. The
+    caller saves the scene."""
+    from seam_studio.services.aodt_import import BACKEND_NAME as IMPORTED_BACKEND
+
+    scope = set(kinds) if kinds is not None else set(RESULT_KINDS)
     removed_ids: list[str] = []
-    kept_ids: list[str] = []
     survivors: list[ResultSetRef] = []
     # Refs are appended chronologically; the last N of a kind are the newest.
     kept_per_kind: dict[str, int] = {}
     freed_bytes = 0
     for ref in reversed(scene.result_sets):
-        if ref.kind not in scope:
-            survivors.append(ref)
-            continue
-        # Labeled runs are named baselines — housekeeping never deletes them
-        # (and they do not consume the keep window).
-        if ref.label:
+        if (
+            ref.kind not in scope
+            or ref.label
+            or (keep_imported and ref.backend == IMPORTED_BACKEND)
+        ):
             survivors.append(ref)
             continue
         seen = kept_per_kind.get(ref.kind, 0)
-        if seen < request.keep_latest:
+        if seen < keep_latest:
             kept_per_kind[ref.kind] = seen + 1
             survivors.append(ref)
             continue
@@ -525,21 +586,10 @@ def prune_results(project_id: str, request: Optional[ResultsPruneRequest] = None
                 exc,
             )
         removed_ids.append(ref.result_id)
-
     survivors.reverse()  # restore chronological order
-    kept_ids = [ref.result_id for ref in survivors]
     scene.result_sets = survivors
-    # Not a position edit: keep any live overlay so a running live session
-    # is not ended by a housekeeping prune.
-    store.save_scene(project_id, scene, clear_live_overlay=False)
-    store.append_provenance(
-        project_id,
-        {"type": "results_pruned", "removed_count": len(removed_ids)},
-    )
-    # removed_ids was built newest-first; present it oldest-first for symmetry
-    # with kept_ids (both chronological).
     removed_ids.reverse()
-    return {"removed": removed_ids, "kept": kept_ids, "freed_bytes": freed_bytes}
+    return removed_ids, [ref.result_id for ref in survivors], freed_bytes
 
 
 @router.post(
@@ -949,6 +999,7 @@ def simulate_beamforming(
         result = backend.simulate_beamforming(
             project_dir, scene, library, config, request
         )
+        availability.note_auto_fallback(result.warnings, config, backend.name)
         # Beamforming is the one solve that does not persist a result set, so
         # the finished event (elsewhere published by _persist_result) is manual.
         from seam_studio.services.events import publish_event

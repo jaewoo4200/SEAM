@@ -795,35 +795,37 @@ export default function MetricsPanel() {
             />
           )}
 
-          <table className="results-table">
-            <thead>
-              <tr>
-                <th>step</th>
-                <th>time (s)</th>
-                <th>from → to</th>
-              </tr>
-            </thead>
-            <tbody>
-              {hoSummary.events.length === 0 ? (
+          <div className="table-scroll">
+            <table className="results-table">
+              <thead>
                 <tr>
-                  <td colSpan={3} className="hint">
-                    No handover events on this UE.
-                  </td>
+                  <th>step</th>
+                  <th>time (s)</th>
+                  <th>from → to</th>
                 </tr>
-              ) : (
-                hoSummary.events.map((e, i) => (
-                  <tr key={i}>
-                    <td className="mono">{e.step}</td>
-                    <td className="mono">{num(e.time_s, 2)}</td>
-                    <td>
-                      <span className="mono">{e.from_tx}</span> →{" "}
-                      <span className="mono">{e.to_tx}</span>
+              </thead>
+              <tbody>
+                {hoSummary.events.length === 0 ? (
+                  <tr>
+                    <td colSpan={3} className="hint">
+                      No handover events on this UE.
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                ) : (
+                  hoSummary.events.map((e, i) => (
+                    <tr key={i}>
+                      <td className="mono">{e.step}</td>
+                      <td className="mono">{num(e.time_s, 2)}</td>
+                      <td>
+                        <span className="mono">{e.from_tx}</span> →{" "}
+                        <span className="mono">{e.to_tx}</span>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </>
       )}
     </div>

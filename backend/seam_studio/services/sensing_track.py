@@ -62,7 +62,9 @@ from seam_studio.schemas.simulation import SimulationConfig
 from seam_studio.services.detector import monte_carlo_pd, pd_swerling
 from seam_studio.services.scenario import _frame_scene
 from seam_studio.services.sensing import (
+    COLOCATED_SENSING_RX_M,
     ResolvedSensingTarget,
+    SensingRequestError,
     geometry_groups,
     resolve_target_state,
 )
@@ -802,10 +804,37 @@ def _p90(values: list[float]) -> Optional[float]:
     return float(np.percentile(values, 90)) if values else None
 
 
+def resolve_sensing_rxs(
+    txs: list[Device], rxs: list[Device], sensing_rx_ids: Optional[list[str]]
+) -> tuple[list[Device], str]:
+    """The scenario's bistatic radar receivers among the selected ``rxs`` (scene
+    order) and the rule that chose them: "explicit" (``sensing_rx_ids``),
+    "colocated" (the rx within COLOCATED_SENSING_RX_M of a selected tx, as
+    ISAC roles and coverage pair them) or "all_rx" (none co-located: every
+    selected rx, the v0.1.13 behaviour)."""
+    if sensing_rx_ids is not None:
+        selected = [d.id for d in rxs]
+        bad = [i for i in dict.fromkeys(sensing_rx_ids) if i not in selected]
+        if bad:
+            raise SensingRequestError(
+                f"sensing.sensing_rx_ids: {bad} not among the selected rx devices {selected}"
+            )
+        wanted = set(sensing_rx_ids)
+        return [d for d in rxs if d.id in wanted], "explicit"
+    colocated = [
+        d for d in rxs
+        if any(math.dist(d.position, t.position) <= COLOCATED_SENSING_RX_M for t in txs)
+    ]
+    if colocated:
+        return colocated, "colocated"
+    return list(rxs), "all_rx"
+
+
 class SensingTracker:
     """Runs the per-frame sensing solve of a scenario and keeps, per target,
     the last ok estimate (the next frame's Gauss-Newton start) and, with
-    tracking enabled, the EKF track."""
+    tracking enabled, the EKF track. ``rxs`` are the sensing receivers
+    (resolve_sensing_rxs); the frame's comm links are not the tracker's."""
 
     def __init__(
         self,
@@ -818,6 +847,7 @@ class SensingTracker:
         txs: list[Device],
         rxs: list[Device],
         target_ids: list[str],
+        sensing_rx_rule: str = "all_rx",
     ):
         self.backend = backend
         self.project_dir = project_dir
@@ -827,7 +857,20 @@ class SensingTracker:
         self.options = options
         self.txs = txs
         self.rxs = rxs
+        self.sensing_rx_rule = sensing_rx_rule
         self.target_ids = target_ids
+        selected = [
+            d.id for d in scene.devices
+            if d.kind == "rx" and (config.rx_ids is None or d.id in config.rx_ids)
+        ]
+        # Only a narrower receiver set changes the sensing solve's config, so
+        # an all-rx run makes exactly the v0.1.13 call.
+        sensing_ids = [r.id for r in rxs]
+        self._sensing_config = (
+            config
+            if sensing_ids == selected
+            else config.model_copy(update={"rx_ids": sensing_ids})
+        )
         self.consts = detection_constants(config, options)
         self._actor_by_id = {a.id: a for a in scene.actors}
         self._request = SensingSimulateRequest(
@@ -883,14 +926,14 @@ class SensingTracker:
             for aid in self.target_ids
         ]
         result = self.backend.simulate_sensing(
-            self.project_dir, frame_scene, self.library, self.config, self._request,
+            self.project_dir, frame_scene, self.library, self._sensing_config, self._request,
             targets, actor_states=actor_states, actor_velocities=actor_velocities,
         )
         warnings = list(result.warnings)
         comm_paths: list[RayPath] = []
         if self.options.include_comm_paths:
             comm = self.backend.simulate_paths_with_targets(
-                self.project_dir, frame_scene, self.library, self.config, targets,
+                self.project_dir, frame_scene, self.library, self._sensing_config, targets,
                 actor_states=actor_states, actor_velocities=actor_velocities,
             )
             dop = comm.metadata.get("doppler_hz")
@@ -1098,6 +1141,8 @@ class SensingTracker:
             "options": metadata_dump(options),
             **self.consts,
             "num_links": num_links,
+            "sensing_rx_ids": [r.id for r in self.rxs],
+            "sensing_rx_rule": self.sensing_rx_rule,
             "target_ids": list(self.target_ids),
             "targets": targets,
             "detection_rate": (

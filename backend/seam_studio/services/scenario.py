@@ -121,36 +121,67 @@ def actor_heading_at(actor: Actor, time_s: float, eps_s: float = 1e-3) -> float:
     return math.degrees(math.atan2(dy, dx))
 
 
-def _loop_wrap_side(traj, t0: float, t: float, t1: float) -> int:
-    """Where a ``loop`` trajectory's jump back to the start falls in
-    [t0, t1]: -1 in (t0, t] (after it at ``t``), +1 in (t, t1], 0 none."""
-    if traj.resolved_mode() != "loop" or len(traj.waypoints) <= 1:
-        return 0
+def _progress_knots(traj) -> tuple[float, float, list[float]]:
+    """(rate, span, knots): progress u = t * rate advances 1 per dt_s step or
+    speed_m_s metres per second; the legs end at ``knots`` in [0, span]."""
+    n = len(traj.waypoints)
     if traj.speed_m_s is None:
-        rate, span = 1.0 / traj.dt_s, float(len(traj.waypoints) - 1)
+        return 1.0 / traj.dt_s, float(n - 1), [float(k) for k in range(n)]
+    knots = [0.0]
+    for seg in traj.segment_lengths_m():
+        knots.append(knots[-1] + seg)
+    return float(traj.speed_m_s), knots[-1], knots
+
+
+def _knots_between(traj, ua: float, ub: float) -> list[float]:
+    """Leg boundaries in UNWRAPPED progress within [ua, ub]: the waypoints of
+    a ``once`` pass, every repetition of a ``loop`` (its wrap included), and
+    both directions of a ``pingpong`` (its turnarounds included)."""
+    _rate, span, knots = _progress_knots(traj)
+    mode = traj.resolved_mode()
+    if mode == "once":
+        return [k for k in knots if ua <= k <= ub]
+    if mode == "loop":
+        period, base = span, knots
     else:
-        rate, span = traj.speed_m_s, sum(traj.segment_lengths_m())
-    if span <= 0.0:
-        return 0
-    # // pairs with the % in _wrap_progress, so the side matches the position.
-    k0, k, k1 = ((x * rate) // span for x in (t0, t, t1))
-    return -1 if k != k0 else (1 if k1 != k else 0)
+        period = 2.0 * span
+        base = sorted(set(knots + [period - k for k in knots]))
+    out = []
+    for m in range(math.floor(ua / period) - 1, math.floor(ub / period) + 2):
+        out.extend(m * period + k for k in base if ua <= m * period + k <= ub)
+    return out
 
 
 def actor_velocity_at(actor: Actor, time_s: float, eps_s: float = 1e-3) -> list[float]:
-    """Actor velocity [m/s] (world frame, Z-up) at ``time_s``, from a central
-    finite difference of the interpolated trajectory position (tangent x speed).
-    Next to a ``loop`` wrap (the jump from the last waypoint back to the
-    first) the difference is one-sided, on the side of ``time_s`` without the
-    jump. All-zero for a static actor (no trajectory) or a degenerate step."""
-    if actor.trajectory is None or not actor.trajectory.waypoints:
+    """Actor velocity [m/s] (world frame, Z-up) at ``time_s``: the trajectory
+    tangent x speed, from a central finite difference of the interpolated
+    position inside a leg. A leg boundary (waypoint, loop wrap, pingpong
+    turnaround, end of a ``once`` pass) at or just before ``time_s`` takes the
+    OUTGOING leg (forward difference: 0 once a ``once`` actor has stopped); a
+    boundary just after it keeps the incoming leg (backward difference). Until
+    v0.1.13 a boundary frame got the chord average of both legs. All-zero for
+    a static actor (no trajectory) or a degenerate step."""
+    traj = actor.trajectory
+    if traj is None or not traj.waypoints:
         return [0.0, 0.0, 0.0]
     t0, t1 = max(0.0, time_s - eps_s), time_s + eps_s
-    wrap = _loop_wrap_side(actor.trajectory, t0, time_s, t1)
-    if wrap < 0:
-        t0 = time_s
-    elif wrap > 0:
-        t1 = time_s
+    if len(traj.waypoints) > 1:
+        rate, total, _ = _progress_knots(traj)
+        mode = traj.resolved_mode()
+        period = total if mode == "loop" else 2.0 * total
+        # A window covering a whole loop/pingpong period has boundaries on both
+        # sides (central difference); listing them would cost (t1 - t0) * rate /
+        # period steps, unbounded for a near-zero-length path.
+        if total > 0.0 and (mode == "once" or (t1 - t0) * rate < period):
+            u = time_s * rate
+            tol = 1e-9 * max(1.0, abs(u))
+            knots = _knots_between(traj, t0 * rate, t1 * rate)
+            passed = any(t0 * rate + tol < k <= u + tol or abs(k - u) <= tol for k in knots)
+            ahead = any(k > u + tol for k in knots)
+            if passed and not ahead:
+                t0 = time_s
+            elif ahead and not passed:
+                t1 = time_s
     p_before = actor_position_at(actor, t0)
     p_after = actor_position_at(actor, t1)
     span = t1 - t0
@@ -395,11 +426,14 @@ def run_scenario(
     if opts is not None:
         # sensing_track imports this module's frame helpers.
         from seam_studio.services.sensing import select_targets
-        from seam_studio.services.sensing_track import SensingTracker
+        from seam_studio.services.sensing_track import SensingTracker, resolve_sensing_rxs
 
         target_ids = [t.actor_id for t in select_targets(scene, opts.target_actor_ids)]
+        # Radar receivers only; the comm link table below keeps every rx.
+        sensing_rxs, rule = resolve_sensing_rxs(txs, rxs, opts.sensing_rx_ids)
         tracker = SensingTracker(
-            backend, project_dir, scene, library, config, opts, txs, rxs, target_ids
+            backend, project_dir, scene, library, config, opts, txs, sensing_rxs,
+            target_ids, sensing_rx_rule=rule,
         )
 
     # Sionna: compile the RF projection ONCE up front so every frame reuses the

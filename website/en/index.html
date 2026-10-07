@@ -217,7 +217,7 @@ footer{margin-top:40px;border-top:1px solid var(--line)}
   <nav class="theme-sw" aria-label="Theme"><button data-theme="auto">Auto</button><button data-theme="light">Light</button><button data-theme="dark">Dark</button></nav>
   <nav class="lang" aria-label="Language"><a href="../ko/">KO</a><span>·</span><b>EN</b></nav>
   <div class="wrap">
-    <div class="newsline"><span class="nv">NEW v0.1.13</span> EKF drone tracking across frames, Swerling 0/1/3 detectors with Pd/Pfa Monte Carlo, labeled sensing dataset export, elevation-steered ISAC beams with inter-cell interference —
+    <div class="newsline"><span class="nv">NEW v0.1.14</span> Maintenance release from a full fresh-install audit: CPU-only Sionna detection, radio-map/beamforming actor-pose fix, scenario sensing receivers, polarization-aware coverage, AODT/measurement UI, sample demo with a drone, docs and CI gates —
       <a href="https://pypi.org/project/seam-studio/">pip install -U seam-studio</a></div>
     <div class="eyebrow">Scene-to-Electromagnetic Authoring and Mapping</div>
     <h1 class="wordmark">SEAM <span class="studio">Studio</span></h1>
@@ -329,6 +329,12 @@ footer{margin-top:40px;border-top:1px solid var(--line)}
       <div class="feat"><h5><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21v-8"/><circle cx="12" cy="11" r="2"/><path d="M8.5 7.5a5 5 0 0 1 7 0M6 5a8.5 8.5 0 0 1 12 0"/></svg>MIMO beamforming</h5>
         <p>Codebook sweep / TX-MRT / SVD beamforming gains computed on the actual ray channel
         (~12/24 dB validated at 4×4).</p></div>
+      <div class="feat"><h5><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9"/><path d="M16.5 12A4.5 4.5 0 1 1 12 7.5"/><path d="M12 12l6.4-6.4"/><circle cx="17.5" cy="15.5" r="1.3"/></svg>Radar sensing &amp; ISAC</h5>
+        <p>Bind cars, people and drones as TR 38.901 or constant-RCS targets and solve their echoes
+        with Doppler (Sionna RT <span class="mono">RCSSolver</span>). Over scenario frames: per-link
+        detection, multistatic fusion and EKF tracking; plus the ISAC beam trade-off (comm vs sensing
+        beam, Pd–rate Pareto), sensing coverage maps, Swerling Pd/Pfa detectors with Monte Carlo and a
+        labeled sensing dataset export.</p></div>
       <div class="feat"><h5><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="1.5"/><path d="M4 10h16M4 16h16M10 4v16M16 4v16"/></svg>Mesh radio maps + region refinement</h5>
         <p>Coverage painted per triangle on real surfaces — walls, floors, roads — instead of a
         horizontal plane, with region-of-interest re-solves at finer cell sizes.</p></div>
@@ -341,16 +347,17 @@ footer{margin-top:40px;border-top:1px solid var(--line)}
         heuristic / local VLM / uploaded SAM2 mask), or split merged meshes into connected
         components. Every split keeps a GLB backup and is undoable.</p></div>
       <div class="feat"><h5><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>Measurement-driven calibration</h5>
-        <p>Import measured link CSVs to grid-fit material parameters, tell visually identical
-        materials apart from measured path gains, and quantify how much an assignment matters via
-        NMSE and capacity deltas.</p></div>
+        <p>Import measured link CSVs and check them along a flight log, grid-fit material
+        parameters to them (fit via the API), tell visually identical materials apart from measured
+        path gains, and quantify how much an assignment matters via NMSE and capacity deltas.</p></div>
       <div class="feat"><h5><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 20v-6M11 20V6M17 20v-9M3 20h18"/></svg>Metrics dashboard &amp; paper-ready export</h5>
         <p>Link KPIs and CIR/CFR/Doppler/path-loss charts in a white-background serif paper style —
         every chart has built-in PNG/SVG/CSV export. Viewport capture and offline Mitsuba renders
         included.</p></div>
       <div class="feat"><h5><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5.5" rx="8" ry="2.8"/><path d="M4 5.5v13c0 1.6 3.6 2.9 8 2.9s8-1.3 8-2.9v-13"/><path d="M4 12c0 1.6 3.6 2.9 8 2.9s8-1.3 8-2.9"/></svg>Datasets &amp; AODT interop</h5>
         <p>Generate ML ground-truth datasets (npz + metadata), export the AODT RFData contract, and
-        import NVIDIA AODT parquet results into the same schema.</p></div>
+        import NVIDIA AODT parquet results into the same schema or export stored runs as AODT parquet
+        tables (parquet needs <span class="mono">pip install "seam-studio[parquet]"</span>).</p></div>
       <div class="feat"><h5><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z"/><path d="M8 8h8M8 12h5"/></svg>Natural-language rules &amp; validation explanations</h5>
         <p>Turn “windows are glass, concrete walls are itu_concrete” into reviewable assignment
         rules applied in bulk, and get validation warnings explained in plain language with
@@ -432,7 +439,11 @@ bash scripts/start.sh   <span class="c"># → http://localhost:5173</span></pre>
       (Windows: <span class="mono">winget install OpenJS.NodeJS.LTS</span>, then open a new terminal).
       Everything else is handled for you, including the real <span class="mono">sionna-rt</span>
       ray-tracing engine — it is a base dependency, and the app falls back to the bundled Mock backend
-      whenever Sionna cannot load. An NVIDIA GPU and a local LLM (LM Studio/Ollama) are optional upgrades. See
+      whenever Sionna cannot run. An NVIDIA GPU and a local LLM (LM Studio/Ollama) are optional upgrades;
+      without a GPU, Sionna's CPU backend needs LLVM installed
+      (<a href="https://github.com/jaewoo4200/SEAM/blob/master/INSTALL.md#cpu-only-machines-no-nvidia-gpu-install-llvm">CPU-only machines</a>).
+      AODT parquet import/export and parquet datasets need
+      <span class="mono">pip install "seam-studio[parquet]"</span>. See
       <a href="https://github.com/jaewoo4200/SEAM/blob/master/INSTALL.md">INSTALL.md</a> ·
       <a href="https://github.com/jaewoo4200/SEAM/blob/master/TUTORIAL.md">TUTORIAL.md</a> ·
       or start with the illustrated <a href="guides/">user guides</a>.</p>

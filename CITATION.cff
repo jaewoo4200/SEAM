@@ -12,8 +12,8 @@ authors:
   - family-names: Kim
     given-names: Sunwoo
     affiliation: "Wireless Systems Lab, Hanyang University"
-version: 0.1.5
-date-released: "2026-08-10"
+version: 0.1.14
+date-released: "2026-10-07"
 repository-code: "https://github.com/jaewoo4200/SEAM"
 url: "https://jaewoo4200.github.io/SEAM/"
 license: Apache-2.0

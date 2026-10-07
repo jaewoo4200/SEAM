@@ -679,6 +679,47 @@ export interface ChannelNpzExportSummary {
   sensing_path_count?: number;
 }
 
+/** What POST /export/aodt turns into the AODT time axis: one snapshot of a
+ *  paths or sensing result, or one time index per playback frame. */
+export type AodtExportSource = "paths" | "playback" | "sensing";
+
+/** Body for POST /projects/{pid}/export/aodt (needs pyarrow: 409 otherwise). */
+export interface AodtExportRequest {
+  config_id?: string | null;
+  source?: AodtExportSource;
+  /** Stored result of that kind; null = the latest (404 when none). */
+  result_id?: string | null;
+  fft_size?: number;
+  subcarrier_spacing_hz?: number;
+}
+
+export interface AodtExportSummary {
+  export_dir: string;
+  files: string[];
+  /** AODT table name -> rows written. */
+  tables: Record<string, number>;
+  warnings: string[];
+}
+
+export type AodtImportKind = "paths" | "radio_map";
+
+/** Body for POST /projects/{pid}/results/import-aodt. source_dir is a folder
+ *  on the machine running the backend, not an upload. */
+export interface ImportAodtRequest {
+  source_dir: string;
+  kinds?: AodtImportKind[];
+}
+
+export interface ImportedResult {
+  kind: string;
+  result_id: string;
+}
+
+export interface ImportAodtResponse {
+  imported: ImportedResult[];
+  warnings: string[];
+}
+
 // ------------------------------------------------------- scenario / live
 
 export interface ActorState {
@@ -1089,6 +1130,19 @@ export interface MeasurementSample {
   tx_id?: string | null;
   measured_path_gain_db: number;
   measured_rms_delay_spread_ns?: number | null;
+}
+
+/** POST /calibrate/measurements/import-csv: the CSV is stored verbatim and
+ *  re-parsed by GET /calibrate/measurements (404 when none was imported). */
+export interface MeasurementImportRequest {
+  csv_text: string;
+}
+
+export interface MeasurementImportResponse {
+  measurements: MeasurementSample[];
+  /** Rows missing a coordinate / the gain, or with unparseable numbers. */
+  skipped: number;
+  warnings: string[];
 }
 
 /** RF-sensing disambiguation (Dai et al., JSTEAP 2025): which candidate
@@ -1885,6 +1939,9 @@ export interface SensingTrackOptions {
   include_comm_paths?: boolean;
   /** null = every actor whose sensing binding is enabled. */
   target_actor_ids?: string[] | null;
+  /** Bistatic radar receivers; comm links still cover every rx. null = auto:
+   *  the rx within 1 m of a tx when one exists, else every rx (v0.1.14). */
+  sensing_rx_ids?: string[] | null;
   samples_per_sp?: number;
   max_depth?: number | null;
   /** Gaussian noise (sigma = cell / sqrt(2 SNR)) on the fused range / Doppler. */
@@ -2035,6 +2092,9 @@ export interface ScenarioSensingSummary {
   /** Monostatic radial speed at the MTI notch edge: lambda * f_min / 2. */
   mti_blind_speed_m_s: number;
   num_links: number;
+  /** Resolved radar receivers and how (v0.1.14+; absent on older runs). */
+  sensing_rx_ids?: string[];
+  sensing_rx_rule?: "explicit" | "colocated" | "all_rx";
   target_ids: string[];
   targets: Record<string, ScenarioSensingTargetSummary>;
   detection_rate: number;
@@ -2392,7 +2452,7 @@ export interface SensingDatasetExportRequest {
   skip_without_sensing?: boolean;
   /** Also write one row per echo path (echoes.* tables). */
   include_echo_paths?: boolean;
-  /** parquet needs pyarrow on the backend (400 otherwise). */
+  /** parquet needs pyarrow (the `parquet` extra) on the backend (400 otherwise). */
   formats?: SensingDatasetFormat[];
   /** null = one split "all". */
   split?: SensingDatasetSplit | null;

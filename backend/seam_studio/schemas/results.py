@@ -206,7 +206,8 @@ class SensingFrame(StrictModel):
     echoes: list[RayPath] = Field(default_factory=list)
     links: list[SensingLinkReport] = Field(default_factory=list)
     estimates: list[TargetEstimate] = Field(default_factory=list)
-    # Every selected TX and RX at this frame (v0.1.13+; None in older results).
+    # Every selected TX, then every sensing RX, at this frame (v0.1.13+; None
+    # in older results). Until v0.1.13 every selected RX was a sensing RX.
     nodes: Optional[list[SensingNodeState]] = None
 
 

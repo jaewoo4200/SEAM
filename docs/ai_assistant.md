@@ -9,7 +9,7 @@ mutates the scene by itself.
 
 ## Provider abstraction
 
-`app.services.ai_provider` exposes two entry points used by the API layer:
+`seam_studio.services.ai_provider` exposes two entry points used by the API layer:
 
 ```python
 get_provider_statuses() -> list[AIProviderStatus]
@@ -21,8 +21,8 @@ Behind them sits a provider chain:
 | provider | needs | behavior |
 |---|---|---|
 | `rule_based` | nothing | deterministic keyword rules over name / visual material name / tags (window→`itu_glass`, brick→`itu_brick`, road→`asphalt_custom`, ...) |
-| `local_openai` | reachable OpenAI-compatible server (LM Studio 등, `SIONNATWIN_OPENAI_URL`) | prompts a local LLM with prim evidence, strict JSON back. **Vision supported**: with a screenshot the request becomes multimodal (`image_url`); if the loaded model rejects images it retries text-only before falling back |
-| `ollama_text` | reachable Ollama server + text model | same contract via Ollama chat API. **Vision supported**: a screenshot attaches as base64 `images` and the call switches to `SIONNATWIN_AI_VISION_MODEL` (a warning notes the model swap); image rejection retries text-only |
+| `local_openai` | reachable OpenAI-compatible server (LM Studio and others, `SEAM_OPENAI_URL`; legacy alias `SIONNATWIN_OPENAI_URL`) | prompts a local LLM with prim evidence, strict JSON back. **Vision supported**: with a screenshot the request becomes multimodal (`image_url`); if the loaded model rejects images it retries text-only before falling back |
+| `ollama_text` | reachable Ollama server + text model | same contract via Ollama chat API. **Vision supported**: a screenshot attaches as base64 `images` and the call switches to `SEAM_AI_VISION_MODEL` (legacy alias `SIONNATWIN_AI_VISION_MODEL`; a warning notes the model swap); image rejection retries text-only |
 | `disabled` | — | returns no suggestions (AI turned off) |
 
 Selection: `SuggestMaterialsRequest.provider` forces a specific provider;
@@ -69,7 +69,7 @@ Two sources, in precedence order:
 | `SEAM_OLLAMA_URL` | `http://localhost:11434` | Ollama endpoint |
 | `SEAM_AI_TEXT_MODEL` | `qwen3:8b` | Ollama text model |
 | `SEAM_AI_VISION_MODEL` | `qwen2.5vl:3b` | Ollama vision model used when a screenshot is attached (e.g. set to `llava` to use LLaVA) |
-| `SEAM_OPENAI_URL` | `http://localhost:1234/v1` | OpenAI-compatible endpoint (LM Studio 기본 포트) |
+| `SEAM_OPENAI_URL` | `http://localhost:1234/v1` | OpenAI-compatible endpoint (LM Studio's default port) |
 | `SEAM_OPENAI_MODEL` | `google/gemma-4-31b` | model id served by the OpenAI-compatible server |
 | `SEAM_AI_TIMEOUT_S` | `60` | request timeout (seconds) for text-only calls |
 | `SEAM_AI_VISION_TIMEOUT_S` | `300` | request timeout (seconds) for multimodal (image-carrying) calls — a local VLM needs model load + multi-image prefill, so it gets a higher ceiling than text |
@@ -78,7 +78,7 @@ Two sources, in precedence order:
 ## Strict JSON contract
 
 Model output must validate against `MaterialSuggestionResponse`
-(`backend/app/schemas/ai.py`). Free-form AI text never reaches the scene.
+(`backend/seam_studio/schemas/ai.py`). Free-form AI text never reaches the scene.
 
 ```json
 {
@@ -119,7 +119,8 @@ material), or `reject`. Approved/edited decisions go through the same
 
 **Never-auto-apply rule:** no suggestion mutates the scene unless the user
 acts on it. The MVP has no auto-apply code path at all;
-`SIONNATWIN_AI_AUTO_APPLY` is a reserved flag for a future opt-in, and even
+`SEAM_AI_AUTO_APPLY` (legacy alias `SIONNATWIN_AI_AUTO_APPLY`) is a reserved
+flag for a future opt-in, and even
 then provenance would still record that the assignment came from AI.
 
 ## Provenance log

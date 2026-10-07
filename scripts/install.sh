@@ -3,13 +3,15 @@
 # SEAM Studio one-command installer (Linux / macOS).
 #
 # Idempotent: re-running is safe. Creates backend/.venv if missing, installs the
-# backend (editable, with dev extras), installs the frontend, regenerates the
-# demo projects, and prints next steps.
+# backend (editable, with the dev and parquet extras), installs the frontend,
+# regenerates the demo projects, checks which Dr.Jit compute backend works, and
+# prints next steps.
 #
 # The real ray-tracing engine (sionna-rt) is a base backend dependency, so it
-# installs here too (Dr.Jit/Mitsuba, no GPU needed to install). The app still
-# falls back to the Mock backend whenever Sionna cannot load at runtime. See
-# INSTALL.md for alternate engine venvs.
+# installs here too (Dr.Jit/Mitsuba, no GPU needed to install). Running it needs
+# an NVIDIA GPU (CUDA) or LLVM-C for the CPU backend (LLVM 18+, see
+# INSTALL.md); with neither, 'auto' solves use the Mock
+# backend. See INSTALL.md for alternate engine venvs.
 #
 # Usage:  bash scripts/install.sh
 set -euo pipefail
@@ -46,9 +48,33 @@ else
 fi
 [ -x "$VENV_PYTHON" ] || fail "venv python missing after creation: $VENV_PYTHON"
 
-step "Installing backend (editable + dev extras)"
+step "Installing backend (editable + dev and parquet extras)"
 "$VENV_PYTHON" -m pip install --upgrade pip || fail "pip upgrade failed."
-"$VENV_PYTHON" -m pip install -e "backend[dev]" || fail "backend install failed (pip install -e 'backend[dev]')."
+"$VENV_PYTHON" -m pip install -e "backend[dev,parquet]" || fail "backend install failed (pip install -e 'backend[dev,parquet]')."
+
+# ------------------------------------------------------------ compute backend
+step "Checking the Sionna RT compute backend (Dr.Jit CUDA / LLVM)"
+# stderr dropped: drjit prints a harmless 'jitc_llvm_init(): LLVM API
+# initialization failed' line when LLVM-C is absent.
+PROBE="$("$VENV_PYTHON" -c 'import drjit as dr; print(int(dr.has_backend(dr.JitBackend.CUDA)), int(dr.has_backend(dr.JitBackend.LLVM)))' 2>/dev/null | grep -E '^[01] [01]$' | tail -n 1 || true)"
+case "$PROBE" in
+    "1 "*) echo "  CUDA backend available (GPU solves)." ;;
+    "0 1") echo "  LLVM CPU backend available (no CUDA device; solves run on the CPU)." ;;
+    "0 0")
+        echo "  No CUDA device and no LLVM-C found: Sionna RT cannot run here, so 'auto' solves use the Mock backend."
+        if [ "$(uname -s)" = "Darwin" ]; then
+            echo "  For the CPU backend: brew install llvm, then"
+            echo "     export DRJIT_LIBLLVM_PATH=\"\$(brew --prefix llvm)/lib/libLLVM.dylib\""
+            echo "  (add it to your shell profile)."
+        else
+            echo "  For the CPU backend install LLVM 18+: sudo apt install libllvm18 (Ubuntu 24.04;"
+            echo "  Ubuntu 22.04 / Debian 12 default to LLVM 14: use libllvm18 from https://apt.llvm.org)."
+            echo "  Dr.Jit finds /usr/lib/<arch>-linux-gnu/libLLVM*.so.* itself: leave DRJIT_LIBLLVM_PATH"
+            echo "  unset unless the library is elsewhere (a wrong path disables the CPU backend)."
+        fi
+        echo "  See INSTALL.md (CPU-only machines)." ;;
+    *) echo "  could not probe Dr.Jit (import drjit failed); solves will use the Mock backend. See INSTALL.md." ;;
+esac
 
 # ------------------------------------------------------------ frontend
 step "Installing frontend (npm install in frontend/)"

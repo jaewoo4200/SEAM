@@ -16,6 +16,9 @@
 
 GPU, Sionna, LLM 어느 것도 **필수가 아닙니다**. 셋 모두 선택적 업그레이드이며,
 **핵심 워크플로와 데모는 Mock 백엔드만으로 CPU에서 동작합니다(일부 기능은 Sionna 필요)**.
+실제 Sionna 백엔드는 패키지와 함께 설치되고 NVIDIA GPU(CUDA)에서, 또는 LLVM을 설치하면
+CPU에서 돕니다([INSTALL.md → CPU 전용 PC](INSTALL.ko.md#cpu-전용-pc-nvidia-gpu-없음-llvm-설치)).
+둘 다 없으면 `auto`는 Mock 백엔드로 돌고 `/api/health`가 그 이유를 알려 줍니다.
 
 ```text
 Unified RF-Visual Scene Graph          (scene.seam.json - source of truth; legacy scene.sionnatwin.json)
@@ -123,9 +126,9 @@ bash scripts/start.sh     # 2. 백엔드+프론트 실행
   `SINR = SNR`로 되돌아갑니다.
 - **결정론적 Mock 백엔드** — GPU/Sionna 없이 Friis + 이미지법 반사로 예제
   경로/라디오맵을 계산. 프론트엔드·테스트가 하드웨어 없이 돌아갑니다.
-- **실제 Sionna RT 경로** — `sionna-rt`(2.2 이상 필요, 2.0.x·2.2.x 검증) 설치 시
-  컴파일된 `generated_scene.xml`이 그대로 로드되어 GPU(Dr.Jit CUDA) 또는
-  CPU(LLVM)에서 경로/라디오맵을 계산하고, 같은 스키마로 정규화됩니다.
+- **실제 Sionna RT 경로** — sionna-rt 2.2 이상(2.2.x 검증)이면 컴파일된
+  `generated_scene.xml`이 그대로 로드되어 GPU(Dr.Jit CUDA) 또는 CPU(LLVM. LLVM 설치
+  필요, INSTALL 참고)에서 경로/라디오맵을 계산하고, 같은 스키마로 정규화됩니다.
 - **AODT 정렬** — 28 GHz 기본 + ITU-R P.2040 재질 세트(+`human_body`), AODT 스타일
   다크 뷰어(LOS 시안 / 반사 마젠타 / 회절 주황), RFData 내보내기 컨트랙트.
 - **선택적 로컬 AI** — 강제 제공자 → Ollama → 규칙 기반 폴백 체인. 엄격한 JSON
@@ -138,8 +141,8 @@ bash scripts/start.sh     # 2. 백엔드+프론트 실행
 - **RF 판별 + 재질 임팩트 평가** — 시각적으로 같은 재질(예: 유리)을 측정된 링크
   path gain 으로 구분하고(`/calibrate/disambiguate`, RMSE 최저 후보 선택·구분 불가
   시 경고), 지정 재질 대 단일 기준재질을 위치별 NMSE/코사인 유사도/dRSS/용량으로
-  비교(`/analyze/material-impact`, KICS 2026)해 "이 재질이 링크에 얼마나 중요한지"를
-  정량화합니다.
+  비교(AI Assist → **Material impact…** 또는 `/analyze/material-impact`, KICS 2026)해
+  "이 재질이 링크에 얼마나 중요한지"를 정량화합니다.
 - **AoA/AoD 각도 분석** — 각 레이 경로가 출발각(AoD)·도착각(AoA)의
   `[방위각, 고도각]`과 per-path `path_gain_db`를 실어, 논문 스타일 극좌표 산점도
   (방위각=각, 파워=반경, AoD 채움·AoA 빈 마커, 고도각은 CSV·툴팁)로 렌더됩니다.
@@ -155,8 +158,11 @@ bash scripts/start.sh     # 2. 백엔드+프론트 실행
   배지로 알리고, `WS /ws/projects/{id}/events`로 컴파일/시뮬레이션 진행을
   폴링 없이 스트리밍합니다. `GET /api/backends`는 백엔드별 capability 맵을 제공합니다.
 - **외부 결과·측정값 가져오기** — NVIDIA AODT parquet 결과를 같은 스키마로 정규화해
-  가져오고(`/results/import-aodt`, `aodt_import` 백엔드로 각인), 실측 링크 CSV를
-  불러와(`/calibrate/measurements/import-csv`) 보정·판별의 입력으로 씁니다.
+  가져오고(**Actions ▾ → AODT import (parquet)** 또는 `/results/import-aodt`,
+  `aodt_import` 백엔드로 각인), 저장된 결과를 AODT parquet 테이블로 내보내며
+  (**AODT export (parquet)**), 실측 링크 CSV를 불러와(Flight-log validation →
+  **Import measurement CSV…**, `/calibrate/measurements/import-csv`) 보정·판별의 입력으로
+  씁니다(parquet은 `pip install "seam-studio[parquet]"` 필요).
 - **씬 번들 임포트 (zip / OSM)** — 씬 폴더(XML + meshes + textures)를 zip 한 개로
   임포트하면 상대경로가 보존되고 텍스처는 뷰어 GLB와 AI 증거용 원본으로 이중
   저장됩니다. OpenStreetMap은 지도에서 사각형을 드래그하거나 좌표·검색으로
@@ -192,8 +198,9 @@ bash scripts/start.sh     # 2. 백엔드+프론트 실행
   [docs/guides/sensing.md](docs/guides/sensing.ko.md) 참조.
 - **ISAC 연구 레이어** — 가파른 드론을 위한 방위각×고도 코드북, UE SINR의 TX 간 간섭,
   Swerling 0/1/3 탐지기 모델과 몬테카를로 Pd/Pfa 검증, Pd 곡선 엔드포인트를 제공합니다.
-  시나리오 프레임에 걸친 EKF 추적과 학습용 센싱 데이터셋 내보내기(npz/csv/parquet)도
-  있습니다. [docs/guides/sensing.md](docs/guides/sensing.ko.md) 참조.
+  시나리오 프레임에 걸친 EKF 추적과 학습용 센싱 데이터셋 내보내기(npz/csv/parquet.
+  parquet은 `pip install "seam-studio[parquet]"` 필요)도 있습니다.
+  [docs/guides/sensing.md](docs/guides/sensing.ko.md) 참조.
 - **AI 모델 픽커** — LM Studio/Ollama에 로드된 모델을 자동 발견해 제안·에이전트에
   쓸 모델을 UI에서 바꿉니다. 어떤 모델이 답했는지 provenance에 기록됩니다.
 
@@ -203,7 +210,7 @@ bash scripts/start.sh     # 2. 백엔드+프론트 실행
 
 ## 프로그래매틱 API (UI 없는 엔드포인트)
 
-대부분의 기능은 웹 UI로 쓰지만, 다음 두 엔드포인트는 **전용 UI 버튼이 없고
+대부분의 기능은 웹 UI로 쓰지만, 다음 세 엔드포인트는 **전용 UI 버튼이 없고
 curl/스크립트로 프로그래매틱하게** 호출한다(백엔드는 기본 `http://127.0.0.1:8000`).
 
 - **`POST /api/projects/{id}/live/state`** — **외부 실세계 위치 주입.**
@@ -232,6 +239,16 @@ curl/스크립트로 프로그래매틱하게** 호출한다(백엔드는 기본
     -d '{"measurements":[{"rx_position":[10.0,5.0,1.5],"measured_path_gain_db":-92.0}],"target_material_id":"concrete","param":"scattering_coefficient","apply":false}'
   ```
 
+- **`POST /api/projects`** — **템플릿으로 프로젝트 생성**(`template: "empty" | "demo"`.
+  `"demo"`는 `seam-studio` CLI가 첫 프로젝트에 쓰는 것과 같은 생성기로 Sample Demo를
+  만든다). UI는 대신 Import로 프로젝트를 만든다.
+
+  ```bash
+  curl -X POST http://127.0.0.1:8000/api/projects \
+    -H "Content-Type: application/json" \
+    -d '{"name":"My twin","template":"empty"}'
+  ```
+
   디바이스·궤적 JSON 임포트(`POST /import/devices`, `/import/trajectory`,
   `GET /import/templates`)는 [docs/point_import.md](docs/point_import.ko.md)에
   문서화되어 있다.
@@ -250,7 +267,8 @@ curl/스크립트로 프로그래매틱하게** 호출한다(백엔드는 기본
 | [docs/guides/simulation.md](docs/guides/simulation.ko.md) | 그림 가이드: 경로, 라디오맵, 빔포밍, 채널 분석 |
 | [docs/guides/trajectory_uav.md](docs/guides/trajectory_uav.ko.md) | 그림 가이드: 궤적, UAV 액터, 재생, POV 뷰 |
 | [docs/guides/datasets_export.md](docs/guides/datasets_export.ko.md) | 그림 가이드: ML 데이터셋과 내보내기 |
-| [docs/guides/sensing.md](docs/guides/sensing.ko.md) | 가이드: 레이더 센싱 타깃, RCS 솔브, 도플러 |
+| [docs/guides/sensing.md](docs/guides/sensing.ko.md) | 가이드: 레이더 센싱, 시간에 따른 ISAC + EKF 추적, 빔 트레이드오프, 커버리지, 탐지기, 센싱 데이터셋 내보내기(1–11절) |
+| [docs/guides/playback_dashboard.md](docs/guides/playback_dashboard.ko.md) | 가이드: 실측 주행·비행(카메라, LiDAR, 빔 파워)을 트윈과 맞대어 재생 |
 | [docs/architecture.md](docs/architecture.ko.md) | 통합 씬 그래프와 이중 프로젝션 아키텍처 |
 | [docs/scene_format.md](docs/scene_format.ko.md) | 씬·프로젝트 폴더 포맷과 스키마 |
 | [docs/rf_materials.md](docs/rf_materials.ko.md) | RF 재질 라이브러리와 모델 |
@@ -264,7 +282,8 @@ curl/스크립트로 프로그래매틱하게** 호출한다(백엔드는 기본
 | [docs/point_import.md](docs/point_import.ko.md) | 디바이스·궤적 JSON 임포트 포맷 (직교/지리 좌표) |
 | [docs/extending.md](docs/extending.ko.md) | 플러그인 아키텍처·확장 가이드 |
 | [docs/accuracy.md](docs/accuracy.ko.md) | RT-측정 오차와 완화책 |
-| [docs/roadmap.md](docs/roadmap.md) | MVP 이후 로드맵과 확장 포인트 |
+| [docs/roadmap.md](docs/roadmap.md) | 이미 나온 것과 남은 것 |
+| [docs/releasing.md](docs/releasing.ko.md) | 릴리스 체크리스트: 버전 갱신 위치, 태그 → PyPI, 웹사이트 배포 |
 | [docs/research_ideas.md](docs/research_ideas.md) | 논문화 가능한 연구 방향 |
 | [HANDOFF.md](HANDOFF.md) | 이 구현이 따르는 운영 명세 |
 
@@ -291,7 +310,8 @@ backend/    FastAPI app: schemas (Pydantic v2), project store, scene validator,
             RF material assignment, RF projection compiler (trimesh),
             simulation backends (Mock + optional Sionna RT), AI providers
 frontend/   React + Vite + TypeScript + react-three-fiber workbench
-examples/   demo project generators (sample_demo, lab_room import)
+examples/   committed demo projects + their generators (copied into projects/ on first start)
+projects/   your projects in a source checkout (gitignored)
 scripts/    install / start scripts (PowerShell + bash)
 docs/       architecture, scene format, RF materials, AI, engines, accuracy, roadmap
 HANDOFF.md  operating specification this implementation follows
@@ -321,7 +341,7 @@ cd frontend && npm run build                          # 타입체크 + 빌드
   title   = {{SEAM Studio}: Scene-to-Electromagnetic Authoring and
              Mapping for Wireless Digital Twins},
   url     = {https://github.com/jaewoo4200/SEAM},
-  version = {0.1.5},
+  version = {0.1.14},
   year    = {2026}
 }
 ```

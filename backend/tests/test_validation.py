@@ -11,7 +11,6 @@ from pathlib import Path
 import pytest
 import trimesh
 
-from seam_studio.schemas.materials import RFMaterial, RFMaterialLibrary
 from seam_studio.schemas.scene import Device, MeshRef, Prim, RFBinding, Scene
 from seam_studio.services import scene_validator
 from seam_studio.services.project_store import load_default_library

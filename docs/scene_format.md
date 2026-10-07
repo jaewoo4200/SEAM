@@ -30,8 +30,10 @@ or generated output.
 ```
 
 The backend discovers projects by scanning its configured roots
-(`SEAM_PROJECT_ROOTS`, legacy `SIONNATWIN_PROJECT_ROOTS`; defaulting to
-`projects/` and `examples/demo_project/`) for folders containing
+(`SEAM_PROJECT_ROOTS`, legacy `SIONNATWIN_PROJECT_ROOTS`; defaulting to the
+repo's `projects/` in a source checkout, where the committed examples from
+`examples/demo_project/` are copied on first start, and to `~/.seam/projects`
+after a pip install) for folders containing
 `scene.seam.json` (or the legacy `scene.sionnatwin.json`). The project id is
 the folder name without the `.seam` (or legacy `.sionnatwin`) suffix. All
 writes are atomic (temp file + rename), so a crash never corrupts the scene.
@@ -45,7 +47,7 @@ as shown above.
 
 ## scene.seam.json
 
-Serialized `Scene` model (`backend/app/schemas/scene.py`). All models reject
+Serialized `Scene` model (`backend/seam_studio/schemas/scene.py`). All models reject
 unknown keys, so schema drift fails loudly at load time. All coordinates are
 Z-up ENU meters.
 
@@ -159,7 +161,7 @@ rule_suggested | ai_suggested
    │  declining a suggestion → rejected (no material)
    ▼
 user_confirmed
-   │  future measurement-calibration run refines parameters
+   │  measurement calibration (POST /calibrate/materials, apply: true) refines parameters
    ▼
 measurement_calibrated
 ```
@@ -233,20 +235,27 @@ trajectory tangent at t=0), `enabled`. Fields of the other model are rejected
 | field | type | notes |
 |---|---|---|
 | `result_id` | str | `{backend}_{kind}_{n:03d}`, e.g. `mock_paths_001` |
-| `kind` | `"paths"` \| `"radio_map"` \| `"mesh_radio_map"` \| `"trajectory"` \| `"scenario"` \| `"channel"` \| `"playback"` \| `"sensing"` | |
+| `kind` | `"paths"` \| `"radio_map"` \| `"mesh_radio_map"` \| `"trajectory"` \| `"scenario"` \| `"channel"` \| `"playback"` \| `"sensing"` \| `"isac"` \| `"sensing_coverage"` | |
 | `backend` | str | backend that produced it |
 | `simulation_config_id` | str | |
 | `uri` | str | project-relative, `results/<result_id>.json` |
 | `created_at` | str \| null | ISO 8601 UTC |
+| `label` | str \| null | a named run; prune never deletes labeled runs |
+| `size_bytes` | int \| null | file size at save, shown in Run history |
 
-Result files are immutable; the list is append-only and ordered, and the
-"latest" result of a kind is the last ref of that kind.
+Result files are immutable; the list is ordered and only grows, except that
+pruning (`POST /results/prune`, or `SEAM_AUTO_PRUNE_KEEP` after each solve)
+removes unlabeled refs and their files. The "latest" result of a kind is the
+last ref of that kind.
 
 ## Demo project
 
 `examples/scripts/create_demo_project.py` regenerates
 `examples/demo_project/sample_demo.seam` deterministically: 8 named
 meshes in `visual/scene.glb` (world transforms baked into vertices), 13
-prims (5 groups + 8 mesh primitives), 2 devices, and one stored simulation
-config. It doubles as the reference example for every convention on this
-page.
+prims (5 groups + 8 mesh primitives), 3 devices (rooftop TX, street RX and
+the TX's co-located sensing RX `tx_001_rx`), 3 actors (car, pedestrian and
+the drone sensing target `uav_001`), and one stored simulation config. The
+committed copy predates the v0.1.14 sensing RX and drone; a source checkout
+adds them when it copies the demo into `projects/`. It doubles as the
+reference example for every convention on this page.

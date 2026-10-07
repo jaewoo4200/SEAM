@@ -201,29 +201,29 @@ import mitsuba as mi
 import numpy as np
 
 scene = load_scene(rt.scene.simple_street_canyon_with_cars)
-scene.frequency = 3.5e9  # Hz; scene.wavelength 자동 설정
+scene.frequency = 3.5e9  # Hz; sets scene.wavelength too
 
 scene.tx_array = PlanarArray(num_rows=1, num_cols=1, pattern="iso", polarization="V")
 scene.rx_array = PlanarArray(num_rows=1, num_cols=1, pattern="iso", polarization="V")
 
-# (a) 이동 라디오 디바이스 — 속도 m/s, Z-up world frame
+# (a) moving radio devices — velocity in m/s, Z-up world frame
 tx = Transmitter("tx", position=[-30, 0, 10], velocity=[0, 0, 0])
 rx = Receiver("rx", position=[30, 0, 1.5], velocity=[30, 0, 0])  # RX 30 m/s +x
 scene.add(tx); scene.add(rx)
 
-# (b) 이동 씬 물체(예: 차량 메쉬) — velocity 속성 설정
+# (b) moving scene objects (e.g. a car mesh) — set the velocity attribute
 for name, obj in scene.objects.items():
     if "car" in name.lower():
         obj.velocity = mi.Vector3f(20.0, 0.0, 0.0)
 
-# 경로 solve (velocity는 기하 불변, Doppler만 영향)
+# path solve (velocity leaves the geometry unchanged, it only affects Doppler)
 paths = PathSolver()(scene, max_depth=3)
 
-# 경로별 Doppler [Hz], 형상 [num_rx, num_tx, num_paths] (synthetic array)
+# per-path Doppler [Hz], shape [num_rx, num_tx, num_paths] (synthetic array)
 doppler_hz = paths.doppler.numpy()
 print("Doppler [Hz]:", doppler_hz.ravel())
 
-# 시간전개 기저대역 CIR: a[num_rx,num_rx_ant,num_tx,num_tx_ant,num_paths,num_time_steps]
+# time-evolving baseband CIR: a[num_rx,num_rx_ant,num_tx,num_tx_ant,num_paths,num_time_steps]
 fs = 1000.0          # CIR sampling frequency [Hz] -> window = num_time_steps/fs [s]
 num_time_steps = 16
 a, tau = paths.cir(sampling_frequency=fs, num_time_steps=num_time_steps, out_type="numpy")
@@ -264,7 +264,7 @@ print("a:", a.shape, a.dtype, "| tau:", tau.shape)  # a: (...,16) complex64
 - [11] MATLAB `comm.RayTracingChannel` — https://www.mathworks.com/help/comm/ref/comm.raytracingchannel-system-object.html
 - [12] Mobility Modeling with Ray Tracing Channel — https://www.mathworks.com/help/comm/ug/mobility-modeling-with-ray-tracing-channel.html
 
-**Repository evidence (installed Sionna RT 2.0.1, repo-verified):** `backend/.venv/Lib/site-packages/sionna/rt/scene_object.py:252-283`, `radio_devices/radio_device.py:50-119`, `radio_materials/scattering_pattern.py:201-416`, `radio_materials/radio_material.py:220-263`, `path_solvers/path_solver.py:144-157`, `path_solvers/field_calculator.py:256-300,526-562`, `path_solvers/paths.py:336-524,660-,1215-1246`, `scene.py:1055,1073-1078`. **Integration points:** `backend/app/services/simulation_backends/sionna_backend.py:339,776,896,973,1024-1027`; `backend/app/services/trajectory.py:205,363,381,505`; `backend/app/schemas/scene.py:147-177`; `backend/app/schemas/simulation.py:182`.
+**Repository evidence (installed Sionna RT 2.0.1, repo-verified):** `backend/.venv/Lib/site-packages/sionna/rt/scene_object.py:252-283`, `radio_devices/radio_device.py:50-119`, `radio_materials/scattering_pattern.py:201-416`, `radio_materials/radio_material.py:220-263`, `path_solvers/path_solver.py:144-157`, `path_solvers/field_calculator.py:256-300,526-562`, `path_solvers/paths.py:336-524,660-,1215-1246`, `scene.py:1055,1073-1078`. **Integration points:** `backend/seam_studio/services/simulation_backends/sionna_backend.py:339,776,896,973,1024-1027`; `backend/seam_studio/services/trajectory.py:205,363,381,505`; `backend/seam_studio/schemas/scene.py:147-177`; `backend/seam_studio/schemas/simulation.py:182`.
 
 **Unverified items:** ITU-R P.2040/P.1411 clause-level original text (cited only as a reference for material/diffuse guidance, not consulted) **(unverified)**.
 
@@ -283,12 +283,12 @@ Of the plans in this document, **Design A** (effect #2: velocity-based per-path 
 
 ### Implementation details (by file)
 
-- **`backend/app/schemas/devices.py`** — `Device.velocity_m_s: Optional[Vec3] = None` (world frame m/s, Z-up). None=stationary, geometry/ray-tracing invariant.
-- **`backend/app/schemas/channel.py`** — added `num_time_steps: int(1..64, default 1)` and `sampling_frequency_hz: Optional[float]` (None→Nyquist=2·max|f_Δ|, 1 kHz when there is no motion) to `ChannelAnalysisRequest`. `CirTap.doppler_hz: Optional[float]`. Added `doppler_spread_hz`, `mean_doppler_hz`, `max_doppler_hz`, `coherence_time_ms` (≈0.42/max|f_Δ|), `cir_time_s`, `cir_time_envelope_db` (the time-varying fading envelope `|Σ_i a_i e^{j2π f_Δ,i t}|` in dB) to `ChannelAnalysisResult`.
-- **`backend/app/services/simulation_backends/sionna_backend.py`** — passes `velocity_m_s` through when creating Transmitter/Receiver. Sets per-actor `obj.velocity` via the `apply_actor_states(..., velocities=)` argument. Adds an optional `actor_velocities` kwarg to `simulate_paths`/`_simulate_paths_impl`. `_convert_paths` reads `solved.doppler` and returns a list aligned 1:1 with the retained paths → exposed as `PathResultSet.metadata["doppler_hz"]` only when something is moving (a static solve stays byte-identical). Since the RayPath schema is out of ownership, it is carried via metadata.
-- **`backend/app/services/channel_analysis.py`** — `doppler_metrics()` (power-weighted mean/spread/max, coherence time), `doppler_time_envelope()` (backend-agnostic, synthesizes the time-varying envelope from per-path power/phase/doppler — the same model as `paths.cir`). `build_cir(paths, doppler_by_path_id)` fills the per-tap `doppler_hz`. `analyze_channel` maps `metadata["doppler_hz"]` by path_id and skips the link filter and delay sort to preserve alignment.
-- **`backend/app/services/trajectory.py`** — derives UE velocity via a finite difference of waypoints `(wp[i+1]-wp[i])/dt` (backward difference for the last point) → sets `velocity_m_s` on the moving RX. Exposes the per-waypoint Doppler spread as `metadata["doppler_spread_hz"]` (a list aligned with samples).
-- **`backend/app/services/scenario.py`** — adds `actor_velocity_at()` (trajectory tangent central difference = tangent × speed). Passes per-frame actor velocity + attached device velocity (inheriting the actor velocity) into the solve. Exposes the per-frame Doppler spread as `ScenarioResultSet.metadata["doppler_spread_hz"]`. (The LinkMetrics/ScenarioFrame/TrajectorySample schemas are out of ownership, so the metadata channel is used.)
+- **`backend/seam_studio/schemas/devices.py`** — `Device.velocity_m_s: Optional[Vec3] = None` (world frame m/s, Z-up). None=stationary, geometry/ray-tracing invariant.
+- **`backend/seam_studio/schemas/channel.py`** — added `num_time_steps: int(1..64, default 1)` and `sampling_frequency_hz: Optional[float]` (None→Nyquist=2·max|f_Δ|, 1 kHz when there is no motion) to `ChannelAnalysisRequest`. `CirTap.doppler_hz: Optional[float]`. Added `doppler_spread_hz`, `mean_doppler_hz`, `max_doppler_hz`, `coherence_time_ms` (≈0.42/max|f_Δ|), `cir_time_s`, `cir_time_envelope_db` (the time-varying fading envelope `|Σ_i a_i e^{j2π f_Δ,i t}|` in dB) to `ChannelAnalysisResult`.
+- **`backend/seam_studio/services/simulation_backends/sionna_backend.py`** — passes `velocity_m_s` through when creating Transmitter/Receiver. Sets per-actor `obj.velocity` via the `apply_actor_states(..., velocities=)` argument. Adds an optional `actor_velocities` kwarg to `simulate_paths`/`_simulate_paths_impl`. `_convert_paths` reads `solved.doppler` and returns a list aligned 1:1 with the retained paths → exposed as `PathResultSet.metadata["doppler_hz"]` only when something is moving (a static solve stays byte-identical). Since the RayPath schema is out of ownership, it is carried via metadata.
+- **`backend/seam_studio/services/channel_analysis.py`** — `doppler_metrics()` (power-weighted mean/spread/max, coherence time), `doppler_time_envelope()` (backend-agnostic, synthesizes the time-varying envelope from per-path power/phase/doppler — the same model as `paths.cir`). `build_cir(paths, doppler_by_path_id)` fills the per-tap `doppler_hz`. `analyze_channel` maps `metadata["doppler_hz"]` by path_id and skips the link filter and delay sort to preserve alignment.
+- **`backend/seam_studio/services/trajectory.py`** — derives UE velocity via a finite difference of waypoints `(wp[i+1]-wp[i])/dt` (backward difference for the last point) → sets `velocity_m_s` on the moving RX. Exposes the per-waypoint Doppler spread as `metadata["doppler_spread_hz"]` (a list aligned with samples).
+- **`backend/seam_studio/services/scenario.py`** — adds `actor_velocity_at()` (trajectory tangent central difference = tangent × speed; since v0.1.14 one-sided at waypoint times: the outgoing leg, 0 at the end of a `once` trajectory, see [guides/sensing.md](guides/sensing.md) §6). Passes per-frame actor velocity + attached device velocity (inheriting the actor velocity) into the solve. Exposes the per-frame Doppler spread as `ScenarioResultSet.metadata["doppler_spread_hz"]`. (The LinkMetrics/ScenarioFrame/TrajectorySample schemas are out of ownership, so the metadata channel is used.)
 - **`backend/tests/test_doppler.py`** (new) — 18 cases: the schema velocity field, the Doppler spectrum formula (hand-calculated), the time-varying envelope ripple, the service velocity plumbing (a capture-fake backend so sionna is not required), and sionna-guarded real solves (moving-RX Doppler ≈ v/λ, static links expose no doppler_hz, channel-analysis Doppler metrics populated).
 
 ### Added schema fields (for frontend type mirroring)

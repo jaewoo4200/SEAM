@@ -124,6 +124,8 @@ footer{border-top:1px solid var(--line)}
     <a href="simulation.html">Simulating</a>
     <a href="trajectory_uav.html">Trajectories &amp; UAVs</a>
     <a href="datasets_export.html">ML datasets &amp; exports</a>
+    <a href="sensing.html">Radar sensing &amp; ISAC</a>
+    <a href="playback_dashboard.html">Multimodal playback</a>
     <a class="all" href="./">← All guides</a>
   </aside>
 
@@ -131,6 +133,7 @@ footer{border-top:1px solid var(--line)}
     <div class="eyebrow">Guide 02 · SEAM Studio docs</div>
     <h1>Importing Scenes: Mitsuba XML, OpenStreetMap, and Device JSON</h1>
     <p class="lead">SEAM Studio gets geometry into a project three ways: a <b>Mitsuba/Sionna XML scene</b> (a single <code>.xml</code> plus mesh files, or a <code>.zip</code> of the whole scene folder), an <b>OpenStreetMap area</b> (real-world buildings extruded to 3D), and — for radio devices and UE routes rather than geometry — <b>JSON point import</b>. This guide walks through all three. Everything here works with the Mock backend, so you don't need Sionna RT installed to follow along.</p>
+
     <div class="spectrum"></div>
 
     <table>
@@ -145,80 +148,174 @@ footer{border-top:1px solid var(--line)}
     </table>
 
     <h2 id="1-the-import-button-and-the-import-scene-dialog">1. The Import button and the Import scene dialog</h2>
-    <p>Press <b><code>Import</code></b> on the left of the top toolbar (next to the project select). A small <b>Import scene</b> dialog opens with two source tabs: <b><code>Mitsuba XML</code></b> and <b><code>OpenStreetMap</code></b>. If you have no projects at all yet, the empty state shows an <b><code>Import a scene</code></b> button that opens the same dialog.</p>
+
+    <p>Press <b><code>Import</code></b> on the left of the top toolbar (next to the project select).
+    A small <b>Import scene</b> dialog opens with two source tabs: <b><code>Mitsuba XML</code></b>
+    and <b><code>OpenStreetMap</code></b>. If you have no projects at all yet, the empty state
+    shows an <b><code>Import a scene</code></b> button that opens the same dialog.</p>
 
     <figure class="doc-shot"><img loading="lazy" decoding="async" src="../../assets/guides/16_import_dialog.png" alt="Import scene dialog with the Mitsuba XML tab active, showing the file pickers and the Name, Project id, and Environment fields"><figcaption>The Import scene dialog — Mitsuba XML tab active, OpenStreetMap next to it.</figcaption></figure>
 
     <p>Whichever tab you use, the bottom three fields are the same:</p>
+
     <ul>
       <li><b>Name</b> — display name shown in the project select (e.g. <code>My Scene</code>).</li>
-      <li><b>Project id</b> — folder-safe id, auto-derived from the name until you edit it. Lowercase letters, digits, <code>-</code> and <code>_</code> only; a duplicate id is rejected inline.</li>
-      <li><b>Environment</b> — <code>Auto</code>, <code>Indoor</code>, or <code>Outdoor</code> (see <a href="#4-environment-modes-auto--indoor--outdoor">section 4</a>).</li>
+      <li><b>Project id</b> — folder-safe id, auto-derived from the name until you edit
+        it. Lowercase letters, digits, <code>-</code> and <code>_</code> only; a duplicate id is rejected
+        inline.</li>
+      <li><b>Environment</b> — <code>Auto</code>, <code>Indoor</code>, or <code>Outdoor</code> (see
+        <a href="#4-environment-modes-auto--indoor--outdoor">section 4</a>).</li>
     </ul>
+
     <p>The primary <b>Import</b> button starts the import; <b>Cancel</b> closes the dialog.</p>
 
     <h2 id="2-mitsuba-xml-tab">2. Mitsuba XML tab</h2>
-    <p>The <b><code>Mitsuba XML</code></b> tab imports a Mitsuba/Sionna RT scene as a new project. You have two options in the <b>Scene XML or .zip bundle</b> file picker:</p>
+
+    <p>The <b><code>Mitsuba XML</code></b> tab imports a Mitsuba/Sionna RT scene as a new project.
+    You have two options in the <b>Scene XML or .zip bundle</b> file picker:</p>
+
     <ol>
-      <li><b>A single <code>.xml</code> file.</b> If the XML references external meshes, add them through the second picker, <b>Mesh files (optional .ply/.obj)</b> (multiple selection; <code>.ply</code>, <code>.obj</code>, <code>.stl</code>).</li>
-      <li><b>A <code>.zip</code> of the whole scene folder</b> — the XML plus its <code>meshes/</code> and <code>textures/</code> directories at their original relative paths. When you pick a zip, the mesh picker disappears: the bundle already carries everything.</li>
+      <li><b>A single <code>.xml</code> file.</b> If the XML references external meshes, add them
+        through the second picker, <b>Mesh files (optional .ply/.obj)</b> (multiple
+        selection; <code>.ply</code>, <code>.obj</code>, <code>.stl</code>).</li>
+      <li><b>A <code>.zip</code> of the whole scene folder</b> — the XML plus its <code>meshes/</code> and
+        <code>textures/</code> directories at their original relative paths. When you pick a
+        zip, the mesh picker disappears: the bundle already carries everything.</li>
     </ol>
-    <p>Prefer the zip when the scene has textures. As the dialog's own hint puts it: zipped bundles keep their textures, so they show up in the viewer <b>and feed the AI material suggestions</b> — a vision-capable provider in the <b>AI Assist</b> tab can look at the actual surface photos when proposing RF materials, instead of guessing from mesh names alone.</p>
+
+    <p>Prefer the zip when the scene has textures. As the dialog's own hint puts it:
+    zipped bundles keep their textures, so they show up in the viewer <b>and feed
+    the AI material suggestions</b> — a vision-capable provider in the <b>AI Assist</b>
+    tab can look at the actual surface photos when proposing RF materials, instead
+    of guessing from mesh names alone.</p>
+
     <p>Steps:</p>
+
     <ol>
       <li>Press <b><code>Import</code></b> in the toolbar and stay on the <b><code>Mitsuba XML</code></b> tab.</li>
-      <li>Pick your <code>.xml</code> or <code>.zip</code> in <b>Scene XML or .zip bundle</b>. The <b>Name</b> field auto-fills from the file name.</li>
-      <li>(Single-XML only) add companion meshes under <b>Mesh files (optional .ply/.obj)</b>.</li>
+      <li>Pick your <code>.xml</code> or <code>.zip</code> in <b>Scene XML or .zip bundle</b>. The <b>Name</b>
+        field auto-fills from the file name.</li>
+      <li>(Single-XML only) add companion meshes under <b>Mesh files (optional
+        .ply/.obj)</b>.</li>
       <li>Check <b>Name</b>, <b>Project id</b>, and <b>Environment</b>, then press <b>Import</b>.</li>
-      <li>The import runs as a background job — a progress row (<code>Importing…</code> with the current phase and step count) tracks it, and you can keep working. When it finishes, the new project opens automatically; non-fatal warnings (skipped meshes, remapped materials) surface as a notification.</li>
+      <li>The import runs as a background job — a progress row (<code>Importing…</code> with the
+        current phase and step count) tracks it, and you can keep working. When it
+        finishes, the new project opens automatically; non-fatal warnings (skipped
+        meshes, remapped materials) surface as a notification.</li>
     </ol>
 
     <h2 id="3-openstreetmap-tab">3. OpenStreetMap tab</h2>
-    <p>The <b><code>OpenStreetMap</code></b> tab builds an outdoor scene from real-world building footprints. It needs internet access (it queries the OSM Overpass API).</p>
+
+    <p>The <b><code>OpenStreetMap</code></b> tab builds an outdoor scene from real-world building
+    footprints. It needs internet access (it queries the OSM Overpass API).</p>
+
     <ol>
-      <li>Switch the dialog to <b><code>OpenStreetMap</code></b>. The dialog widens to show a map with a search box (<b>Search a place…</b>) — type a place name or paste any coordinate from Google Maps.</li>
-      <li>Press <b><code>▭ Select area on map</code></b>, then drag a rectangle on the map (the button switches to <code>Drag a rectangle on the map…</code> while armed). The <b>Latitude</b>, <b>Longitude</b>, <b>Width (m, E–W)</b>, and <b>Height (m, N–S)</b> fields fill in automatically; you can also type them directly. Area sides are clamped to 50–3000 m.</li>
-      <li>Set <b>Default bldg height (m)</b> — used for buildings whose OSM data has no height or level tags (minimum 3 m).</li>
-      <li>Fill in <b>Name</b> / <b>Project id</b>, then press <b>Import</b> (it reads <code>Fetching OSM…</code> while running).</li>
+      <li>Switch the dialog to <b><code>OpenStreetMap</code></b>. The dialog widens to show a map
+        with a search box (<b>Search a place…</b>) — type a place name or paste any
+        coordinate from Google Maps.</li>
+      <li>Press <b><code>▭ Select area on map</code></b>, then drag a rectangle on the map (the
+        button switches to <code>Drag a rectangle on the map…</code> while armed). The
+        <b>Latitude</b>, <b>Longitude</b>, <b>Width (m, E–W)</b>, and <b>Height (m, N–S)</b>
+        fields fill in automatically; you can also type them directly. Area sides
+        are clamped to 50–3000 m.</li>
+      <li>Set <b>Default bldg height (m)</b> — used for buildings whose OSM data has no
+        height or level tags (minimum 3 m).</li>
+      <li>Fill in <b>Name</b> / <b>Project id</b>, then press <b>Import</b> (it reads
+        <code>Fetching OSM…</code> while running).</li>
     </ol>
-    <p>The importer fetches every building footprint inside the rectangle, extrudes each one using its OSM <code>height</code>/<code>levels</code> tags (falling back to your default height), and drops a ground plane. Every prim arrives with an RF material already bound: buildings get <b><code>itu_concrete</code></b> and the ground gets <b><code>ground_28ghz</code></b> (a 28 GHz-safe ground). The scene also stores the geodetic anchor of your rectangle's center, which later lets you import devices and waypoints by latitude/longitude (see section 5).</p>
+
+    <p>The importer fetches every building footprint inside the rectangle, extrudes
+    each one using its OSM <code>height</code>/<code>levels</code> tags (falling back to your default
+    height), and drops a ground plane. Every prim arrives with an RF material
+    already bound: buildings get <b><code>itu_concrete</code></b> and the ground gets
+    <b><code>ground_28ghz</code></b> (a 28 GHz-safe ground). The scene also stores the geodetic
+    anchor of your rectangle's center, which later lets you import devices and
+    waypoints by latitude/longitude (see section 5).</p>
 
     <figure class="doc-shot"><img loading="lazy" decoding="async" src="../../assets/guides/15_osm_import.png" alt="Result of an OSM import: dozens of extruded buildings, all itu_concrete, with the environment resolved to Outdoor"><figcaption>An imported OSM area — extruded buildings, all <code>itu_concrete</code>, ENV Outdoor.</figcaption></figure>
 
-    <p><code>itu_concrete</code> everywhere is a deliberate starting point, not the final answer. Refine it afterwards in the <b>RF Materials</b> tab (per-object or bulk assignment) or let the <b>AI Assist</b> tab propose better candidates with <b>Suggest RF materials</b> — see <a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/rf_materials.md">RF materials</a> and the <a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/ai_assistant.md">AI assistant</a>.</p>
+    <p><code>itu_concrete</code> everywhere is a deliberate starting point, not the final
+    answer. Refine it afterwards in the <b>RF Materials</b> tab (per-object or
+    bulk assignment) or let the <b>AI Assist</b> tab propose better candidates with
+    <b>Suggest RF materials</b> — see <a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/rf_materials.md">RF materials</a> and the
+    <a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/ai_assistant.md">AI assistant</a>.</p>
 
     <h2 id="4-environment-modes-auto--indoor--outdoor">4. Environment modes (Auto / Indoor / Outdoor)</h2>
-    <p>The <b>Environment</b> field in the import dialog — and the <b><code>Env</code></b> select in the toolbar afterwards — tells SEAM Studio what scale of scene it is dealing with:</p>
+
+    <p>The <b>Environment</b> field in the import dialog — and the <b><code>Env</code></b> select in
+    the toolbar afterwards — tells SEAM Studio what scale of scene it is dealing
+    with:</p>
+
     <ul>
-      <li><b>Auto</b> infers indoor/outdoor from the scene's spatial extent (a largest span under 25 m reads as indoor); the toolbar shows what it resolved to, e.g. <code>Auto (outdoor)</code>.</li>
-      <li><b>Indoor</b> applies compact solver defaults: path depth 5 with refraction on, and a fine 0.25 m radio-map grid at 1.2 m height.</li>
-      <li><b>Outdoor</b> applies wide-area defaults: path depth 3, refraction off, and a 2 m radio-map grid at 1.5 m height.</li>
+      <li><b>Auto</b> infers indoor/outdoor from the scene's spatial extent (a largest
+        span under 25 m reads as indoor); the toolbar shows what it resolved to,
+        e.g. <code>Auto (outdoor)</code>.</li>
+      <li><b>Indoor</b> applies compact solver defaults: path depth 5 with refraction on,
+        and a fine 0.25 m radio-map grid at 1.2 m height.</li>
+      <li><b>Outdoor</b> applies wide-area defaults: path depth 3, refraction off, and a
+        2 m radio-map grid at 1.5 m height.</li>
     </ul>
-    <p>The environment also drives viewer sizing — device markers get a larger minimum size outdoors so they stay visible on a campus-scale scene, and path interaction dots shrink indoors — plus a wider default camera framing for outdoor scenes. Changing <b><code>Env</code></b> later applies the matching solver defaults to the Paths/Radio map sections for the session (your hand-tuned knobs are only overwritten when you actually switch environments, and nothing is saved as the project default unless you save it explicitly).</p>
+
+    <p>The environment also drives viewer sizing — device markers get a larger
+    minimum size outdoors so they stay visible on a campus-scale scene, and path
+    interaction dots shrink indoors — plus a wider default camera framing for
+    outdoor scenes. Changing <b><code>Env</code></b> later applies the matching solver defaults
+    to the Paths/Radio map sections for the session (your hand-tuned knobs are
+    only overwritten when you actually switch environments, and nothing is saved
+    as the project default unless you save it explicitly).</p>
 
     <h2 id="5-importing-devices-and-trajectories-from-json">5. Importing devices and trajectories from JSON</h2>
-    <p>Scene import brings geometry; radio devices and UE routes have their own JSON import that works on any open project:</p>
+
+    <p>Scene import brings geometry; radio devices and UE routes have their own JSON
+    import that works on any open project:</p>
+
     <ul>
-      <li><b>Devices</b> — in the scene tree's <b>Devices</b> section header, next to <b><code>+TX</code></b> / <b><code>+RX</code></b>, press <b><code>⤓ JSON</code></b> and pick a JSON file. Devices are upserted into the scene (existing ids are updated in place), and a notification reports how many were added/updated plus any warnings.</li>
-      <li><b>Trajectory waypoints</b> — in the trajectory routes editor of the <b>Results</b> mode, <b><code>⤓ Import JSON</code></b> loads a UE route from a file, as an alternative to drawing it in the viewport.</li>
+      <li><b>Devices</b> — in the scene tree's <b>Devices</b> section header, next to
+        <b><code>+TX</code></b> / <b><code>+RX</code></b>, press <b><code>⤓ JSON</code></b> and pick a JSON file. Devices are
+        upserted into the scene (existing ids are updated in place), and a
+        notification reports how many were added/updated plus any warnings.</li>
+      <li><b>Trajectory waypoints</b> — in the trajectory routes editor of the
+        <b>Results</b> mode, <b><code>⤓ Import JSON</code></b> loads a UE route from a file, as an
+        alternative to drawing it in the viewport.</li>
     </ul>
-    <p>Both accept the same point schema: <b>cartesian</b> points (<code>x</code>/<code>y</code>/<code>z</code>, local ENU meters, Z-up) or <b>geographic</b> points (<code>lat</code>/<code>lon</code> with <code>alt_m</code> or <code>agl_m</code>), auto-detected per entry and freely mixed in one file. Geographic points require the scene to have a geodetic anchor — OSM imports set one automatically. The full format, including <code>agl_m</code> height-above-ground semantics, orientation fields, and ready-made templates, is in <a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/point_import.md">Point / device / trajectory import</a>.</p>
+
+    <p>Both accept the same point schema: <b>cartesian</b> points (<code>x</code>/<code>y</code>/<code>z</code>, local
+    ENU meters, Z-up) or <b>geographic</b> points (<code>lat</code>/<code>lon</code> with <code>alt_m</code> or
+    <code>agl_m</code>), auto-detected per entry and freely mixed in one file. Geographic
+    points require the scene to have a geodetic anchor — OSM imports set one
+    automatically. The full format, including <code>agl_m</code> height-above-ground
+    semantics, orientation fields, and ready-made templates, is in
+    <a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/point_import.md">Point / device / trajectory import</a>.</p>
 
     <h2 id="6-what-a-drone-scan-textured-bundle-looks-like">6. What a drone-scan textured bundle looks like</h2>
-    <p>The bundled <b>FTC Outdoor</b> example shows where a zipped, textured import can end up: a photogrammetry (drone-scan) building whose photo textures render directly in the viewer, surrounded by OSM-imported context buildings and terrain, with a UAV actor following a yellow flight path above the site.</p>
+
+    <p>The bundled <b>FTC Outdoor</b> example shows where a zipped, textured import can
+    end up: a photogrammetry (drone-scan) building whose photo textures render
+    directly in the viewer, surrounded by OSM-imported context buildings and
+    terrain, with a UAV actor following a yellow flight path above the site.</p>
 
     <figure class="doc-shot"><img loading="lazy" decoding="async" src="../../assets/guides/11_ftc_textured.png" alt="Imported drone-scan bundle: photo-textured building with OSM context buildings and terrain, and a UAV actor with a yellow flight path"><figcaption>The FTC Outdoor scene — a photo-textured drone-scan building plus OSM context, with a UAV flight path.</figcaption></figure>
 
-    <p>Because the textures survive the import, this kind of scene gets the full pipeline: the <b>AI Assist</b> tab can reason about the visible surfaces (concrete/glass/metal splits), and everything downstream — paths, radio maps, trajectories — runs on the same geometry. Open the <code>FTC Outdoor</code> project from the toolbar's project select to explore one without importing anything.</p>
+    <p>Because the textures survive the import, this kind of scene gets the full
+    pipeline: the <b>AI Assist</b> tab can reason about the visible surfaces
+    (concrete/glass/metal splits), and everything downstream — paths, radio maps,
+    trajectories — runs on the same geometry. Open the <code>FTC Outdoor</code> project from
+    the toolbar's project select to explore one without importing anything.</p>
 
     <h2 id="troubleshooting">Troubleshooting</h2>
+
     <ul>
       <li><b>A duplicate Project id</b> is rejected inline (<code>a project "…" already exists</code>) — pick another id before the Import button enables.</li>
-      <li><b>OpenStreetMap import fails or hangs</b> — the Overpass API needs internet and can time out on very large rectangles; the error appears inside the dialog. Retry, or shrink the selected area.</li>
-      <li><b>Closing the dialog mid-import</b> (XML tab) stops the progress display, but the job itself keeps running server-side — the project appears in the project select once it finishes.</li>
+      <li><b>OpenStreetMap import fails or hangs</b> — the Overpass API needs internet
+        and can time out on very large rectangles; the error appears inside the
+        dialog. Retry, or shrink the selected area.</li>
+      <li><b>Closing the dialog mid-import</b> (XML tab) stops the progress display, but
+        the job itself keeps running server-side — the project appears in the
+        project select once it finishes.</li>
     </ul>
 
     <h2 id="related-docs">Related docs</h2>
+
     <ul>
       <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/point_import.md">Point / device / trajectory import</a> — the JSON format for section 5</li>
       <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/rf_materials.md">RF materials</a> — refining the default <code>itu_concrete</code> assignments</li>

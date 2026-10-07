@@ -21,7 +21,6 @@ import trimesh
 from seam_studio.schemas.devices import Antenna, Device
 from seam_studio.schemas.scene import MeshRef, Prim, RFBinding, Scene
 from seam_studio.schemas.simulation import SimulationConfig, TrajectorySimulateRequest
-from seam_studio.services.availability import sionna_available
 from seam_studio.services.project_store import load_default_library
 from seam_studio.services.rfdata_export import export_rfdata
 from seam_studio.services.simulation_backends.mock_backend import MockBackend
@@ -33,7 +32,7 @@ from seam_studio.services.simulation_backends.sionna_backend import (
 )
 from seam_studio.services.trajectory import run_trajectory
 
-SIONNA = sionna_available()
+from .conftest import requires_sionna
 
 
 # --------------------------------------------------------------- fixtures
@@ -294,7 +293,7 @@ def test_mock_unaffected_by_seed_and_synthetic_array(tmp_path: Path):
 # ---------------------------------------------------- sionna-guarded runs
 
 
-@pytest.mark.skipif(not SIONNA, reason="sionna-rt not installed")
+@requires_sionna
 def test_sionna_all_mechanisms_and_seed_runs(tmp_path: Path):
     """A solve with refraction+diffraction+edge_diffraction+seed on a tiny
     scene must run and return a result (graceful, no raise). If the solver
@@ -315,7 +314,7 @@ def test_sionna_all_mechanisms_and_seed_runs(tmp_path: Path):
     assert result.paths or not failed, f"unexpected hard failure: {result.warnings}"
 
 
-@pytest.mark.skipif(not SIONNA, reason="sionna-rt not installed")
+@requires_sionna
 def test_sionna_per_device_tr38901_array_runs(tmp_path: Path):
     """A device carrying a tr38901 4x4 array drives the scene arrays and the
     solve still returns without raising."""
@@ -332,7 +331,7 @@ def test_sionna_per_device_tr38901_array_runs(tmp_path: Path):
     assert not any("unknown antenna pattern" in w for w in result.warnings)
 
 
-@pytest.mark.skipif(not SIONNA, reason="sionna-rt not installed")
+@requires_sionna
 def test_sionna_scene_cache_hit_and_deep_equal(tmp_path: Path):
     """Two consecutive solves of the same project reuse the cached rt_scene
     (a cache hit is recorded) and produce deep-equal results."""

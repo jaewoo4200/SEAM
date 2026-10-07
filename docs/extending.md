@@ -12,7 +12,7 @@ core code**. There are two tracks:
    (materials API), adding a solver preset (`configPresets.ts`) (the
    [Other extension points](#other-extension-points-without-a-plugin) section at the bottom).
 
-Plugin loader implementation: `backend/app/services/plugins.py`.
+Plugin loader implementation: `backend/seam_studio/services/plugins.py`.
 Working example: [`plugins/example_two_ray/`](../plugins/example_two_ray/).
 
 ---
@@ -111,13 +111,13 @@ Adds a new ray-tracing backend. It is the target to be merged with the same dict
   - The factory is called **with no arguments** to create a backend instance (same
     as the built-in `get_backend` calling `_BACKENDS[name]()`).
   - The returned object must follow the `RayTracingBackend`
-    (`backend/app/services/simulation_backends/base.py`) contract: a `name`
+    (`backend/seam_studio/services/simulation_backends/base.py`) contract: a `name`
     attribute, `is_available()`, `simulate_paths(...)`, `simulate_radio_map(...)`
     (required); `compile`/`simulate_beamforming` can reuse the base default
     implementations.
 
 ```python
-from app.services.simulation_backends.base import RayTracingBackend
+from seam_studio.services.simulation_backends.base import RayTracingBackend
 
 class MyBackend(RayTracingBackend):
     name = "my_backend"
@@ -126,11 +126,16 @@ class MyBackend(RayTracingBackend):
     def simulate_radio_map(self, project_dir, scene, library, config): ...
 
 def register(registry):
-    registry.register_backend("my_backend", MyBackend)  # 클래스 = 무인자 factory
+    registry.register_backend("my_backend", MyBackend)  # the class is the no-arg factory
 ```
 
-> This hook imports `app.schemas`, so to reduce risk, one option is to handle the
+> This hook imports `seam_studio.schemas`, so to reduce risk, one option is to handle the
 > backend class and its import **inside** the `register` function.
+>
+> **Not consumed yet:** the backend registers and shows up in
+> `plugins.plugin_backends()`, but `get_backend`/`resolve_backend` still only know
+> `mock` and `sionna` (see *Current wiring status* above), so a solve request cannot
+> select it until that core integration point is wired.
 
 ### `register_ai_provider(factory)`
 
@@ -139,7 +144,7 @@ Adds a material-suggestion provider to the provider chain (see the
 
 - **signature**: `factory() -> MaterialSuggestionProvider`
   - The returned object must follow the `MaterialSuggestionProvider`
-    (`backend/app/services/ai_provider.py`) contract: a `name` attribute,
+    (`backend/seam_studio/services/ai_provider.py`) contract: a `name` attribute,
     `is_available() -> bool`, `suggest(scene, library, prim_ids, screenshot=None)
     -> MaterialSuggestionResponse`.
   - The core convention is that **all failures degrade internally to rule_based**.
@@ -147,7 +152,7 @@ Adds a material-suggestion provider to the provider chain (see the
 
 ```python
 def register(registry):
-    registry.register_ai_provider(MyProvider)  # MyProvider() -> provider 인스턴스
+    registry.register_ai_provider(MyProvider)  # MyProvider() -> provider instance
 ```
 
 > path-loss/backend/exporter are **name → one** (last-writer-wins), but AI providers
@@ -167,7 +172,7 @@ Adds a result exporter (same shape as `rfdata_export.export_rfdata`).
 def my_exporter(project_dir, scene, config, **kwargs):
     out = project_dir / "export" / "my_format"
     out.mkdir(parents=True, exist_ok=True)
-    # ... 파일 쓰기 ...
+    # ... write the files ...
     return {"export_dir": "export/my_format", "files": [...]}
 
 def register(registry):
@@ -193,12 +198,12 @@ def register(registry):
 Registration results are read via getters (used by core consumers, returning a copy):
 
 ```python
-from app.services import plugins
+from seam_studio.services import plugins
 plugins.plugin_path_loss_models()   # {name: fn}
 plugins.plugin_backends()           # {name: factory}
 plugins.plugin_ai_providers()       # [factory, ...]
 plugins.plugin_exporters()          # {name: fn}
-plugins.list_plugins()              # 최근 load 결과 [PluginInfo, ...] (재로드 안 함)
+plugins.list_plugins()              # last load result [PluginInfo, ...] (no reload)
 ```
 
 ---
@@ -219,7 +224,7 @@ plugins.list_plugins()              # 최근 load 결과 [PluginInfo, ...] (재�
   `plugins._reset_registries()` in a fixture.
 
 ```powershell
-# 리포 루트에서
+# from the repo root
 backend\.venv\Scripts\python.exe -m pytest backend\tests\test_plugins.py -q
 ```
 
@@ -250,7 +255,7 @@ detailed procedure, supported range, and protocol, see
 
 An RF material is an EM surface description and is separate from the visual/PBR
 material. When a project is created, the built-in library
-(`backend/app/data/default_rf_materials.yaml`) is copied to
+(`backend/seam_studio/data/default_rf_materials.yaml`) is copied to
 `<project>/rf/materials.yaml`, and after that the project file is authoritative. To
 add/modify a new material, use the materials API:
 
@@ -261,7 +266,7 @@ You can use `model: constant` (directly specify
 `relative_permittivity`/`conductivity_s_per_m`) or `model: itu_frequency_dependent`
 (reference a Sionna built-in ITU material). For the format and field definitions, see
 [`docs/rf_materials.md`](rf_materials.md) and
-`backend/app/schemas/materials.py`.
+`backend/seam_studio/schemas/materials.py`.
 
 ### 3. Add a solver preset — `frontend/src/configPresets.ts`
 
@@ -272,7 +277,7 @@ radio-map grid cell/height). A preset patches the paths/radio-map config togethe
 does not touch the backend/tx/rx selection.
 
 ```ts
-// frontend/src/configPresets.ts 의 PRESETS 배열에 추가
+// append to the PRESETS array in frontend/src/configPresets.ts
 {
   id: "my_scenario_28",
   label: "My Scenario (28 GHz)",

@@ -13,7 +13,7 @@
   샘플 수, CFR 포인트, 영역 설정 → Generate. 완료 후 목록에서
   `dataset.npz` / `metadata.json` 다운로드.
 - **API**: `POST /api/projects/{pid}/datasets/generate`
-  (스키마: `backend/app/schemas/datasets.py`). 백엔드는 mock(GPU 불필요,
+  (스키마: `backend/seam_studio/schemas/datasets.py`). 백엔드는 mock(GPU 불필요,
   테스트용)과 sionna(실물, `engine` 필드로 sionna-rt 버전 선택 가능) 모두 지원.
 - 파일 위치: `<project>/export/datasets/<dataset_id>/`.
 
@@ -85,11 +85,13 @@ ground truth를 내보낸다.
 시)를 비교한다:
 
 ```powershell
-backend\.venv\Scripts\python.exe examples/ml/train_channel_estimator.py examples/demo_project/sample_demo.seam/export/datasets/<dataset_id>/dataset.npz
+backend\.venv\Scripts\python.exe examples/ml/train_channel_estimator.py projects/sample_demo.seam/export/datasets/<dataset_id>/dataset.npz
 ```
 
 `<dataset_id>` 는 UI(Results 모드의 ML dataset 목록) 또는 생성된
-`metadata.json` 에 표시된 실제 데이터셋 id 로 바꿔서 실행한다.
+`metadata.json` 에 표시된 실제 데이터셋 id 로 바꿔서 실행한다. 경로는 소스 체크아웃의
+프로젝트 루트(`projects/`) 기준이며, pip 설치에서는 프로젝트가
+`~/.seam/projects/sample_demo.seam/` 에 있다.
 
 PyTorch가 없으면 LS/LMMSE 베이스라인만 실행된다(`pip install torch`로 활성화).
 스크립트 상단의 `PILOT_SPACING`, `SNR_DB` 를 바꿔 실험 조건을 조정한다.

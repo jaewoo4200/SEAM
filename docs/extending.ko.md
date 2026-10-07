@@ -11,7 +11,7 @@
    버전 교체(`engines.json`), custom RF material(materials API), solver preset
    추가(`configPresets.ts`) (맨 아래 [다른 확장 지점](#다른-확장-지점-plugin-없이) 절).
 
-Plugin 로더 구현: `backend/app/services/plugins.py`.
+Plugin 로더 구현: `backend/seam_studio/services/plugins.py`.
 동작하는 예제: [`plugins/example_two_ray/`](../plugins/example_two_ray/).
 
 ---
@@ -105,13 +105,13 @@ def register(registry):
   - factory는 **인자 없이** 호출되어 backend 인스턴스를 만든다 (built-in
     `get_backend`가 `_BACKENDS[name]()`로 호출하는 것과 동일).
   - 반환 객체는 `RayTracingBackend`
-    (`backend/app/services/simulation_backends/base.py`) 계약을 따라야 한다:
+    (`backend/seam_studio/services/simulation_backends/base.py`) 계약을 따라야 한다:
     `name` 속성, `is_available()`, `simulate_paths(...)`,
     `simulate_radio_map(...)` (필수), `compile`/`simulate_beamforming`은 base
     기본 구현 재사용 가능.
 
 ```python
-from app.services.simulation_backends.base import RayTracingBackend
+from seam_studio.services.simulation_backends.base import RayTracingBackend
 
 class MyBackend(RayTracingBackend):
     name = "my_backend"
@@ -123,8 +123,13 @@ def register(registry):
     registry.register_backend("my_backend", MyBackend)  # 클래스 = 무인자 factory
 ```
 
-> 이 hook은 `app.schemas`를 import하므로, 위험을 줄이려면 backend class와 그
+> 이 hook은 `seam_studio.schemas`를 import하므로, 위험을 줄이려면 backend class와 그
 > import를 `register` 함수 **안에서** 처리하는 것도 방법이다.
+>
+> **아직 소비되지 않음:** 등록은 되고 `plugins.plugin_backends()`에도 나타나지만,
+> `get_backend`/`resolve_backend`는 여전히 `mock`과 `sionna`만 안다(위 *현재 wiring
+> 상태* 참고). 그 코어 통합 지점을 연결하기 전까지는 솔브 요청에서 이 backend를
+> 고를 수 없다.
 
 ### `register_ai_provider(factory)`
 
@@ -133,7 +138,7 @@ material-suggestion provider를 provider chain에 추가한다
 
 - **signature**: `factory() -> MaterialSuggestionProvider`
   - 반환 객체는 `MaterialSuggestionProvider`
-    (`backend/app/services/ai_provider.py`) 계약: `name` 속성,
+    (`backend/seam_studio/services/ai_provider.py`) 계약: `name` 속성,
     `is_available() -> bool`, `suggest(scene, library, prim_ids, screenshot=None)
     -> MaterialSuggestionResponse`.
   - **모든 실패는 내부에서 rule_based로 degrade**시키는 게 core 관례다.
@@ -184,7 +189,7 @@ def register(registry):
 등록 결과는 getter로 읽는다 (core consumer가 사용, 복사본을 반환):
 
 ```python
-from app.services import plugins
+from seam_studio.services import plugins
 plugins.plugin_path_loss_models()   # {name: fn}
 plugins.plugin_backends()           # {name: factory}
 plugins.plugin_ai_providers()       # [factory, ...]
@@ -239,7 +244,7 @@ paths 솔브에 쓸 Sionna RT 엔진 버전을 리포 루트 `engines.json`으�
 ### 2. Custom RF material — materials API
 
 RF material은 EM 표면 서술이며 visual/PBR material과 분리돼 있다. 프로젝트 생성 시
-built-in 라이브러리(`backend/app/data/default_rf_materials.yaml`)가
+built-in 라이브러리(`backend/seam_studio/data/default_rf_materials.yaml`)가
 `<project>/rf/materials.yaml`로 복사되고, 이후 프로젝트 파일이 authoritative다.
 새 material을 추가/수정하려면 materials API를 쓴다:
 
@@ -249,7 +254,7 @@ built-in 라이브러리(`backend/app/data/default_rf_materials.yaml`)가
 `model: constant`(직접 `relative_permittivity`/`conductivity_s_per_m` 지정) 또는
 `model: itu_frequency_dependent`(Sionna 내장 ITU material 참조)를 쓸 수 있다.
 포맷·필드 정의는 [`docs/rf_materials.md`](rf_materials.ko.md) 및
-`backend/app/schemas/materials.py` 참조.
+`backend/seam_studio/schemas/materials.py` 참조.
 
 ### 3. Solver preset 추가 — `frontend/src/configPresets.ts`
 

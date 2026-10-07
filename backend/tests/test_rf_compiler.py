@@ -13,6 +13,8 @@ from seam_studio.schemas.scene import MeshRef, Prim, RFBinding, Scene
 from seam_studio.services import mesh_tools, project_store
 from seam_studio.services.rf_compiler import compile_project
 
+from .conftest import requires_sionna
+
 WALL_ID = "/buildings/b01/wall"
 GLASS_ID = "/buildings/b01/glass"
 UNASSIGNED_ID = "/buildings/b01/misc"
@@ -421,13 +423,7 @@ def test_itu_solver_params_follow_library_edits(
     assert concrete["itu_solver_params"]["scattering_coefficient"] == 0.55
 
 
-def _sionna_available() -> bool:
-    from seam_studio.services.availability import sionna_available
-
-    return sionna_available()
-
-
-@pytest.mark.skipif(not _sionna_available(), reason="sionna-rt not installed")
+@requires_sionna
 def test_itu_scattering_reaches_loaded_scene(
     project: Path, library: RFMaterialLibrary
 ) -> None:
@@ -494,6 +490,29 @@ def test_itu_name_collision_warns(project: Path, library: RFMaterialLibrary) -> 
     # No false positive when every referenced itu_name is unique.
     clean = compile_project(project, _build_scene(), project_store.load_default_library())
     assert not any("share itu_name" in w for w in clean.warnings)
+
+
+def test_on_demand_compile_keeps_compile_warnings(
+    project: Path, library: RFMaterialLibrary
+) -> None:
+    """A solve that compiles a missing/stale projection must surface the
+    compile's own warnings: the usual path is edit material -> Simulate, not an
+    explicit /compile/sionna (DEV_HANDOFF since v0.1.4)."""
+    from seam_studio.services.simulation_backends.sionna_backend import SionnaBackend
+
+    dup = library.get("itu_concrete").model_copy(deep=True)
+    dup.id = "itu_concrete_rough"
+    library.materials.append(dup)
+    scene = _build_scene()
+    scene.prims[1].rf.material_id = "itu_concrete_rough"
+    assert not (project / "rf" / "generated_scene.xml").exists()
+
+    warnings: list[str] = []
+    SionnaBackend()._ensure_projection(project, scene, library, warnings)
+    collision = [i for i, w in enumerate(warnings) if "share itu_name='itu_concrete'" in w]
+    on_demand = [i for i, w in enumerate(warnings) if "compiled on demand" in w]
+    assert collision and on_demand, warnings
+    assert collision[0] < on_demand[0]  # the compile's warnings, then the fixed line
 
 
 def test_mesh_actor_yup_heuristic_warns(project: Path, library: RFMaterialLibrary) -> None:

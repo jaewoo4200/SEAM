@@ -16,7 +16,10 @@ import base64
 import io
 import json
 import re
+import threading
 import time
+from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeout
 from pathlib import Path, PurePosixPath
 from typing import Optional
 
@@ -558,68 +561,185 @@ class RuleBasedProvider(MaterialSuggestionProvider):
         )
 
 
-# base_url -> (monotonic timestamp, reachable, human detail)
-_PROBE_TTL_S = 30.0
-_probe_cache: dict[str, tuple[float, bool, str]] = {}
+class _ProbeCache(dict):
+    """url -> (monotonic timestamp of the probe start, *answer). ``clear()``
+    also discards the answers of probes still in flight, so a cleared cache
+    (settings change, tests) is never repopulated with an old answer."""
+
+    generation = 0
+
+    def clear(self) -> None:
+        super().clear()
+        self.generation += 1
 
 
-def _probe_ollama(base_url: str) -> tuple[bool, str]:
+# Reachability: url -> (timestamp, reachable, human detail). Models: url ->
+# (timestamp, discovered model ids); keyed by url so the OpenAI and Ollama
+# entries never collide. The GUI polls /ai/status every 45 s, so the TTL is
+# longer than that, and an expired entry is served while one background
+# refresh runs: /health and /ai/status never wait on a stale probe.
+_PROBE_TTL_S = 60.0
+# A url never probed waits this long for its first answer, then reports
+# "probing" (uncached) while the probe finishes in the background.
+_PROBE_WAIT_S = 1.0
+_probe_cache: _ProbeCache = _ProbeCache()
+_model_cache: _ProbeCache = _ProbeCache()
+_probe_lock = threading.Lock()
+# key -> (cache generation at submit, first probe). A probe started before a
+# cache clear belongs to the old generation: it neither answers nor blocks the
+# first probe of the new one.
+_inflight: dict[str, tuple[int, Future]] = {}
+_refreshing: set[str] = set()
+_probe_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="seam-ai-probe")
+
+
+def _probe_timeout():
+    import httpx  # lazy: optional runtime dependency path
+
+    return httpx.Timeout(1.5, connect=0.6)
+
+
+def _store_probe(cache: _ProbeCache, url: str, generation: int, fetch) -> tuple:
+    started = time.monotonic()
+    answer = fetch()
+    with _probe_lock:
+        if cache.generation == generation:
+            cache[url] = (started, *answer)
+    return answer
+
+
+def _first_probe(cache: _ProbeCache, url: str, key: str, generation: int, fetch) -> tuple:
+    try:
+        return _store_probe(cache, url, generation, fetch)
+    finally:
+        with _probe_lock:
+            current = _inflight.get(key)
+            if current is not None and current[0] == generation:
+                del _inflight[key]
+
+
+def _refresh_probe(cache: _ProbeCache, url: str, key: str, generation: int, fetch) -> None:
+    try:
+        _store_probe(cache, url, generation, fetch)
+    except Exception:  # noqa: BLE001 - the stale entry simply stays
+        pass
+    finally:
+        with _probe_lock:
+            _refreshing.discard(key)
+
+
+def _start_probe(cache: _ProbeCache, url: str, key: str, fetch) -> Optional[tuple]:
+    """The cached answer (fresh, or stale with one background refresh
+    started), else None after making sure the first probe is running."""
     now = time.monotonic()
-    cached = _probe_cache.get(base_url)
-    if cached is not None and now - cached[0] < _PROBE_TTL_S:
-        return cached[1], cached[2]
+    with _probe_lock:
+        entry = cache.get(url)
+        if entry is not None:
+            if now - entry[0] >= _PROBE_TTL_S and key not in _refreshing:
+                _refreshing.add(key)
+                threading.Thread(
+                    target=_refresh_probe,
+                    args=(cache, url, key, cache.generation, fetch),
+                    daemon=True,
+                ).start()
+            return tuple(entry[1:])
+        current = _inflight.get(key)
+        if current is None or current[0] != cache.generation:
+            _inflight[key] = (
+                cache.generation,
+                _probe_pool.submit(_first_probe, cache, url, key, cache.generation, fetch),
+            )
+        return None
+
+
+def _cached_probe(
+    cache: _ProbeCache, url: str, key: str, fetch, pending: tuple,
+    wait_s: float = _PROBE_WAIT_S,
+) -> tuple:
+    answer = _start_probe(cache, url, key, fetch)
+    if answer is not None:
+        return answer
+    with _probe_lock:
+        current = _inflight.get(key)
+        future = current[1] if current is not None and current[0] == cache.generation else None
+    if future is None:  # finished (or the cache was cleared) between the two locks
+        entry = cache.get(url)
+        return tuple(entry[1:]) if entry is not None else pending
+    try:
+        return future.result(timeout=max(0.0, wait_s))
+    except FutureTimeout:
+        return pending
+    except Exception:  # noqa: BLE001 - a probe never raises to its caller
+        return pending
+
+
+def _reachability(base_url: str, path: str) -> tuple[bool, str]:
     try:
         import httpx  # lazy: optional runtime dependency path
 
-        response = httpx.get(f"{base_url}/api/tags", timeout=1.5)
+        response = httpx.get(f"{base_url}{path}", timeout=_probe_timeout())
         response.raise_for_status()
-        ok, detail = True, f"{base_url}: reachable"
+        return True, f"{base_url}: reachable"
     except Exception as exc:
         reason = str(exc) or exc.__class__.__name__
-        ok, detail = False, f"{base_url}: not reachable ({reason})"
-    _probe_cache[base_url] = (now, ok, detail)
+        return False, f"{base_url}: not reachable ({reason})"
+
+
+def _probing(base_url: str) -> tuple[bool, str]:
+    return False, f"{base_url}: probing (no answer within {_PROBE_WAIT_S:.1f} s yet)"
+
+
+def _probe_ollama(base_url: str, wait_s: float = _PROBE_WAIT_S) -> tuple[bool, str]:
+    ok, detail = _cached_probe(
+        _probe_cache, base_url, f"ollama:{base_url}",
+        lambda: _reachability(base_url, "/api/tags"), _probing(base_url), wait_s,
+    )
     return ok, detail
 
 
-def _probe_openai(base_url: str) -> tuple[bool, str]:
+def _probe_openai(base_url: str, wait_s: float = _PROBE_WAIT_S) -> tuple[bool, str]:
     """Reachability probe for an OpenAI-compatible server (LM Studio).
 
     GET {base_url}/models with a short timeout, cached like the Ollama probe.
     The cache is shared but keyed by url, so the OpenAI base url never collides
     with the Ollama one.
     """
-    now = time.monotonic()
-    cached = _probe_cache.get(base_url)
-    if cached is not None and now - cached[0] < _PROBE_TTL_S:
-        return cached[1], cached[2]
-    try:
-        import httpx  # lazy: optional runtime dependency path
-
-        response = httpx.get(f"{base_url}/models", timeout=1.5)
-        response.raise_for_status()
-        ok, detail = True, f"{base_url}: reachable"
-    except Exception as exc:
-        reason = str(exc) or exc.__class__.__name__
-        ok, detail = False, f"{base_url}: not reachable ({reason})"
-    _probe_cache[base_url] = (now, ok, detail)
+    ok, detail = _cached_probe(
+        _probe_cache, base_url, f"openai:{base_url}",
+        lambda: _reachability(base_url, "/models"), _probing(base_url), wait_s,
+    )
     return ok, detail
 
 
-# base_url -> (monotonic timestamp, discovered model ids). Cached like the
-# probe cache and honoring the same TTL so the model picker does not hammer the
-# local server. Keyed by url so the OpenAI and Ollama lists never collide.
-_model_cache: dict[str, tuple[float, list[str]]] = {}
+def _probe_both(settings) -> tuple[tuple[bool, str], tuple[bool, str]]:
+    """(openai, ollama) reachability, both probes running concurrently under
+    one _PROBE_WAIT_S deadline."""
+    deadline = time.monotonic() + _PROBE_WAIT_S
+    _start_probe(
+        _probe_cache, settings.openai_url, f"openai:{settings.openai_url}",
+        lambda: _reachability(settings.openai_url, "/models"),
+    )
+    _start_probe(
+        _probe_cache, settings.base_url, f"ollama:{settings.base_url}",
+        lambda: _reachability(settings.base_url, "/api/tags"),
+    )
+    return (
+        _probe_openai(settings.openai_url, deadline - time.monotonic()),
+        _probe_ollama(settings.base_url, deadline - time.monotonic()),
+    )
 
 
 def invalidate_probe_caches() -> None:
     """Drop the reachability + model-discovery caches.
 
     Called after the AI settings change so the next /ai/status re-probes the
-    NEW endpoints instead of serving a <=30s stale entry keyed by the old
-    url (or a stale failure for a url the user just fixed).
+    NEW endpoints instead of serving a stale entry keyed by the old url (or a
+    stale failure for a url the user just fixed). Probes still in flight do
+    not write their answers back.
     """
-    _probe_cache.clear()
-    _model_cache.clear()
+    with _probe_lock:
+        _probe_cache.clear()
+        _model_cache.clear()
 
 
 def _model_mismatch(requested: str, served: str) -> bool:
@@ -642,22 +762,11 @@ def _model_mismatch(requested: str, served: str) -> bool:
     )
 
 
-def list_openai_models(base_url: str) -> list[str]:
-    """Model ids served by an OpenAI-compatible server (LM Studio), or [].
-
-    GET {base_url}/models and reads ``payload["data"][*]["id"]``, dropping
-    embedding models (ids containing "embed") which cannot answer chat. Short
-    timeout and TTL-cached like the reachability probes; any failure (offline,
-    bad JSON, unexpected shape) degrades to an empty list.
-    """
-    now = time.monotonic()
-    cached = _model_cache.get(base_url)
-    if cached is not None and now - cached[0] < _PROBE_TTL_S:
-        return cached[1]
+def _fetch_openai_models(base_url: str) -> tuple[list[str]]:
     try:
         import httpx  # lazy: optional runtime dependency path
 
-        response = httpx.get(f"{base_url}/models", timeout=1.5)
+        response = httpx.get(f"{base_url}/models", timeout=_probe_timeout())
         response.raise_for_status()
         payload = response.json()
         data = payload.get("data") if isinstance(payload, dict) else None
@@ -669,24 +778,14 @@ def list_openai_models(base_url: str) -> list[str]:
         ]
     except Exception:
         models = []
-    _model_cache[base_url] = (now, models)
-    return models
+    return (models,)
 
 
-def list_ollama_models(base_url: str) -> list[str]:
-    """Model names served by an Ollama server, or [].
-
-    GET {base_url}/api/tags and reads ``models[*].name``. Short timeout and
-    TTL-cached like :func:`list_openai_models`; any failure degrades to [].
-    """
-    now = time.monotonic()
-    cached = _model_cache.get(base_url)
-    if cached is not None and now - cached[0] < _PROBE_TTL_S:
-        return cached[1]
+def _fetch_ollama_models(base_url: str) -> tuple[list[str]]:
     try:
         import httpx  # lazy: optional runtime dependency path
 
-        response = httpx.get(f"{base_url}/api/tags", timeout=1.5)
+        response = httpx.get(f"{base_url}/api/tags", timeout=_probe_timeout())
         response.raise_for_status()
         payload = response.json()
         models_raw = payload.get("models") if isinstance(payload, dict) else None
@@ -697,7 +796,34 @@ def list_ollama_models(base_url: str) -> list[str]:
         ]
     except Exception:
         models = []
-    _model_cache[base_url] = (now, models)
+    return (models,)
+
+
+def list_openai_models(base_url: str) -> list[str]:
+    """Model ids served by an OpenAI-compatible server (LM Studio), or [].
+
+    GET {base_url}/models and reads ``payload["data"][*]["id"]``, dropping
+    embedding models (ids containing "embed") which cannot answer chat. Short
+    timeout and TTL-cached like the reachability probes; any failure (offline,
+    bad JSON, unexpected shape, no answer yet) degrades to an empty list.
+    """
+    (models,) = _cached_probe(
+        _model_cache, base_url, f"openai-models:{base_url}",
+        lambda: _fetch_openai_models(base_url), ([],),
+    )
+    return models
+
+
+def list_ollama_models(base_url: str) -> list[str]:
+    """Model names served by an Ollama server, or [].
+
+    GET {base_url}/api/tags and reads ``models[*].name``. Short timeout and
+    TTL-cached like :func:`list_openai_models`; any failure degrades to [].
+    """
+    (models,) = _cached_probe(
+        _model_cache, base_url, f"ollama-models:{base_url}",
+        lambda: _fetch_ollama_models(base_url), ([],),
+    )
     return models
 
 
@@ -1019,8 +1145,6 @@ class LocalOpenAIProvider(MaterialSuggestionProvider):
         num_views = len(view_images)
         crop_prim_ids = [c["prim_id"] for c in crops]
         try:
-            import httpx  # lazy: never required at import time
-
             has_image = bool(image_urls)
             try:
                 raw_text, served_model = self._call(
@@ -1408,7 +1532,7 @@ def get_provider_statuses() -> list[AIProviderStatus]:
                 )
             )
         else:
-            ok_oai, detail_oai = _probe_openai(settings.openai_url)
+            (ok_oai, detail_oai), (ok, detail) = _probe_both(settings)
             statuses.append(
                 AIProviderStatus(
                     name="local_openai",
@@ -1421,7 +1545,6 @@ def get_provider_statuses() -> list[AIProviderStatus]:
                     ),
                 )
             )
-            ok, detail = _probe_ollama(settings.base_url)
             statuses.append(
                 AIProviderStatus(
                     name="ollama_text",
@@ -1526,8 +1649,7 @@ def get_provider_models() -> AIModelsResponse:
                 ),
             ]
         )
-    ok_oai, detail_oai = _probe_openai(settings.openai_url)
-    ok_ollama, detail_ollama = _probe_ollama(settings.base_url)
+    (ok_oai, detail_oai), (ok_ollama, detail_ollama) = _probe_both(settings)
     return AIModelsResponse(
         providers=[
             _provider_models_entry(

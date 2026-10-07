@@ -559,3 +559,24 @@ def test_already_optimal_fit_not_reported_as_weakly_observable(tmp_path: Path):
     )
     assert not any("weakly observable" in w for w in report.warnings), report.warnings
     assert any("grid optimum" in w for w in report.warnings), report.warnings
+
+
+@pytest.mark.parametrize(
+    "bad_csv",
+    [
+        "x;y;z;measured_path_gain_db\n10;0;1.5;-90\n",  # ';' delimiter
+        "lat,lon,rssi\n37.5,127.0,-80\n",  # wrong headers
+        "",  # empty file
+    ],
+)
+def test_import_csv_with_no_usable_rows_keeps_the_stored_set(api_client, bad_csv):
+    # A bad pick used to overwrite the stored measurements with an empty set
+    # (200 "Imported 0 measurement(s)"); it now answers 400 and keeps them.
+    _create_cal_project(api_client, "measkeep")
+    base = "/api/projects/measkeep/calibrate/measurements"
+    good = "x,y,z,measured_path_gain_db\n10.0,0.0,1.5,-92.3\n25.0,5.0,1.5,-101.0\n"
+    assert api_client.post(f"{base}/import-csv", json={"csv_text": good}).status_code == 200
+    resp = api_client.post(f"{base}/import-csv", json={"csv_text": bad_csv})
+    assert resp.status_code == 400, resp.text
+    assert "stored measurements are unchanged" in resp.json()["detail"]
+    assert len(api_client.get(base).json()["measurements"]) == 2

@@ -18,9 +18,9 @@
 또는 **지리**(WGS84 위도/경도)일 수 있고, 점 단위로 감지되며 두 형식을 한 파일
 안에 섞어 쓸 수 있다.
 
-스키마: `backend/app/schemas/point_import.py`. 해석 로직:
-`backend/app/services/point_import.py`. 라우트:
-`backend/app/api/point_import.py`.
+스키마: `backend/seam_studio/schemas/point_import.py`. 해석 로직:
+`backend/seam_studio/services/point_import.py`. 라우트:
+`backend/seam_studio/api/point_import.py`.
 
 바로 쓸 수 있는 예제 파일(디바이스 + 궤적, 파일별 기대 결과 포함):
 [examples/point_import/](../examples/point_import/README.ko.md).
@@ -61,7 +61,7 @@
 ## AGL semantics
 
 `agl_m`은 **씬 표면 위 높이**다. 각 AGL 점은 시각 메시
-(`app.services.terrain.snap_to_terrain`)에 수직으로 레이캐스트해
+(`seam_studio.services.terrain.snap_to_terrain`)에 수직으로 레이캐스트해
 `z = surface + agl_m`로 해석한다. 덕분에 디바이스나
 웨이포인트가 경사진 지면 위에서도 일정한 안테나 높이를 유지한다.
 

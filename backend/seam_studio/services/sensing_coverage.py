@@ -5,12 +5,15 @@ and where multistatic fusion has enough distinct geometries.
 For every grid cell and every TX x sensing-RX link (monostatic and bistatic)
 the echo SNR is the bistatic radar equation
 
-    SNR = P_tx + G + G_e,tx + G_e,rx + 10log10(lambda^2 sigma / ((4 pi)^3 R_t^2 R_r^2))
+    SNR = P_tx + G + G_e,tx + G_e,rx + L_pol
+          + 10log10(lambda^2 sigma / ((4 pi)^3 R_t^2 R_r^2))
           - A(R_t + R_r) - N0 + 10log10(cpi_pulses)
 
 when both legs are line-of-sight, and no echo otherwise. G_e is each
 device's element gain toward the cell in its local frame (``element_gain_db``,
-the sionna-rt pattern closed forms; 0 dB for iso). The LOS test is the
+the sionna-rt pattern closed forms; 0 dB for iso), L_pol the per-leg
+polarization projection of the two first ports (``polarization_loss_db``;
+0 dB for co-polarized V/H devices without pitch or roll). The LOS test is the
 one backend-specific step (``RayTracingBackend.segment_los``: a Mitsuba
 shadow-ray test on sionna, none on the mock); grid, radar equation and fusion
 count are backend-neutral, so mock and sionna maps share their grid.
@@ -61,6 +64,7 @@ from seam_studio.services.simulation_backends.sionna_backend import noise_floor_
 SPEED_OF_LIGHT = 299_792_458.0
 MAX_COVERAGE_CELLS = 40_000
 OCCLUSION_LOS_MODEL = "mitsuba ray_test (static scene, actor meshes hidden)"
+POLARIZATION_MODEL = "per-leg projection (sionna world theta/phi basis, first port)"
 
 GridSpec = tuple[RadioMapGrid, list[str]]
 
@@ -180,8 +184,8 @@ def element_gain_db(device: Device, directions: np.ndarray) -> np.ndarray:
     """[n] power gain [dBi] of the device's antenna element toward the world
     directions [n, 3] (any length), in its local frame (R(orientation)^T k:
     zenith theta from local z, azimuth phi from local x). Closed forms of
-    sionna-rt's v_*_pattern; a single-port polarization only rotates the
-    field, so |C|^2 is the gain. iso and unknown names (the sionna backend's
+    sionna-rt's v_*_pattern; |C|^2 is the gain; the polarization of the two
+    legs is polarization_loss_db. iso and unknown names (the sionna backend's
     iso fallback) are 0 dB."""
     pattern = device.antenna.pattern
     n = len(directions)
@@ -208,6 +212,81 @@ def element_gain_db(device: Device, directions: np.ndarray) -> np.ndarray:
         )
         gain = 1.643 * (np.cos(math.pi / 2.0 * np.cos(theta)) * inv) ** 2
     return 10.0 * np.log10(np.maximum(gain, 1e-30))
+
+
+_SLANTS = {"V": 0.0, "H": math.pi / 2.0, "VH": 0.0, "cross": -math.pi / 4.0}
+# Below this |F| (-200 dB) the legs are cross-polarized: Sionna's echo there is
+# float32 noise ~150 dB down, i.e. no echo, exactly like a blocked leg.
+_CROSS_POL_NULL = 1e-10
+
+
+def polarization_slant(antenna) -> float:
+    """Slant angle [rad] of the FIRST polarization port (sionna-rt's
+    ``tr38901_2`` model, the PlanarArray default; paths and echo power use
+    port pair [0, 0] only): V 0, H pi/2, VH 0, cross -pi/4; anything else is
+    sionna's V fallback."""
+    return _SLANTS.get(antenna.polarization, 0.0)
+
+
+def _spherical_basis(k: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """theta-hat and phi-hat [n, 3] of unit directions ``k`` [n, 3]."""
+    theta = np.arccos(np.clip(k[:, 2], -1.0, 1.0))
+    phi = np.arctan2(k[:, 1], k[:, 0])
+    ct, st, cp, sp = np.cos(theta), np.sin(theta), np.cos(phi), np.sin(phi)
+    return (
+        np.stack([ct * cp, ct * sp, -st], axis=1),
+        np.stack([-sp, cp, np.zeros_like(sp)], axis=1),
+    )
+
+
+def _element_field(device: Device, k: np.ndarray) -> np.ndarray:
+    """World field direction [n, 3] of the device's first port toward unit
+    directions ``k``: R (cos z theta_l + sin z phi_l) at R^T k."""
+    rot = np.asarray(local_frame_matrix(device.orientation_deg))
+    theta_l, phi_l = _spherical_basis(k @ rot)
+    slant = polarization_slant(device.antenna)
+    return (math.cos(slant) * theta_l + math.sin(slant) * phi_l) @ rot.T
+
+
+def polarization_loss_db(tx: Device, rx: Device, points: np.ndarray) -> np.ndarray:
+    """[n] polarization factor 20 log10|F| [dB] (<= 0) of the echo TX -> point
+    -> RX for scattering points [n, 3].
+
+    Sionna's RCS scattering matrix is the identity in the world theta/phi bases
+    of the incident (k_i = P - TX) and the scattered (k_s = RX - P) direction,
+    so with p_t, p_r the elements' field directions toward the point
+    F = (p_t . th(k_i))(p_r . th(k_s)) + (p_t . ph(k_i))(p_r . ph(k_s)).
+    On a monostatic link ph flips sign: the echo keeps |cos 2psi| of an
+    element tilted by psi, and a cross (+-45 deg) co-located panel gets no echo.
+    A cross-polarized null (|F| < 1e-10) is -inf: no echo at that point."""
+    pts = np.asarray(points, dtype=float).reshape(-1, 3)
+    n = len(pts)
+    flat = all(
+        float(d.orientation_deg[1]) == 0.0 and float(d.orientation_deg[2]) == 0.0
+        for d in (tx, rx)
+    )
+    s_tx, s_rx = polarization_slant(tx.antenna), polarization_slant(rx.antenna)
+    if flat and s_tx == s_rx and s_tx in (0.0, math.pi / 2.0):
+        return np.zeros(n)  # F = +-1 analytically: keep the old numbers bit-exact
+    k_i = pts - np.asarray(tx.position, dtype=float)
+    k_s = np.asarray(rx.position, dtype=float) - pts
+    n_i = np.linalg.norm(k_i, axis=1)
+    n_s = np.linalg.norm(k_s, axis=1)
+    ok = (n_i > 0.0) & (n_s > 0.0)
+    k_i = np.divide(k_i, n_i[:, None], out=np.zeros_like(k_i), where=ok[:, None])
+    k_s = np.divide(k_s, n_s[:, None], out=np.zeros_like(k_s), where=ok[:, None])
+    p_t = _element_field(tx, k_i)
+    p_r = _element_field(rx, -k_s)
+    th_i, ph_i = _spherical_basis(k_i)
+    th_s, ph_s = _spherical_basis(k_s)
+    f = np.einsum("ij,ij->i", p_t, th_i) * np.einsum("ij,ij->i", p_r, th_s) + np.einsum(
+        "ij,ij->i", p_t, ph_i
+    ) * np.einsum("ij,ij->i", p_r, ph_s)
+    mag = np.abs(f)
+    with np.errstate(divide="ignore"):
+        loss = np.where(mag >= _CROSS_POL_NULL, 20.0 * np.log10(mag), -np.inf)
+    # A leg of zero length has no direction: no polarization term there.
+    return np.where(ok, loss, 0.0)
 
 
 def _rows(
@@ -309,6 +388,7 @@ def run_sensing_coverage(
     links = [(t, r) for t in txs for r in rxs]
     snr = np.full((len(links), n_cells), -np.inf)
     link_los = np.zeros((len(links), n_cells), dtype=bool)
+    any_polarization = False
     for li, (t, r) in enumerate(links):
         both = los_mask[dev_index[t.id]] & los_mask[dev_index[r.id]]
         link_los[li] = both
@@ -317,11 +397,14 @@ def run_sensing_coverage(
         # atmosphere.path_attenuation_db over the echo's delay, vectorized.
         delay_s = (r_t + r_r) / SPEED_OF_LIGHT
         gas_db = alpha * (delay_s * atmosphere.SPEED_OF_LIGHT / 1000.0) if alpha > 0.0 else 0.0
+        pol_db = polarization_loss_db(t, r, points)
+        any_polarization = any_polarization or bool(np.any(pol_db != 0.0))
         value = (
             float(t.power_dbm)
             + array_gain_db
             + element_db[dev_index[t.id]]
             + element_db[dev_index[r.id]]
+            + pol_db
             + bistatic_radar_gain_db(wavelength, rcs_dbsm, r_t, r_r)
             - gas_db
             - noise_dbm
@@ -393,6 +476,11 @@ def run_sensing_coverage(
         "rcs_m2": dbsm_to_m2(rcs_dbsm),
         "array_gain_db": array_gain_db,
         "element_patterns": {d.id: d.antenna.pattern for d in devices},
+        **(
+            {"polarization_model": POLARIZATION_MODEL}
+            if any_polarization
+            else {}
+        ),
         "num_rays": n_cells * len(devices),
         "los_model": los_model,
         "elapsed_s": time.perf_counter() - t_start,

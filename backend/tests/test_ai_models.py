@@ -16,7 +16,6 @@ from fastapi.testclient import TestClient
 from seam_studio.api import ai as ai_api
 from seam_studio.api import deps
 from seam_studio.core.config import get_settings
-from seam_studio.schemas.ai import SuggestMaterialsRequest
 from seam_studio.schemas.scene import MeshRef, Prim, Scene, VisualBinding
 from seam_studio.services import ai_provider
 from seam_studio.services.ai_provider import (
@@ -25,7 +24,6 @@ from seam_studio.services.ai_provider import (
     get_provider_models,
     list_ollama_models,
     list_openai_models,
-    suggest_materials,
 )
 from seam_studio.services.project_store import load_default_library
 

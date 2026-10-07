@@ -124,6 +124,8 @@ footer{border-top:1px solid var(--line)}
     <a href="simulation.html">시뮬레이션</a>
     <a href="trajectory_uav.html">궤적 &amp; UAV</a>
     <a class="active" href="datasets_export.html">ML 데이터셋 &amp; 내보내기</a>
+    <a href="sensing.html">레이더 센싱 &amp; ISAC</a>
+    <a href="playback_dashboard.html">멀티모달 재생</a>
     <a class="all" href="./">← 전체 가이드</a>
   </aside>
 
@@ -131,20 +133,29 @@ footer{border-top:1px solid var(--line)}
     <div class="eyebrow">Guide 06 · SEAM Studio docs</div>
     <h1>ML 데이터셋과 내보내기</h1>
     <p class="lead">SEAM Studio는 뷰어로 끝나지 않습니다 — 시뮬레이션한 모든 것을 파일로 꺼낼 수 있습니다: ML 모델 학습용 NumPy <code>.npz</code> 그라운드트루스 데이터셋, AODT 뷰어 호환 RFData 번들, 보이는 그대로(WYSIWYG)의 뷰포트 캡처, 차트별 CSV/PNG/SVG 내보내기까지. 이 가이드에서 각 내보내기 경로를 하나씩 살펴봅니다.</p>
+
     <div class="spectrum"></div>
 
-    <p>여기 나오는 모든 기능은 <b>Mock 백엔드</b>만으로도 동작합니다 — Sionna RT가 설치되어 있지 않아도 데이터셋 생성과 모든 내보내기가 끝까지 실행됩니다(값은 mock 솔버가 만들지만, 파이프라인 테스트에는 충분합니다).</p>
+    <p>여기 나오는 모든 기능은 <b>Mock 백엔드</b>만으로도 동작합니다 — Sionna RT가
+    설치되어 있지 않아도 데이터셋 생성과 모든 내보내기가 끝까지 실행됩니다(값은
+    mock 솔버가 만들지만, 파이프라인 테스트에는 충분합니다).</p>
 
-    <h2>1. ML dataset 패널</h2>
-    <p>데이터셋 생성기는 <b>ML dataset</b> 패널에 있습니다(헤더에는 <code>ML DATASET</code>으로 표시됩니다). 두 가지 방법으로 열 수 있습니다:</p>
+    <h2 id="1-ml-dataset-패널">1. ML dataset 패널</h2>
+
+    <p>데이터셋 생성기는 <b>ML dataset</b> 패널에 있습니다(헤더에는 <code>ML DATASET</code>으로
+    표시됩니다). 두 가지 방법으로 열 수 있습니다:</p>
+
     <ul>
       <li><b>Results</b> 모드 — 오른쪽의 도킹 가능한 카드 중 하나입니다.</li>
-      <li>어느 모드에서든 툴바의 <b>Panels ▾</b> 메뉴 — <b>ML dataset</b> 행을 클릭하면 뷰포트 위에 플로팅되고, <b>◧ / ◨</b> 버튼으로 좌/우 사이드바에 도킹할 수도 있습니다. 플로팅한 패널은 모드를 바꿔도 그대로 유지됩니다.</li>
+      <li>어느 모드에서든 툴바의 <b>Panels ▾</b> 메뉴 — <b>ML dataset</b> 행을 클릭하면
+        뷰포트 위에 플로팅되고, <b>◧ / ◨</b> 버튼으로 좌/우 사이드바에 도킹할 수도
+        있습니다. 플로팅한 패널은 모드를 바꿔도 그대로 유지됩니다.</li>
     </ul>
 
     <figure class="doc-shot"><img loading="lazy" decoding="async" src="../../assets/guides/10_dataset.png" alt="라디오맵 히트맵 위에 플로팅된 ML DATASET 패널 — 샘플링 컨트롤, 영역 필드, Generate dataset 버튼, npz/json 링크가 있는 기존 데이터셋 행이 보입니다"><figcaption>계산된 라디오맵 위에 띄운 ML DATASET 패널 — 위쪽에 샘플링 컨트롤, 가운데에 영역 픽커, 아래에 <code>npz</code> / <code>json</code> 다운로드가 있는 데이터셋 목록이 있습니다.</figcaption></figure>
 
-    <h3>데이터셋 생성 단계별 안내</h3>
+    <h3 id="데이터셋-생성-단계별-안내">데이터셋 생성 단계별 안내</h3>
+
     <ol>
       <li><b>Name</b> — 데이터셋 표시 이름입니다(아래 목록에도 나타납니다).</li>
       <li><b>Sampling mode</b> — UE 위치를 고르는 방식:
@@ -154,39 +165,72 @@ footer{border-top:1px solid var(--line)}
           <li><code>trajectory</code> — 직선 start→end 구간 위의 점들.</li>
         </ul>
       </li>
-      <li><b>Actor flight path</b> — 씬 액터(웨이포인트를 가진 차량·보행자·UAV)의 저작된 궤적을 따라 샘플링하는 옵션입니다. 여기서 액터를 고르면 아래의 영역 / start-end 를 <b>덮어씁니다</b>; <code>— none —</code> 으로 두면 샘플링 모드 자체의 기하를 사용합니다. 궤적이 있는 액터가 없으면 패널이 알려 주니 먼저 Visual 모드에서 지정하세요. 필드 아래 힌트에 우선순위가 그대로 나옵니다: <em>waypoints &gt; actor flight path &gt; start/end (or region)</em>.</li>
-      <li><b>dt</b> (s) — 백엔드가 이동 샘플에 붙이는 속도/도플러 라벨의 유한차분(finite-difference) 시간 간격입니다.</li>
-      <li><b>Num samples</b> — 풀 UE 위치 수(1–20000). <b>CFR points</b> — 위치당 주파수 응답 표본 수(2–4096). <b>Height</b> (m) — UE 샘플링 높이.</li>
+      <li><b>Actor flight path</b> — 씬 액터(웨이포인트를 가진 차량·보행자·UAV)의
+        저작된 궤적을 따라 샘플링하는 옵션입니다. 여기서 액터를 고르면 아래의
+        영역 / start-end 를 <b>덮어씁니다</b>; <code>— none —</code> 으로 두면 샘플링 모드
+        자체의 기하를 사용합니다. 궤적이 있는 액터가 없으면 패널이 알려 주니
+        먼저 Visual 모드에서 지정하세요. 필드 아래 힌트에 우선순위가 그대로
+        나옵니다: <em>waypoints &gt; actor flight path &gt; start/end (or region)</em>.</li>
+      <li><b>dt</b> (s) — 백엔드가 이동 샘플에 붙이는 속도/도플러 라벨의
+        유한차분(finite-difference) 시간 간격입니다.</li>
+      <li><b>Num samples</b> — 풀 UE 위치 수(1–20000).
+        <b>CFR points</b> — 위치당 주파수 응답 표본 수(2–4096).
+        <b>Height</b> (m) — UE 샘플링 높이.</li>
       <li>영역을 설정합니다(<code>random</code> / <code>grid</code> 모드):
         <ul>
-          <li><b>⌖ Pick region in viewport</b> — 버튼이 <code>Click 2 corners… (Esc)</code> 로 바뀌면, 씬 표면에서 영역의 마주 보는 두 모서리를 클릭하세요. XY 필드가 채워집니다(Esc 취소).</li>
-          <li><b>Fit to scene</b> — 영역과 높이를 씬 전체를 덮도록 설정합니다(프로젝트를 열 때 패널이 실제 씬 경계로 자동 시드되므로, 엉뚱한 값에서 시작하는 일은 드뭅니다).</li>
+          <li><b>⌖ Pick region in viewport</b> — 버튼이 <code>Click 2 corners… (Esc)</code> 로
+            바뀌면, 씬 표면에서 영역의 마주 보는 두 모서리를 클릭하세요. XY 필드가
+            채워집니다(Esc 취소).</li>
+          <li><b>Fit to scene</b> — 영역과 높이를 씬 전체를 덮도록 설정합니다(프로젝트를
+            열 때 패널이 실제 씬 경계로 자동 시드되므로, 엉뚱한 값에서 시작하는
+            일은 드뭅니다).</li>
           <li><b>Region min</b> / <b>Region max</b> — XY 모서리를 숫자로 직접 입력.</li>
-          <li>힌트 줄을 눈여겨보세요. 예: <em>"Scene spans [-40.0, -40.0]…[40.0, 40.0] m — samples outside it get zero paths."</em> 기하 밖을 샘플링하는 것이 쓸모없는 데이터셋이 나오는 1순위 원인입니다.</li>
+          <li>힌트 줄을 눈여겨보세요. 예: <em>"Scene spans [-40.0, -40.0]…[40.0, 40.0] m
+            — samples outside it get zero paths."</em> 기하 밖을 샘플링하는 것이 쓸모없는
+            데이터셋이 나오는 1순위 원인입니다.</li>
         </ul>
-        <p><code>trajectory</code> 모드에서는 대신 <b>⌖ Pick path in viewport</b> 버튼과 <b>Start</b> / <b>End</b> XYZ 필드가 나타납니다.</p>
+        <p><code>trajectory</code> 모드에서는 대신 <b>⌖ Pick path in viewport</b> 버튼과
+        <b>Start</b> / <b>End</b> XYZ 필드가 나타납니다.</p>
       </li>
       <li><b>Seed</b> — 랜덤 샘플링을 재현 가능하게 만듭니다. 논문에는 함께 기록하세요.</li>
-      <li><b>Include paths</b> — 각 샘플의 전체 레이 경로(정점 + 상호작용)를 <code>paths.jsonl</code> 로 추가 덤프합니다. 용량이 크므로 기본은 꺼져 있습니다.</li>
-      <li><b>Follow terrain</b> — 각 샘플의 높이를 그 아래 표면에 스냅한 뒤 높이 오프셋을 더합니다. 경사 실외 씬에서 쓰고, 실내에서는 끄세요(지붕에 스냅됩니다).</li>
-      <li><b>Generate dataset</b> 을 누릅니다. 솔버가 위치들을 도는 동안 버튼에 <code>Generating…</code> 이 표시됩니다.</li>
+      <li><b>Include paths</b> — 각 샘플의 전체 레이 경로(정점 + 상호작용)를
+        <code>paths.jsonl</code> 로 추가 덤프합니다. 용량이 크므로 기본은 꺼져 있습니다.</li>
+      <li><b>Follow terrain</b> — 각 샘플의 높이를 그 아래 표면에 스냅한 뒤 높이
+        오프셋을 더합니다. 경사 실외 씬에서 쓰고, 실내에서는 끄세요(지붕에
+        스냅됩니다).</li>
+      <li><b>Generate dataset</b> 을 누릅니다. 솔버가 위치들을 도는 동안 버튼에
+        <code>Generating…</code> 이 표시됩니다.</li>
     </ol>
 
-    <h3>데이터셋 목록</h3>
+    <h3 id="데이터셋-목록">데이터셋 목록</h3>
+
     <p>생성이 끝난 데이터셋은 버튼 아래 표에 한 행씩 나타납니다:</p>
+
     <ul>
       <li><b>name / # / created / size</b> — 이름, 샘플 수, 생성 시각, 파일 크기.</li>
-      <li><b>files</b> — <b>npz</b>(<code>dataset.npz</code>, 배열 본체)와 <b>json</b>(<code>metadata.json</code>, 설정 에코 + 좌표/단위 규약) 다운로드 링크.</li>
-      <li>이름 옆의 <b>⚠ N zero-path</b> 플래그는 N개 샘플에서 경로가 하나도 안 나왔다는 뜻입니다(UE가 씬 밖이거나 완전히 가려짐) — 영역을 다시 확인하세요.</li>
-      <li><b>×</b> 버튼으로 데이터셋을 삭제합니다. 한 번 누르면 <b>✓?</b> 로 바뀌고, 다시 눌러야 확정됩니다(몇 초 뒤 자동 해제).</li>
+      <li><b>files</b> — <b>npz</b>(<code>dataset.npz</code>, 배열 본체)와 <b>json</b>(<code>metadata.json</code>,
+        설정 에코 + 좌표/단위 규약) 다운로드 링크.</li>
+      <li>이름 옆의 <b>⚠ N zero-path</b> 플래그는 N개 샘플에서 경로가 하나도 안 나왔다는
+        뜻입니다(UE가 씬 밖이거나 완전히 가려짐) — 영역을 다시 확인하세요.</li>
+      <li><b>×</b> 버튼으로 데이터셋을 삭제합니다. 한 번 누르면 <b>✓?</b> 로 바뀌고, 다시
+        눌러야 확정됩니다(몇 초 뒤 자동 해제).</li>
     </ul>
+
     <p>디스크에서는 프로젝트 폴더의 <code>export/datasets/&lt;dataset_id&gt;/</code> 아래에 쌓입니다.</p>
 
-    <h3>라벨에는 무엇이 들어 있나</h3>
-    <p><code>.npz</code> 에는 샘플별 위치, 복소 CFR, 경로별 CIR 이득·지연, LOS 플래그, RSS, 분산 지표가 들어 있습니다 — 정확한 배열 스키마, AODT 필드 매핑, 바로 실행할 수 있는 학습 예제(<code>examples/ml/train_channel_estimator.py</code>)는 <a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/ml_datasets.ko.md">ML 그라운드트루스 데이터셋</a> 문서에 정리되어 있습니다.</p>
+    <h3 id="라벨에는-무엇이-들어-있나">라벨에는 무엇이 들어 있나</h3>
 
-    <h2>2. RFData 내보내기 (AODT 뷰어 번들)</h2>
-    <p>결과를 외부 AODT 스타일 뷰어나 자체 파이프라인에 넘기려면 툴바의 <b>Actions ▾ → Export RFData</b> 를 사용하세요. 프로젝트 폴더 안 <code>export/rfdata/</code> 에 번들이 기록됩니다:</p>
+    <p><code>.npz</code> 에는 샘플별 위치, 복소 CFR, 경로별 CIR 이득·지연, LOS 플래그, RSS,
+    분산 지표가 들어 있습니다 — 정확한 배열 스키마, AODT 필드 매핑, 바로 실행할
+    수 있는 학습 예제(<code>examples/ml/train_channel_estimator.py</code>)는
+    <a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/ml_datasets.ko.md">ML 그라운드트루스 데이터셋</a> 문서에 정리되어 있습니다.</p>
+
+    <h2 id="2-rfdata-내보내기-aodt-뷰어-번들">2. RFData 내보내기 (AODT 뷰어 번들)</h2>
+
+    <p>결과를 외부 AODT 스타일 뷰어나 자체 파이프라인에 넘기려면 툴바의
+    <b>Actions ▾ → Export RFData</b> 를 사용하세요. 프로젝트 폴더 안
+    <code>export/rfdata/</code> 에 번들이 기록됩니다:</p>
+
     <table>
       <thead>
         <tr><th>파일</th><th>내용</th></tr>
@@ -200,43 +244,220 @@ footer{border-top:1px solid var(--line)}
         <tr><td><code>calibration_points.json</code></td><td>좌표 검증용 기준점 3개</td></tr>
       </tbody>
     </table>
-    <p>내보내기가 끝나면 <b>Results</b> 에 닫을 수 있는 행이 나타납니다 — <em>"Exported RFData to <code>export/rfdata</code>"</em> — 파일별 다운로드 링크가 붙어 있어 프로젝트 폴더를 뒤질 필요가 없습니다.</p>
 
-    <h2>3. 뷰포트 캡처 — Snapshot 과 Render</h2>
+    <p>내보내기가 끝나면 <b>Results</b> 에 닫을 수 있는 행이 나타납니다 — <em>"Exported
+    RFData to <code>export/rfdata</code>"</em> — 파일별 다운로드 링크가 붙어 있어 프로젝트
+    폴더를 뒤질 필요가 없습니다.</p>
+
+    <h3 id="aodt-결과-스키마-내보내기">AODT 결과 스키마 내보내기</h3>
+
+    <p>위 번들은 <em>뷰어</em> 계약입니다. NVIDIA AODT 자체
+    <a href="https://docs.nvidia.com/aerial/aodt/">결과 스키마</a>에 맞춰 만들어진 도구에
+    넘기려면, 해당 테이블들을 Parquet 으로 쓰는 두 번째 내보내기를 사용하세요.
+    UI 에서는 <b>Actions ▾ → AODT export (parquet)</b> 입니다(소스와, 필요하면 결과 id 를
+    고릅니다. 비우면 가장 최근 결과). API 로는 다음과 같습니다:</p>
+
+    <pre><code>POST /api/projects/{project_id}/export/aodt
+     {"source": "paths", "result_id": null, "fft_size": 64,
+      "subcarrier_spacing_hz": 30000}</code></pre>
+
+    <p><code>export/aodt/</code> 안에 AODT 테이블별로 <code>&lt;table&gt;.parquet</code> 하나씩 기록됩니다:
+    <code>ues</code>, <code>scatterers</code>, <code>rus</code>, <code>dus</code>, <code>panels</code>, <code>patterns</code>, <code>time_info</code>, <code>cfrs</code>,
+    <code>cirs</code>, <code>raypaths</code> — 컬럼 이름과 타입은 AODT 문서 그대로입니다.
+    <code>source: "paths"</code> 는 저장된 paths 결과에서 스냅숏 하나(<code>time_idx</code> 0)를 쓰고,
+    <code>source: "playback"</code> 은 저장된 playback 팩의 프레임마다 <code>time_idx</code> 를 하나씩
+    써서 <code>time_info</code>·<code>raypaths</code>·<code>cirs</code>·<code>cfrs</code> 가 주행 구간 전체를 덮고 UE 의
+    <code>route_*</code> 컬럼에 프레임 위치가 담깁니다. <code>source: "sensing"</code> 은 저장된 센싱
+    결과를 스냅숏 하나로 씁니다(<a href="sensing.html">sensing.ko.md</a>).</p>
+
+    <p>AODT 테이블 중 <code>telemetry</code> 와 <code>ran_config</code> 는 <b>쓰지 않습니다</b>. 둘 다
+    RAN 시뮬레이션 산출물(스케줄러/PHY KPI, gNB 설정)이라 레이 트레이싱
+    파이프라인이 만들어내지 않으며, 빈 파일을 쓰면 SEAM 이 제공하지 않는 범위를
+    제공하는 것처럼 보이게 됩니다.</p>
+
+    <p>테이블과 함께 <code>id_map.json</code> 이 기록됩니다 — Parquet 행이 담을 수 없는 문자열
+    ↔ 정수 id 매핑입니다: 디바이스 id → <code>ru_id</code>/<code>ue_id</code>, prim id → <code>prim_ids</code>
+    인덱스, 액터 id → scatterer <code>ID</code>, 디바이스 → panel 인덱스.</p>
+
+    <p>테이블을 쓰기 전에 알아둘 제약:</p>
+
+    <ul>
+      <li><code>normals</code> 는 전부 0 입니다 — SEAM 은 상호작용 지점과 그 prim 만 기록하고
+        표면 법선은 기록하지 않습니다. <code>object_ids</code> 는 <code>prim_ids</code> 와 같습니다(별도
+        USD object 테이블이 없습니다). 예외는 센싱 타깃 꼭짓점으로, object id 가
+        1 000 000 + 액터 id 정렬 순서에서의 위치입니다(<code>id_map.json</code> 의
+        <code>sensing_targets</code>).</li>
+      <li><code>ru_ant_el</code>/<code>ue_ant_el</code> 는 <code>(0, 0[, 0])</code> 이고 <code>ampl_*</code> 리스트는 항목이
+        하나입니다: 경로 솔버는 링크 단위 계수를 풀지, 소자 단위 계수를 풀지
+        않습니다.</li>
+      <li><code>patterns</code> 는 등방성 자리표시자 한 행입니다.</li>
+      <li>진폭(그리고 <code>cirs</code>/<code>cfrs</code>)은 수신 전력이 아니라 채널 계수입니다 —
+        |a| = 10^(path_gain_dB/20), 위상은 경로의 반송파 위상. <code>cir_delay</code> 는 AODT
+        스키마대로 <b>초(second)</b> 단위입니다.</li>
+      <li><code>raypaths</code> 의 <code>points</code> 는 폴리라인 전체(TX, 모든 상호작용, RX)이고,
+        <code>interaction_types</code>/<code>normals</code>/<code>prim_ids</code>/<code>object_ids</code>/<code>vegetation_depths</code>
+        도 점마다 한 항목씩 같은 길이입니다. <code>interaction_types</code> 는 <code>"emission"</code>,
+        상호작용마다 토큰 하나, <code>"reception"</code> 순서이며 AODT 문서에 있는 토큰
+        (<code>reflection</code>, <code>diffraction</code>, <code>diffuse</code>, <code>transmission</code>)만 씁니다. SEAM 의
+        <code>scattering</code> 과 센싱 에코는 <code>diffuse</code> 로 기록됩니다. 양 끝점의 prim/object
+        id 는 −1 입니다.</li>
+      <li>상호작용 지점을 전부 타입으로 표시할 수 없는 경로(상호작용 기록이 없고
+        경로 타입이 <code>mixed</code> 처럼 단일 메커니즘이 아닌 경우)는 경고와 함께
+        <code>raypaths</code> 에서 빠집니다. 그 탭은
+        <code>cirs</code>/<code>cfrs</code> 에는 그대로 들어갑니다.</li>
+    </ul>
+
+    <p>이 내보내기는 <code>pyarrow</code> 가 필요합니다(<code>pip install "seam-studio[parquet]"</code>, 즉
+    <code>parquet</code> extra. <code>backend[dev,parquet]</code> 로 설치한 소스 체크아웃에는 들어 있습니다).
+    없으면 엔드포인트가 그 명령을 담아 <b>409</b> 를, 요청한 source 종류의 결과가
+    프로젝트에 없으면 <b>404</b> 를 돌려줍니다. 기록된 <code>raypaths.parquet</code> 는 SEAM 자체
+    AODT 임포터(<code>POST /results/import-aodt</code>, 또는 SEAM 이 돌아가는 기기의 폴더 경로를
+    주는 <b>Actions ▾ → AODT import (parquet)</b>)로 다시 읽어들일 수 있고, 임포터는 내부
+    지점마다 상호작용을 하나씩 되살립니다(<code>diffuse</code> 는 <code>scattering</code> 으로).</p>
+
+    <h2 id="3-채널-데이터셋npz--aodthyray-링크별-레이아웃">3. 채널 데이터셋(<code>.npz</code>) — AODT/HYRAY 링크별 레이아웃</h2>
+
+    <p>1절의 ML 데이터셋은 <em>위치별</em> 데이터셋(CFR, 집계 KPI)입니다. NVIDIA AODT /
+    HYRAY 참조 파일이 쓰는 레이아웃 그대로, 즉 <b>링크별 다중경로</b>를 UE 한 행 ×
+    TRP 한 열 × 경로 한 항목으로 받고 싶다면 툴바에서 <b>Actions ▾ → Channel
+    dataset (.npz)</b> 를 쓰세요. <code>export/channel_npz/channel_dataset.npz</code> 와
+    <code>metadata.json</code> 사이드카를 씁니다.</p>
+
+    <p>UE 격자는 자동으로 정해집니다. 프로젝트에 저장된 <b>trajectory 결과</b>가 있으면
+    그중 최신 것(UE 행이 많음), 없으면 씬의 <b>수신기 디바이스</b> — 즉 <code>POST /import/devices</code> 로 임포트한 UE 목록이 들어가는 바로 그 자리입니다. 어느 격자를
+    썼는지와 링크 수는 알림과 <b>Results</b> 의 닫을 수 있는 행에 모두 표시됩니다. UE
+    하나당 paths 솔브 한 번을 돌리므로 진행률 카드에 진행 상황이 뜨고, 취소도
+    됩니다.</p>
+
+    <p>npz 에는 13개 정규 키만 들어갑니다.</p>
+
+    <table>
+      <thead>
+        <tr><th>키</th><th>shape</th><th>dtype</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>num_TRP</code>, <code>num_trajectory</code>, <code>batch</code></td><td>스칼라</td><td><code>int64</code></td></tr>
+        <tr><td><code>dataset_TRP_pos</code></td><td>(T, 3)</td><td><code>float32</code></td></tr>
+        <tr><td><code>dataset_TRP_ori_angle</code></td><td>(T, 2)</td><td><code>float32</code></td></tr>
+        <tr><td><code>dataset_UE_pos</code></td><td>(U, 3)</td><td><code>float32</code></td></tr>
+        <tr><td><code>sorted_dataset_ampl</code></td><td>(U, T, P)</td><td><code>complex128</code></td></tr>
+        <tr><td><code>sorted_dataset_azimuth</code> / <code>_elevation</code></td><td>(U, T, P)</td><td><code>float32</code></td></tr>
+        <tr><td><code>sorted_dataset_toa</code></td><td>(U, T, P)</td><td><code>float32</code></td></tr>
+        <tr><td><code>is_nlos</code></td><td>(U, T)</td><td><code>bool</code></td></tr>
+        <tr><td><code>ue_id</code>, <code>time_idx</code></td><td>(U,)</td><td><code>int32</code></td></tr>
+      </tbody>
+    </table>
+
+    <p>T 는 송신기 수, U 는 UE 위치 수, P 는 <code>max_paths</code>(기본 500)입니다. 링크마다
+    경로 축은 |진폭| 기준 <b>강한 순</b>으로 정렬해 P 까지 0으로 패딩합니다. 솔버가
+    경로를 하나도 못 찾은 링크는 전부 0인 채로 <code>is_nlos = True</code> 가 됩니다.</p>
+
+    <p>배열을 쓰기 전에 알아야 할 규약:</p>
+
+    <ul>
+      <li><code>sorted_dataset_ampl</code> 은 선형 복소 채널 진폭
+        <code>10^((path_gain_db + normalization_db)/20) · e^{j·phase_rad}</code> 이며 수신
+        <b>전력이 아닙니다</b>. <code>normalization_db</code> 기본값은 <code>0.0</code>(SEAM 자체 물리 이득)
+        이고, 연구실의 AODT 파일은 고정 <b>−5.06 dB</b> 오프셋을 함께 담고 있으므로
+        수치까지 맞추려면 <code>normalization_db: -5.06</code> 을 넘기세요.</li>
+      <li><code>sorted_dataset_azimuth</code> / <code>_elevation</code> 은 송신 TX 의 <b>로컬 어레이 좌표계</b>
+        에서 본 <b>출발(departure)</b> 각이며 단위는 <b>라디안</b>입니다. 방위각은
+        <code>atan2(y_local, x_local)</code> 로 (−π, π], 앙각은 <b>천정각</b> <code>arccos(z_local)</code> 로
+        [0, π] 범위입니다. 로컬 좌표계는 해당 TX 디바이스 자신의
+        <code>orientation_deg</code>([yaw, pitch, roll] 도)에서 <code>R = Rz(yaw)·Ry(pitch)·Rx(roll)</code>
+        로 만듭니다 — SEAM 이 Sionna <code>Transmitter</code> 에 넘기는 orientation 으로
+        sionna-rt 가 세우는 바로 그 행렬이라, 데이터셋의 각도와 솔버의 어레이 조향이
+        같은 좌표계를 씁니다.</li>
+      <li><code>sorted_dataset_toa</code> 는 절대 전파 지연이며 단위는 <b>초</b>입니다.</li>
+      <li><code>dataset_TRP_ori_angle</code> 은 TX 별 <code>[yaw_deg, pitch_deg]</code> 이며 단위는 <b>도</b>
+        입니다(참조 파일과 동일 — 방향 쌍만 도 단위이고 경로별 각도 배열은 라디안).</li>
+    </ul>
+
+    <p>스크립트로 돌릴 수 있게 HTTP 로도 전부 열려 있습니다.</p>
+
+    <pre><code>POST /api/projects/{project_id}/export/channel-npz
+     {"ue_source": "explicit",
+      "ue_positions": [[25, 5, 1.5], [40, -12, 1.5]],
+      "tx_ids": null,          // null = 씬 순서대로 모든 tx 디바이스
+      "max_paths": 500,
+      "normalization_db": 0.0,
+      "ue_ids": null, "time_idx": null, "batch": 0}</code></pre>
+
+    <p><code>ue_source</code> 는 <code>"explicit"</code>(<code>ue_positions</code> 목록), <code>"devices"</code>(모든 <code>rx</code>
+    디바이스, id 순), <code>"trajectory"</code>(저장된 trajectory 결과의 샘플별 위치 —
+    <code>ue_result_id</code> 로 지정하거나 <code>null</code> 이면 최신) 중 하나입니다. <code>ue_ids</code> /
+    <code>time_idx</code> 는 선택적 패스스루 열이고(기본값 <code>arange(U)</code>, <code>zeros(U)</code>), 주는
+    경우 길이가 정확히 U 여야 합니다. 한 번의 내보내기는 UE 5000개로 제한됩니다.</p>
+
+    <p>이 내보내기는 <b>씬을 건드리지 않습니다</b>. UE 마다 메모리 상 사본에서 임시 프로브
+    수신기 하나만 두고 풀며, 결과 세트도 저장하지 않습니다 — <code>export/channel_npz/</code>
+    와 <code>export_channel_npz</code> 프로버넌스 이벤트 한 건만 남습니다.</p>
+
+    <blockquote>
+      <p>솔버 자체도 내보내기가 유지하는 경로 수에서 멈추게 하려면 Paths 솔버 패널의
+      <b>Max paths / TX</b> 필드(<code>max_num_paths_per_src</code>)와 함께 쓰세요.</p>
+    </blockquote>
+
+    <h2 id="4-뷰포트-캡처--snapshot-과-render">4. 뷰포트 캡처 — Snapshot 과 Render</h2>
+
     <p>뷰포트 우측 하단 버튼 묶음의 아이콘 버튼 두 개가 씬 이미지를 저장합니다:</p>
-    <ul>
-      <li><b>Snapshot</b>(카메라 아이콘) — 보이는 <em>그대로</em>(WYSIWYG) 저장합니다: 현재 카메라 포즈, 레이, 마커, 라디오맵 오버레이를 캔버스 전체 해상도의 PNG로 내보냅니다. 툴팁은 <em>"Save this exact view as a PNG (what you see, full resolution — paper-ready)"</em> 입니다. 논문·슬라이드 그림에는 이 버튼을 쓰세요.</li>
-      <li><b>Render</b>(필름 아이콘) — Mitsuba 를 통한 오프라인 물리 기반 경로추적 렌더입니다. 더 느리고, 의도적으로 화면 뷰와 <em>다릅니다</em> — 레이나 오버레이 없이 셰이딩된 씬만 렌더합니다.</li>
-    </ul>
-    <p>디바이스/액터 시점의 실시간 1인칭 뷰인 <b>POV 인셋</b>에도 자체 카메라 버튼이 있어, POV 프레임을 전체 해상도 PNG로 저장할 수 있습니다.</p>
 
-    <h2>4. 대시보드의 CSV·그림 내보내기</h2>
     <ul>
-      <li><b>Metrics dashboard</b> 패널의 모든 차트(그리고 다른 논문 스타일 차트들)는 헤더에 <b>PNG / SVG / CSV</b> 버튼이 있는 프레임 안에 있습니다 — 3× 비트맵, 벡터, 또는 원 데이터 CSV. 그림은 보이는 그대로(흰 배경, Times New Roman) 내보내집니다.</li>
-      <li>대시보드 헤더의 <b>Export all (CSV)</b> 버튼은 KPI 표 전체를 <code>metric,value,unit</code> 행으로 다운로드합니다.</li>
-      <li><b>Results</b> 의 경로 테이블에는 <b>Export filtered CSV (N)</b> 이 있습니다 — 현재 필터된 경로 집합을 그대로, 경로당 한 행(type, power, delay, 상호작용 재질 포함)으로 내보냅니다.</li>
+      <li><b>Snapshot</b>(카메라 아이콘) — 보이는 <em>그대로</em>(WYSIWYG) 저장합니다: 현재
+        카메라 포즈, 레이, 마커, 라디오맵 오버레이를 캔버스 전체 해상도의 PNG로
+        내보냅니다. 툴팁은 <em>"Save this exact view as a PNG (what you see, full
+        resolution — paper-ready)"</em> 입니다. 논문·슬라이드 그림에는 이 버튼을 쓰세요.</li>
+      <li><b>Render</b>(필름 아이콘) — Mitsuba 를 통한 오프라인 물리 기반 경로추적
+        렌더입니다. 더 느리고, 의도적으로 화면 뷰와 <em>다릅니다</em> — 레이나 오버레이
+        없이 셰이딩된 씬만 렌더합니다.</li>
     </ul>
 
-    <h2>관련 문서</h2>
+    <p>디바이스/액터 시점의 실시간 1인칭 뷰인 <b>POV 인셋</b>에도 자체 카메라 버튼이
+    있어, POV 프레임을 전체 해상도 PNG로 저장할 수 있습니다.</p>
+
+    <h2 id="5-대시보드의-csv그림-내보내기">5. 대시보드의 CSV·그림 내보내기</h2>
+
     <ul>
-      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/ml_datasets.ko.md">ML 그라운드트루스 데이터셋</a> — <code>.npz</code> 스키마, zero-path 경고, AODT 필드 매핑, 학습 예제 스크립트.</li>
+      <li><b>Metrics dashboard</b> 패널의 모든 차트(그리고 다른 논문 스타일 차트들)는
+        헤더에 <b>PNG / SVG / CSV</b> 버튼이 있는 프레임 안에 있습니다 — 3× 비트맵,
+        벡터, 또는 원 데이터 CSV. 그림은 보이는 그대로(흰 배경, Times New Roman)
+        내보내집니다.</li>
+      <li>대시보드 헤더의 <b>Export all (CSV)</b> 버튼은 KPI 표 전체를
+        <code>metric,value,unit</code> 행으로 다운로드합니다.</li>
+      <li><b>Results</b> 의 경로 테이블에는 <b>Export filtered CSV (N)</b> 이 있습니다 —
+        현재 필터된 경로 집합을 그대로, 경로당 한 행(type, power, delay, 상호작용
+        재질 포함)으로 내보냅니다.</li>
+    </ul>
+
+    <h2 id="관련-문서">관련 문서</h2>
+
+    <ul>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/ml_datasets.ko.md">ML 그라운드트루스 데이터셋</a> — <code>.npz</code> 스키마,
+        zero-path 경고, AODT 필드 매핑, 학습 예제 스크립트.</li>
       <li><a href="getting_started.html">시작하기</a> — 설치, 첫 프로젝트, 모드 탭.</li>
-      <li><a href="simulation.html">시뮬레이션 가이드</a> — 경로, 라디오맵, 그리고 데이터셋이 물려받는 솔버 설정.</li>
+      <li><a href="simulation.html">시뮬레이션 가이드</a> — 경로, 라디오맵, 그리고 데이터셋이
+        물려받는 솔버 설정.</li>
       <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/scene_format.ko.md">씬·프로젝트 포맷</a> — 프로젝트 폴더 안 파일들의 위치.</li>
-      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/sionna_versions.ko.md">Sionna 버전</a> — 재현성을 위해 <code>metadata.json</code> 에 기록되는 <code>engine</code>.</li>
-      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/TUTORIAL.ko.md">15분 튜토리얼</a> — 데이터셋 생성을 포함한 첫 세션 전체 흐름.</li>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/sionna_versions.ko.md">Sionna 버전</a> — 재현성을 위해 <code>metadata.json</code> 에
+        기록되는 <code>engine</code>.</li>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/TUTORIAL.ko.md">15분 튜토리얼</a> — 데이터셋 생성을 포함한 첫 세션
+        전체 흐름.</li>
+      <li><a href="sensing.html">레이더 센싱</a> — 센싱 데이터셋 내보내기(§10)와 AODT 내보내기의
+        sensing 소스.</li>
+      <li><a href="playback_dashboard.html">재생 대시보드</a> — GT 대 DT 재생 팩, AODT 내보내기의
+        <code>playback</code> 소스.</li>
     </ul>
 
     <div class="pn">
       <a href="trajectory_uav.html"><span class="lbl">이전</span>궤적과 UAV: 이동 수신기, 재생, POV 뷰</a>
-      <span></span>
+      <a href="sensing.html"><span class="lbl">다음</span>레이더 센싱: RCS 타깃, 에코 솔브, 도플러</a>
     </div>
   </article>
 </div>
 
 <footer>
   <div class="wrap fineprint">
-    SEAM Studio · Apache License 2.0 · <a href="https://github.com/jaewoo4200/SEAM">github.com/jaewoo4200/SEAM</a> · <a href="../../en/guides/datasets_export.html">English guide</a><br>
+    SEAM Studio · Apache License 2.0 · <a href="https://github.com/jaewoo4200/SEAM">github.com/jaewoo4200/SEAM</a> · <a href="../../en/guides/datasets_export.html">English guides</a><br>
     Developed by <b>Jaewoo Lee (이재우)</b> · Wireless Systems Laboratory (WSL), Hanyang University · BEYOND-G Global Innovation Center
   </div>
 </footer>

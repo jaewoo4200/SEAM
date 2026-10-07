@@ -2,27 +2,60 @@ name: Release to PyPI
 
 # Tag a release (v0.1.0, v0.2.0, ...) to build the wheel — frontend bundled —
 # and publish it. Requires the PYPI_API_TOKEN repository secret (a PyPI API
-# token scoped to the seam-studio project).
+# token scoped to the seam-studio project). The backend suite runs first
+# (job `test`); a red suite stops the release before anything reaches PyPI.
 on:
   push:
     tags: ["v*"]
 
-jobs:
-  build-and-publish:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+permissions:
+  contents: read
 
-      - uses: actions/setup-node@v4
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      matrix:
+        # Same interpreters as ci.yml: tag pushes do not wait for the CI run.
+        python-version: ["3.11", "3.14"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
-          node-version: "20"
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+      - name: Install backend (dev + parquet extras)
+        run: pip install -e "backend[dev,parquet]"
+      - name: Sionna RT must run here (Dr.Jit LLVM on the runner)
+        # The live-Sionna tests skip when the runtime probe fails; this step
+        # turns a runner that lost its LLVM backend into a red job instead.
+        run: >-
+          python -c "from seam_studio.services import availability as a;
+          print(a.sionna_runtime());
+          assert a.sionna_available(), a.sionna_unavailable_reason() or 'sionna-rt not installed'"
+      - name: Backend tests
+        run: python -m pytest backend/tests -rs
+
+  build-and-publish:
+    # Separate job so the wheel smoke check below installs into a clean
+    # environment (no editable install left over from the test run).
+    needs: test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - name: Build frontend
         run: npm ci && npm run build
         working-directory: frontend
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - name: Build wheel + sdist (frontend bundled)
@@ -59,6 +92,7 @@ jobs:
         run: |
           ls "backend/dist/seam_studio-${GITHUB_REF_NAME#v}-py3-none-any.whl"
 
+      # TODO(user): switch to PyPI Trusted Publishing (id-token: write) and retire PYPI_API_TOKEN.
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:

@@ -76,11 +76,15 @@ From left to right, the top toolbar shows:
    presets; the inferred value shows in parentheses.
 7. Two **status chips**:
    - **Sionna** / **Mock only** — whether the real ray-tracing backend is
-     installed. `Mock only` is fine for learning the UI.
+     installed and has a working Dr.Jit backend (a CUDA GPU, or LLVM on the
+     CPU; `/api/health` says why when it does not). `Mock only` is fine for
+     learning the UI.
    - Provider name (e.g. `rule_based`) / **AI off** — which AI suggestion
      provider is active.
-8. **Actions ▾** (Validate, Compile RF, Beamforming, Export RFData,
-   Delete project…) and the blue **Simulate paths** button.
+8. **Actions ▾** (Validate, Compile RF, Beamforming, Sensing solve, Export
+   RFData, Channel dataset (.npz), Sensing dataset (.npz), AODT export
+   (parquet), AODT import (parquet), Delete project…) and the blue
+   **Simulate paths** button.
 
 ---
 
@@ -105,15 +109,20 @@ The **Devices** header has four buttons:
   geographic lat/lon; see [point_import.md](../point_import.md)).
 - **Clear all** — remove every radio device (click twice to confirm).
 
-The Sample Demo ships with `tx_001` ("Rooftop TX", red ▲) and `rx_001`
-("Street RX", blue ●). Each row has a × delete button.
+The Sample Demo ships with `tx_001` ("Rooftop TX", red ▲), `rx_001`
+("Street RX", blue ●) and `tx_001_rx` ("TX 1 sensing RX", blue ●, at the
+TX's position: the co-located radar receiver that sensing, ISAC and the
+sensing coverage map use). Each row has a × delete button.
 
 ### Actors section
 
 Actors are movable scatterers with their own RF geometry. The **Actors**
 header adds them with **+Car**, **+Human**, **+UAV**, and **+Custom**.
-The demo includes `car_001` (a sedan driving down the road) and
-`human_001` (a pedestrian).
+The demo includes `car_001` (a sedan driving down the road), `human_001`
+(a pedestrian) and `uav_001` ("Drone", a TR 38.901 sensing target flying
+an L at 40 m; see [sensing.md](sensing.md)). The sensing RX and the drone
+arrived in v0.1.14: a Sample Demo created by an earlier version keeps its
+original devices and actors.
 
 ### Navigating and picking
 

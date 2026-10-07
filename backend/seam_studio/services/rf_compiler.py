@@ -357,7 +357,6 @@ def _transform_matrix(t) -> Optional["object"]:
     """
     if _is_identity_transform(t):
         return None
-    import numpy as np
 
     x, y, z, w = (float(v) for v in t.rotation_quat_xyzw)
     m = trimesh.transformations.quaternion_matrix([w, x, y, z])

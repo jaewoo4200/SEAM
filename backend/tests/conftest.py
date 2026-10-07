@@ -13,9 +13,24 @@ from seam_studio.schemas.devices import Device
 from seam_studio.schemas.materials import RFMaterialLibrary
 from seam_studio.schemas.projects import ProjectInfo
 from seam_studio.schemas.scene import MeshRef, Prim, RFBinding, Scene, VisualBinding
+from seam_studio.services import availability
 from seam_studio.services.project_store import ProjectStore, load_default_library
 
 DEMO_PROJECT_ID = "demo_scene"
+
+# Live (real Sionna RT) tests: skip with the actual reason - not installed, or
+# installed but no Dr.Jit backend / sionna.rt import failure (the runtime
+# probe) - so a runner that loses its LLVM backend never reads as "not
+# installed". CI additionally fails when Sionna is unusable (workflow step).
+SIONNA_LIVE = availability.sionna_available()
+SIONNA_SKIP_REASON = (
+    "" if SIONNA_LIVE else availability.sionna_unavailable_reason() or "sionna-rt not installed"
+)
+requires_sionna = pytest.mark.skipif(not SIONNA_LIVE, reason=SIONNA_SKIP_REASON)
+requires_sionna_rcs = pytest.mark.skipif(
+    not (SIONNA_LIVE and availability.sionna_rcs_available()),
+    reason=SIONNA_SKIP_REASON or "sionna-rt >= 2.2 (sionna.rt.rcs) not installed",
+)
 
 
 def make_demo_scene(scene_id: str = DEMO_PROJECT_ID, *, with_devices: bool = True) -> Scene:

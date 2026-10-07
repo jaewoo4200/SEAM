@@ -9,13 +9,13 @@ RF 재질은 RF 투영(projection)과 레이 트레이싱 백엔드가 사용하
 
 ## 라이브러리 파일
 
-앱은 내장 라이브러리 `backend/app/data/default_rf_materials.yaml`를 함께
+앱은 내장 라이브러리 `backend/seam_studio/data/default_rf_materials.yaml`를 함께
 배포합니다. 프로젝트를 생성하면 이 파일이 `<project>/rf/materials.yaml`로
 복사되며, 프로젝트에서 이를 편집·확장할 수 있습니다. 이후로는 해당
 프로젝트에서 이 프로젝트 파일이 기준이 됩니다(파일이 없으면 내장 기본값을
 사용합니다).
 
-형식(`backend/app/schemas/materials.py`의 `RFMaterialLibrary` /
+형식(`backend/seam_studio/schemas/materials.py`의 `RFMaterialLibrary` /
 `RFMaterial`):
 
 ```yaml

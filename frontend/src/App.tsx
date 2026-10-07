@@ -20,6 +20,7 @@ export default function App() {
   const init = useAppStore((s) => s.init);
   const projects = useAppStore((s) => s.projects);
   const projectId = useAppStore((s) => s.projectId);
+  const health = useAppStore((s) => s.health);
   const mode = useAppStore((s) => s.mode);
   const busy = useAppStore((s) => s.busy);
   const error = useAppStore((s) => s.error);
@@ -179,8 +180,9 @@ export default function App() {
                 Import a scene
               </button>
               <p className="hint">
-                Or drop a project folder under <code>examples/demo_project/</code> and reload.
-                Make sure the backend is running on port 8000.
+                Or place a project folder (<code>&lt;name&gt;.seam</code>) in{" "}
+                <code>{health?.project_roots?.[0] ?? "your project root"}</code> and reload (pip
+                install: <code>~/.seam/projects</code>; source checkout: <code>projects/</code>).
               </p>
             </>
           ) : (

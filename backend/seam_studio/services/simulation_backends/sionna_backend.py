@@ -15,6 +15,7 @@ from the "radio-material" bsdf plugin the compiler emits.
 import json
 import math
 import re
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Optional
@@ -435,19 +436,47 @@ def _make_planar_array(antenna: Antenna, warnings: list[str], *, num_rows=None, 
     )
 
 
+def _array_key(antenna: Antenna) -> tuple:
+    """The parts of an antenna the scene array honors; the spacing along a
+    one-element axis places nothing, so it never makes two arrays differ."""
+    return (
+        antenna.pattern,
+        antenna.polarization,
+        antenna.num_rows,
+        antenna.num_cols,
+        round(antenna.vertical_spacing, 9) if antenna.num_rows > 1 else None,
+        round(antenna.horizontal_spacing, 9) if antenna.num_cols > 1 else None,
+    )
+
+
 def _apply_arrays(
     rt_scene,
     txs: list[Device],
     rxs: list[Device],
     warnings: list[str],
+    *,
+    warn_rx: bool = True,
 ) -> None:
     """Set rt_scene.tx_array / rx_array from the first selected TX/RX device's
-    antenna. Falls back to an isotropic 1x1 array when a side has no device."""
+    antenna. Falls back to an isotropic 1x1 array when a side has no device.
+
+    Sionna has ONE array per side for the whole scene, so a selected device
+    whose antenna differs from the first one's is not honored: say so."""
     default = Antenna()
     tx_antenna = txs[0].antenna if txs else default
     rx_antenna = rxs[0].antenna if rxs else default
     rt_scene.tx_array = _make_planar_array(tx_antenna, warnings)
     rt_scene.rx_array = _make_planar_array(rx_antenna, warnings)
+    sides = [("tx", "TXs", txs)] + ([("rx", "RXs", rxs)] if warn_rx else [])
+    for side, plural, devs in sides:
+        first = _array_key(devs[0].antenna) if devs else None
+        differing = [d.id for d in devs[1:] if _array_key(d.antenna) != first]
+        if differing:
+            warnings.append(
+                f"sionna applies {side} antenna of '{devs[0].id}' to all selected "
+                f"{plural} (scene-level array); differing antennas on "
+                f"{', '.join(differing)} are not individually honored"
+            )
 
 
 def _actor_object_key(rt_scene, actor_id: str) -> Optional[str]:
@@ -609,6 +638,13 @@ def _sync_actor_velocities(rt_scene, actor_ids, velocities: Optional[dict]) -> N
             pass
 
 
+def _active_mitsuba_variant() -> Optional[str]:
+    """The Mitsuba variant this process has set, without importing mitsuba (a
+    variant can only be active once it is imported)."""
+    mi = sys.modules.get("mitsuba")
+    return mi.variant() if mi is not None else None
+
+
 def noise_floor_dbm(config: SimulationConfig) -> float:
     """Thermal noise floor + receiver noise figure, in dBm.
 
@@ -655,6 +691,7 @@ class SionnaBackend(RayTracingBackend):
                     + " and compile did not produce it: "
                     + "; ".join(compile_result.errors or ["unknown compile error"])
                 )
+            warnings.extend(compile_result.warnings)
             warnings.append(
                 "rf projection was missing; compiled on demand"
                 if missing
@@ -676,29 +713,27 @@ class SionnaBackend(RayTracingBackend):
         caps["sensing"] = sionna_rcs_available()
         caps["sensing_coverage"] = True
         caps["occlusion"] = True
-        # Honest GPU probe: report gpu=True ONLY when a CUDA Mitsuba variant is
-        # actually available (an active cuda_* variant, or a cuda_* offered by
-        # this build). A drjit import alone is NOT enough — the macOS/LLVM CPU
-        # wheels import drjit fine but have no CUDA variant, so reporting gpu on
-        # them would mislabel a CPU-only box (Codex finding). "compute" names the
-        # active backend so the UI can show CUDA vs LLVM (CPU).
+        # Honest GPU probe: an ACTIVE Mitsuba variant names what this process
+        # runs. Before the first solve, the compiled variant list is no answer
+        # (every Windows/Linux wheel lists cuda_* and llvm_* variants), so the
+        # runtime probe's Dr.Jit backends decide: CUDA device present -> cuda,
+        # else a working LLVM-C -> llvm, else none.
         caps["gpu"] = False
         caps["compute"] = "unknown"
         try:  # best-effort; never let it break the listing
-            import mitsuba as mi  # type: ignore[import-not-found]
+            from seam_studio.services import availability
 
-            active = mi.variant()
+            active = _active_mitsuba_variant()
             if active:
                 caps["compute"] = "cuda" if active.startswith("cuda") else (
                     "llvm" if active.startswith("llvm") else active
                 )
                 caps["gpu"] = active.startswith("cuda")
-            else:
-                variants = list(mi.variants())
-                has_cuda = any(v.startswith("cuda") for v in variants)
-                caps["gpu"] = has_cuda
-                caps["compute"] = "cuda" if has_cuda else (
-                    "llvm" if any(v.startswith("llvm") for v in variants) else "unknown"
+            elif availability.sionna_installed():
+                probe = availability.sionna_runtime()
+                caps["gpu"] = probe.cuda
+                caps["compute"] = "cuda" if probe.cuda else (
+                    "llvm" if probe.llvm else "none"
                 )
         except Exception:  # noqa: BLE001
             pass
@@ -1220,6 +1255,9 @@ class SionnaBackend(RayTracingBackend):
                     for i in range(lcs.shape[1])
                 ]
 
+            # deterministic=False (float32, GPU): identical inputs can differ by
+            # ~1e-6 dB on strong paths and ~0.1 dB near beam nulls, and path
+            # order / path_id can change between runs.
             solved = RCSSolver(deterministic=False)(
                 rt_scene,
                 max_depth=int(depth),
@@ -1407,6 +1445,7 @@ class SionnaBackend(RayTracingBackend):
             rx.antenna, base.warnings, num_rows=request.rx_rows, num_cols=request.rx_cols
         )
         self._apply_custom_materials(project_dir, rt_scene, base.warnings)
+        self._place_actors(project_dir, scene, rt_scene, base.warnings, None, None)
         # Default: panels face each other (look_at), like the lab presets'
         # explicit boresights — without this, a steep link loses its vertical
         # array gain to broadside mismatch and the azimuth-only codebook can't
@@ -2223,8 +2262,11 @@ class SionnaBackend(RayTracingBackend):
         _reset_scene_devices(rt_scene)
         rt_scene.frequency = config.frequency_hz
         # First TX/RX device antenna drives the arrays (matches simulate_paths).
-        _apply_arrays(rt_scene, txs, rxs, warnings)
+        # The grid ignores receivers, so only a TX mismatch is worth a warning.
+        _apply_arrays(rt_scene, txs, rxs, warnings, warn_rx=False)
         self._apply_custom_materials(project_dir, rt_scene, warnings)
+        # A scenario frame leaves actors at its last pose on the cached scene.
+        self._place_actors(project_dir, scene, rt_scene, warnings, None, None)
         for dev in txs:
             rt_scene.add(
                 Transmitter(name=dev.id, position=list(dev.position), power_dbm=dev.power_dbm)

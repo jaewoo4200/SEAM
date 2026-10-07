@@ -27,7 +27,6 @@ from __future__ import annotations
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 from seam_studio.schemas.materials import RFMaterialLibrary
 from seam_studio.schemas.render import RenderRequest

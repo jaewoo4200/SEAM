@@ -200,6 +200,12 @@ class SensingTrackOptions(StrictModel):
     include_comm_paths: bool = False
     # None = every actor whose sensing binding is enabled.
     target_actor_ids: Optional[list[str]] = Field(default=None, min_length=1)
+    # Bistatic radar receivers of the per-frame sensing solve; the frame's
+    # comm links still cover every selected rx. None = auto: the selected rx
+    # devices within COLOCATED_SENSING_RX_M (1 m) of a selected tx when at
+    # least one exists, else every selected rx (v0.1.13). An id that is not a
+    # selected rx device answers 400. The resolved list is in the summary.
+    sensing_rx_ids: Optional[list[str]] = Field(default=None, min_length=1)
     # Passed through to the per-frame sensing solve (SensingSimulateRequest).
     samples_per_sp: int = Field(default=1_000_000, ge=1, le=100_000_000)
     max_depth: Optional[int] = Field(default=None, ge=1, le=12)
@@ -466,7 +472,9 @@ class PdCurveRequest(StrictModel):
 
 
 SensingDatasetFormat = Literal["npz", "csv", "parquet"]
-MAX_SENSING_DATASET_ROWS = 2_000_000
+# Link + echo rows per export. Rows are built in memory: ~1.9 KB per row as
+# Python lists plus ~0.6 KB of arrays and the encoded files, ~1.3 GB at the cap.
+MAX_SENSING_DATASET_ROWS = 500_000
 
 
 class SensingDatasetSplit(StrictModel):
@@ -508,10 +516,11 @@ class SensingDatasetExportRequest(StrictModel):
         return list(dict.fromkeys(v)) if v is not None else None
 
 
-# Fields added in v0.1.13 (ISAC Phase C). metadata_dump omits them while they
-# hold their defaults, so a v0.1.12 request keeps its metadata and request_hash.
+# Fields added in v0.1.13 (ISAC Phase C) and later (sensing_rx_ids: v0.1.14).
+# metadata_dump omits them while they hold their defaults, so an older
+# request keeps its metadata and request_hash.
 PHASE_C_FIELDS: dict[str, tuple[str, ...]] = {
-    "SensingTrackOptions": ("tracking", "detector", "pfa"),
+    "SensingTrackOptions": ("tracking", "detector", "pfa", "sensing_rx_ids"),
     "ISACRequest": (
         "elevation_start_deg", "elevation_stop_deg", "elevation_step_deg",
         "interference", "detector",

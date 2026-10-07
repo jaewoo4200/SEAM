@@ -77,8 +77,8 @@ CUDA 머신에서는 동작이 바뀌지 않는다(항상 CUDA 변형 선택, �
 
 | adapter | 대상 | 상태 |
 |---|---|---|
-| `builtin` | 백엔드 venv의 sionna-rt (현재 2.0.1) | 전 기능 |
-| `sionna_rt` | 독립 sionna-rt 1.x / 2.x venv | paths 솔브 (검증: 1.2.2 vs 2.0.1 lab_room 62경로 일치) |
+| `builtin` | 백엔드 venv의 sionna-rt (2.2.x) | 전 기능 |
+| `sionna_rt` | 독립 sionna-rt 1.x / 2.x venv | paths 솔브 (builtin이 2.0.1이던 때 검증: 1.2.2 vs 2.0.1 lab_room 62경로 일치) |
 | (roadmap) | TF 기반 sionna ≤ 0.19 | 미구현 — Python 3.11 + TensorFlow venv와 전용 워커 필요. 0.x는 `scene.compute_paths()` API와 다른 재질 처리를 쓰므로 별도 어댑터로 작성해야 하며, 이 리포의 컴파일러 XML(`itu-radio-material` 플러그인)이 아닌 plain-bsdf 변형 XML도 필요하다. |
 
 ## 프로토콜 요약

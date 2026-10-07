@@ -344,6 +344,7 @@ def test_errors(client, monkeypatch):
     monkeypatch.setitem(sys.modules, "pyarrow", None)
     resp = _export(client, formats=["npz", "parquet"])
     assert resp.status_code == 400 and "pyarrow" in resp.json()["detail"]
+    assert "seam-studio[parquet]" in resp.json()["detail"]
     monkeypatch.delitem(sys.modules, "pyarrow")
 
     monkeypatch.setattr(sensing_dataset_export, "MAX_SENSING_DATASET_ROWS", 40)

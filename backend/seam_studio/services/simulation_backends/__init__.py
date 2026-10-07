@@ -1,13 +1,17 @@
 """Ray-tracing backend registry.
 
 Backends are constructed on demand and are stateless, so instances are cheap.
-"auto" resolves to the real Sionna backend when installed, else the mock -
-the app must work with no Sionna and no GPU (HANDOFF.md section 7).
+"auto" resolves to the real Sionna backend when it is installed AND its
+runtime probe passes, else the mock - the app must work with no Sionna and no
+GPU (HANDOFF.md section 7).
 """
 
 from seam_studio.schemas.projects import HealthBackendStatus
 from seam_studio.schemas.simulation import SimulationConfig
-from seam_studio.services.availability import sionna_backend_detail
+from seam_studio.services.availability import (
+    sionna_backend_detail,
+    sionna_unavailable_reason,
+)
 
 from .base import BackendUnavailableError, RayTracingBackend
 from .mock_backend import MockBackend
@@ -44,9 +48,11 @@ def resolve_backend(config: SimulationConfig) -> RayTracingBackend:
         return sionna if sionna.is_available() else get_backend("mock")
     backend = get_backend(config.backend)
     if not backend.is_available():
-        raise BackendUnavailableError(
-            f"backend {backend.name!r} is not available on this machine"
-        )
+        message = f"backend {backend.name!r} is not available on this machine"
+        reason = sionna_unavailable_reason() if backend.name == "sionna" else None
+        if reason:
+            message += f": {reason}"
+        raise BackendUnavailableError(message)
     return backend
 
 

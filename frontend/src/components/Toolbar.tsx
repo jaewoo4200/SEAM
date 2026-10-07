@@ -1,15 +1,43 @@
-import { useEffect, useRef, useState } from "react";
+import { Component, lazy, Suspense, useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { useAppStore } from "../store/appStore";
 import type { Mode } from "../store/appStore";
 import { api, ApiError } from "../api/client";
-import OsmAreaPicker from "./OsmAreaPicker";
 import { PANEL_REGISTRY } from "./PanelHost";
 import type {
   AISettingsUpdate,
+  AodtExportSource,
+  AodtExportSummary,
+  AodtImportKind,
   Environment,
+  ImportAodtResponse,
   ImportJobStatus,
   SensingDatasetFormat,
 } from "../types/api";
+
+// Leaflet (~150 kB) is only needed once the OSM import tab opens.
+const OsmAreaPicker = lazy(() => import("./OsmAreaPicker"));
+
+/** A lazy chunk that fails to load (a tab opened before a rebuild/upgrade asks
+ *  for a chunk hash that no longer exists) must not unmount the whole app:
+ *  show a hint and keep the lat/lon fields usable. */
+class ChunkBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  render() {
+    return this.state.failed ? (
+      <p className="hint">
+        Map failed to load (the app was updated): reload the page. The fields below still work.
+      </p>
+    ) : (
+      this.props.children
+    );
+  }
+}
 
 const PROJECT_ID_PATTERN = /^[a-z0-9_-]+$/;
 
@@ -63,6 +91,8 @@ export default function Toolbar() {
   const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
   // Sensing-dataset export options (runs, formats) before the POST.
   const [sensingDatasetOpen, setSensingDatasetOpen] = useState(false);
+  const [aodtExportOpen, setAodtExportOpen] = useState(false);
+  const [aodtImportOpen, setAodtImportOpen] = useState(false);
   const loadAiSettings = useAppStore((s) => s.loadAiSettings);
 
   const sionnaAvailable =
@@ -242,6 +272,20 @@ export default function Toolbar() {
               onClick: () => setSensingDatasetOpen(true),
             },
             {
+              label: "AODT export (parquet)",
+              title:
+                "Write a stored paths / sensing result or playback pack as NVIDIA AODT " +
+                "results-schema parquet tables under export/aodt (needs pyarrow on the backend)",
+              onClick: () => setAodtExportOpen(true),
+            },
+            {
+              label: "AODT import (parquet)",
+              title:
+                "Import AODT parquet ray paths / radio maps from a folder on the machine " +
+                "running SEAM as stored results (needs pyarrow on the backend)",
+              onClick: () => setAodtImportOpen(true),
+            },
+            {
               label: "Delete project…",
               danger: true,
               title: "Permanently remove this project folder (asks for confirmation)",
@@ -275,14 +319,308 @@ export default function Toolbar() {
       {sensingDatasetOpen && projectId && (
         <SensingDatasetModal onClose={() => setSensingDatasetOpen(false)} />
       )}
+      {aodtExportOpen && projectId && (
+        <AodtExportModal projectId={projectId} onClose={() => setAodtExportOpen(false)} />
+      )}
+      {aodtImportOpen && projectId && (
+        <AodtImportModal projectId={projectId} onClose={() => setAodtImportOpen(false)} />
+      )}
     </header>
+  );
+}
+
+/** Esc closes a modal (same contract as the other toolbar dialogs). */
+function useEscape(onClose: () => void): void {
+  useEffect(() => {
+    function onKey(e: KeyboardEvent): void {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+}
+
+const PARQUET_HINT = 'Needs pyarrow on the backend (pip install "seam-studio[parquet]").';
+
+const AODT_SOURCES: { id: AodtExportSource; label: string; title: string }[] = [
+  { id: "paths", label: "Paths", title: "One snapshot (time_idx 0) of a stored paths result" },
+  {
+    id: "playback",
+    label: "Playback",
+    title: "One AODT time index per frame of a stored playback pack",
+  },
+  {
+    id: "sensing",
+    label: "Sensing",
+    title: "One snapshot of a stored sensing result (echo paths, plus comm paths when solved)",
+  },
+];
+
+/** POST /export/aodt: pick the source kind and a stored run of it (default =
+ *  latest), then show what was written. Errors (409 no pyarrow, 404 no such
+ *  result) are the server's detail, verbatim. */
+function AodtExportModal({ projectId, onClose }: { projectId: string; onClose: () => void }) {
+  const scene = useAppStore((s) => s.scene);
+  const appBusy = useAppStore((s) => s.busy) !== null;
+  const notify = useAppStore((s) => s.notify);
+  const refs = scene?.result_sets ?? [];
+  const runsOf = (kind: AodtExportSource) =>
+    refs
+      .filter((r) => r.kind === kind)
+      .sort(
+        (a, b) => (Date.parse(b.created_at ?? "") || 0) - (Date.parse(a.created_at ?? "") || 0),
+      );
+  const [source, setSource] = useState<AodtExportSource>(
+    () => AODT_SOURCES.find((s) => runsOf(s.id).length > 0)?.id ?? "paths",
+  );
+  const [resultId, setResultId] = useState("");
+  const [running, setRunning] = useState(false);
+  const [summary, setSummary] = useState<AodtExportSummary | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEscape(onClose);
+
+  const runs = runsOf(source);
+  const busy = running || appBusy;
+
+  const submit = async () => {
+    setRunning(true);
+    setError(null);
+    setSummary(null);
+    try {
+      const res = await api.exportAodt(projectId, {
+        source,
+        result_id: resultId || null,
+      });
+      setSummary(res);
+      notify(
+        `AODT export: ${res.files.length} file(s) to ${res.export_dir}` +
+          (res.warnings[0] ? ` · ${res.warnings[0]}` : ""),
+      );
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <div className="modal-backdrop" onPointerDown={onClose}>
+      <div
+        className="modal-card aodt-modal"
+        role="dialog"
+        aria-label="AODT export"
+        aria-modal="true"
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        <h4>AODT export (parquet)</h4>
+        <p className="hint">
+          Writes NVIDIA AODT results-schema tables (raypaths, cirs, cfrs, ues, rus, …) under{" "}
+          <span className="mono">export/aodt</span> in the project folder. {PARQUET_HINT}
+        </p>
+        <div className="confirm-field">
+          <span>Source</span>
+          <span className="dataset-format-row">
+            {AODT_SOURCES.map((s) => (
+              <label key={s.id} className="solver-check" title={s.title}>
+                <input
+                  type="radio"
+                  name="aodt-source"
+                  checked={source === s.id}
+                  disabled={busy}
+                  onChange={() => {
+                    setSource(s.id);
+                    setResultId("");
+                  }}
+                />
+                {s.label} ({runsOf(s.id).length})
+              </label>
+            ))}
+          </span>
+        </div>
+        <label className="confirm-field">
+          <span>Result</span>
+          <select
+            value={resultId}
+            disabled={busy || runs.length === 0}
+            onChange={(e) => setResultId(e.target.value)}
+          >
+            <option value="">
+              {runs.length === 0 ? "no stored run of this kind" : "latest"}
+            </option>
+            {runs.map((r) => (
+              <option key={r.result_id} value={r.result_id}>
+                {r.label ? `${r.label} · ` : ""}
+                {r.result_id} · {r.backend}
+              </option>
+            ))}
+          </select>
+        </label>
+        {runs.length === 0 && (
+          <p className="hint aodt-miss">
+            No stored {source} result in this project: run one first (the export would answer 404).
+          </p>
+        )}
+        {error && <p className="field-error">{error}</p>}
+        {summary && (
+          <div className="aodt-summary">
+            <div className="results-meta">
+              {summary.files.length} file(s) in <span className="mono">{summary.export_dir}</span>
+            </div>
+            <div className="mono aodt-tables">
+              {Object.entries(summary.tables)
+                .map(([t, n]) => `${t} ${n}`)
+                .join(" · ")}
+            </div>
+            {summary.warnings.map((w) => (
+              <p key={w} className="hint">
+                {w}
+              </p>
+            ))}
+          </div>
+        )}
+        <div className="confirm-actions">
+          <button className="primary" disabled={busy || runs.length === 0} onClick={() => void submit()}>
+            {running ? "Exporting…" : "Export"}
+          </button>
+          <button onClick={onClose}>{summary ? "Close" : "Cancel"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const AODT_IMPORT_KINDS: { id: AodtImportKind; label: string; title: string }[] = [
+  { id: "paths", label: "Paths", title: "raypaths.parquet (AODT tables) or paths.parquet" },
+  { id: "radio_map", label: "Radio map", title: "radio_map.parquet" },
+];
+
+/** POST /results/import-aodt. The route reads a folder on the backend's own
+ *  disk (source_dir), so this is a path field, not a browser file picker. */
+function AodtImportModal({ projectId, onClose }: { projectId: string; onClose: () => void }) {
+  const appBusy = useAppStore((s) => s.busy) !== null;
+  const notify = useAppStore((s) => s.notify);
+  const refetchScene = useAppStore((s) => s.refetchScene);
+  const [sourceDir, setSourceDir] = useState("");
+  const [kinds, setKinds] = useState<AodtImportKind[]>(["paths"]);
+  const [running, setRunning] = useState(false);
+  const [response, setResponse] = useState<ImportAodtResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEscape(onClose);
+  useEffect(() => inputRef.current?.focus(), []);
+
+  const busy = running || appBusy;
+  const canImport = !busy && sourceDir.trim().length > 0 && kinds.length > 0;
+
+  const submit = async () => {
+    if (!canImport) return;
+    setRunning(true);
+    setError(null);
+    setResponse(null);
+    let notice: string | null = null;
+    try {
+      const res = await api.importAodt(projectId, {
+        source_dir: sourceDir.trim(),
+        kinds: AODT_IMPORT_KINDS.map((k) => k.id).filter((k) => kinds.includes(k)),
+      });
+      setResponse(res);
+      notice =
+        `AODT import: ${res.imported.length} result(s)` +
+        (res.warnings[0] ? ` · ${res.warnings[0]}` : "");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      // Refresh Run history on failure too (a run stored before an error must
+      // show up), and notify afterwards: the refresh clears the notice line.
+      await refetchScene();
+      if (notice) notify(notice);
+      setRunning(false);
+    }
+  };
+
+  return (
+    <div className="modal-backdrop" onPointerDown={onClose}>
+      <div
+        className="modal-card aodt-modal"
+        role="dialog"
+        aria-label="AODT import"
+        aria-modal="true"
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        <h4>AODT import (parquet)</h4>
+        <p className="hint">
+          Reads AODT parquet tables and stores each kind as a result (backend{" "}
+          <span className="mono">aodt_import</span>), listed in Run history. {PARQUET_HINT}
+        </p>
+        <label className="confirm-field">
+          <span>Folder on the machine running SEAM</span>
+          <input
+            ref={inputRef}
+            type="text"
+            value={sourceDir}
+            disabled={busy}
+            placeholder="folder with raypaths.parquet / radio_map.parquet"
+            onChange={(e) => setSourceDir(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void submit();
+            }}
+          />
+          <span className="hint">
+            The backend opens this folder itself, so it is a path rather than a file upload (a
+            browser picker cannot hand the server a folder).
+          </span>
+        </label>
+        <div className="confirm-field">
+          <span>Import</span>
+          <span className="dataset-format-row">
+            {AODT_IMPORT_KINDS.map((k) => (
+              <label key={k.id} className="solver-check" title={k.title}>
+                <input
+                  type="checkbox"
+                  checked={kinds.includes(k.id)}
+                  disabled={busy}
+                  onChange={(e) =>
+                    setKinds(e.target.checked ? [...kinds, k.id] : kinds.filter((x) => x !== k.id))
+                  }
+                />
+                {k.label}
+              </label>
+            ))}
+          </span>
+        </div>
+        {error && <p className="field-error">{error}</p>}
+        {response && (
+          <div className="aodt-summary">
+            <div className="results-meta">
+              Imported {response.imported.length} result(s)
+            </div>
+            {response.imported.map((r) => (
+              <div key={r.result_id} className="mono aodt-tables">
+                {r.kind} · {r.result_id}
+              </div>
+            ))}
+            {response.warnings.map((w) => (
+              <p key={w} className="hint">
+                {w}
+              </p>
+            ))}
+          </div>
+        )}
+        <div className="confirm-actions">
+          <button className="primary" disabled={!canImport} onClick={() => void submit()}>
+            {running ? "Importing…" : "Import"}
+          </button>
+          <button onClick={onClose}>{response ? "Close" : "Cancel"}</button>
+        </div>
+      </div>
+    </div>
   );
 }
 
 const DATASET_FORMATS: { id: SensingDatasetFormat; label: string; title: string }[] = [
   { id: "npz", label: "npz", title: "One 1-D array per column (np.load, allow_pickle=False)" },
   { id: "csv", label: "csv", title: "Header + rows; NaN / None as empty fields" },
-  { id: "parquet", label: "parquet", title: "Needs pyarrow on the backend (the `results` extra)" },
+  { id: "parquet", label: "parquet", title: "Needs pyarrow on the backend (pip install \"seam-studio[parquet]\")" },
 ];
 
 /** Options of the sensing-dataset export: which stored scenario runs (all
@@ -1022,22 +1360,26 @@ function ImportSceneButton({
           )}
           {source === "osm" && (
             <>
-              <OsmAreaPicker
-                area={{
-                  lat: Number(osmLat) || 0,
-                  lon: Number(osmLon) || 0,
-                  widthM: osmW,
-                  heightM: osmH,
-                }}
-                selecting={osmSelecting}
-                onArea={(a) => {
-                  setOsmLat(String(a.lat));
-                  setOsmLon(String(a.lon));
-                  setOsmW(Math.max(50, Math.min(3000, a.widthM)));
-                  setOsmH(Math.max(50, Math.min(3000, a.heightM)));
-                  setOsmSelecting(false);
-                }}
-              />
+              <ChunkBoundary>
+                <Suspense fallback={<p className="hint">Loading map…</p>}>
+                  <OsmAreaPicker
+                    area={{
+                      lat: Number(osmLat) || 0,
+                      lon: Number(osmLon) || 0,
+                      widthM: osmW,
+                      heightM: osmH,
+                    }}
+                    selecting={osmSelecting}
+                    onArea={(a) => {
+                      setOsmLat(String(a.lat));
+                      setOsmLon(String(a.lon));
+                      setOsmW(Math.max(50, Math.min(3000, a.widthM)));
+                      setOsmH(Math.max(50, Math.min(3000, a.heightM)));
+                      setOsmSelecting(false);
+                    }}
+                  />
+                </Suspense>
+              </ChunkBoundary>
               <button
                 className={osmSelecting ? "picking" : ""}
                 onClick={() => setOsmSelecting((v) => !v)}

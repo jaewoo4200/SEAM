@@ -24,7 +24,6 @@ from seam_studio.api.simulate import (
     _solve_guard,
 )
 from seam_studio.schemas.actors import (
-    DeviceState,
     LinkMetrics,
     LiveStateResponse,
     LiveStateUpdate,
@@ -33,6 +32,7 @@ from seam_studio.schemas.actors import (
 )
 from seam_studio.schemas.sensing import MAX_MC_TOTAL_TRIALS
 from seam_studio.schemas.simulation import SimulateRequest, SimulationConfig
+from seam_studio.services import availability
 from seam_studio.services.scenario import _pair_metrics, run_scenario
 from seam_studio.services.simulation_backends import BackendUnavailableError, resolve_backend
 from seam_studio.services.simulation_backends.sionna_backend import noise_floor_dbm
@@ -51,6 +51,7 @@ def simulate_scenario(
     the per-project solve guard: a sensing frame is two or three solves on the
     shared cached scene."""
     from seam_studio.services.sensing import SensingRequestError, select_targets
+    from seam_studio.services.sensing_track import resolve_sensing_rxs
 
     request = request or ScenarioSimulateRequest()
     store = get_store()
@@ -83,13 +84,16 @@ def simulate_scenario(
             )
         try:
             targets = select_targets(scene, request.sensing.target_actor_ids)
+            sensing_rxs, _rule = resolve_sensing_rxs(
+                selected["tx"], selected["rx"], request.sensing.sensing_rx_ids
+            )
         except SensingRequestError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
         detector = request.sensing.detector
         # An empirical threshold draws a noise-only run per link estimate too.
         trials = detector.monte_carlo_trials * (2 if detector.empirical_threshold else 1)
         estimates = (
-            request.num_frames * len(selected["tx"]) * len(selected["rx"]) * len(targets)
+            request.num_frames * len(selected["tx"]) * len(sensing_rxs) * len(targets)
         )
         if trials * estimates > MAX_MC_TOTAL_TRIALS:
             raise HTTPException(
@@ -100,7 +104,7 @@ def simulate_scenario(
                        if detector.empirical_threshold else "")
                     + f" x {estimates} link estimates "
                     f"({request.num_frames} frames x {len(selected['tx'])} tx x "
-                    f"{len(selected['rx'])} rx x {len(targets)} targets) = "
+                    f"{len(sensing_rxs)} sensing rx x {len(targets)} targets) = "
                     f"{trials * estimates} trials; at most {MAX_MC_TOTAL_TRIALS} per "
                     "request (lower sensing.detector.monte_carlo_trials)"
                 ),
@@ -240,6 +244,7 @@ def apply_live_state(project_id: str, update: LiveStateUpdate) -> LiveStateRespo
             backend, project_dir, scene, library, config, actor_states
         )
         warnings.extend(result.warnings)
+        availability.note_auto_fallback(warnings, config, backend.name)
         txs = [d for d in scene.devices if d.kind == "tx"]
         rxs = [d for d in scene.devices if d.kind == "rx"]
         tx_power = {d.id: d.power_dbm for d in txs}

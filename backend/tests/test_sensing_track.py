@@ -35,7 +35,7 @@ from seam_studio.schemas.simulation import SimulationConfig
 from seam_studio.services import sensing_track
 from seam_studio.services.project_store import load_default_library
 from seam_studio.services.scenario import run_scenario
-from seam_studio.services.sensing import resolve_target_state
+from seam_studio.services.sensing import SensingRequestError, resolve_target_state
 from seam_studio.services.sensing_track import (
     SPEED_OF_LIGHT,
     FusionResult,
@@ -939,6 +939,8 @@ def test_openapi_pins_scenario_sensing():
         "measurement_noise", "noise_seed",
         # v0.1.13 (Phase C): EKF tracking, detector model, link-report Pfa.
         "tracking", "detector", "pfa",
+        # v0.1.14: explicit bistatic sensing receivers (None = auto).
+        "sensing_rx_ids",
     }
     for name in ("SensingLinkReport", "TargetEstimate", "SensingFrame"):
         assert name in components, name
@@ -1004,11 +1006,12 @@ def test_phase_c_defaults_reproduce_v0112():
     disabled = _scenario(_trp_scene(), _config(), **knobs, tracking={"enabled": False})
     assert disabled.model_dump() == off.model_dump()
 
+    # GN stops at a step < GN_STEP_TOL_M = 1e-7 m and converges linearly on noisy ranges, so other BLAS builds land ~6e-8 m away: pin to 10x the tol.
     for frame, (pos, vel, err, ranges) in zip(off.frames, V012_PIN):
         est = frame.sensing.estimates[0]
-        assert est.position_est == pytest.approx(pos, abs=1e-9)
-        assert est.velocity_est == pytest.approx(vel, abs=1e-9)
-        assert est.position_error_m == pytest.approx(err, abs=1e-9)
+        assert est.position_est == pytest.approx(pos, abs=1e-6)
+        assert est.velocity_est == pytest.approx(vel, abs=1e-6)
+        assert est.position_error_m == pytest.approx(err, abs=1e-6)
         assert sum(r.measured_range_m for r in frame.sensing.links) == pytest.approx(
             ranges, abs=1e-6
         )
@@ -1016,8 +1019,8 @@ def test_phase_c_defaults_reproduce_v0112():
         assert all(r.pd is None and r.pd_mc is None for r in frame.sensing.links)
     summary = off.metadata["sensing"]
     assert summary["options"] == V012_OPTIONS  # no Phase C keys
-    assert summary["median_position_error_m"] == pytest.approx(0.8801027035793115, abs=1e-9)
-    assert summary["median_velocity_error_m_s"] == pytest.approx(0.4682320566044862, abs=1e-9)
+    assert summary["median_position_error_m"] == pytest.approx(0.8801027035793115, abs=1e-6)
+    assert summary["median_velocity_error_m_s"] == pytest.approx(0.4682320566044862, abs=1e-6)
     assert "tracking_model" not in summary and "median_track_position_error_m" not in summary
     assert not any("track" in k for k in summary["targets"]["uav_01"])
 
@@ -1115,7 +1118,7 @@ def test_link_pd_with_an_empirical_threshold():
 
 
 def test_api_scenario_mc_budget_400(client):
-    # 10 frames x 4 tx x 4 rx x 1 target = 160 link estimates x 2e6 > 2e8.
+    # 10 frames x 4 tx x 4 sensing rx x 1 target = 160 link estimates x 2e6 > 2e8.
     sensing = {**SENSING, "pfa": 1e-6, "detector": {"monte_carlo_trials": 2_000_000}}
     resp = _post(client, sensing, num_frames=10)
     assert resp.status_code == 400
@@ -1149,3 +1152,98 @@ def test_openapi_pins_tracking_and_sensing_dataset():
     assert route["responses"]["200"]["content"]["application/json"]["schema"]["$ref"].endswith(
         "SensingDatasetExportResult"
     )
+
+
+# --------------------------------------------- v0.1.14: sensing receivers
+
+
+def _ue(dev_id: str, pos) -> Device:
+    return Device(id=dev_id, kind="rx", position=list(pos))
+
+
+def test_resolve_sensing_rxs_rules():
+    from seam_studio.services.sensing_track import resolve_sensing_rxs
+
+    scene = _trp_scene()
+    txs = [d for d in scene.devices if d.kind == "tx"]
+    rxs = [d for d in scene.devices if d.kind == "rx"] + [_ue("ue_1", (10.0, 5.0, 1.5))]
+    picked, rule = resolve_sensing_rxs(txs, rxs, None)
+    assert rule == "colocated" and [d.id for d in picked] == [f"{k}_rx" for k in TRPS]
+    # Explicit ids keep scene order and drop duplicates.
+    picked, rule = resolve_sensing_rxs(txs, rxs, ["ue_1", "trp3_rx", "ue_1"])
+    assert rule == "explicit" and [d.id for d in picked] == ["trp3_rx", "ue_1"]
+    picked, rule = resolve_sensing_rxs(txs, [rxs[-1]], None)
+    assert rule == "all_rx" and [d.id for d in picked] == ["ue_1"]
+    with pytest.raises(SensingRequestError, match=r"sensing.sensing_rx_ids: \['trp1'\] not among"):
+        resolve_sensing_rxs(txs, rxs, ["trp1"])
+
+
+def test_explicit_sensing_rx_subset_keeps_every_comm_link():
+    scene = _trp_scene()
+    scene.devices.append(_ue("ue_1", (10.0, 5.0, 1.5)))
+    result = _scenario(scene, _config(), num_frames=2, cpi_pulses=4096,
+                       sensing_rx_ids=["trp1_rx", "ue_1"])
+    tx_ids = list(TRPS)
+    for frame in result.frames:
+        assert [n.id for n in frame.sensing.nodes] == tx_ids + ["trp1_rx", "ue_1"]
+        assert {(r.tx_id, r.rx_id) for r in frame.sensing.links} == {
+            (t, r) for t in tx_ids for r in ("trp1_rx", "ue_1")
+        }
+        assert len(frame.sensing.links) == 4 * 2 * 1
+        rx_all = [d.id for d in scene.devices if d.kind == "rx"]
+        assert {(m.tx_id, m.rx_id) for m in frame.links} == {
+            (t, r) for t in tx_ids for r in rx_all
+        }
+        assert {p.rx_id for p in frame.sensing.echoes} <= {"trp1_rx", "ue_1"}
+    summary = result.metadata["sensing"]
+    assert summary["sensing_rx_ids"] == ["trp1_rx", "ue_1"]
+    assert summary["sensing_rx_rule"] == "explicit"
+    assert summary["num_links"] == 8
+    assert summary["options"]["sensing_rx_ids"] == ["trp1_rx", "ue_1"]
+
+
+def test_auto_uses_colocated_trp_receivers_and_keeps_ue_comm_links():
+    # 3 TRPs with co-located rx plus 2 UEs: the UEs are not radar receivers
+    # (9 sensing links, not 15), yet their comm links stay in every frame.
+    devices = [d for d in _trp_scene().devices if not d.id.startswith("trp6")]
+    devices += [_ue("ue_1", (10.0, 5.0, 1.5)), _ue("ue_2", (-20.0, 40.0, 1.5))]
+    scene = Scene(scene_id="isac", devices=devices, actors=[_uav()])
+    result = _scenario(scene, _config(), num_frames=2, cpi_pulses=4096)
+    summary = result.metadata["sensing"]
+    assert summary["sensing_rx_rule"] == "colocated"
+    assert summary["sensing_rx_ids"] == ["trp1_rx", "trp3_rx", "trp4_rx"]
+    assert summary["num_links"] == 9
+    assert "sensing_rx_ids" not in summary["options"]  # None stays out (v0.1.13 bytes)
+    for frame in result.frames:
+        assert len(frame.sensing.links) == 9
+        assert not any(r.rx_id.startswith("ue_") for r in frame.sensing.links)
+        assert {m.rx_id for m in frame.links} >= {"ue_1", "ue_2"}
+
+
+def test_auto_without_colocated_rx_is_the_v0113_all_rx_run():
+    devices = [d for d in _trp_scene().devices if d.kind == "tx"]
+    devices += [_ue("ue_1", (10.0, 5.0, 1.5)), _ue("ue_2", (-20.0, 40.0, 1.5))]
+    scene = Scene(scene_id="isac", devices=devices, actors=[_uav()])
+    knobs = dict(num_frames=3, cpi_pulses=4096, measurement_noise=True, noise_seed=2)
+    auto = _scenario(scene, _config(), **knobs)
+    explicit = _scenario(scene, _config(), **knobs, sensing_rx_ids=["ue_1", "ue_2"])
+    assert auto.metadata["sensing"]["sensing_rx_rule"] == "all_rx"
+    assert auto.metadata["sensing"]["sensing_rx_ids"] == ["ue_1", "ue_2"]
+    a, b = auto.model_dump(), explicit.model_dump()
+    for dump in (a, b):
+        del dump["metadata"]["sensing"]["options"]
+        del dump["metadata"]["sensing"]["sensing_rx_rule"]
+    assert a == b
+
+
+def test_api_unknown_sensing_rx_400(client):
+    resp = _post(client, {**SENSING, "sensing_rx_ids": ["trp1_rx", "nope"]})
+    assert resp.status_code == 400
+    assert resp.json()["detail"].startswith(
+        "sensing.sensing_rx_ids: ['nope'] not among the selected rx devices ["
+    )
+    assert client.get(f"/api/projects/{PID}/scene").json()["result_sets"] == []
+    ok = _post(client, {**SENSING, "sensing_rx_ids": ["trp1_rx"]})
+    assert ok.status_code == 200, ok.text
+    assert len(ok.json()["frames"][0]["sensing"]["links"]) == 4
+    assert ok.json()["metadata"]["sensing"]["sensing_rx_ids"] == ["trp1_rx"]

@@ -85,6 +85,50 @@ def _utcnow() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _parse_provenance(prov_file: Path, raw: bytes) -> dict:
+    """The provenance log in ``raw``; an unreadable one (bad JSON, not UTF-8,
+    wrong shape) is moved aside to ``provenance.corrupt-<UTC stamp>.json``
+    (never overwritten) and a fresh log starts with a ``provenance_recovered``
+    event naming the backup. A UTF-8 BOM (Notepad) is accepted."""
+    try:
+        data = json.loads(raw.decode("utf-8-sig"))
+        if not isinstance(data, dict):
+            raise ValueError(f"top level is {type(data).__name__}, not an object")
+        if not isinstance(data.setdefault("events", []), list):
+            raise ValueError("'events' is not a list")
+        return data
+    except ValueError as exc:  # JSONDecodeError / UnicodeDecodeError are ValueErrors
+        reason = str(exc)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    backup = prov_file.with_name(f"provenance.corrupt-{stamp}.json")
+    n = 1
+    while backup.exists():
+        backup = prov_file.with_name(f"provenance.corrupt-{stamp}-{n}.json")
+        n += 1
+    try:
+        os.replace(prov_file, backup)
+        backup_name: Optional[str] = backup.name
+    except OSError as exc:  # a recovery problem must not fail the solve
+        backup_name = None
+        reason = f"{reason}; backup failed: {exc}"
+    _logger.warning(
+        "provenance.json of %s could not be parsed (%s); kept as %s and restarted",
+        prov_file.parent, reason, backup_name,
+    )
+    now = _utcnow()
+    return {
+        "created_at": now,
+        "events": [
+            {
+                "timestamp": now,
+                "type": "provenance_recovered",
+                "corrupt_backup": backup_name,
+                "reason": reason,
+            }
+        ],
+    }
+
+
 # Per-project append lock, keyed on the resolved project dir. Serializes the
 # read-modify-write of provenance.json (and appends to jsonl logs) so that
 # concurrent writers - FastAPI sync endpoints run in a threadpool - never lose
@@ -414,9 +458,14 @@ class ProjectStore:
 
     # ---------------------------------------------------------- misc  I/O
 
-    def save_json(self, project_id: str, relative: str, obj: dict) -> Path:
+    def save_json(
+        self, project_id: str, relative: str, obj: dict, *, compact: bool = False
+    ) -> Path:
+        """Atomically write ``obj`` as JSON; ``compact`` (result files) drops
+        the indentation, about 2.2x smaller for large path/frame lists."""
         path = self.asset_path(project_id, relative)
-        _atomic_write_text(path, json.dumps(obj, indent=2))
+        text = json.dumps(obj, separators=(",", ":")) if compact else json.dumps(obj, indent=2)
+        _atomic_write_text(path, text)
         return path
 
     def save_text(self, project_id: str, relative: str, text: str) -> Path:
@@ -444,8 +493,10 @@ class ProjectStore:
         prov_file = project_dir / "provenance.json"
         with _append_lock(project_dir):
             try:
-                data = json.loads(prov_file.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
+                raw = prov_file.read_bytes()
+            except OSError:
                 data = {"created_at": _utcnow(), "events": []}
-            data.setdefault("events", []).append({"timestamp": _utcnow(), **event})
+            else:
+                data = _parse_provenance(prov_file, raw)
+            data["events"].append({"timestamp": _utcnow(), **event})
             _atomic_write_text(prov_file, json.dumps(data, indent=2))

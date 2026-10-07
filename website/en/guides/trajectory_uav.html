@@ -124,6 +124,8 @@ footer{border-top:1px solid var(--line)}
     <a href="simulation.html">Simulating</a>
     <a class="active" href="trajectory_uav.html">Trajectories &amp; UAVs</a>
     <a href="datasets_export.html">ML datasets &amp; exports</a>
+    <a href="sensing.html">Radar sensing &amp; ISAC</a>
+    <a href="playback_dashboard.html">Multimodal playback</a>
     <a class="all" href="./">← All guides</a>
   </aside>
 
@@ -131,9 +133,10 @@ footer{border-top:1px solid var(--line)}
     <div class="eyebrow">Guide 05 · SEAM Studio docs</div>
     <h1>Trajectories and UAVs: moving receivers, playback, and POV views</h1>
     <p class="lead">A static TX→RX solve tells you one snapshot; a <b>trajectory</b> tells you how the link evolves as a receiver flies, drives, or walks through the scene. This guide covers the two ways to move a UE, UAV actors with attached antennas, the exact semantics of trajectory playback in the viewer, and the per-entity POV inset. Everything here works with the Mock backend alone — no GPU or Sionna RT installation required.</p>
+
     <div class="spectrum"></div>
 
-    <h2>1. Two ways to move a UE</h2>
+    <h2 id="1-two-ways-to-move-a-ue">1. Two ways to move a UE</h2>
 
     <table>
       <thead>
@@ -145,84 +148,203 @@ footer{border-top:1px solid var(--line)}
       </tbody>
     </table>
 
-    <p>Both feed the same trajectory engine: the result is a time-series of samples (<b>RSS / path gain / SINR / RMS delay spread / path count</b> per step) plus per-step live rays you can play back in the viewer.</p>
+    <p>Both feed the same trajectory engine: the result is a time-series of samples
+    (<b>RSS / path gain / SINR / RMS delay spread / path count</b> per step) plus
+    per-step live rays you can play back in the viewer.</p>
 
-    <h2>2. Device trajectory — the UE trajectory panel</h2>
+    <h2 id="2-device-trajectory--the-ue-trajectory-panel">2. Device trajectory — the UE trajectory panel</h2>
 
     <ol>
-      <li>Switch to <b>Results</b> mode and find the <b>UE trajectory</b> panel (dockable, like every panel — move it with ◧/◨/⧉).</li>
+      <li>Switch to <b>Results</b> mode and find the <b>UE trajectory</b> panel (dockable,
+        like every panel — move it with ◧/◨/⧉).</li>
       <li>Define the route. Three options:
         <ul>
-          <li><b><code>⌖ Pick start → end in viewport</code></b> — click two points in the 3D view: first the start, then the end (Esc cancels). A dashed yellow preview line shows the segment. <b>Start at RX</b> seeds the <b>Start</b> / <b>End</b> fields from the current first RX position instead.</li>
-          <li><b>Draw route (Esc finishes)</b> — click waypoints one by one in the 3D view; Esc finishes the route (at least 2 points). With more than one RX in the scene, a selector chooses which RX the drawn route belongs to, so you can author one route per UE and they all move together.</li>
-          <li><b><code>⤓ Import JSON</code></b> — load waypoints from a JSON file. Cartesian <code>x/y/z</code> or geographic <code>lat/lon</code> points are auto-detected (geographic needs the scene's geodetic anchor), and underground points are flagged with a ⚠ warning on the route row. Files with per-waypoint antenna orientations show an <em>oriented</em> chip. Format details: <a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/point_import.md">../point_import.md</a>.</li>
+          <li><b><code>⌖ Pick start → end in viewport</code></b> — click two points in the 3D view:
+            first the start, then the end (Esc cancels). A dashed yellow preview line
+            shows the segment. <b>Start at RX</b> seeds the <b>Start</b> / <b>End</b> fields
+            from the current first RX position instead.</li>
+          <li><b>Draw route (Esc finishes)</b> — click waypoints one by one in the 3D
+            view; Esc finishes the route (at least 2 points). With more than one RX
+            in the scene, a selector chooses which RX the drawn route belongs to, so
+            you can author one route per UE and they all move together.</li>
+          <li><b><code>⤓ Import JSON</code></b> — load waypoints from a JSON file. Cartesian <code>x/y/z</code>
+            or geographic <code>lat/lon</code> points are auto-detected (geographic needs the
+            scene's geodetic anchor), and underground points are flagged with a ⚠
+            warning on the route row. Files with per-waypoint antenna orientations
+            show an <em>oriented</em> chip. Format details: <a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/point_import.md">../point_import.md</a>.</li>
         </ul>
       </li>
-      <li>(Optional, outdoor) Check <b>Follow terrain</b> to drape each waypoint onto the surface below it plus the <b>UE height</b> offset — keeps the UE at a constant height above sloped ground. Leave it off indoors.</li>
-      <li>Set <b>Num points</b> (2–200 solve steps; every route is resampled to this step count) and <b>dt</b> (seconds per step).</li>
-      <li>Press <b>Simulate trajectory</b>. Each step is a full TX→RX solve at the moved position; with multiple TX the per-step <b>SINR</b> and interference appear too. With routes for several UEs, <b>Include fixed UEs</b> also solves every un-routed RX at its fixed position each step.</li>
+      <li>(Optional, outdoor) Check <b>Follow terrain</b> to drape each waypoint onto
+        the surface below it plus the <b>UE height</b> offset — keeps the UE at a
+        constant height above sloped ground. Leave it off indoors.</li>
+      <li>Set <b>Num points</b> (2–200 solve steps; every route is resampled to this
+        step count) and <b>dt</b> (seconds per step).</li>
+      <li>Press <b>Simulate trajectory</b>. Each step is a full TX→RX solve at the
+        moved position; with multiple TX the per-step <b>SINR</b> and interference
+        appear too. With routes for several UEs, <b>Include fixed UEs</b> also solves
+        every un-routed RX at its fixed position each step.</li>
     </ol>
 
-    <p>The result strip shows the UE id, a <em>moving UE</em> chip, the sample count and backend, and a <b>✕ Remove</b> button that clears the marker/trail/ray overlay immediately.</p>
+    <p>The result strip shows the UE id, a <em>moving UE</em> chip, the sample count and
+    backend, and a <b>✕ Remove</b> button that clears the marker/trail/ray overlay
+    immediately.</p>
 
-    <h2>3. UAV actors</h2>
+    <h2 id="3-uav-actors">3. UAV actors</h2>
 
-    <h3>Create and pose</h3>
+    <h3 id="create-and-pose">Create and pose</h3>
 
-    <p>In the scene tree's <b>ACTORS</b> row, press <b>+UAV</b> (next to <b>+Car</b>, <b>+Human</b>, <b>+Custom</b>). The UAV spawns hovering above the scene center. Select it and the inspector shows <b>Actor · <code>&lt;id&gt;</code></b> with a <b>POSE &amp; SIZE</b> section: <b>Name</b>, <b>X / Y / Z (m)</b>, <b>Yaw (°)</b>, <b>Length / Width / Height (m)</b>, then <b>Apply</b>. Positions are <b>Z-up ENU meters</b> (X east · Y north · Z up); yaw rotates about +Z. You can also drag the actor with the viewport gizmo.</p>
+    <p>In the scene tree's <b>ACTORS</b> row, press <b>+UAV</b> (next to <b>+Car</b>,
+    <b>+Human</b>, <b>+Custom</b>). The UAV spawns hovering above the scene center.
+    Select it and the inspector shows <b>Actor · <code>&lt;id&gt;</code></b> with a <b>POSE &amp; SIZE</b>
+    section: <b>Name</b>, <b>X / Y / Z (m)</b>, <b>Yaw (°)</b>, <b>Length / Width /
+    Height (m)</b>, then <b>Apply</b>. Positions are <b>Z-up ENU meters</b> (X east ·
+    Y north · Z up); yaw rotates about +Z. You can also drag the actor with the
+    viewport gizmo.</p>
 
-    <p>The UAV renders as a procedural quadrotor (fuselage, four rotor arms, skids, gimbal camera). In large outdoor scenes the <em>visual</em> model is scaled up to device-marker visibility — a real 0.6 m drone would be sub-pixel at campus scale — while the RF projection keeps the true <code>size_m</code> box.</p>
+    <p>The UAV renders as a procedural quadrotor (fuselage, four rotor arms, skids,
+    gimbal camera). In large outdoor scenes the <em>visual</em> model is scaled up to
+    device-marker visibility — a real 0.6 m drone would be sub-pixel at campus
+    scale — while the RF projection keeps the true <code>size_m</code> box.</p>
 
     <figure class="doc-shot"><img loading="lazy" decoding="async" src="../../assets/guides/12_uav_trajectory.png" alt="UAV actor selected: translation gizmo, yellow waypoint line over the campus, POV inset uav_001 → TX tx_001, and the inspector with POSE &amp; SIZE, ATTACHED DEVICES, and TRAJECTORY waypoint rows"><figcaption>A selected <code>uav_001</code>: gizmo + yellow flight path in the viewport, the live POV inset (uav_001 → TX tx_001), and the actor inspector with <code>+ Attach RX here</code> / <code>+ Attach TX here</code> and the waypoint table.</figcaption></figure>
 
-    <h3>Attached devices — how an actor becomes an RF endpoint</h3>
+    <h3 id="attached-devices--how-an-actor-becomes-an-rf-endpoint">Attached devices — how an actor becomes an RF endpoint</h3>
 
-    <p>Actors are scatterers; <b>rays terminate at antennas</b>. To make a UAV an RF endpoint, open <b>ATTACHED DEVICES</b> and press <b><code>+ Attach RX here</code></b> (or <b><code>+ Attach TX here</code></b> for a UAV relay/base station). This creates the antenna on top of the actor and checks it in the attached-device list. Attached devices <b>ride along when the actor moves</b>, so paths always solve from the actor's current position.</p>
+    <p>Actors are scatterers; <b>rays terminate at antennas</b>. To make a UAV an RF
+    endpoint, open <b>ATTACHED DEVICES</b> and press <b><code>+ Attach RX here</code></b> (or
+    <b><code>+ Attach TX here</code></b> for a UAV relay/base station). This creates the
+    antenna on top of the actor and checks it in the attached-device list.
+    Attached devices <b>ride along when the actor moves</b>, so paths always solve
+    from the actor's current position.</p>
 
-    <h3>Flight path — the TRAJECTORY section</h3>
+    <h3 id="flight-path--the-trajectory-section">Flight path — the TRAJECTORY section</h3>
 
-    <p>Check <b>Define waypoints</b> in the <b>TRAJECTORY</b> section to give the actor a flight path. Each waypoint row has:</p>
+    <p>Check <b>Define waypoints</b> in the <b>TRAJECTORY</b> section to give the actor a
+    flight path. Each waypoint row has:</p>
 
     <ul>
       <li>the row number (click to highlight that waypoint in the 3D view),</li>
       <li>editable <b>X / Y / Z</b> fields,</li>
       <li><b>↑ / ↓</b> to reorder (swap with the previous/next waypoint),</li>
-      <li><b>+</b> to insert a waypoint after this one (midpoint to the next; +2 m in X after the last),</li>
-      <li><b>×</b> to remove it (blocked at 2 waypoints — a trajectory needs at least a segment; uncheck <b>Define waypoints</b> to remove the whole path).</li>
+      <li><b>+</b> to insert a waypoint after this one (midpoint to the next; +2 m in X
+        after the last),</li>
+      <li><b>×</b> to remove it (blocked at 2 waypoints — a trajectory needs at least a
+        segment; uncheck <b>Define waypoints</b> to remove the whole path).</li>
     </ul>
 
-    <p>Below the table: <b>+ Waypoint</b> appends the actor's position, <b>⌖ Pick waypoint</b> appends a clicked point from the viewport, and <b>Record current pos</b> captures the pose you just dragged to. <b>dt</b> (s) and <b>Mode</b> (<code>once</code> / <code>loop</code> / <code>pingpong</code>) control the animation, which plays in <b>Results → Scenario playback</b> (<code>Simulate scenario</code> animates every actor along its own waypoints).</p>
+    <p>Below the table: <b>+ Waypoint</b> appends the actor's position, <b>⌖ Pick
+    waypoint</b> appends a clicked point from the viewport, and <b>Record current
+    pos</b> captures the pose you just dragged to. <b>dt</b> (s), <b>Speed</b> (m/s)
+    and <b>Mode</b> (<code>once</code> / <code>loop</code> / <code>pingpong</code>) control the animation, which
+    plays in <b>Results → Scenario playback</b> (<code>Simulate scenario</code> animates every
+    actor along its own waypoints).</p>
 
-    <h3>⚡ Simulate paths along trajectory</h3>
+    <p><b>Pacing: dt or Speed.</b> By default the path is paced by <b>dt</b>: every
+    segment takes <code>dt</code> seconds, however long it is. Waypoints placed far apart
+    then mean a very fast actor. A drone with waypoints 50 m apart at
+    <code>dt = 0.25 s</code> flies at 200 m/s, and its Doppler follows that speed. Below the
+    Speed field the inspector shows the speed this implies (<em>implied N m/s from
+    dt</em>, plus the peak when legs differ; amber when the peak is over 3× the
+    kind's typical speed). Enter a <b>Speed</b> to move at that constant pace
+    instead: each segment then takes its length / speed, so unequal legs take
+    proportionally longer. The placeholder is a typical speed for the kind (car
+    10, human 1.4, UAV 10, custom 5 m/s). It is only a suggestion, and the field
+    stays blank (dt pacing) until you type a value. While a speed is set, <b>dt</b>
+    is dimmed and unused but kept, and clearing the speed returns to dt pacing.
+    The same pacing drives scenario frames, the sensing target's t = 0 velocity,
+    datasets that sample the actor (<code>actor_id</code>), the AODT scatterer route, and
+    <b>⚡ Simulate paths along trajectory</b>. Stored as <code>trajectory.speed_m_s</code>
+    (see <a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/scene_format.md">../scene_format.md</a>).</p>
 
-    <p>The <b><code>⚡ Simulate paths along trajectory</code></b> button (enabled with ≥ 2 waypoints <em>and</em> an attached RX) sends the actor's waypoints straight to the trajectory engine: <b>one TX→RX solve at each step along the flight path, with per-step rays</b>. The attached RX is what flies the path — without one the button's tooltip tells you to attach an RX first. Results land in the <b>UE trajectory</b> panel exactly like a device trajectory.</p>
+    <p>A trajectory also gives the actor a velocity for Doppler (Sionna backend).
+    <code>Simulate scenario</code> applies each frame's velocity. Every other paths solve
+    (Simulate paths, channel analysis, datasets, UE trajectories including
+    <b>⚡ Simulate paths along trajectory</b>, GT playback) leaves the actor at its
+    authored pose but moves it at its
+    trajectory velocity at t = 0. A path that reflects off the actor therefore
+    carries its Doppler even when the TX and RX are static, and a device
+    attached to the actor moves with it. The exception is a dataset that
+    samples the actor's own path: that actor stays at rest (see §4 of
+    <a href="sensing.html">sensing.md</a>).</p>
 
-    <h2>4. Trajectory playback — exact semantics</h2>
+    <p>That velocity is the trajectory tangent × speed. At an exact waypoint time
+    it is the outgoing leg's velocity, at the end of a <code>once</code> trajectory it is 0
+    (the actor stops), and at a pingpong turnaround it is the reversed leg.
+    Before v0.1.14 those frames reported the average of the two legs (7.07 m/s
+    at a 90° turn at 10 m/s) or half the speed, so Doppler and <code>velocity_true</code>
+    at waypoint frames changed in v0.1.14.</p>
 
-    <p>A trajectory result adds a playback transport under the <b>UE trajectory</b> panel: <b>▶ / ⏸</b>, a frame slider with a <code>frame/total</code> counter, <b>⟳</b> repeat, and a speed select (0.5×–4×). Multi-UE runs add per-UE scrub bars and a <b>KPI UE</b> selector. The viewer behavior is deliberately strict:</p>
+    <h3 id="-simulate-paths-along-trajectory">⚡ Simulate paths along trajectory</h3>
+
+    <p>The <b><code>⚡ Simulate paths along trajectory</code></b> button (enabled with ≥ 2
+    waypoints <em>and</em> an attached RX) sends the actor's waypoints straight to the
+    trajectory engine: <b>one TX→RX solve at each step along the flight path, with
+    per-step rays</b>. The attached RX is what flies the path — without one the
+    button's tooltip tells you to attach an RX first. Results land in the
+    <b>UE trajectory</b> panel exactly like a device trajectory.</p>
+
+    <h2 id="4-trajectory-playback--exact-semantics">4. Trajectory playback — exact semantics</h2>
+
+    <p>A trajectory result adds a playback transport under the <b>UE trajectory</b>
+    panel: <b>▶ / ⏸</b>, a frame slider with a <code>frame/total</code> counter, <b>⟳</b> repeat,
+    and a speed select (0.5×–4×). Multi-UE runs add per-UE scrub bars and a
+    <b>KPI UE</b> selector. The viewer behavior is deliberately strict:</p>
 
     <ul>
-      <li><b>Running a trajectory engages playback.</b> A fresh <b>Simulate trajectory</b> (or ⚡ from an actor) turns the <b>Trajectory rays</b> overlay toggle on and shows a <b>moving UE marker</b> (scene-scaled, slightly smaller than static device markers) plus that step's rays. Scrubbing the slider or pressing ▶ moves the marker and re-draws the per-frame rays.</li>
-      <li><b>Static device markers always stay at their scene positions.</b> The moving marker is an <em>overlay</em>; the RX device itself never teleports, and its static marker is never hidden.</li>
-      <li><b>Pressing <code>Simulate paths</code> fully disengages playback.</b> The viewer switches to the fresh static paths result: the <b>Trajectory rays</b> toggle turns off, playback stops, and the frame (and any per-UE scrubs) reset to 0 — the moving marker disappears rather than lingering as a phantom "moved RX" next to the new rays. Both overlays remain independently toggleable afterwards.</li>
-      <li><b>Reopening a project arrives disengaged.</b> A stored trajectory result auto-loads so the transport and charts are ready, but the <b>Trajectory rays</b> toggle starts off — no marker appears until you press ▶, scrub, or re-enable the toggle.</li>
+      <li><b>Running a trajectory engages playback.</b> A fresh <b>Simulate trajectory</b>
+        (or ⚡ from an actor) turns the <b>Trajectory rays</b> overlay toggle on and
+        shows a <b>moving UE marker</b> (scene-scaled, slightly smaller than static
+        device markers) plus that step's rays. Scrubbing the slider or pressing ▶
+        moves the marker and re-draws the per-frame rays.</li>
+      <li><b>Static device markers always stay at their scene positions.</b> The moving
+        marker is an <em>overlay</em>; the RX device itself never teleports, and its
+        static marker is never hidden.</li>
+      <li><b>Pressing <code>Simulate paths</code> fully disengages playback.</b> The viewer
+        switches to the fresh static paths result: the <b>Trajectory rays</b> toggle
+        turns off, playback stops, and the frame (and any per-UE scrubs) reset to
+        0 — the moving marker disappears rather than lingering as a phantom
+        "moved RX" next to the new rays. Both overlays remain independently
+        toggleable afterwards.</li>
+      <li><b>Reopening a project arrives disengaged.</b> A stored trajectory result
+        auto-loads so the transport and charts are ready, but the <b>Trajectory
+        rays</b> toggle starts off — no marker appears until you press ▶, scrub, or
+        re-enable the toggle.</li>
     </ul>
 
     <figure class="doc-shot"><img loading="lazy" decoding="async" src="../../assets/guides/13_trajectory_playback.png" alt="Playback engaged mid-flight: magenta per-frame rays converging on the moving rx_001 marker while the static TX and scene stay intact"><figcaption>Playback engaged mid-flight — the per-frame rays converge on the moving <code>rx_001</code> marker; the static TX/RX markers stay exactly at their scene positions.</figcaption></figure>
 
-    <h2>5. The entity POV inset</h2>
+    <h2 id="5-the-entity-pov-inset">5. The entity POV inset</h2>
 
-    <p>Click any <b>TX</b>, <b>RX</b>, or actor and a live inset opens in the top-right of the viewport: it renders <b>that entity's point of view toward its link partner</b>. The header reads e.g. <b><code>TX tx_001 →</code></b> with a partner selector (a TX looks at the first RX by default; everything else looks at the first TX). During trajectory or scenario playback the inset tracks the live rendered pose. The source's own airframe is hidden in the POV pass, so a UAV's camera is not blocked by its own rotors. The camera button saves the POV view as a full-resolution PNG; <b>×</b> closes the inset (it reopens on the next selection).</p>
+    <p>Click any <b>TX</b>, <b>RX</b>, or actor and a live inset opens in the top-right of
+    the viewport: it renders <b>that entity's point of view toward its link
+    partner</b>. The header reads e.g. <b><code>TX tx_001 →</code></b> with a partner selector
+    (a TX looks at the first RX by default; everything else looks at the first
+    TX). During trajectory or scenario playback the inset tracks the live
+    rendered pose. The source's own airframe is hidden in the POV pass, so a
+    UAV's camera is not blocked by its own rotors. The camera button saves the
+    POV view as a full-resolution PNG; <b>×</b> closes the inset (it reopens on the
+    next selection).</p>
 
     <figure class="doc-shot"><img loading="lazy" decoding="async" src="../../assets/guides/14_pov_inset.png" alt="TX selected: POV inset TX tx_001 → RX rx_001 with the green ray toward the RX, and the device inspector showing ANTENNA ORIENTATION with Yaw/Pitch/Roll, Look at…, and Aim"><figcaption>With <code>tx_001</code> selected, the inset shows TX tx_001 → RX rx_001 along the green LOS ray. The inspector's ANTENNA ORIENTATION section (Yaw / Pitch / Roll, <code>Look at…</code>, <code>Aim</code>) points the boresight at another device.</figcaption></figure>
 
-    <p>Related: the device inspector's <b>ANTENNA ORIENTATION</b> section sets <b>Yaw (°) / Pitch (°) / Roll (°)</b> directly, or pick a target under <b>Look at…</b> and press <b>Aim</b> to point the boresight at it — handy for aiming a directional TX at the UAV you just flew.</p>
+    <p>Related: the device inspector's <b>ANTENNA ORIENTATION</b> section sets
+    <b>Yaw (°) / Pitch (°) / Roll (°)</b> directly, or pick a target under
+    <b>Look at…</b> and press <b>Aim</b> to point the boresight at it — handy for
+    aiming a directional TX at the UAV you just flew.</p>
 
-    <h2>6. Where the numbers go</h2>
+    <h2 id="6-where-the-numbers-go">6. Where the numbers go</h2>
 
-    <p>The playback strip shows per-frame KPIs (t, position, <b>RSS</b>, <b>Path gain</b>, <b>SINR</b>/<b>SNR</b>, <b>RMS delay</b>, <b>Paths</b>). For the full time-series, open the <b>Metrics dashboard</b> panel: once a trajectory result exists it adds paper-style charts — <em>Trajectory: power vs time</em> (RSS/SINR, derived RSRP), <em>RMS delay spread vs time</em>, <em>path count vs time</em>, plus Doppler and serving-cell/handover views when available — each with PNG/SVG/CSV export. Trajectory samples also feed ML datasets (<code>trajectory</code> sampling mode, see <a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/ml_datasets.md">../ml_datasets.md</a>) and the RFData export (<code>trajectory.csv</code>).</p>
+    <p>The playback strip shows per-frame KPIs (t, position, <b>RSS</b>, <b>Path gain</b>,
+    <b>SINR</b>/<b>SNR</b>, <b>RMS delay</b>, <b>Paths</b>). For the full time-series, open the
+    <b>Metrics dashboard</b> panel: once a trajectory result exists it adds
+    paper-style charts — <em>Trajectory: power vs time</em> (RSS/SINR, derived RSRP),
+    <em>RMS delay spread vs time</em>, <em>path count vs time</em>, plus Doppler and
+    serving-cell/handover views when available — each with PNG/SVG/CSV export.
+    Trajectory samples also feed ML datasets (<code>trajectory</code> sampling mode, see
+    <a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/ml_datasets.md">../ml_datasets.md</a>) and the RFData export
+    (<code>trajectory.csv</code>).</p>
 
-    <h2>Related docs</h2>
+    <h2 id="related-docs">Related docs</h2>
 
     <ul>
       <li><a href="simulation.html">simulation.md</a> — the static solves this guide builds on (paths, radio maps, channel analysis)</li>
@@ -231,6 +353,8 @@ footer{border-top:1px solid var(--line)}
       <li><a href="datasets_export.html">datasets_export.md</a> — ML datasets (trajectory sampling mode) and RFData export</li>
       <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/dynamic_scattering.md">../dynamic_scattering.md</a> — how moving actors are compiled into RF geometry</li>
       <li><a href="materials_and_ai.html">materials_and_ai.md</a> — assigning RF materials (actors have an RF material too)</li>
+      <li><a href="playback_dashboard.html">playback_dashboard.md</a> — replaying a recorded drive/flight (camera, LiDAR, beam power) against the twin</li>
+      <li><a href="sensing.html">sensing.md</a> — actors as radar targets, sensing over scenario frames, EKF tracking</li>
     </ul>
 
     <div class="pn">
@@ -242,7 +366,7 @@ footer{border-top:1px solid var(--line)}
 
 <footer>
   <div class="wrap fineprint">
-    SEAM Studio · Apache License 2.0 · <a href="https://github.com/jaewoo4200/SEAM">github.com/jaewoo4200/SEAM</a> · <a href="../../ko/guides/trajectory_uav.html">한국어</a><br>
+    SEAM Studio · Apache License 2.0 · <a href="https://github.com/jaewoo4200/SEAM">github.com/jaewoo4200/SEAM</a> · <a href="../../ko/guides/trajectory_uav.html">한국어 가이드</a><br>
     Developed by <b>Jaewoo Lee (이재우)</b> · Wireless Systems Laboratory (WSL), Hanyang University · BEYOND-G Global Innovation Center
   </div>
 </footer>

@@ -11,6 +11,8 @@ import math
 from pathlib import Path
 from typing import Optional
 
+import numpy as np
+
 from seam_studio.schemas.devices import Device
 from seam_studio.schemas.materials import RFMaterialLibrary
 from seam_studio.schemas.results import (
@@ -414,7 +416,10 @@ class MockBackend(RayTracingBackend):
         actor_velocities: Optional[dict[str, list[float]]] = None,
     ) -> SensingResultSet:
         """Bistatic radar equation over one scattering point at each target
-        center: LoS legs only, no occlusion, isotropic antennas (Gt = Gr = 1).
+        center: LoS legs only, no occlusion, with the element pattern gain of
+        both devices (element_gain_db) and the per-leg polarization projection
+        (polarization_loss_db), as on the coverage map; XPR targets are not
+        depolarized. A cross-polarized (tx, target, rx) leg pair has no echo.
 
         Doppler is Sionna's per-path expression (paths.py) for a single
         scattering point, positive when the path is closing. A radar riding a
@@ -446,9 +451,9 @@ class MockBackend(RayTracingBackend):
             for tx in txs:
                 for t in targets:
                     for rx in rxs:
-                        paths.append(
-                            self._sensing_path(len(paths) + 1, tx, t, rx, config, lam)
-                        )
+                        path = self._sensing_path(len(paths) + 1, tx, t, rx, config, lam)
+                        if path is not None:
+                            paths.append(path)
 
         summaries = [
             target_summary(
@@ -483,14 +488,36 @@ class MockBackend(RayTracingBackend):
         rx: Device,
         config: SimulationConfig,
         lam: float,
-    ) -> RayPath:
+    ) -> Optional[RayPath]:
+        # sensing_coverage imports the backend registry, which imports this.
+        from seam_studio.services.sensing_coverage import (
+            element_gain_db,
+            polarization_loss_db,
+        )
+
         sp = [float(c) for c in target.center]
         tx_pos = [float(c) for c in tx.position]
         rx_pos = [float(c) for c in rx.position]
         # Raw leg lengths drive delay/phase; the gain clamps them like friis_dbm.
         r1, r2 = _dist(tx_pos, sp), _dist(sp, rx_pos)
+        sp_arr = np.asarray([sp], dtype=float)
+        g_tx = float(element_gain_db(tx, sp_arr - np.asarray(tx_pos))[0])
+        g_rx = float(element_gain_db(rx, sp_arr - np.asarray(rx_pos))[0])
+        l_pol = (
+            0.0
+            if target.model == "constant" and target.xpr_db is not None
+            else float(polarization_loss_db(tx, rx, sp_arr)[0])
+        )
+        if l_pol == -math.inf:
+            return None
+        # Terms join only when nonzero, so an iso, unpitched link sums in the
+        # original order (bit-identical to v0.1.13).
+        power_dbm = tx.power_dbm
+        for term in (g_tx, g_rx, l_pol):
+            if term != 0.0:
+                power_dbm = power_dbm + term
         power_dbm = (
-            tx.power_dbm
+            power_dbm
             + bistatic_radar_gain_db(lam, target.rcs_dbsm, r1, r2)
             - _absorption_db(config, r1 + r2)
         )

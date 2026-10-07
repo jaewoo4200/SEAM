@@ -23,7 +23,7 @@ from seam_studio.schemas.channel import (
     SpectrogramResult,
 )
 from seam_studio.schemas.material_impact import MaterialImpactReport, MaterialImpactRequest
-from seam_studio.services import channel_analysis
+from seam_studio.services import availability, channel_analysis
 from seam_studio.services.simulation_backends import BackendUnavailableError, resolve_backend
 
 router = APIRouter(tags=["channel"])
@@ -127,7 +127,12 @@ def analyze_material_impact(
     project_id: str, request: MaterialImpactRequest
 ) -> MaterialImpactReport:
     """Material-aware vs single-material-baseline CFR comparison (NMSE,
-    cosine similarity, dRSS, capacity proxy) - the KICS 2026 evaluation."""
+    cosine similarity, dRSS, capacity proxy) - the KICS 2026 evaluation.
+
+    Runs under the project's solve guard: it compiles the baseline variant
+    onto the on-disk RF projection, which a concurrent solve would otherwise
+    see as stale and recompile under it."""
+    from seam_studio.api.simulate import _readout_guard
     from seam_studio.services.material_impact import material_impact
 
     store = get_store()
@@ -138,12 +143,15 @@ def analyze_material_impact(
         backend = resolve_backend(config)
     except BackendUnavailableError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
-    try:
-        return material_impact(
-            backend, store.resolve(project_id), scene, library, config, request
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+    with _readout_guard(project_id, "material_impact", backend.name):
+        try:
+            report = material_impact(
+                backend, store.resolve(project_id), scene, library, config, request
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+    availability.note_auto_fallback(report.warnings, config, backend.name)
+    return report
 
 
 def _resolve_config_impact(scene, request: MaterialImpactRequest):

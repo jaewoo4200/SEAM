@@ -16,7 +16,7 @@ from seam_studio.schemas.results import TrajectoryResultSet, TrajectorySample
 from seam_studio.schemas.scene import Scene
 from seam_studio.schemas.simulation import SimulationConfig, TrajectorySimulateRequest
 from seam_studio.services.simulation_backends.base import UNSAVED_RESULT_ID, RayTracingBackend
-from seam_studio.services.simulation_backends.sionna_backend import noise_floor_dbm
+from seam_studio.services.simulation_backends.sionna_backend import _array_key, noise_floor_dbm
 
 
 def resolve_waypoints(request: TrajectorySimulateRequest) -> list[list[float]]:
@@ -416,13 +416,13 @@ def _run_trajectory_routes(
     )
     solve_rx_ids = list(ue_ids) + static_rx_ids
     applied_uid = next(d.id for d in rxs if d.id in routed)
-    applied_antenna = ue_devices[applied_uid].antenna
+    applied_key = _array_key(ue_devices[applied_uid].antenna)
     differing = [
         d.id
         for d in rxs
         if d.id in routed
         and d.id != applied_uid
-        and d.antenna != applied_antenna
+        and _array_key(d.antenna) != applied_key
     ]
     if differing:
         warnings.append(
@@ -617,8 +617,6 @@ def run_trajectory(
     )
     if request.serving_tx_id and (serving_tx is None or serving_tx.id != request.serving_tx_id):
         raise ValueError(f"unknown tx device: {request.serving_tx_id}")
-    tx_power = serving_tx.power_dbm if serving_tx else 0.0
-
     # SNR reference floor (thermal + NF). No interference model yet, so the
     # reported sinr_db is really an SNR = rss_dbm - noise_floor.
     noise_floor = noise_floor_dbm(config)

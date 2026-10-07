@@ -984,6 +984,29 @@ h4 {
 .results-table.track-summary {
   margin-top: 4px;
 }
+/* Scenario sensing: the radar-receiver checklist (Auto + every RX). */
+.sensing-rx-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.sensing-rx-field p.hint {
+  margin: 0;
+}
+.sensing-rx-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-height: 140px;
+  overflow: auto;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.sensing-rx-list .solver-check > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .results-table.track-summary th:first-child {
   color: #f59e0b;
 }
@@ -1321,6 +1344,11 @@ h4 {
 }
 .provider-row .provider-name {
   color: var(--text);
+}
+/* Unreachable-provider details carry long URLs: wrap them inside the sidebar. */
+.provider-row > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .provider-pickable {
   cursor: pointer;
@@ -1801,6 +1829,12 @@ h4 {
   width: 100%;
   border-collapse: collapse;
   font-size: 12px;
+}
+/* Cells are nowrap, so a wide table scrolls here instead of widening the
+   sidebar (which would scroll the whole panel sideways). */
+.table-scroll {
+  overflow-x: auto;
+  max-width: 100%;
 }
 .results-table th {
   text-align: left;
@@ -2862,6 +2896,49 @@ button.picking {
   display: flex;
   gap: 14px;
   color: var(--text);
+}
+/* AODT export / import dialogs: same shell as the sensing-dataset dialog. */
+.modal-card.aodt-modal {
+  width: 440px;
+}
+.aodt-modal .confirm-field input[type="checkbox"],
+.aodt-modal .confirm-field input[type="radio"] {
+  width: auto;
+}
+.aodt-modal .confirm-field input:focus {
+  outline: 1px solid var(--accent);
+}
+.aodt-modal .confirm-field select {
+  width: 100%;
+}
+.aodt-modal .hint {
+  color: var(--muted);
+  font-size: 11px;
+}
+.aodt-modal p.hint {
+  margin: 0;
+  font-size: 12px;
+}
+.aodt-modal .aodt-miss {
+  color: var(--warn);
+}
+.aodt-modal .field-error {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.aodt-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.aodt-summary .results-meta {
+  margin: 0;
+}
+.aodt-tables {
+  font-size: 11px;
+  color: var(--text);
+  word-break: break-word;
 }
 
 /* Inline "Prune results" confirm row (in the results header actions). */

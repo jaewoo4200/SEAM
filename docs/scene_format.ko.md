@@ -29,7 +29,9 @@ SEAM 프로젝트는 압축·공유·재현이 가능한 평범한 폴더입니�
 ```
 
 백엔드는 구성된 루트(`SEAM_PROJECT_ROOTS`, 기존 `SIONNATWIN_PROJECT_ROOTS`;
-기본값은 `projects/`와 `examples/demo_project/`)를 스캔해
+기본값은 소스 체크아웃이면 리포의 `projects/`로, 처음 시작할 때
+`examples/demo_project/`의 커밋된 예제가 여기로 복사되며, pip 설치면
+`~/.seam/projects`)를 스캔해
 `scene.seam.json`(또는 기존 `scene.sionnatwin.json`)이 있는 폴더를 찾아
 프로젝트를 인식합니다. 프로젝트 id는 폴더 이름에서 `.seam`(또는 기존
 `.sionnatwin`) 접미사를 뗀 것입니다. 모든 쓰기는 원자적(임시 파일 + 이름
@@ -44,7 +46,7 @@ SEAM으로 이름을 바꾸기 전에 만든 프로젝트는 내부에 `scene.si
 
 ## scene.seam.json
 
-직렬화된 `Scene` 모델(`backend/app/schemas/scene.py`). 모든 모델이 알 수 없는 키를
+직렬화된 `Scene` 모델(`backend/seam_studio/schemas/scene.py`). 모든 모델이 알 수 없는 키를
 거부하므로, 스키마 드리프트는 조용히 묻히지 않고 로드 시점에 곧바로 드러납니다. 모든
 좌표는 Z-up ENU 미터 단위입니다.
 
@@ -158,7 +160,7 @@ rule_suggested | ai_suggested
    │  declining a suggestion → rejected (no material)
    ▼
 user_confirmed
-   │  future measurement-calibration run refines parameters
+   │  measurement calibration (POST /calibrate/materials, apply: true) refines parameters
    ▼
 measurement_calibrated
 ```
@@ -232,19 +234,25 @@ measurement_calibrated
 | field | type | notes |
 |---|---|---|
 | `result_id` | str | `{backend}_{kind}_{n:03d}`, 예: `mock_paths_001` |
-| `kind` | `"paths"` \| `"radio_map"` \| `"mesh_radio_map"` \| `"trajectory"` \| `"scenario"` \| `"channel"` \| `"playback"` \| `"sensing"` | |
+| `kind` | `"paths"` \| `"radio_map"` \| `"mesh_radio_map"` \| `"trajectory"` \| `"scenario"` \| `"channel"` \| `"playback"` \| `"sensing"` \| `"isac"` \| `"sensing_coverage"` | |
 | `backend` | str | 이를 생성한 백엔드 |
 | `simulation_config_id` | str | |
 | `uri` | str | 프로젝트 상대 경로, `results/<result_id>.json` |
 | `created_at` | str \| null | ISO 8601 UTC |
+| `label` | str \| null | 이름 붙인 실행. prune은 라벨이 있는 실행을 지우지 않음 |
+| `size_bytes` | int \| null | 저장 시점의 파일 크기, Run history에 표시 |
 
-결과 파일은 불변입니다. 목록은 추가 전용(append-only)이자 정렬돼 있고, 어떤 종류의
-"최신" 결과는 그 종류의 마지막 ref입니다.
+결과 파일은 불변입니다. 목록은 정렬돼 있고 늘어나기만 하는데, 예외는 정리(prune)입니다.
+`POST /results/prune`이나 솔브마다 도는 `SEAM_AUTO_PRUNE_KEEP`이 라벨 없는 ref와 그 파일을
+지웁니다. 어떤 종류의 "최신" 결과는 그 종류의 마지막 ref입니다.
 
 ## 데모 프로젝트
 
 `examples/scripts/create_demo_project.py`는
 `examples/demo_project/sample_demo.seam`을 결정론적으로 재생성합니다:
 `visual/scene.glb` 안의 명명된 메시 8개(월드 변환이 정점에 베이크됨), prim 13개
-(그룹 5개 + 메시 프리미티브 8개), 디바이스 2개, 저장된 시뮬레이션 구성 하나. 이
-프로젝트는 이 페이지에서 설명하는 모든 관례의 참조 예시 역할도 겸합니다.
+(그룹 5개 + 메시 프리미티브 8개), 디바이스 3개(옥상 TX, 거리 RX, TX와 같은 위치의 센싱
+RX `tx_001_rx`), 액터 3개(차량, 보행자, 드론 센싱 타깃 `uav_001`), 저장된 시뮬레이션
+구성 하나. 커밋된 사본은 v0.1.14의 센싱 RX와 드론보다 먼저 만들어졌고, 소스 체크아웃은
+데모를 `projects/`로 복사할 때 이들을 더합니다. 이 프로젝트는 이 페이지에서 설명하는 모든
+관례의 참조 예시 역할도 겸합니다.

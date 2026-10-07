@@ -303,7 +303,7 @@ def _require_pyarrow() -> None:
         import pyarrow.parquet  # noqa: F401
     except ImportError as exc:
         raise SensingDatasetError(
-            "parquet needs pyarrow (pip install 'seam-studio[results]'); "
+            "parquet needs pyarrow (pip install \"seam-studio[parquet]\"); "
             "export npz or csv instead"
         ) from exc
 

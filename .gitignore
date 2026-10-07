@@ -39,6 +39,14 @@ examples/**/visual/overlay.glb
 # Face-group split keeps a timestamped backup of the pre-split GLB next to
 # the scene; it is a runtime artifact, not an authored asset.
 examples/**/visual/scene.pre-split-*.glb
+# AI segmentation uploads/batches, SEAM-Agent jobs and evidence images, and
+# the rf_compiler object map are runtime outputs too; sample_demo's object map
+# is authored and stays tracked.
+examples/**/ai/segmentation/
+examples/**/ai/agent/
+examples/**/ai/evidence/
+examples/**/mapping/object_map.json
+!examples/demo_project/sample_demo.seam/mapping/object_map.json
 projects/
 
 # Paper drafts and paper-writing working notes (unpublished research material;
@@ -86,9 +94,16 @@ website/assets/SEAM_*
 
 # Local editor/agent launch config (machine-specific paths).
 .claude/
+/launch.json
 
 # Wheel-only bundled frontend (copied in by scripts/build_wheel.py) + build
 # artifacts of the pip package.
 backend/seam_studio/static/
 backend/dist/
 backend/*.egg-info/
+
+# humanize-korean skill scratch (drafts belong in verification/, never in git).
+_workspace/
+
+# Runtime artefacts of a solve run with cwd=backend/ (project-relative mapping/ paths).
+backend/mapping/

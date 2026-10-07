@@ -4,6 +4,8 @@ GET /api/backends adds the per-backend capability map (what each solver can
 actually do on this machine) for capability-aware frontends.
 """
 
+from concurrent.futures import ThreadPoolExecutor
+
 from fastapi import APIRouter
 
 from seam_studio.core.config import APP_VERSION, get_settings
@@ -35,7 +37,11 @@ def list_backends() -> list[BackendCapabilities]:
                 BackendCapabilities(
                     name=name,
                     available=available,
-                    detail="" if available else "not installed (optional)",
+                    detail=(
+                        sionna_backend_detail(available)
+                        if name == "sionna"
+                        else ("" if available else "not installed (optional)")
+                    ),
                     capabilities=backend.capabilities(),
                 )
             )
@@ -49,17 +55,20 @@ def list_backends() -> list[BackendCapabilities]:
 @router.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     settings = get_settings()
-    sionna_ok = sionna_available()
+    # The one-time Sionna runtime probe (~1 s child process) overlaps the AI
+    # reachability probes (<= 1 s), so a cold /health stays near 1 s.
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        sionna_future = pool.submit(sionna_available)
+        try:
+            # Lazy: the AI provider module may probe a local Ollama server.
+            from seam_studio.services.ai_provider import get_provider_statuses
 
-    try:
-        # Lazy: the AI provider module may probe a local Ollama server.
-        from seam_studio.services.ai_provider import get_provider_statuses
-
-        ai_statuses = get_provider_statuses()
-    except Exception as exc:  # AI must never break the app (HANDOFF rule 6)
-        ai_statuses = [
-            AIProviderStatus(name="unknown", available=False, detail=str(exc))
-        ]
+            ai_statuses = get_provider_statuses()
+        except Exception as exc:  # AI must never break the app (HANDOFF rule 6)
+            ai_statuses = [
+                AIProviderStatus(name="unknown", available=False, detail=str(exc))
+            ]
+        sionna_ok = sionna_future.result()
 
     return HealthResponse(
         version=APP_VERSION,

@@ -85,6 +85,21 @@ def _ensure_variant(warnings: list) -> None:
         return
 
 
+def _array_key(antenna: dict) -> tuple:
+    """What the scene array honors (as in sionna_backend._array_key): the
+    spacing along a one-element axis places nothing."""
+    rows = int(antenna.get("num_rows") or 1)
+    cols = int(antenna.get("num_cols") or 1)
+    return (
+        antenna.get("pattern") or "iso",
+        antenna.get("polarization") or "V",
+        rows,
+        cols,
+        round(float(antenna.get("vertical_spacing") or 0.5), 9) if rows > 1 else None,
+        round(float(antenna.get("horizontal_spacing") or 0.5), 9) if cols > 1 else None,
+    )
+
+
 def _planar_array(rt, antenna: dict, warnings: list) -> object:
     pattern = antenna.get("pattern") or "iso"
     pol = antenna.get("polarization") or "V"
@@ -192,6 +207,15 @@ def run(job: dict) -> dict:
     txs, rxs = job["txs"], job["rxs"]
     scene.tx_array = _planar_array(rt, txs[0].get("antenna") or {}, warnings)
     scene.rx_array = _planar_array(rt, rxs[0].get("antenna") or {}, warnings)
+    for side, plural, devs in (("tx", "TXs", txs), ("rx", "RXs", rxs)):
+        first = _array_key(devs[0].get("antenna") or {})
+        differing = [d["id"] for d in devs[1:] if _array_key(d.get("antenna") or {}) != first]
+        if differing:
+            warnings.append(
+                f"sionna applies {side} antenna of '{devs[0]['id']}' to all selected "
+                f"{plural} (scene-level array); differing antennas on "
+                f"{', '.join(differing)} are not individually honored"
+            )
     for dev in txs:
         scene.add(rt.Transmitter(
             name=dev["id"],

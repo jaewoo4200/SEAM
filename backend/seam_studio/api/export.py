@@ -5,8 +5,8 @@ POST /projects/{project_id}/export/rfdata  -> writes the AODT viewer contract
 export/rfdata/ and returns a summary of what was written.
 
 POST /projects/{project_id}/export/aodt    -> writes NVIDIA AODT's OFFICIAL
-results-schema parquet tables under export/aodt/ (409 when pyarrow is missing,
-404 when the requested source result is absent).
+results-schema parquet tables under export/aodt/ (409 when pyarrow, the
+``parquet`` extra, is missing; 404 when the requested source result is absent).
 
 POST /projects/{project_id}/export/channel-npz -> solves one paths run per UE
 position and writes a per-link channel dataset npz in the AODT/HYRAY layout

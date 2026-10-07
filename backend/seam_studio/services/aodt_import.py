@@ -87,9 +87,8 @@ def _require_pyarrow():
         return pq
     except ImportError as exc:  # pragma: no cover - exercised via 409 path
         raise AodtImportUnavailable(
-            "pyarrow is required for AODT import; run "
-            "\"pip install 'seam-backend[results]'\" (which pulls pyarrow) in "
-            "the backend venv."
+            "pyarrow is required for AODT import; install it with "
+            "pip install \"seam-studio[parquet]\""
         ) from exc
 
 

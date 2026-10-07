@@ -8,7 +8,7 @@ AI 어시스턴트는 시각적 증거 — 객체 이름, GLB 재질 이름, 시
 
 ## 프로바이더 추상화
 
-`app.services.ai_provider`는 API 계층에서 사용하는 두 진입점을 노출합니다:
+`seam_studio.services.ai_provider`는 API 계층에서 사용하는 두 진입점을 노출합니다:
 
 ```python
 get_provider_statuses() -> list[AIProviderStatus]
@@ -20,8 +20,8 @@ suggest_materials(scene, library, request: SuggestMaterialsRequest) -> MaterialS
 | provider | needs | behavior |
 |---|---|---|
 | `rule_based` | nothing | 이름 / 시각 재질 이름 / 태그를 대상으로 한 결정론적 키워드 규칙 (window→`itu_glass`, brick→`itu_brick`, road→`asphalt_custom`, ...) |
-| `local_openai` | 도달 가능한 OpenAI 호환 서버 (LM Studio 등, `SIONNATWIN_OPENAI_URL`) | prim 증거를 담아 로컬 LLM에 프롬프트를 보내고 엄격한 JSON을 돌려받음. **비전 지원**: 스크린샷이 있으면 요청이 멀티모달(`image_url`)이 됨; 로드된 모델이 이미지를 거부하면 폴백 전에 텍스트 전용으로 재시도함 |
-| `ollama_text` | 도달 가능한 Ollama 서버 + 텍스트 모델 | Ollama chat API를 통한 동일한 계약. **비전 지원**: 스크린샷이 base64 `images`로 첨부되고 호출이 `SIONNATWIN_AI_VISION_MODEL`로 전환됨 (모델 교체는 경고로 알림); 이미지 거부 시 텍스트 전용으로 재시도함 |
+| `local_openai` | 도달 가능한 OpenAI 호환 서버 (LM Studio 등, `SEAM_OPENAI_URL`; 레거시 별칭 `SIONNATWIN_OPENAI_URL`) | prim 증거를 담아 로컬 LLM에 프롬프트를 보내고 엄격한 JSON을 돌려받음. **비전 지원**: 스크린샷이 있으면 요청이 멀티모달(`image_url`)이 됨; 로드된 모델이 이미지를 거부하면 폴백 전에 텍스트 전용으로 재시도함 |
+| `ollama_text` | 도달 가능한 Ollama 서버 + 텍스트 모델 | Ollama chat API를 통한 동일한 계약. **비전 지원**: 스크린샷이 base64 `images`로 첨부되고 호출이 `SEAM_AI_VISION_MODEL`(레거시 별칭 `SIONNATWIN_AI_VISION_MODEL`)로 전환됨 (모델 교체는 경고로 알림); 이미지 거부 시 텍스트 전용으로 재시도함 |
 | `disabled` | — | 제안을 반환하지 않음 (AI 꺼짐) |
 
 선택: `SuggestMaterialsRequest.provider`를 지정하면 특정 프로바이더를 강제하고,
@@ -76,7 +76,7 @@ GPU도, 호환 모델도 나머지 기능을 쓰는 데는 전혀 필요 없으�
 ## 엄격한 JSON 계약
 
 모델 출력은 `MaterialSuggestionResponse`
-(`backend/app/schemas/ai.py`) 스키마를 통과해야 합니다. 자유 형식 AI 텍스트가 씬에 도달하는 일은 절대 없습니다.
+(`backend/seam_studio/schemas/ai.py`) 스키마를 통과해야 합니다. 자유 형식 AI 텍스트가 씬에 도달하는 일은 절대 없습니다.
 
 ```json
 {
@@ -116,7 +116,8 @@ GPU도, 호환 모델도 나머지 기능을 쓰는 데는 전혀 필요 없으�
 
 **자동 적용 절대 금지 규칙:** 사용자가 직접 조치하지 않는 한 어떤 제안도 씬을
 바꾸지 않습니다. MVP에는 자동 적용 코드 경로 자체가 없습니다.
-`SIONNATWIN_AI_AUTO_APPLY`는 향후 옵트인용으로 예약해 둔 플래그이며, 설령
+`SEAM_AI_AUTO_APPLY`(레거시 별칭 `SIONNATWIN_AI_AUTO_APPLY`)는 향후 옵트인용으로 예약해 둔
+플래그이며, 설령
 도입되더라도 provenance에는 그 할당이 AI에서 나왔다는 사실이 그대로 기록됩니다.
 
 ## Provenance 로그

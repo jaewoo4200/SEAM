@@ -14,12 +14,10 @@ from fastapi.testclient import TestClient
 from seam_studio.api import channel as channel_api
 from seam_studio.api import deps
 from seam_studio.core.config import get_settings
-from seam_studio.schemas.channel import ChannelAnalysisRequest
 from seam_studio.schemas.devices import Device
 from seam_studio.schemas.results import RayPath
 from seam_studio.schemas.scene import MeshRef, Prim, RFBinding, Scene
 from seam_studio.services import channel_analysis as ca
-from seam_studio.services.project_store import load_default_library
 
 TX_POS = [0.0, 0.0, 10.0]
 RX_POS = [20.0, 0.0, 1.5]

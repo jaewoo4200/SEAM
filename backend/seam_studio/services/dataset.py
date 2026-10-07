@@ -47,7 +47,7 @@ from ..schemas.materials import RFMaterialLibrary
 from ..schemas.results import PathResultSet
 from ..schemas.scene import Scene
 from ..schemas.simulation import SimulationConfig
-from . import solve_ctx
+from . import availability, solve_ctx
 from .channel_analysis import delay_metrics, doppler_metrics, k_factor_db
 from .trajectory import resample_polyline
 
@@ -216,6 +216,7 @@ def generate_dataset(
     import numpy as np
 
     warnings: list[str] = []
+    availability.note_auto_fallback(warnings, config, backend.name)
     txs = [d for d in scene.devices if d.kind == "tx"]
     rxs = [d for d in scene.devices if d.kind == "rx"]
     tx = next((d for d in txs if d.id == request.tx_id), txs[0] if txs else None)

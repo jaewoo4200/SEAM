@@ -118,7 +118,7 @@ def test_import_outdoor_ftc_applies_transform_and_maps_materials():
     # The shapes carry a +90deg X rotation (Y-up -> Z-up). After applying it the
     # combined geometry should be Z-up: taller in Z than a degenerate flat slab
     # and with meaningful horizontal extent.
-    combined = tm_scene.dump(concatenate=True)
+    combined = tm_scene.to_geometry()
     lo, hi = combined.bounds
     assert (hi[2] - lo[2]) > 1.0  # non-degenerate vertical extent
     assert (hi[0] - lo[0]) > 5.0 and (hi[1] - lo[1]) > 5.0

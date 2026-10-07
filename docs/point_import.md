@@ -7,9 +7,9 @@ user can hand-author or export from a GPS tool. Points may be **cartesian**
 (local ENU meters, Z-up) or **geographic** (WGS84 latitude/longitude), detected
 per point, and the two forms may be mixed within one file.
 
-Schemas: `backend/app/schemas/point_import.py`. Resolution logic:
-`backend/app/services/point_import.py`. Routes:
-`backend/app/api/point_import.py`.
+Schemas: `backend/seam_studio/schemas/point_import.py`. Resolution logic:
+`backend/seam_studio/services/point_import.py`. Routes:
+`backend/seam_studio/api/point_import.py`.
 
 Ready-to-use example files (device + trajectory, per-file expected results):
 [examples/point_import/](../examples/point_import/README.md).
@@ -51,7 +51,7 @@ geographic reading; otherwise the point is cartesian. Mixing `x`/`y` with
 
 `agl_m` is **height above the scene surface**. Each AGL point is resolved by
 raycasting straight down onto the visual mesh
-(`app.services.terrain.snap_to_terrain`) and taking `z = surface + agl_m`, so a
+(`seam_studio.services.terrain.snap_to_terrain`) and taking `z = surface + agl_m`, so a
 device or waypoint keeps a constant antenna height over sloped ground.
 
 - If nothing lies under the point (off the mesh footprint, or the scene has no

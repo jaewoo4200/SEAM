@@ -17,7 +17,10 @@ overlays in the same viewport.
 
 No GPU, no Sionna, no LLM required — all three are **optional upgrades**.
 Core workflows and demos run on the **Mock backend (CPU)**; only
-Sionna-specific features need the real backend.
+Sionna-specific features need the real backend, which installs with the
+package and runs on an NVIDIA GPU (CUDA) or, once LLVM is installed, on the
+CPU ([INSTALL.md → CPU-only machines](INSTALL.md#cpu-only-machines-no-nvidia-gpu-install-llvm)).
+Without either, `auto` runs the Mock backend and `/api/health` says why.
 
 ```text
 Unified RF-Visual Scene Graph          (scene.seam.json - source of truth; legacy scene.sionnatwin.json)
@@ -125,10 +128,10 @@ Studio builds on the same Sionna RT engine and adds:
 - **Deterministic Mock backend** — Friis + image-method reflections compute
   example paths/radio maps with no GPU/Sionna, so the frontend and tests run
   anywhere.
-- **Real Sionna RT path** — with `sionna-rt` installed (2.2+ required;
-  validated on 2.0.x and 2.2.x) the compiled `generated_scene.xml` loads
-  directly on GPU (Dr.Jit CUDA) or CPU (LLVM) and results normalize into the
-  same schema.
+- **Real Sionna RT path** — with sionna-rt ≥ 2.2 (validated on 2.2.x) the
+  compiled `generated_scene.xml` loads directly on GPU (Dr.Jit CUDA) or CPU
+  (Dr.Jit LLVM; install LLVM first, see INSTALL) and results normalize into
+  the same schema.
 - **AODT alignment** — 28 GHz defaults, ITU-R P.2040 material set (+`human_body`),
   AODT-style dark viewer (LOS cyan / reflection magenta / diffraction orange),
   RFData export contract.
@@ -145,7 +148,8 @@ Studio builds on the same Sionna RT engine and adds:
   apart from measured link path gains (`/calibrate/disambiguate`, picks the
   lowest-RMSE candidate and warns when indistinguishable), and quantify
   how much an assignment matters by comparing against a single-material baseline
-  (NMSE / cosine similarity / ΔRSS / capacity, `/analyze/material-impact`, KICS 2026).
+  (NMSE / cosine similarity / ΔRSS / capacity, AI Assist → **Material impact…** or
+  `/analyze/material-impact`, KICS 2026).
 - **AoA/AoD angle analytics** — every path carries departure/arrival
   `[azimuth, elevation]` plus per-path gain, rendered as paper-style polar
   scatter plots (azimuth = angle, power = radius, AoD filled / AoA hollow
@@ -164,9 +168,12 @@ Studio builds on the same Sionna RT engine and adds:
   (`WS /ws/projects/{id}/events`) streams compile/simulation progress without
   polling, and `GET /api/backends` exposes a per-backend capability map.
 - **External results & measurements** — import NVIDIA AODT parquet results into
-  the same schema (`/results/import-aodt`, stamped with the `aodt_import`
-  backend) and measured link CSVs
-  (`/calibrate/measurements/import-csv`) for calibration and disambiguation.
+  the same schema (**Actions ▾ → AODT import (parquet)** or
+  `/results/import-aodt`, stamped with the `aodt_import` backend), export
+  stored results as AODT parquet tables (**AODT export (parquet)**), and import
+  measured link CSVs (Flight-log validation → **Import measurement CSV…**,
+  `/calibrate/measurements/import-csv`) for calibration and disambiguation
+  (parquet needs `pip install "seam-studio[parquet]"`).
 - **Scene bundle import (zip / OSM)** — import a whole scene folder (XML +
   meshes + textures) as one zip with relative paths preserved; textures persist
   both viewer-side (GLB) and full-resolution for AI evidence. Or pull real
@@ -211,8 +218,9 @@ Studio builds on the same Sionna RT engine and adds:
 - **ISAC research layer** — an azimuth × elevation codebook for steep drones,
   inter-TX interference in the UE SINR, Swerling 0/1/3 detector models with a
   Monte Carlo Pd/Pfa check and a Pd-curve endpoint, EKF tracking over
-  scenario frames, and a sensing dataset export (npz/csv/parquet) for
-  learning. See [docs/guides/sensing.md](docs/guides/sensing.md).
+  scenario frames, and a sensing dataset export (npz/csv/parquet; parquet
+  needs `pip install "seam-studio[parquet]"`) for learning. See
+  [docs/guides/sensing.md](docs/guides/sensing.md).
 - **AI model picker** — models loaded in LM Studio / Ollama are auto-discovered
   and switchable in the UI; the responding model is recorded in provenance.
 
@@ -222,8 +230,9 @@ See [TUTORIAL.md](TUTORIAL.md) for the full demo flow.
 
 ## Programmatic API (endpoints without UI buttons)
 
-Most features are driven from the web UI; these two endpoints are meant for
-curl/scripts (backend defaults to `http://127.0.0.1:8000`):
+Most features are driven from the web UI; these three endpoints have no UI
+button and are meant for curl/scripts (backend defaults to
+`http://127.0.0.1:8000`):
 
 - **`POST /api/projects/{id}/live/state`** — **inject real-world positions.**
   Push device/actor positions from GPS/mocap/logs into the loaded scene. The
@@ -252,6 +261,17 @@ curl/scripts (backend defaults to `http://127.0.0.1:8000`):
     -d '{"measurements":[{"rx_position":[10.0,5.0,1.5],"measured_path_gain_db":-92.0}],"target_material_id":"concrete","param":"scattering_coefficient","apply":false}'
   ```
 
+- **`POST /api/projects`** — **create a project** from a template
+  (`template: "empty" | "demo"`; `"demo"` materializes the Sample Demo, with the
+  same generator the `seam-studio` CLI uses for its first project). The UI
+  creates projects through Import instead.
+
+  ```bash
+  curl -X POST http://127.0.0.1:8000/api/projects \
+    -H "Content-Type: application/json" \
+    -d '{"name":"My twin","template":"empty"}'
+  ```
+
   Device/trajectory JSON import (`POST /import/devices`, `/import/trajectory`,
   `GET /import/templates`) is documented in
   [docs/point_import.md](docs/point_import.md).
@@ -270,7 +290,8 @@ curl/scripts (backend defaults to `http://127.0.0.1:8000`):
 | [docs/guides/simulation.md](docs/guides/simulation.md) | illustrated guide: paths, radio maps, beamforming, channel analysis |
 | [docs/guides/trajectory_uav.md](docs/guides/trajectory_uav.md) | illustrated guide: trajectories, UAV actors, playback, POV views |
 | [docs/guides/datasets_export.md](docs/guides/datasets_export.md) | illustrated guide: ML datasets and exports |
-| [docs/guides/sensing.md](docs/guides/sensing.md) | guide: radar sensing targets, RCS solve, Doppler |
+| [docs/guides/sensing.md](docs/guides/sensing.md) | guide: radar sensing, ISAC over time + EKF tracking, beam trade-off, coverage, detectors, sensing dataset export (sections 1–11) |
+| [docs/guides/playback_dashboard.md](docs/guides/playback_dashboard.md) | guide: replaying a measured drive/flight (camera, LiDAR, beam power) against the twin |
 | [docs/architecture.md](docs/architecture.md) | unified scene graph & dual-projection architecture |
 | [docs/scene_format.md](docs/scene_format.md) | scene/project folder format and schemas |
 | [docs/rf_materials.md](docs/rf_materials.md) | RF material library and models |
@@ -284,7 +305,8 @@ curl/scripts (backend defaults to `http://127.0.0.1:8000`):
 | [docs/point_import.md](docs/point_import.md) | device/trajectory JSON import format (cartesian & geographic) |
 | [docs/extending.md](docs/extending.md) | plugin architecture & extension guide |
 | [docs/accuracy.md](docs/accuracy.md) | RT-vs-measurement error and mitigations |
-| [docs/roadmap.md](docs/roadmap.md) | post-MVP roadmap and extension points |
+| [docs/roadmap.md](docs/roadmap.md) | what has shipped and what remains |
+| [docs/releasing.md](docs/releasing.md) | release checklist: version bump places, tag → PyPI, website deploy |
 | [docs/research_ideas.md](docs/research_ideas.md) | publishable research directions |
 | [HANDOFF.md](HANDOFF.md) | the operating specification this implementation follows |
 
@@ -312,7 +334,8 @@ backend/    FastAPI app: schemas (Pydantic v2), project store, scene validator,
             RF material assignment, RF projection compiler (trimesh),
             simulation backends (Mock + optional Sionna RT), AI providers
 frontend/   React + Vite + TypeScript + react-three-fiber workbench
-examples/   demo project generators (sample_demo, lab_room import)
+examples/   committed demo projects + their generators (copied into projects/ on first start)
+projects/   your projects in a source checkout (gitignored)
 scripts/    install / start scripts (PowerShell + bash)
 docs/       architecture, scene format, RF materials, AI, engines, accuracy, roadmap
 HANDOFF.md  operating specification this implementation follows
@@ -342,7 +365,7 @@ If you use SEAM Studio in your research, please cite it
   title   = {{SEAM Studio}: Scene-to-Electromagnetic Authoring and
              Mapping for Wireless Digital Twins},
   url     = {https://github.com/jaewoo4200/SEAM},
-  version = {0.1.5},
+  version = {0.1.14},
   year    = {2026}
 }
 ```

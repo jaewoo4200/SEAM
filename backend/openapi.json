@@ -10627,6 +10627,21 @@
             "title": "Samples Per Sp",
             "type": "integer"
           },
+          "sensing_rx_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sensing Rx Ids"
+          },
           "target_actor_ids": {
             "anyOf": [
               {
@@ -12770,7 +12785,7 @@
   "info": {
     "description": "Unified RF-visual scene authoring, RF material assignment, Sionna RT projection compilation, and simulation result APIs.",
     "title": "SEAM Studio",
-    "version": "0.1.13"
+    "version": "0.1.14"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -12913,7 +12928,7 @@
         ]
       },
       "post": {
-        "description": "Create a new project folder under the first configured project root.\n\n``template=\"demo\"`` generates the Sample Demo content (toy urban scene\nGLB, TX/RX pair, car + pedestrian actors) programmatically — this is how\na pip install gets its first project without shipping binary assets.",
+        "description": "Create a new project folder under the first configured project root.\n\n``template=\"demo\"`` generates the Sample Demo content (toy urban scene\nGLB, TX/RX pair plus a sensing RX at the TX, car + pedestrian actors and a\ndrone sensing target) programmatically — this is how a pip install gets\nits first project without shipping binary assets.",
         "operationId": "create_project_api_projects_post",
         "requestBody": {
           "content": {
@@ -13984,7 +13999,7 @@
     },
     "/api/projects/{project_id}/analyze/material-impact": {
       "post": {
-        "description": "Material-aware vs single-material-baseline CFR comparison (NMSE,\ncosine similarity, dRSS, capacity proxy) - the KICS 2026 evaluation.",
+        "description": "Material-aware vs single-material-baseline CFR comparison (NMSE,\ncosine similarity, dRSS, capacity proxy) - the KICS 2026 evaluation.\n\nRuns under the project's solve guard: it compiles the baseline variant\nonto the on-disk RF projection, which a concurrent solve would otherwise\nsee as stale and recompile under it.",
         "operationId": "analyze_material_impact_api_projects__project_id__analyze_material_impact_post",
         "parameters": [
           {
@@ -14294,7 +14309,7 @@
     },
     "/api/projects/{project_id}/calibrate/measurements/import-csv": {
       "post": {
-        "description": "Import measurement samples from CSV text and persist the raw CSV.\n\nBad rows are skipped and counted (never fatal). The uploaded CSV is stored\nverbatim so a later GET re-parses the exact source the user provided.",
+        "description": "Import measurement samples from CSV text and persist the raw CSV.\n\nBad rows are skipped and counted (never fatal). The uploaded CSV is stored\nverbatim so a later GET re-parses the exact source the user provided. A\nCSV that yields no measurement at all (wrong headers or delimiter, not\nUTF-8 text) answers 400 and leaves the stored import untouched.",
         "operationId": "import_measurements_csv_api_projects__project_id__calibrate_measurements_import_csv_post",
         "parameters": [
           {

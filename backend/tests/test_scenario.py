@@ -19,8 +19,6 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from seam_studio.schemas.actors import (
-    ActorState,
-    LiveStateUpdate,
     ScenarioSimulateRequest,
 )
 from seam_studio.schemas.devices import Device
@@ -35,13 +33,12 @@ from seam_studio.schemas.scene import (
 )
 from seam_studio.schemas.simulation import SimulationConfig
 from seam_studio.services import project_store
-from seam_studio.services.availability import sionna_available
 from seam_studio.services.rf_compiler import compile_project
 from seam_studio.services.scenario import actor_position_at, run_scenario
 from seam_studio.services.simulation_backends.mock_backend import MockBackend
 from seam_studio.services.simulation_backends.sionna_backend import SionnaBackend
 
-SIONNA_INSTALLED = sionna_available()
+from .conftest import requires_sionna
 
 WALL_ID = "/buildings/b01/wall"
 
@@ -508,7 +505,7 @@ def test_scenario_api_roundtrip(api_client) -> None:
 # ------------------------------------------------------- sionna-guarded
 
 
-@pytest.mark.skipif(not SIONNA_INSTALLED, reason="requires sionna-rt installed")
+@requires_sionna
 def test_sionna_scenario_frame_solves(project, library) -> None:
     backend = SionnaBackend()
     # 3.5 GHz keeps ITU ground/metal in-band; small sample budget for speed.

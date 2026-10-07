@@ -34,6 +34,7 @@ from seam_studio.schemas.materials import RFMaterialLibrary
 from seam_studio.schemas.results import RayPath
 from seam_studio.schemas.scene import Scene
 from seam_studio.schemas.simulation import SimulationConfig
+from seam_studio.services import availability
 from seam_studio.services.simulation_backends import resolve_backend
 from seam_studio.services.simulation_backends.sionna_backend import noise_floor_dbm
 
@@ -632,6 +633,7 @@ def analyze_channel(
     link_cfg = config.model_copy(update={"tx_ids": [tx.id], "rx_ids": [rx.id]})
     result = backend.simulate_paths(project_dir, scene, library, link_cfg)
     warnings.extend(result.warnings)
+    availability.note_auto_fallback(warnings, config, backend.name)
     # Per-path Doppler rides in metadata aligned 1:1 with result.paths (RayPath
     # has no doppler field). Map it by path id so it survives the link filter
     # and the delay sort below.
@@ -909,6 +911,7 @@ def analyze_spectrogram(
     link_cfg = config.model_copy(update={"tx_ids": [tx.id], "rx_ids": [rx.id]})
     result = backend.simulate_paths(project_dir, scene, library, link_cfg)
     warnings = list(result.warnings)
+    availability.note_auto_fallback(warnings, config, backend.name)
     paths = [p for p in result.paths if p.tx_id == tx.id and p.rx_id == rx.id]
 
     # Per-path Doppler: backend metadata when present (real solver; includes

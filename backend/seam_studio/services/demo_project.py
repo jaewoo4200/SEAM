@@ -1,15 +1,18 @@
 """Programmatic "Sample Demo" project generator.
 
 Builds the small urban toy scene (ground, road, two buildings with windows,
-one tree, TX/RX pair, car + pedestrian actors) entirely from code — meshes
-via trimesh, exported as a GLB with exact per-object mesh names — and writes
-a complete project folder around it.
+one tree, TX/RX pair, car + pedestrian actors, and since v0.1.14 a drone
+sensing target plus a sensing RX co-located with the TX) entirely from code —
+meshes via trimesh, exported as a GLB with exact per-object mesh names — and
+writes a complete project folder around it.
 
 This is how a pip-installed run gets its first project without shipping any
 binary assets in the wheel: the CLI (and POST /projects with
 ``template="demo"``) call :func:`create_demo_project` on demand. The
-``examples/scripts/create_demo_project.py`` repo script delegates here too,
-so the committed example and the generated first-run project stay identical.
+``examples/scripts/create_demo_project.py`` repo script delegates here too.
+The committed example predates the v0.1.14 additions; seeding a source
+checkout's ``projects/`` (:func:`seed_checkout_projects`) adds them to the
+copy, never to ``examples/``.
 
 Pinned conventions honored (HANDOFF):
 - all coordinates are Z-up ENU meters and every world transform is baked into
@@ -22,6 +25,10 @@ Pinned conventions honored (HANDOFF):
 from __future__ import annotations
 
 import json
+import logging
+import os
+import shutil
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -45,6 +52,8 @@ from seam_studio.services.project_store import ProjectStore, load_default_librar
 PROJECT_ID = "sample_demo"
 SCENE_NAME = "Sample Demo"
 GLB_URI = "visual/scene.glb"
+
+logger = logging.getLogger(__name__)
 
 # name -> (baseColorFactor RGBA in 0..1, alphaMode BLEND)
 PBR_MATERIALS: dict[str, tuple[tuple[float, float, float, float], bool]] = {
@@ -183,6 +192,35 @@ def _group(prim_id: str, tags: list[str] | None = None) -> Prim:
     )
 
 
+def demo_sensing_rx() -> Device:
+    """Monostatic radar receiver at the rooftop TX (same pose, iso 1x1), so
+    sensing, scenario sensing, ISAC and coverage work out of the box."""
+    return Device(
+        id="tx_001_rx",
+        name="TX 1 sensing RX",
+        kind="rx",
+        position=[-9.0, 7.0, 10.5],
+        color="#2e9bff",
+    )
+
+
+def demo_uav_actor() -> Actor:
+    """A TR 38.901 small-UAV sensing target flying 90 m (9 s at 10 m/s) at
+    40 m, well above both buildings."""
+    return Actor(
+        id="uav_001",
+        name="Drone",
+        kind="uav",
+        position=[-25.0, -20.0, 40.0],
+        trajectory=ActorTrajectory(
+            waypoints=[[-25.0, -20.0, 40.0], [25.0, -20.0, 40.0], [25.0, 20.0, 40.0]],
+            speed_m_s=10.0,
+            mode="once",
+        ),
+        sensing={"model": "tr38901", "object_type": "uav-small-size"},
+    )
+
+
 def build_scene(scene_id: str = PROJECT_ID, name: str = SCENE_NAME) -> Scene:
     prims: list[Prim] = [
         _group("/terrain", ["terrain"]),
@@ -282,6 +320,7 @@ def build_scene(scene_id: str = PROJECT_ID, name: str = SCENE_NAME) -> Scene:
             position=[10.0, 0.0, 1.5],
             color="#2e9bff",
         ),
+        demo_sensing_rx(),
     ]
 
     # Movable actors (compiled as their own RF shapes; moved per frame by the
@@ -323,6 +362,7 @@ def build_scene(scene_id: str = PROJECT_ID, name: str = SCENE_NAME) -> Scene:
                 loop=False,
             ),
         ),
+        demo_uav_actor(),
     ]
 
     return Scene(
@@ -393,3 +433,128 @@ def create_demo_project(
         encoding="utf-8",
     )
     return project_dir
+
+
+# ------------------------------------------------- source-checkout seeding
+
+# Explicit allowlist: the gitignored *_xeng.seam paper copies are never seeded.
+EXAMPLE_PROJECT_IDS = ("ftc_outdoor", "lab_room", "sample_demo")
+# The v0.1.14 demo additions change the scene, so the copy recompiles on its
+# first solve instead of reusing the committed projection.
+_SAMPLE_DEMO_SKIP_RF = frozenset({"generated_scene.xml", "compile_manifest.json", "meshes"})
+
+
+def _existing_project(root: Path, project_id: str) -> bool:
+    from seam_studio.services.project_store import PROJECT_SUFFIXES
+
+    return any((root / f"{project_id}{suffix}").exists() for suffix in PROJECT_SUFFIXES)
+
+
+def _staging_dir(root: Path, project_id: str) -> Path:
+    # Not "<id>.seam", so _existing_project never counts a half-built copy.
+    return root / f".{project_id}.seam.seeding"
+
+
+def _add_demo_additions(project_dir: Path) -> None:
+    from seam_studio.services.project_store import project_id_from_dir
+
+    store = ProjectStore(roots=[project_dir])  # a root may itself be a project folder
+    pid = project_id_from_dir(project_dir)
+    scene = store.load_scene(pid)
+    changed = False
+    if scene.device_by_id("tx_001_rx") is None:
+        scene.devices.append(demo_sensing_rx())
+        changed = True
+    if not any(a.id == "uav_001" for a in scene.actors):
+        scene.actors.append(demo_uav_actor())
+        changed = True
+    if changed:
+        store.save_scene(pid, scene, clear_live_overlay=False, record_history=False)
+
+
+def _move_into_place(staging: Path, dst: Path, attempts: int = 3) -> None:
+    # A virus scanner or sync client may still hold a just-copied file open.
+    for attempt in range(attempts):
+        try:
+            os.replace(staging, dst)
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(0.5)
+
+
+def seed_checkout_projects(root: Path, examples_dir: Path) -> list[str]:
+    """Copy each committed example project missing from ``root`` into it;
+    returns the seeded ids. An existing project (``.seam`` or legacy
+    ``.sionnatwin``) is never overwritten or modified. The whole folder is
+    copied, local results and history included, so an earlier session that
+    ran on the example carries over. The Sample Demo copy also gains the
+    v0.1.14 drone target and co-located sensing RX. Each copy is built in a
+    hidden staging folder and renamed into place only when complete, so an
+    interrupted copy (lock, full disk, Ctrl-C) leaves nothing behind and the
+    next start retries it. Never raises (except KeyboardInterrupt): a failing
+    project is logged and skipped."""
+    seeded: list[str] = []
+    for project_id in EXAMPLE_PROJECT_IDS:
+        src = examples_dir / f"{project_id}.seam"
+        dst = root / f"{project_id}.seam"
+        staging = _staging_dir(root, project_id)
+        try:
+            if staging.exists():  # left by a hard kill during an earlier start
+                shutil.rmtree(staging)
+            if _existing_project(root, project_id) or not src.is_dir():
+                continue
+            ignore = None
+            if project_id == PROJECT_ID:
+                rf_dir = os.path.normcase(str((src / "rf").resolve()))
+
+                def ignore(directory, names, rf_dir=rf_dir):
+                    if os.path.normcase(str(Path(directory).resolve())) != rf_dir:
+                        return set()
+                    return {n for n in names if n in _SAMPLE_DEMO_SKIP_RF}
+
+            shutil.copytree(src, staging, ignore=ignore)
+            if project_id == PROJECT_ID:
+                _add_demo_additions(staging)
+            _move_into_place(staging, dst)
+            seeded.append(project_id)
+        except Exception:  # noqa: BLE001 - seeding must never block startup
+            logger.warning("could not seed example project %s into %s", project_id, root,
+                           exc_info=True)
+        finally:
+            if staging.exists():
+                shutil.rmtree(staging, ignore_errors=True)
+    return seeded
+
+
+def seed_default_checkout_projects() -> list[str]:
+    """Seed ``<repo>/projects`` from ``examples/demo_project`` on start.
+
+    A no-op unless this is a source checkout running on its default project
+    root (no SEAM_PROJECT_ROOTS / SIONNATWIN_PROJECT_ROOTS override). Never
+    raises."""
+    try:
+        from seam_studio.core.config import get_settings
+        from seam_studio.core.paths import (
+            EXAMPLE_PROJECTS_DIR,
+            IS_SOURCE_CHECKOUT,
+            REPO_ROOT,
+        )
+
+        if not IS_SOURCE_CHECKOUT or REPO_ROOT is None or EXAMPLE_PROJECTS_DIR is None:
+            return []
+        if os.environ.get("SEAM_PROJECT_ROOTS") or os.environ.get("SIONNATWIN_PROJECT_ROOTS"):
+            return []
+        roots = get_settings().project_roots
+        root = REPO_ROOT / "projects"
+        if not roots or Path(roots[0]) != root:
+            return []
+        root.mkdir(parents=True, exist_ok=True)
+        seeded = seed_checkout_projects(root, EXAMPLE_PROJECTS_DIR)
+        if seeded:
+            logger.info("seeded example projects into %s: %s", root, ", ".join(seeded))
+        return seeded
+    except Exception:  # noqa: BLE001 - never block startup
+        logger.warning("example project seeding failed", exc_info=True)
+        return []

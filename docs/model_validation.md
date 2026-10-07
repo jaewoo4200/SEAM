@@ -10,7 +10,7 @@ The validation evidence comes from (a) formulas extracted verbatim from the offi
 
 ## 1. Validation Targets and Audit Summary
 
-- **Target files:** `backend/app/services/channel_analysis.py`, `backend/app/services/simulation_backends/sionna_backend.py`, `plugins/example_two_ray/plugin.py`
+- **Target files:** `backend/seam_studio/services/channel_analysis.py`, `backend/seam_studio/services/simulation_backends/sionna_backend.py`, `plugins/example_two_ray/plugin.py`
 - **Primary reference:** 3GPP TR 38.901 V17.0.0 (2022-03) Table 7.4.1-1 [1] (V16/V17 formulas identical). Textbooks [7][8][9].
 
 **Summary:** All 20 audited formulas matched their cited references (**CORRECT**). Every 3GPP constant matches the spec character-for-character in value and unit. **No clear deviations (DEVIATION) were found.** However, 2 items requiring notes on their valid range/convention are flagged as **NEEDS-CHECK (low)**. In other words, the "adopted fixes" below are not calculation bug fixes but **comment/documentation-level supplements**.
@@ -284,4 +284,4 @@ In value-for-cost order. Each item maps to an existing code seam.
 - The arXiv mirror (2507.22027) identifier of the NYURay review PDF — the value from the original note could not be confirmed; cited via the official npj link [11] instead.
 - Reflection coefficient ≤ 1 energy invariant — not stated as a formal acceptance criterion in the cited tools (recommended test) **(unverified)**.
 
-**Repository evidence:** `backend/app/services/channel_analysis.py` (FSPL `:59-67`, 38.901 `:93-221`, CI `:75-83`, CIR/CFR/DS `:271-360`, delta-vs-RT `:247-260`, RSRP/RSSI/RSRQ `:539-609`); `backend/app/services/calibration.py:71-204`; `backend/app/services/simulation_backends/sionna_backend.py` (engine dispatch `:326,:350`, per-path power `:882`, element-power sum `:843-848`, array `:159-189`, noise `:302`, steering/codebook/MRT/SVD `:49-85, :693-699`); `plugins/example_two_ray/plugin.py:104-123`; `backend/app/services/rfdata_export.py:196-217`.
+**Repository evidence:** `backend/seam_studio/services/channel_analysis.py` (FSPL `:59-67`, 38.901 `:93-221`, CI `:75-83`, CIR/CFR/DS `:271-360`, delta-vs-RT `:247-260`, RSRP/RSSI/RSRQ `:539-609`); `backend/seam_studio/services/calibration.py:71-204`; `backend/seam_studio/services/simulation_backends/sionna_backend.py` (engine dispatch `:326,:350`, per-path power `:882`, element-power sum `:843-848`, array `:159-189`, noise `:302`, steering/codebook/MRT/SVD `:49-85, :693-699`); `plugins/example_two_ray/plugin.py:104-123`; `backend/seam_studio/services/rfdata_export.py:196-217`.

@@ -20,6 +20,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import Field
 
 from seam_studio.api.deps import get_store, load_scene_or_404
+from seam_studio.api.simulate import _readout_guard
 from seam_studio.schemas.calibration import (
     CalibrationReport,
     CalibrationRequest,
@@ -31,7 +32,8 @@ from seam_studio.schemas.calibration import (
 )
 from seam_studio.schemas.common import StrictModel
 from seam_studio.schemas.scene import RFBinding, Scene
-from seam_studio.schemas.simulation import SimulateRequest, SimulationConfig
+from seam_studio.schemas.simulation import SimulationConfig
+from seam_studio.services import availability
 from seam_studio.services.measurement_validation import order_measurements
 from seam_studio.services.project_store import ProjectNotFoundError
 from seam_studio.services.simulation_backends import BackendUnavailableError, resolve_backend
@@ -183,10 +185,16 @@ def calibrate_materials(project_id: str, request: CalibrationRequest) -> Calibra
         raise HTTPException(status_code=409, detail=str(exc))
     project_dir = store.resolve(project_id)
 
-    try:
-        report = calibrate_material(backend, project_dir, scene, library, config, request)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+    # Trial materials are compiled onto the on-disk RF projection: serialize
+    # with every other solve on the project (see simulate._solve_guard).
+    with _readout_guard(project_id, "calibrate_materials", backend.name):
+        try:
+            report = calibrate_material(
+                backend, project_dir, scene, library, config, request
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+    availability.note_auto_fallback(report.warnings, config, backend.name)
 
     if report.applied and report.fitted_value is not None:
         # Persist the fitted parameter and promote prims using this material.
@@ -241,12 +249,15 @@ def disambiguate(project_id: str, request: DisambiguationRequest) -> Disambiguat
         backend = resolve_backend(config)
     except BackendUnavailableError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
-    try:
-        return disambiguate_materials(
-            backend, store.resolve(project_id), scene, library, config, request
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+    with _readout_guard(project_id, "disambiguate", backend.name):
+        try:
+            report = disambiguate_materials(
+                backend, store.resolve(project_id), scene, library, config, request
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+    availability.note_auto_fallback(report.warnings, config, backend.name)
+    return report
 
 
 @router.post(
@@ -259,12 +270,23 @@ def import_measurements_csv(
     """Import measurement samples from CSV text and persist the raw CSV.
 
     Bad rows are skipped and counted (never fatal). The uploaded CSV is stored
-    verbatim so a later GET re-parses the exact source the user provided.
+    verbatim so a later GET re-parses the exact source the user provided. A
+    CSV that yields no measurement at all (wrong headers or delimiter, not
+    UTF-8 text) answers 400 and leaves the stored import untouched.
     """
     store = get_store()
     # 404 on an unknown project, consistent with the other calibrate routes.
     load_scene_or_404(store, project_id)
     result = _parse_measurement_csv(request.csv_text)
+    if not result.measurements:
+        reasons = "; ".join(result.warnings) or "no data rows"
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"no measurement could be read from the CSV ({reasons}); "
+                "the stored measurements are unchanged"
+            ),
+        )
     store.save_text(project_id, MEASUREMENTS_CSV_URI, request.csv_text)
     return result
 
@@ -337,9 +359,11 @@ def validate_trajectory(
         raise HTTPException(status_code=400, detail="measurements must not be empty")
 
     try:
-        return _validate(
+        report = _validate(
             backend, store.resolve(project_id), scene, library, config,
             request, measurements,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    availability.note_auto_fallback(report.warnings, config, backend.name)
+    return report

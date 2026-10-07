@@ -460,37 +460,39 @@ export default function RFMaterialPanel() {
       {list.length === 0 ? (
         <div className="empty-state">No RF materials loaded</div>
       ) : (
-        <table className="mat-table">
-          <thead>
-            <tr>
-              <th></th>
-              <th>id</th>
-              <th>category</th>
-              <th>model</th>
-              <th>εr / σ</th>
-            </tr>
-          </thead>
-          <tbody>
-            {list.map((m) => (
-              <tr
-                key={m.id}
-                className={m.id === activeId ? "active" : ""}
-                onClick={() => setActiveId(m.id === activeId ? null : m.id)}
-                title={m.notes || m.display_name}
-              >
-                <td>
-                  <Swatch color={m.preview_color} />
-                </td>
-                <td className="mono">{m.id}</td>
-                <td>{m.category}</td>
-                <td>{m.model === "itu_frequency_dependent" ? "ITU" : "const"}</td>
-                <td className="mono">
-                  {m.relative_permittivity ?? "—"} / {m.conductivity_s_per_m ?? "—"}
-                </td>
+        <div className="table-scroll">
+          <table className="mat-table">
+            <thead>
+              <tr>
+                <th></th>
+                <th>id</th>
+                <th>category</th>
+                <th>model</th>
+                <th>εr / σ</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {list.map((m) => (
+                <tr
+                  key={m.id}
+                  className={m.id === activeId ? "active" : ""}
+                  onClick={() => setActiveId(m.id === activeId ? null : m.id)}
+                  title={m.notes || m.display_name}
+                >
+                  <td>
+                    <Swatch color={m.preview_color} />
+                  </td>
+                  <td className="mono">{m.id}</td>
+                  <td>{m.category}</td>
+                  <td>{m.model === "itu_frequency_dependent" ? "ITU" : "const"}</td>
+                  <td className="mono">
+                    {m.relative_permittivity ?? "—"} / {m.conductivity_s_per_m ?? "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
       <div className="assign-hint-row">

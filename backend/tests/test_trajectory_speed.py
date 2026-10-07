@@ -259,3 +259,78 @@ def test_frontend_speed_placeholders_cover_every_actor_kind():
     speeds = {k: float(v) for k, v in re.findall(r"(\w+):\s*([0-9.]+)", block.group(1))}
     assert set(speeds) == set(get_args(ActorKind))
     assert speeds == {"car": 10.0, "human": 1.4, "uav": 10.0, "custom": 5.0}
+
+
+# ------------------------------------- velocity at leg boundaries (v0.1.14)
+
+
+def test_velocity_at_waypoint_is_outgoing_leg():
+    # At an exact waypoint time the actor is on the next leg: its velocity,
+    # not the chord average of both (7.07 m/s at a 90 deg turn before v0.1.14).
+    actor = _actor(ActorTrajectory(waypoints=L_PATH, speed_m_s=10.0))
+    assert actor_velocity_at(actor, 1.0) == pytest.approx([0.0, 10.0, 0.0])
+    actor.trajectory.speed_m_s = None
+    actor.trajectory.dt_s = 1.0
+    assert actor_velocity_at(actor, 1.0) == pytest.approx([0.0, 30.0, 0.0])
+
+
+def test_velocity_at_once_end_is_zero():
+    # A once trajectory stops at its last waypoint: at rest there, not half speed.
+    actor = _actor(ActorTrajectory(waypoints=L_PATH, speed_m_s=10.0), kind="car")
+    assert actor_velocity_at(actor, 4.0) == [0.0, 0.0, 0.0]
+    actor_v, _ = _velocities_at(Scene(scene_id="s", actors=[actor]), 4.0)
+    assert actor_v == {}
+
+
+def test_pingpong_turnaround_takes_reversed_leg():
+    # At the turnaround the actor heads back along the last leg.
+    actor = _actor(ActorTrajectory(waypoints=L_PATH, speed_m_s=10.0, mode="pingpong"))
+    assert actor_velocity_at(actor, 4.0) == pytest.approx([0.0, -10.0, 0.0])
+    assert actor_velocity_at(actor, 7.0) == pytest.approx([-10.0, 0.0, 0.0])  # past the corner again
+
+
+def test_velocity_just_before_knot_is_incoming():
+    # Within eps before a waypoint the backward difference stays on the incoming leg.
+    actor = _actor(ActorTrajectory(waypoints=L_PATH, speed_m_s=10.0))
+    assert actor_velocity_at(actor, 1.0 - 5e-4) == pytest.approx([10.0, 0.0, 0.0])
+    assert actor_velocity_at(actor, 1.0 + 5e-4) == pytest.approx([0.0, 10.0, 0.0])
+
+
+def test_scenario_waypoint_frames_report_leg_velocity_and_doppler():
+    # The sensing demo's UAV at dt 0.5 s hits the corner at frame 24 (t = 12 s)
+    # and stops at frame 36 (t = 18 s): velocity_true and the solver's Doppler
+    # follow the outgoing leg and the stop.
+    from seam_studio.services.simulation_backends.mock_backend import SPEED_OF_LIGHT
+    from .test_sensing_track import _config, _scenario, _trp_scene
+
+    result = _scenario(_trp_scene(), _config(), num_frames=37, cpi_pulses=4096)
+    corner, end = result.frames[24], result.frames[36]
+    assert corner.time_s == 12.0 and end.time_s == 18.0
+    assert corner.sensing.estimates[0].velocity_true == pytest.approx([0.0, 10.0, 0.0])
+    assert end.sensing.estimates[0].velocity_true == [0.0, 0.0, 0.0]
+
+    lam = SPEED_OF_LIGHT / _config().frequency_hz
+    p = corner.sensing.estimates[0].position_true
+    nodes = {n.id: n.position for n in corner.sensing.nodes}
+    link = next(r for r in corner.sensing.links if r.doppler_hz is not None)
+    k_ts = [(p[i] - nodes[link.tx_id][i]) / math.dist(p, nodes[link.tx_id]) for i in range(3)]
+    k_sr = [(nodes[link.rx_id][i] - p[i]) / math.dist(p, nodes[link.rx_id]) for i in range(3)]
+    expected = 10.0 * (k_sr[1] - k_ts[1]) / lam
+    assert link.doppler_hz == pytest.approx(expected, abs=1e-6)
+
+
+@pytest.mark.parametrize("mode", ["loop", "pingpong"])
+def test_velocity_on_a_near_zero_loop_is_bounded(mode):
+    # Two waypoints a float-noise apart (a GUI drag): the +-eps window spans
+    # ~1e7 periods, which the boundary search used to enumerate one by one.
+    import time
+
+    tiny = [[0.0, 0.0, 0.0], [1e-9, 0.0, 0.0]]
+    actor = _actor(ActorTrajectory(waypoints=tiny, speed_m_s=10.0, mode=mode))
+    started = time.perf_counter()
+    v = actor_velocity_at(actor, 7.3)
+    assert time.perf_counter() - started < 0.5
+    assert all(math.isfinite(c) for c in v) and _norm(v) < 1e-3
+    # Normal paths keep the one-sided boundary rule.
+    normal = _actor(ActorTrajectory(waypoints=L_PATH, speed_m_s=10.0, mode=mode))
+    assert actor_velocity_at(normal, 1.0) == pytest.approx([0.0, 10.0, 0.0])

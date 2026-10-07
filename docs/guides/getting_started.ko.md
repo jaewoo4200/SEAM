@@ -74,11 +74,15 @@ bash scripts/start.sh
    앱이 환경을 추론해 그에 맞는 솔버 프리셋을 적용하고, 추론된 값이
    괄호 안에 표시됩니다.
 7. **상태칩** 두 개:
-   - **Sionna** / **Mock only** — 실제 레이 트레이싱 백엔드 설치 여부.
-     UI를 익히는 단계에서는 `Mock only`로 충분합니다.
+   - **Sionna** / **Mock only** — 실제 레이 트레이싱 백엔드가 설치되어 있고 Dr.Jit
+     백엔드(CUDA GPU, 또는 CPU의 LLVM)가 동작하는지 여부. 동작하지 않으면
+     `/api/health`가 이유를 알려 줍니다. UI를 익히는 단계에서는 `Mock only`로
+     충분합니다.
    - 제공자 이름(예: `rule_based`) / **AI off** — 활성화된 AI 제안 제공자.
-8. **Actions ▾** (Validate, Compile RF, Beamforming, Export RFData,
-   Delete project…)와 파란 **Simulate paths** 버튼.
+8. **Actions ▾** (Validate, Compile RF, Beamforming, Sensing solve, Export
+   RFData, Channel dataset (.npz), Sensing dataset (.npz), AODT export
+   (parquet), AODT import (parquet), Delete project…)와 파란 **Simulate paths**
+   버튼.
 
 ---
 
@@ -102,14 +106,19 @@ bash scripts/start.sh
   위경도 lat/lon; [point_import.md](../point_import.ko.md) 참고).
 - **Clear all** — 모든 무선 디바이스를 제거합니다(두 번 클릭해 확인).
 
-Sample Demo에는 `tx_001`("Rooftop TX", 빨강 ▲)과 `rx_001`("Street RX",
-파랑 ●)이 들어 있습니다. 각 행에는 × 삭제 버튼이 있습니다.
+Sample Demo에는 `tx_001`("Rooftop TX", 빨강 ▲), `rx_001`("Street RX",
+파랑 ●), `tx_001_rx`("TX 1 sensing RX", 파랑 ●, TX와 같은 위치. 센싱·ISAC·센싱
+커버리지 맵이 쓰는 같은 위치의 레이더 수신기)가 들어 있습니다. 각 행에는 × 삭제
+버튼이 있습니다.
 
 ### Actors 섹션
 
 액터는 자체 RF 형상을 가진 움직이는 산란체입니다. **Actors** 헤더의
 **+Car**, **+Human**, **+UAV**, **+Custom** 으로 추가합니다. 데모에는
-도로를 달리는 `car_001`(승용차)과 보행자 `human_001`이 있습니다.
+도로를 달리는 `car_001`(승용차), 보행자 `human_001`, 그리고 `uav_001`("Drone",
+40 m 높이에서 L자로 나는 TR 38.901 센싱 타깃. [sensing.md](sensing.ko.md) 참고)이
+있습니다. 센싱 RX와 드론은 v0.1.14에 추가되었으므로, 이전 버전이 만든 Sample Demo는
+원래의 디바이스와 액터를 그대로 유지합니다.
 
 ### 탐색과 픽킹
 

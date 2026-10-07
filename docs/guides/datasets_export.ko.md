@@ -113,7 +113,9 @@ RFData to `export/rfdata`"* — 파일별 다운로드 링크가 붙어 있어 �
 
 위 번들은 *뷰어* 계약입니다. NVIDIA AODT 자체
 [결과 스키마](https://docs.nvidia.com/aerial/aodt/)에 맞춰 만들어진 도구에
-넘기려면, 해당 테이블들을 Parquet 으로 쓰는 두 번째 내보내기를 사용하세요:
+넘기려면, 해당 테이블들을 Parquet 으로 쓰는 두 번째 내보내기를 사용하세요.
+UI 에서는 **Actions ▾ → AODT export (parquet)** 입니다(소스와, 필요하면 결과 id 를
+고릅니다. 비우면 가장 최근 결과). API 로는 다음과 같습니다:
 
 ```
 POST /api/projects/{project_id}/export/aodt
@@ -165,10 +167,12 @@ RAN 시뮬레이션 산출물(스케줄러/PHY KPI, gNB 설정)이라 레이 트
   `raypaths` 에서 빠집니다. 그 탭은
   `cirs`/`cfrs` 에는 그대로 들어갑니다.
 
-이 내보내기는 `pyarrow` 가 필요합니다(`pip install "seam-studio[results]"`).
-없으면 엔드포인트가 **409** 를, 요청한 source 종류의 결과가 프로젝트에 없으면
-**404** 를 돌려줍니다. 기록된 `raypaths.parquet` 는 SEAM 자체 AODT
-임포터(`POST /results/import-aodt`)로 다시 읽어들일 수 있고, 임포터는 내부
+이 내보내기는 `pyarrow` 가 필요합니다(`pip install "seam-studio[parquet]"`, 즉
+`parquet` extra. `backend[dev,parquet]` 로 설치한 소스 체크아웃에는 들어 있습니다).
+없으면 엔드포인트가 그 명령을 담아 **409** 를, 요청한 source 종류의 결과가
+프로젝트에 없으면 **404** 를 돌려줍니다. 기록된 `raypaths.parquet` 는 SEAM 자체
+AODT 임포터(`POST /results/import-aodt`, 또는 SEAM 이 돌아가는 기기의 폴더 경로를
+주는 **Actions ▾ → AODT import (parquet)**)로 다시 읽어들일 수 있고, 임포터는 내부
 지점마다 상호작용을 하나씩 되살립니다(`diffuse` 는 `scattering` 으로).
 
 ---
@@ -295,3 +299,7 @@ POST /api/projects/{project_id}/export/channel-npz
   기록되는 `engine`.
 - [15분 튜토리얼](../../TUTORIAL.ko.md) — 데이터셋 생성을 포함한 첫 세션
   전체 흐름.
+- [레이더 센싱](sensing.ko.md) — 센싱 데이터셋 내보내기(§10)와 AODT 내보내기의
+  sensing 소스.
+- [재생 대시보드](playback_dashboard.ko.md) — GT 대 DT 재생 팩, AODT 내보내기의
+  `playback` 소스.

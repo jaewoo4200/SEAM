@@ -1076,6 +1076,16 @@ function CoverageSummary({ result }: { result: SensingCoverageResultSet }) {
   const s = result.summary;
   const los = typeof result.metadata?.los_model === "string" ? result.metadata.los_model : "";
   const model = resultDetectorModel(result.metadata);
+  // The form keeps its own inputs, so show the ones this run actually used
+  // (older results may lack the metadata: those parts are left out).
+  const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  const request = result.metadata?.request;
+  const thresholdDb = num(result.metadata?.threshold_db);
+  const cpiPulses =
+    request && typeof request === "object" && !Array.isArray(request)
+      ? num((request as Record<string, unknown>).cpi_pulses)
+      : null;
+  const cellM = num(result.grid?.cell_size_m);
   return (
     <>
       <div className="results-meta" title={los ? `LOS model: ${los}` : undefined}>
@@ -1093,6 +1103,24 @@ function CoverageSummary({ result }: { result: SensingCoverageResultSet }) {
         <span className="mono">+{result.array_gain_db.toFixed(1)} dB</span> · h{" "}
         <span className="mono">{result.grid.height_m} m</span> ·{" "}
         <span className="mono">{(result.frequency_hz / 1e9).toFixed(2)} GHz</span>
+        {thresholdDb !== null && (
+          <>
+            {" "}
+            · threshold <span className="mono">{thresholdDb} dB</span>
+          </>
+        )}
+        {cpiPulses !== null && (
+          <>
+            {" "}
+            · <span className="mono">{cpiPulses}</span> pulses
+          </>
+        )}
+        {cellM !== null && (
+          <>
+            {" "}
+            · cell <span className="mono">{cellM} m</span>
+          </>
+        )}
         {model !== "swerling1" && (
           <>
             {" "}

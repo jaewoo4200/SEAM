@@ -646,47 +646,49 @@ function KpiTable({ gt, frame }: { gt: SensorGtMetrics | null; frame: PlaybackFr
         <span>KPIs</span>
         {!gt && <span className="pb-legend">no GT for this frame</span>}
       </div>
-      <table className="results-table pb-kpi">
-        <thead>
-          <tr>
-            <th>KPI</th>
-            <th>GT</th>
-            <th>SEAM</th>
-            <th>Δ</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => {
-            const both =
-              r.gt !== null &&
-              r.dt !== null &&
-              Number.isFinite(r.gt) &&
-              Number.isFinite(r.dt);
-            // The doubled modulo guards JS's negative-operand %: a plain
-            // ((dt-gt+180)%360)-180 returns -360 for dt=-155, gt=205.
-            const raw = both ? (r.dt as number) - (r.gt as number) : null;
-            const d =
-              raw === null
-                ? null
-                : r.circular
-                  ? ((((raw + 180) % 360) + 360) % 360) - 180
-                  : raw;
-            return (
-              <tr key={r.label}>
-                <td title={r.title}>
-                  {r.label}
-                  {r.unit ? ` (${r.unit})` : ""}
-                </td>
-                <td className="mono">{fmt(r.gt, r.digits)}</td>
-                <td className="mono">{fmt(r.dt, r.digits)}</td>
-                <td className="mono">
-                  {d === null ? "—" : `${d > 0 ? "+" : ""}${d.toFixed(r.digits)}`}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+      <div className="table-scroll">
+        <table className="results-table pb-kpi">
+          <thead>
+            <tr>
+              <th>KPI</th>
+              <th>GT</th>
+              <th>SEAM</th>
+              <th>Δ</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => {
+              const both =
+                r.gt !== null &&
+                r.dt !== null &&
+                Number.isFinite(r.gt) &&
+                Number.isFinite(r.dt);
+              // The doubled modulo guards JS's negative-operand %: a plain
+              // ((dt-gt+180)%360)-180 returns -360 for dt=-155, gt=205.
+              const raw = both ? (r.dt as number) - (r.gt as number) : null;
+              const d =
+                raw === null
+                  ? null
+                  : r.circular
+                    ? ((((raw + 180) % 360) + 360) % 360) - 180
+                    : raw;
+              return (
+                <tr key={r.label}>
+                  <td title={r.title}>
+                    {r.label}
+                    {r.unit ? ` (${r.unit})` : ""}
+                  </td>
+                  <td className="mono">{fmt(r.gt, r.digits)}</td>
+                  <td className="mono">{fmt(r.dt, r.digits)}</td>
+                  <td className="mono">
+                    {d === null ? "—" : `${d > 0 ? "+" : ""}${d.toFixed(r.digits)}`}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

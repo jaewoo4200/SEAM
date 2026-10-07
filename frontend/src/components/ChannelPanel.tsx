@@ -8,7 +8,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useAppStore } from "../store/appStore";
-import { api } from "../api/client";
+import { api, ApiError } from "../api/client";
 import { LineChart } from "../charts";
 import { StaleChip } from "./ResultExplorer";
 import { PATH_COLORS } from "./common";
@@ -18,6 +18,7 @@ import type {
   PathType,
   ChannelSweepResult,
   SpectrogramResult,
+  MeasurementImportResponse,
   MeasurementSample,
   TrajectoryValidationReport,
 } from "../types/api";
@@ -696,6 +697,157 @@ function SpectrogramSection({
   );
 }
 
+/** Rows of the stored measurement set previewed under the import button. */
+const STORED_PREVIEW_ROWS = 5;
+
+/** The project's stored measurement CSV (POST import-csv / GET re-parse):
+ *  the set the flight-log validation uses when nothing is pasted. */
+function StoredMeasurements({
+  projectId,
+  disabled,
+}: {
+  projectId: string;
+  disabled: boolean;
+}) {
+  const notify = useAppStore((s) => s.notify);
+  // undefined = loading, null = none imported (GET 404).
+  const [stored, setStored] = useState<MeasurementImportResponse | null | undefined>(undefined);
+  const [error, setError] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const load = async (pid: string) => {
+    try {
+      const res = await api.getMeasurements(pid);
+      if (useAppStore.getState().projectId === pid) setStored(res);
+    } catch (err) {
+      if (useAppStore.getState().projectId !== pid) return;
+      if (err instanceof ApiError && err.status === 404) setStored(null);
+      else setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  useEffect(() => {
+    setStored(undefined);
+    setError(null);
+    void load(projectId);
+  }, [projectId]);
+
+  const onFile = async (file: File) => {
+    setImporting(true);
+    setError(null);
+    try {
+      const res = await api.importMeasurementsCsv(projectId, { csv_text: await file.text() });
+      // The backend answers 400 for a file with no readable row (the stored
+      // set is kept); an older backend stored the empty set instead.
+      if (res.measurements.length === 0) {
+        setError(`No measurement rows read from ${file.name}: ${res.warnings.join("; ") || "empty file"}`);
+        await load(projectId);
+        return;
+      }
+      notify(
+        `Imported ${res.measurements.length} measurement(s) from ${file.name}` +
+          (res.skipped > 0 ? ` (${res.skipped} row(s) skipped)` : ""),
+      );
+      await load(projectId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const rows = stored?.measurements.slice(0, STORED_PREVIEW_ROWS) ?? [];
+  const hasTime = rows.some((m) => m.time_s != null);
+  const f1 = (v: number) => String(+v.toFixed(2));
+
+  return (
+    <div className="stored-measurements">
+      <div className="panel-actions">
+        <button
+          disabled={disabled || importing}
+          title="CSV with x,y,z (or rx_x,rx_y,rx_z) and measured_path_gain_db (or rsrp_dbm); optional time_s, tx_id, measurement_id. Stored in the project; replaces the previous import (a file with no readable row is rejected and the stored set kept)."
+          onClick={() => fileRef.current?.click()}
+        >
+          {importing ? "Importing…" : "Import measurement CSV…"}
+        </button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept=".csv,text/csv"
+          hidden
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            // Reset so picking the same file again still fires onChange.
+            e.target.value = "";
+            if (f) void onFile(f);
+          }}
+        />
+      </div>
+      {error && (
+        <p className="hint" style={{ color: "#ef5350" }}>
+          {error}
+        </p>
+      )}
+      {stored === undefined && !error && <p className="hint">Loading stored measurements…</p>}
+      {stored === null && <p className="hint">No stored measurements.</p>}
+      {stored && (
+        <>
+          <div className="results-meta">
+            Stored: <span className="mono">{stored.measurements.length}</span> sample(s)
+            {stored.skipped > 0 && (
+              <>
+                {" "}
+                · <span className="mono">{stored.skipped}</span> row(s) skipped
+              </>
+            )}
+          </div>
+          {stored.warnings.length > 0 && (
+            <div className="ai-note">
+              {stored.warnings.map((w, i) => (
+                <div key={i}>{w}</div>
+              ))}
+            </div>
+          )}
+          {rows.length > 0 && (
+            <div className="table-scroll">
+              <table className="results-table">
+                <thead>
+                  <tr>
+                    {hasTime && <th>time s</th>}
+                    <th>x</th>
+                    <th>y</th>
+                    <th>z</th>
+                    <th>gain dB</th>
+                    <th>tx</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((m, i) => (
+                    <tr key={m.measurement_id ?? i}>
+                      {hasTime && <td className="mono">{m.time_s != null ? f1(m.time_s) : "—"}</td>}
+                      <td className="mono">{f1(m.rx_position[0])}</td>
+                      <td className="mono">{f1(m.rx_position[1])}</td>
+                      <td className="mono">{f1(m.rx_position[2])}</td>
+                      <td className="mono">{m.measured_path_gain_db.toFixed(1)}</td>
+                      <td className="mono">{m.tx_id ?? "first"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {stored.measurements.length > rows.length && (
+            <p className="hint">
+              … and {stored.measurements.length - rows.length} more row(s).
+            </p>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 /** 3. Flight-log validation: measured vs predicted path gain along the route. */
 function FlightLogValidationSection({ txId, disabled }: { txId: string; disabled: boolean }) {
   const projectId = useAppStore((s) => s.projectId);
@@ -766,10 +918,11 @@ function FlightLogValidationSection({ txId, disabled }: { txId: string; disabled
 
   return (
     <Section title="Flight-log validation" open={open} onToggle={() => setOpen((o) => !o)}>
+      {projectId && <StoredMeasurements projectId={projectId} disabled={busy} />}
       <p className="hint">
-        Paste measurements as CSV (header <span className="mono">time_s,x,y,z,measured_path_gain_db</span>, or
-        without <span className="mono">time_s</span>) or a JSON array. Leave blank to use the project's stored
-        measurements.
+        Or paste measurements as CSV (header <span className="mono">time_s,x,y,z,measured_path_gain_db</span>,
+        or without <span className="mono">time_s</span>) or a JSON array. Leave blank to use the stored
+        measurements (import a CSV above).
       </p>
       <textarea
         className="mono"
@@ -1206,48 +1359,50 @@ export default function ChannelPanel() {
             <CfrPlot freq={r.cfr_freq_offset_hz} mag={r.cfr_mag_db} />
 
             <h4 style={{ marginTop: 10 }}>Path-loss models vs RT</h4>
-            <table className="results-table channel-pl-table">
-              <thead>
-                <tr>
-                  <th>model</th>
-                  <th>PL (dB)</th>
-                  <th>Δ vs RT (dB)</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr className="channel-rt-row">
-                  <td className="mono">RT (ray-traced)</td>
-                  <td className="mono">{r.rt_path_loss_db === null ? "n/a" : r.rt_path_loss_db.toFixed(1)}</td>
-                  <td className="mono">ref</td>
-                </tr>
-                {r.pl_models.map((m) =>
-                  m.valid ? (
-                    <tr key={m.model}>
-                      <td className="mono" title={m.notes}>
-                        {m.model}
-                      </td>
-                      <td className="mono">{m.path_loss_db === null ? "n/a" : m.path_loss_db.toFixed(1)}</td>
-                      <td className="mono">
-                        {m.delta_vs_rt_db === null
-                          ? "n/a"
-                          : `${m.delta_vs_rt_db > 0 ? "+" : ""}${m.delta_vs_rt_db.toFixed(1)}`}
-                      </td>
-                    </tr>
-                  ) : (
-                    // Invalid model (e.g. TR 36.777 aerial rows on a terrestrial
-                    // link): muted, no bare number — show the reason from `notes`.
-                    <tr key={m.model} className="channel-pl-invalid">
-                      <td className="mono" title={m.notes}>
-                        {m.model}
-                      </td>
-                      <td className="mono" colSpan={2} title={m.notes}>
-                        {m.notes ? `N/A — ${m.notes}` : "N/A"}
-                      </td>
-                    </tr>
-                  ),
-                )}
-              </tbody>
-            </table>
+            <div className="table-scroll">
+              <table className="results-table channel-pl-table">
+                <thead>
+                  <tr>
+                    <th>model</th>
+                    <th>PL (dB)</th>
+                    <th>Δ vs RT (dB)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="channel-rt-row">
+                    <td className="mono">RT (ray-traced)</td>
+                    <td className="mono">{r.rt_path_loss_db === null ? "n/a" : r.rt_path_loss_db.toFixed(1)}</td>
+                    <td className="mono">ref</td>
+                  </tr>
+                  {r.pl_models.map((m) =>
+                    m.valid ? (
+                      <tr key={m.model}>
+                        <td className="mono" title={m.notes}>
+                          {m.model}
+                        </td>
+                        <td className="mono">{m.path_loss_db === null ? "n/a" : m.path_loss_db.toFixed(1)}</td>
+                        <td className="mono">
+                          {m.delta_vs_rt_db === null
+                            ? "n/a"
+                            : `${m.delta_vs_rt_db > 0 ? "+" : ""}${m.delta_vs_rt_db.toFixed(1)}`}
+                        </td>
+                      </tr>
+                    ) : (
+                      // Invalid model (e.g. TR 36.777 aerial rows on a terrestrial
+                      // link): muted, no bare number — show the reason from `notes`.
+                      <tr key={m.model} className="channel-pl-invalid">
+                        <td className="mono" title={m.notes}>
+                          {m.model}
+                        </td>
+                        <td className="mono" colSpan={2} title={m.notes}>
+                          {m.notes ? `N/A — ${m.notes}` : "N/A"}
+                        </td>
+                      </tr>
+                    ),
+                  )}
+                </tbody>
+              </table>
+            </div>
           </>
         )}
       </Section>

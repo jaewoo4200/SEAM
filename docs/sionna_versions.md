@@ -133,7 +133,7 @@ This history supports the idea that an "engine version swap" feature is not opti
 
 ## Appendix: Local Empirical Verification in This Repo (2026-07-03)
 
-Separately from the literature survey above, the following were directly confirmed on the actual installation in this repository.
+Separately from the literature survey above, the following were directly confirmed on the actual installation in this repository at that date. (The builtin engine has since moved to sionna-rt 2.2.x, which every install now requires.)
 
 - `backend/.venv` (builtin): `sionna-rt 2.0.1 + mitsuba 3.8.0 + drjit 1.3.1` — matches the 2.0.1 row of the matrix.
 - `backend/.venv-sionna-rt-122`: `sionna-rt 1.2.2 + mitsuba 3.8.0 + drjit 1.3.1` — matches the 1.2.2 row.

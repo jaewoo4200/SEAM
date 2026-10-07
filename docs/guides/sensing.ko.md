@@ -10,6 +10,13 @@ SEAM Studio에서는 어떤 액터(차량, 보행자, UAV, 커스텀 객체)든 
 흐름이 **Mock 백엔드**(바이스태틱 레이더 방정식)로 돌아가므로 GPU 없이도 써 볼 수
 있습니다.
 
+**Sample Demo**(v0.1.14 이상)는 바로 센싱을 해 볼 수 있게 되어 있습니다. 드론 타깃
+(`uav_001`, TR 38.901 `uav-small-size`, 40 m 높이에서 10 m/s로 90 m짜리 L자 경로를
+난 뒤 제자리 비행)과 옥상 TX와 같은 위치의 센싱 수신기(`tx_001_rx`, "TX 1 sensing RX")가
+들어 있어서, 아래 API 예제는 `sample_demo`에서 그대로 돌아갑니다. v0.1.14 이전에 만든
+프로젝트는 디바이스와 액터가 그대로이므로, 타깃과 같은 위치의 RX를 직접 추가하세요
+(2절, 3절).
+
 ---
 
 ## 1. RCS란
@@ -82,10 +89,10 @@ TX와 RX를 최소 하나씩 배치합니다. **모노스태틱** 센싱이면 R
 같은 솔브를 API로 실행하려면:
 
 ```bash
-curl -X POST http://127.0.0.1:8000/api/projects/demo/simulate/sensing \
+curl -X POST http://127.0.0.1:8000/api/projects/sample_demo/simulate/sensing \
   -H "Content-Type: application/json" \
   -d '{"config": {"backend": "auto", "frequency_hz": 28e9}, "include_comm_paths": false}'
-curl http://127.0.0.1:8000/api/projects/demo/results/sensing   # 가장 최근 저장 결과
+curl http://127.0.0.1:8000/api/projects/sample_demo/results/sensing   # 가장 최근 저장 결과
 ```
 
 | 요청 필드 | 의미 |
@@ -99,10 +106,17 @@ curl http://127.0.0.1:8000/api/projects/demo/results/sensing   # 가장 최근 �
 
 **백엔드.** `sionna`는 `RCSSolver`(LoS, 정반사, 투과 구간)를 실행합니다. `mock`은
 타깃 중심의 산란점 하나에 대해 바이스태틱 레이더 방정식을 계산합니다(LoS 구간만,
-차폐 없음). `auto`는 sionna-rt 2.2 이상이 설치돼 있으면 sionna를 고르고, 아니면
-경고와 함께 mock으로 넘어갑니다. 구버전 sionna-rt에서 `"backend": "sionna"`를
+차폐 없음). 여기에 디바이스마다 타깃 쪽 소자 이득과 §8의 구간별 편파 항을 더합니다
+(v0.1.14부터. 그 전의 mock 에코는 등방성이었습니다). `auto`는 sionna-rt 2.2 이상이
+설치돼 있고 Dr.Jit 백엔드가 동작하면(CUDA GPU, 또는 CPU의 LLVM.
+[INSTALL](../../INSTALL.ko.md#실제-sionna-rt-엔진-자동-설치됨) 참고) sionna를 고르고,
+아니면 경고와 함께 mock으로 넘어갑니다. 구버전 sionna-rt에서 `"backend": "sionna"`를
 명시하면 **409**(`sensing requires sionna-rt>=2.2`)로 응답합니다. 바인딩된 액터가
 없거나, 알 수 없는 액터·디바이스 id를 주거나, TX/RX가 없으면 **400**입니다.
+
+**안테나.** Sionna는 처음 선택한 TX(RX)의 안테나를 모든 TX(RX)에 적용하고, 안테나가
+서로 다르면 경고합니다. mock은 디바이스마다 자기 소자 패턴과 방향(그리고 §8의 편파 항)을
+적용합니다.
 
 ## 4. 도플러 읽기
 
@@ -177,17 +191,27 @@ TX와 RX가 정지해 있어도, 움직이는 액터에서 반사되는 통신 �
 액터 궤적과 비교해 오차를 냅니다.
 
 **실행.** Results 모드에서 **Scenario playback**을 열고 *Include paths* 아래의
-**Sensing (ISAC)**를 체크한 뒤 임계값, CPI, 적분 펄스 수를 정하고 실행합니다.
-센싱 바인딩이 켜진 액터가 하나도 없으면 체크박스가 비활성화됩니다. API에서는
-시나리오 요청에 `sensing` 블록을 더합니다.
+**Sensing (ISAC)**를 체크한 뒤 임계값, CPI, 적분 펄스 수와 **Sensing receivers**
+(기본 **Auto**, 아래 참고)를 정하고 실행합니다. 센싱 바인딩이 켜진 액터가 하나도
+없으면 체크박스가 비활성화됩니다. API에서는 시나리오 요청에 `sensing` 블록을 더합니다.
 
 ```bash
-curl -X POST http://127.0.0.1:8000/api/projects/demo/simulate/scenario \
+curl -X POST http://127.0.0.1:8000/api/projects/sample_demo/simulate/scenario \
   -H "Content-Type: application/json" \
-  -d '{"config_id": "default", "num_frames": 61, "dt_s": 0.5, "include_paths": false,
+  -d '{"config_id": "default", "num_frames": 19, "dt_s": 0.5, "include_paths": false,
        "sensing": {"enabled": true, "threshold_db": 13, "cpi_s": 0.01,
-                   "cpi_pulses": 4096, "measurement_noise": true}}'
+                   "cpi_pulses": 1000000, "measurement_noise": true}}'
 ```
+
+Sample Demo에서는 이것으로 드론의 9초 비행을 덮습니다. 데모의 28 GHz 설정은 대역폭이
+100 MHz라서, 예제는 10 ms CPI 전체인 B · cpi_s = 10⁶ 샘플(+60 dB)을 적분합니다. 그러면
+30 dBm 옥상 TX에서 40–53 m 떨어진 드론이 13 dB 임계값을 넘고(mock에서 23–28 dB), 4096
+펄스(+36 dB)로는 모든 프레임이 `below_threshold`입니다. mock에서는 19프레임 중 16프레임에서
+드론을 탐지하고, 나머지 세 프레임은 `mti_rejected`(도플러가 100 Hz MTI 노치 아래)입니다.
+드론이 시선을 거의 가로지르는 t = 1.5 s와 7.5 s, 그리고 드론이 멈춘 t = 9 s입니다. TRP가 하나뿐이라 프레임마다 모노스태틱 링크 하나가 생기고,
+프레임별 탐지·거리·도플러는 나오지만 융합에는 서로 다른 링크 세 개가 필요하므로
+`insufficient_links`가 됩니다. 다중 스태틱 융합과 추적을 보려면 TRP(같은 위치에 RX를 둔
+TX)를 더 추가하세요.
 
 결과는 평범한 `scenario` 결과입니다. 프레임마다 `sensing: {echoes, links, estimates}`가
 붙고, 실행 요약은 `metadata.sensing`에 들어갑니다. `sensing`이 없거나
@@ -195,8 +219,13 @@ curl -X POST http://127.0.0.1:8000/api/projects/demo/simulate/scenario \
 센싱은 백엔드 하나를 함께 씁니다. `auto`는 다른 시나리오와 똑같이 정해지고, 센싱이
 없는 백엔드(sionna-rt 2.2 미만)는 mock으로 넘어가지 않고 **409**로 응답합니다. TX나
 RX가 없으면 **400**이고, 바인딩된 액터가 없거나 `target_actor_ids`에 모르는 id가
-있어도 **400**입니다. 실행 중에는 프로젝트별 솔브 잠금을 잡고 프레임마다 진행률을
-알리며, **Cancel**도 됩니다.
+있거나 `sensing_rx_ids`에 선택된 RX가 아닌 id가 있어도 **400**입니다. 실행 중에는
+프로젝트별 솔브 잠금을 잡고 프레임마다 진행률을 알리며, **Cancel**도 됩니다.
+
+센싱을 켠 시나리오는 `include_paths`와 상관없이 모든 프레임의 에코를 저장합니다.
+sionna에서 링크 16개면 프레임당 약 45 KB(61프레임에 약 2.6 MB, 1 000프레임에 약
+45 MB)이고, 브라우저도 이를 불러옵니다. (v0.1.14부터 결과를 압축 JSON으로 저장합니다.
+이전 버전의 들여쓰기 파일은 이 크기의 약 두 배였습니다.)
 
 | `sensing` 필드 | 기본값 | 의미 |
 |---|---|---|
@@ -207,6 +236,7 @@ RX가 없으면 **400**이고, 바인딩된 액터가 없거나 `target_actor_id
 | `mti_min_doppler_hz` | `null` | MTI 노치. \|f_D − f_nodes\|가 이보다 작으면 버립니다(TX/RX가 정지해 있으면 f_nodes = 0, 아래 MTI 참고). `null` = 1 / CPI(도플러 셀 하나), `0`이면 MTI를 끕니다. |
 | `include_comm_paths` | `false` | 프레임마다 타깃을 흡수체로 둔 통신 경로도 풀어 `echoes` 뒤에 붙입니다(`target_id` null). 프레임당 솔브가 하나 늘어납니다. |
 | `target_actor_ids` | `null` | 이 액터들만 봅니다(기본: 켜진 바인딩 전부). |
+| `sensing_rx_ids` | `null` | 바이스태틱 레이더 수신기. `null` = 자동: 선택한 TX에서 1 m 안에 있는 선택된 RX(§7/§8과 같음), 없으면 선택된 RX 전부(v0.1.13). 통신 링크는 여전히 모든 RX를 덮습니다. 모르는 id는 400. |
 | `samples_per_sp` / `max_depth` | 1 000 000 / `null` | 프레임별 센싱 솔브에 그대로 넘깁니다(§3과 같음). |
 | `measurement_noise` | `false` | 융합에 들어가는 거리·도플러에 가우스 잡음을 더합니다(아래). |
 | `noise_seed` | 0 | 그 잡음의 시드. 시드가 같으면 숫자도 같습니다. |
@@ -214,7 +244,17 @@ RX가 없으면 **400**이고, 바인딩된 액터가 없거나 `target_actor_id
 | `pfa` | `null` | 링크별 `pd`의 오경보 확률(§9). `null`이면 링크 보고에 Pd가 붙지 않습니다. |
 | `detector` | Swerling 1, 몬테카를로 없음 | 그 `pd`의 모델, 그리고 에코가 있는 링크마다 몬테카를로 `pd_mc`를 낼 `monte_carlo_trials`(§9, `pfa` 필요). 탐지 판정 자체는 그대로 `SNR ≥ threshold_db`입니다. |
 
-**탐지.** 링크(TX → RX)와 타깃마다 가장 강한 **직접** 에코(TX → 산란점 → RX,
+**센싱 수신기.** 레이더 링크는 센싱 수신기만 이루고, 선택된 RX는 모두 같은 프레임에서
+통신 링크를 그대로 유지합니다. 폼에서 **Auto**(기본)를 두면 아무것도 보내지 않고, 목록에서
+디바이스를 고르면 `sensing_rx_ids`를 보냅니다. Auto는 §7/§8의 규칙입니다. 선택한 TX에서
+1 m 안에 있는 선택된 RX(모노스태틱/TRP 수신기)가 하나라도 있으면 그것들, 없으면 선택된 RX
+전부입니다. 정해진 목록과 규칙(`explicit`, `colocated`, `all_rx`)은
+`metadata.sensing.sensing_rx_ids`와 `sensing_rx_rule`에 저장됩니다. **v0.1.14:** 같은
+위치의 RX가 있는 프로젝트는 이제 기본으로 그 RX만 레이더 수신기로 씁니다. 예전에는 선택된
+RX 전부(UE 포함)가 바이스태틱 레이더 수신기였습니다. 같은 위치의 RX가 없는 프로젝트는
+v0.1.13과 똑같이 돕니다.
+
+**탐지.** 링크(TX → 센싱 RX)와 타깃마다 가장 강한 **직접** 에코(TX → 산란점 → RX,
 다른 반사 없음)를 보고합니다. 직접 에코가 없으면 종류와 상관없이 가장 강한 에코를
 보고하고 `multipath`로 표시합니다. SNR은 다음과 같습니다.
 
@@ -269,7 +309,7 @@ MTI를 끄려면 `mti_min_doppler_hz: 0`으로 두세요.
 
 **출력 읽기.**
 
-- `links[]`는 TX × RX × 타깃마다 한 행이고, 이 순서를 따릅니다. `bistatic_range_m`,
+- `links[]`는 TX × 센싱 RX × 타깃마다 한 행이고, 이 순서를 따릅니다. `bistatic_range_m`,
   `doppler_hz`, `snr_db`, 융합에 쓴 `measured_*` 값, `range_bin`
   (floor(R / (c/B))), `doppler_bin`(round(f_D · CPI)), 그리고 `reason`이
   있습니다. `reason`은 `detected`, `below_threshold`, `mti_rejected`, `no_echo` 중
@@ -281,21 +321,27 @@ MTI를 끄려면 `mti_min_doppler_hz: 0`으로 두세요.
   참값(`position_true` = 타깃 직육면체 중심, `velocity_true`)과 각각의 오차가
   들어갑니다. `gdop` = sqrt(trace((JᵀJ)⁻¹))이고, 위치 오차는 대략 GDOP × 거리
   오차입니다. 추적을 켜면 `track_*` 필드도 붙습니다(아래).
-- `nodes[]`에는 선택한 TX 전부, 이어서 RX 전부가 그 프레임에서 쓴 위치·속도와 함께
-  들어갑니다(액터에 탄 디바이스는 액터와 함께 움직입니다). v0.1.13 이전 결과에서는
-  `null`입니다.
+- `nodes[]`에는 선택한 TX 전부, 이어서 센싱 RX 전부가 그 프레임에서 쓴 위치·속도와
+  함께 들어갑니다(액터에 탄 디바이스는 액터와 함께 움직입니다). v0.1.13 이전
+  결과에서는 `null`입니다.
 - `metadata.sensing`에는 상수(잡음 바닥, 적분 이득, λ, 거리·도플러 분해능, MTI 노치,
-  블라인드 속도)와 타깃별 통계가 들어갑니다. 타깃별로 `detection_rate`(탐지 링크가
-  하나 이상인 프레임 비율), `link_detection_rate`, `frames_ge3_links_rate`,
-  `ok_frames`, 위치 오차 중앙값과 p90, 속도 오차 중앙값, GDOP 중앙값이 있습니다.
+  블라인드 속도), 그 실행의 `sensing_rx_ids`와 `sensing_rx_rule`, 타깃별 통계가
+  들어갑니다. 타깃별로 `detection_rate`(탐지 링크가 하나 이상인 프레임 비율),
+  `link_detection_rate`, `frames_ge3_links_rate`, `ok_frames`, 위치 오차 중앙값과
+  p90, 속도 오차 중앙값, GDOP 중앙값이 있습니다.
+
+**속도 참값.** `velocity_true`(와 솔버가 쓰는 도플러)는 궤적 접선 × 속력입니다. 정확히
+경유점 시각이면 나가는 구간의 속도, `once` 궤적의 끝에서는 0(액터가 멈춤), pingpong
+반환점에서는 반대 방향 구간의 속도입니다. v0.1.14 이전에는 이런 프레임이 두 구간의
+평균(10 m/s로 90° 꺾이면 7.07 m/s)이나 속력의 절반을 보고했으므로, 경유점 프레임의
+도플러와 `velocity_true`는 v0.1.14에서 바뀌었습니다.
 
 `measurement_noise`를 끄면 측정값이 솔버의 정확한 지연과 도플러 그대로라서, `ok`
 추정치는 반올림 오차 수준으로 정확합니다(점검용으로 쓸모가 있습니다). 예외는 거울상과
 정확히 비기는 경우뿐입니다. 융합한 링크의 노드가 모두 한 평면 위에 있으면(노드가 세
 개면 늘 그렇습니다) 그 평면 반대편의 거울상도 정확히 맞고, 어느 쪽을 고를지는 위의
-동률 규칙이 정합니다.
-켜면 거리와
-도플러에 σ = 셀 / sqrt(2 · SNR)의 잡음이 붙습니다. 셀은 거리가 c/B, 도플러가 1/CPI입니다.
+동률 규칙이 정합니다. `measurement_noise`를 켜면 거리와 도플러에
+σ = 셀 / sqrt(2 · SNR)의 잡음이 붙습니다. 셀은 거리가 c/B, 도플러가 1/CPI입니다.
 잡음 시드는 프레임·링크·타깃마다 정해지고, 탐지 판정은 항상 정확한 값으로 합니다.
 
 **FR1 대 mmWave.** 에코 SNR은 다음과 같습니다.
@@ -392,12 +438,12 @@ TRP 패널 하나가 UE와 드론을 동시에 겨눌 수는 없습니다. ISAC 
 API로는 다음과 같습니다.
 
 ```bash
-curl -X POST http://127.0.0.1:8000/api/projects/demo/simulate/isac \
+curl -X POST http://127.0.0.1:8000/api/projects/sample_demo/simulate/isac \
   -H "Content-Type: application/json" \
   -d '{"config_id": "default", "tx_rows": 4, "tx_cols": 4,
        "sweep_start_deg": -60, "sweep_stop_deg": 60, "sweep_step_deg": 5,
        "cpi_pulses": 4096, "pfa": 1e-6, "sharing_mode": "dual_function"}'
-curl http://127.0.0.1:8000/api/projects/demo/results/isac   # 마지막으로 저장된 결과
+curl http://127.0.0.1:8000/api/projects/sample_demo/results/isac   # 마지막으로 저장된 결과
 ```
 
 결과는 `isac` 결과 세트로 저장됩니다(실행 기록, prune, 라벨 모두 됨).
@@ -583,11 +629,11 @@ TR 38.901 `uav-small-size`, −12.81 dBsm), 임계값, 펄스 수, P_fa, 배열 
 실행합니다. 지표 선택기로 아래 네 레이어를 바꿔 봅니다. API로는 다음과 같습니다.
 
 ```bash
-curl -X POST http://127.0.0.1:8000/api/projects/demo/simulate/sensing-coverage \
+curl -X POST http://127.0.0.1:8000/api/projects/sample_demo/simulate/sensing-coverage \
   -H "Content-Type: application/json" \
   -d '{"config_id": "default", "height_m": 60, "cell_size_m": 10,
        "threshold_db": 13, "cpi_pulses": 4096, "array_gain": "none"}'
-curl http://127.0.0.1:8000/api/projects/demo/results/sensing-coverage
+curl http://127.0.0.1:8000/api/projects/sample_demo/results/sensing-coverage
 ```
 
 결과는 `sensing_coverage` 결과 세트로 저장됩니다. 센싱 수신기는 ISAC 규칙을 따릅니다
@@ -607,15 +653,62 @@ curl http://127.0.0.1:8000/api/projects/demo/results/sensing-coverage
 
 **모델.** 링크와 셀마다, R_t = |셀 − TX|, R_r = |셀 − RX|로
 
-`SNR = P_t + G + G_e,t + G_e,r + 10·log10(λ² σ / ((4π)³ R_t² R_r²)) − A(R_t + R_r) − N0 + 10·log10(cpi_pulses)`
+`SNR = P_t + G + G_e,t + G_e,r + L_pol + 10·log10(λ² σ / ((4π)³ R_t² R_r²)) − A(R_t + R_r) − N0 + 10·log10(cpi_pulses)`
 
 를 계산하는데, **두 구간이 모두 LOS**일 때만이고 아니면 에코가 없습니다. G는 위의 배열
 이득, A는 대기 흡수입니다(설정에서 켜지 않으면 0). G_e,t와 G_e,r은 TX와 RX의 소자가 셀
 쪽으로 내는 이득으로, 디바이스마다 자기 `antenna.pattern`을 자기 좌표계(`orientation_deg`)
-에서 Sionna와 같은 방식으로 계산합니다. `iso`는 0 dB이고 `tr38901`은 최대 8 dBi, 최소
-−22 dBi(30 dB 바닥)입니다. 어떤 패턴을 썼는지는 `metadata.element_patterns`에 있습니다. `iso` 소자라면
-mock 에코와 같은 식이어서, 셀 중심에 타깃을 둔 mock 센싱 솔브는 맵 값과 정확히 같습니다
-(mock 에코는 늘 등방성입니다). sionna에서 LOS 판정은 캐시된 정적 씬에 대한 Mitsuba 그림자
+에서 계산합니다. `iso`는 0 dB이고 `tr38901`은 최대 8 dBi, 최소 −22 dBi(30 dB
+바닥)입니다. 어떤 패턴을 썼는지는 `metadata.element_patterns`에 있습니다. L_pol은 아래의
+편파 항입니다(v0.1.14).
+
+**편파.** 소자는 선형 전계 하나를 냅니다(Sionna 에코처럼 첫 번째 포트). `V`와 `VH`는
+로컬 θ̂ 방향, `H`는 φ̂ 방향, `cross`는 θ̂를 −45° 돌린 방향입니다. pitch나 roll을 주면
+이 전계가 월드에서 기울어집니다. Sionna의 RCS 산란은 입사 방향 k_i(TX → 타깃)와 산란
+방향 k_s(타깃 → RX)의 월드 θ̂/φ̂ 기저에서 항등 행렬이므로, p_t를 타깃 쪽으로 향한 TX
+소자의 월드 전계, p_r을 타깃 쪽으로 향한 RX 소자의 전계라 하면
+
+`F = (p_t · θ̂(k_i)) (p_r · θ̂(k_s)) + (p_t · φ̂(k_i)) (p_r · φ̂(k_s))`,  `L_pol = 20·log10|F|` (≤ 0 dB)
+
+입니다. θ̂(k)와 φ̂(k)는 방향 k의 월드 구면 단위 벡터입니다. 여기서 다음이 나옵니다.
+
+- pitch·roll이 0이고 양쪽 편파가 같은 `V`(또는 `H`)인 소자는 F = ±1이 정확히 성립하므로
+  L_pol = 0이고, 이런 맵은 v0.1.13과 같습니다(`metadata.polarization_model`도 붙지
+  않습니다).
+- 모노스태틱 링크에서는 두 구간 사이에 φ̂의 부호가 뒤집히므로, 에코는 셀 쪽으로 θ̂에서
+  ψ만큼 기울어진 전계를 내는 소자 하나의 20·log10|cos 2ψ|만 남깁니다. 아래로 기울인
+  옥상 TRP는 대부분의 셀 쪽으로 에코 전력을 잃습니다.
+- 기울이지 않은 `cross`(±45°, 첫 번째 포트) 패널은 에코를 교차 편파로 받습니다. 같은
+  위치에 둔 패널의 자기 에코도 마찬가지입니다. F = 0이므로 그런 링크는 모노스태틱이든
+  바이스태틱이든 구간이 막힌 것처럼 그 셀에서 **에코가 없고**(Sionna 에코는 약 150 dB
+  아래의 float32 잡음), mock 솔브에도 그 에코 경로가 없습니다(`no_echo`). 센싱 링크에는
+  `V`(또는 `H`) 소자를 쓰세요.
+
+L2 회귀 테스트 장소(TRP (0, 0, 10) m, 3.5 GHz, 30 m 높이의 10 dBsm 고정 타깃, `iso`
+소자, V 편파. 모노스태틱 = RX가 TX 위치, 바이스태틱 = 같은 방향의 RX가 (0, 40, 10) m)에서
+LOS 셀 5개(바이스태틱 링크는 4개)에 대해 잰 Sionna 에코 − v0.1.13 맵은 다음과 같습니다.
+
+| 링크 | pitch | 에코 손실(dB) |
+|---|---|---|
+| 모노스태틱 | 0° | 0.000 |
+| 모노스태틱 | −15° | −0.35 … −1.51 |
+| 모노스태틱 | +15° | −0.42 … −1.52 |
+| 모노스태틱 | −45° | −3.99 … −29.03 |
+| 바이스태틱 | −15° | −0.12 … −1.88 |
+| 바이스태틱 | −45° | −1.20 … −18.69 |
+| 모노스태틱, `cross` | −15° | −5.32 … −6.61 |
+
+그래서 −13…−16° 기울인 옥상 TRP는 모노스태틱 링크마다 약 0.4–1.5 dB를 잃습니다.
+v0.1.13의 맵과 mock 에코는 이 손실을 보여 주지 않아 그만큼 낙관적이었고, Sionna 에코가
+맞았습니다. L_pol을 넣은 맵은 V, H, VH, `cross` 소자, pitch 0, ±15°, −45°,
+모노스태틱과 바이스태틱 모두에서 `RCSSolver` 에코와 0.01 dB 이내로 맞습니다(실측
+3·10⁻⁵ dB 이하). 어느 링크든 손실이 0이 아니면 `metadata.polarization_model`이 모델
+이름을 적습니다.
+
+**mock과 LOS.** mock 에코도 같은 소자 이득과 L_pol을 적용하므로(v0.1.14), 셀 중심에
+타깃을 둔 mock 센싱 솔브는 `iso`와 `tr38901` 소자, 어떤 방향에서든 맵 값과 같습니다.
+`xpr_db`를 정한 고정 타깃에는 mock이 L_pol을 넣지 않습니다(편파 변환은 모델링하지
+않습니다). sionna에서 LOS 판정은 캐시된 정적 씬에 대한 Mitsuba 그림자
 광선 테스트이고, 액터 메시는 모두 뺍니다(맵은 실제 드론이 지금 어디 있는지가 아니라 장소
 자체를 보는 것이기 때문입니다). 회귀 테스트에서 LOS 셀에 `RCSSolver`로 푼 고정 RCS 에코는
 `iso`와 `tr38901` 소자 모두 맵과 0.01 dB 이내로 맞고(실측 약 10⁻⁵ dB), 건물 그림자 속
@@ -702,14 +795,14 @@ CN(0, 1) N개를 더해 √N으로 나누면 CN(0, 1)). 그래서 시행 하나�
   확인).
 - **상한.** 추정 하나에 시행 최대 2·10⁶, 요청 하나에 시행 × 추정 수로 세어 최대 2·10⁸입니다.
   Pd 곡선은 점 수 × 모델 수(**422**), ISAC는 TX 수 × 빔 수 × (1 + 0이 아닌 슬롯 비율 수)
-  (**400**), 시나리오는 프레임 수 × TX 수 × RX 수 × 타깃 수(**400**, `empirical_threshold`
+  (**400**), 시나리오는 프레임 수 × TX 수 × 센싱 RX 수 × 타깃 수(**400**, `empirical_threshold`
   이면 링크마다 잡음 실행이 붙으므로 시행을 두 배로 셈), 커버리지는 5입니다.
 
 **Pd 곡선.** `POST /analysis/pd-curve`는 솔브 없이 SNR에 대한 P_d를 그리고 아무것도
 저장하지 않습니다. UI에서는 Results ▸ **Detector (Pd curve)**입니다.
 
 ```bash
-curl -X POST http://127.0.0.1:8000/api/projects/demo/analysis/pd-curve \
+curl -X POST http://127.0.0.1:8000/api/projects/sample_demo/analysis/pd-curve \
   -H "Content-Type: application/json" \
   -d '{"pfa": 1e-6, "cpi_pulses": 4096, "monte_carlo_trials": 200000}'
 ```
@@ -739,7 +832,7 @@ curl -X POST http://127.0.0.1:8000/api/projects/demo/analysis/pd-curve \
 돌리지 않습니다. UI에서는 Toolbar ▸ Actions ▸ **Sensing dataset (.npz)**입니다.
 
 ```bash
-curl -X POST http://127.0.0.1:8000/api/projects/demo/export/sensing-dataset \
+curl -X POST http://127.0.0.1:8000/api/projects/sample_demo/export/sensing-dataset \
   -H "Content-Type: application/json" \
   -d '{"formats": ["npz", "csv"], "include_echo_paths": true,
        "split": {"train": 0.8, "val": 0.1, "test": 0.1, "seed": 0}}'
@@ -749,7 +842,7 @@ curl -X POST http://127.0.0.1:8000/api/projects/demo/export/sensing-dataset \
 |---|---|---|
 | `result_ids` | `null` | 내보낼 시나리오 결과, 이 순서대로. `null`이면 센싱 프레임이 있는 저장된 시나리오 결과 전부. |
 | `skip_without_sensing` | `false` | `result_ids`와 함께: 나열한 결과에 센싱 프레임이 없으면 400 대신 건너뛰고 `warnings`에 이름을 남깁니다. UI는 일부만 고를 때 이 값을 보냅니다. |
-| `formats` | `["npz"]` | `npz`, `csv`, `parquet` 중 아무것이나(parquet은 pyarrow, 즉 `results` extra가 필요). |
+| `formats` | `["npz"]` | `npz`, `csv`, `parquet` 중 아무것이나(parquet은 pyarrow, 즉 `parquet` extra가 필요: `pip install "seam-studio[parquet]"`). |
 | `include_echo_paths` | `false` | `echoes` 표도 씁니다. |
 | `split` | `null` | 프레임 단위 분할 `{train, val, test, seed}`(비율 합은 1). `null`이면 모든 행이 `all`입니다. |
 
@@ -757,8 +850,8 @@ curl -X POST http://127.0.0.1:8000/api/projects/demo/export/sensing-dataset \
 (`num_rows`, `rows_per_result`, `rows_per_split`, `num_echo_rows`), `detected_fraction`,
 `size_bytes`, `warnings`가 있습니다. zip에는 다음이 들어 있습니다.
 
-- `links.<fmt>`: 결과 × 프레임 × TX → RX 링크 × 타깃마다 한 행, 프레임의 `links[]`
-  순서(결과마다 프레임 × TX × RX × 타깃 행).
+- `links.<fmt>`: 결과 × 프레임 × TX → 센싱 RX 링크 × 타깃마다 한 행, 프레임의
+  `links[]` 순서(결과마다 프레임 × TX × 센싱 RX × 타깃 행).
 - `echoes.<fmt>`(`include_echo_paths`): 프레임마다 에코 경로 하나에 한 행.
 - `manifest.json`: 열마다 dtype, 단위, 역할, 설명. 결과마다 레이블, 백엔드, 주파수,
   프레임 수, dt, 행 수, `scene_hash`(와 지금의 해시), `kinematics_source`, 그리고
@@ -798,6 +891,10 @@ NaN을 NaN 그대로 둡니다.
 | `track_position_x/y/z`, `track_velocity_x/y/z`, `track_position_error_m`, `track_velocity_error_m_s`, `track_position_std_m`, `track_updates`, `track_gated` | float64 | m, m/s | track | 없으면 NaN |
 
 estimate와 track 열은 타깃·프레임마다 값이 하나이고, 그 타깃의 링크 행마다 되풀이됩니다.
+`velocity_true_*` 레이블은 §6을 따릅니다. 정확히 경유점 시각이면 나가는 구간의 속도이고,
+`once` 궤적의 끝에서는 0입니다. v0.1.14 이전 결과는 그런 프레임에 두 구간의 평균(또는
+속력의 절반)을 담고 있으므로, 예전 결과와 새 결과를 섞은 데이터셋은 그 프레임에서 두
+규약이 섞입니다.
 
 **echoes 열**: `result_id`, `split`, `frame_index`, `time_s`, `path_id`, `tx_id`,
 `rx_id`, `target_id`(`""`면 `include_comm_paths`의 통신 경로), `path_type`, `delay_ns`,
@@ -814,7 +911,8 @@ estimate와 track 열은 타깃·프레임마다 값이 하나이고, 그 타깃
 
 **예전 결과.** v0.1.13 이전 결과에는 `nodes`가 없습니다. 이때 TX/RX 위치는 프레임의
 `device_states`, 없으면 지금의 씬에서, 속도는 지금 씬의 궤적에서 가져옵니다(실행
-당시 계산한 방식 그대로). 그러면 "predates v0.1.13" 경고가 붙고(씬 해시가 다르면
+당시 계산한 방식 그대로이되, 정확히 경유점 시각에서는 §6의 v0.1.14 규칙을 따릅니다).
+그러면 "predates v0.1.13" 경고가 붙고(씬 해시가 다르면
 "scene changed since the run"도), 매니페스트에는 `"kinematics_source": "current_scene"`이
 적힙니다.
 
@@ -822,8 +920,12 @@ estimate와 track 열은 타깃·프레임마다 값이 하나이고, 그 타깃
 결과가 아닌 경우도 포함) `result_ids` 항목은 **404**입니다. `result_ids`가 null이면 그런
 파일은 건너뛰고 `warnings`에 이름을 남깁니다. 나열한 결과에 센싱 프레임이 없을 때
 (`skip_without_sensing`이 아니면), 남는 결과가 하나도 없을 때, pyarrow 없이 parquet을
-요청했을 때, 행이 2 000 000개(links + echoes)를 넘을 때는 **400**이고 아무것도 쓰지
+요청했을 때, 행이 500 000개(links + echoes)를 넘을 때는 **400**이고 아무것도 쓰지
 않습니다. 모르는 형식은 **422**입니다.
+
+**메모리.** 행은 메모리에서 만들어집니다. Python 리스트로 행당 약 1.9 KB, 배열과 인코딩한
+파일로 행당 약 0.6 KB가 더 들어서, 500 000행 상한에서 내보내면 RAM을 최대 약 1.3 GB
+씁니다. 메모리가 작은 기기에서는 결과를 적게 골라 내보내세요.
 
 ## 11. 한계
 
@@ -835,9 +937,16 @@ estimate와 track 열은 타깃·프레임마다 값이 하나이고, 그 타깃
   sionna-rt 엔진에서 돕니다.
 - mock은 타깃 중심의 LoS 산란점 하나와 σ_M만 씁니다. 각도별 로브, 다중 산란점
   배치, 차폐는 없습니다. Sionna처럼, 같은 위치에 놓인(모노스태틱) TX와 RX 사이에는
-  LoS 통신 경로가 없습니다.
-- 랜덤 성분은 기본으로 꺼져 있습니다. 솔버가 `deterministic=False`로 돌기 때문에
-  같은 시드면 실제로는 재현되지만 Sionna가 보장하지는 않습니다.
+  LoS 통신 경로가 없습니다. v0.1.14부터 mock 에코에는 디바이스마다 소자 이득과 §8의
+  편파 항이 들어갑니다(그 전에는 등방성이었습니다).
+- 안테나가 섞인 경우: Sionna는 처음 선택한 TX(RX)의 안테나를 모든 TX(RX)에 적용하고,
+  다르면 경고합니다. mock은 디바이스마다 자기 소자 패턴과 방향(그리고 §8의 편파 항)을
+  적용합니다. 그래서 안테나가 섞여 있으면 두 백엔드의 결과가 다릅니다.
+- 랜덤 성분은 기본으로 꺼져 있습니다. 솔버는 GPU에서 float32, `deterministic=False`로
+  돕니다. 그래서 입력이 같아도 강한 경로에서 약 1e-6 dB, 빔 널 근처에서 최대 약 0.1 dB까지
+  달라질 수 있고, 실행마다 경로 순서와 `path_id`가 바뀔 수 있습니다. 결과는 `path_id`나
+  정확한 dB 값이 아니라 기하나 경로 종류로 비교하세요. 같은 `noise_seed`는 측정 잡음을
+  정확히 재현합니다.
 - 시간에 따른 센싱(§6)은 **오라클 연관**을 씁니다. 레이 트레이서가 에코마다 어느
   타깃인지, 직접 에코인지 다중 경로인지를 알려 줍니다. 실제 수신기라면 둘 다 추정해야
   합니다.
@@ -895,8 +1004,11 @@ estimate와 track 열은 타깃·프레임마다 값이 하나이고, 그 타깃
   - 직접 LOS 구간만 셉니다(다중 경로 에코 없음). LOS 판정에서 액터 메시는 무시합니다.
   - `steered`는 모든 링크·셀에 대한 이상적인 전체 배열 이득입니다.
   - 소자 이득은 디바이스마다 자기 안테나를 씁니다. Sionna 솔브는 처음 선택한 TX(RX)의
-    안테나를 모든 TX(RX)에 적용하므로, 패턴이 섞여 있으면 둘이 달라집니다. 편파 불일치는
-    모델링하지 않습니다.
+    안테나를 모든 TX(RX)에 적용하고 경고하므로, 패턴이 섞여 있으면 둘이 달라집니다.
+  - 편파: 배열마다 첫 번째 포트만 봅니다(Sionna 에코와 같음). 바이스태틱 링크의
+    TR 38.901 타깃은 이 투영에서 15° 기울기에서 최대 0.2 dB, 45°에서 최대 2.5 dB
+    벗어납니다. `xpr_db`를 정한(편파를 바꾸는) 타깃은 맵에서도 mock에서도 모델링하지
+    않습니다.
   - mock은 모든 구간을 LOS로 봅니다.
 - 탐지기 모델(§9): 몬테카를로는 닫힌 식이 기술하는 것과 같은 이상화된 모델(CPI 동안 일정한
   진폭, 백색 가우스 잡음, 이상적인 코히어런트 적분)을 뽑습니다. 계산을 검증하고 표본

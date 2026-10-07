@@ -20,7 +20,6 @@ from seam_studio.schemas.datasets import DatasetGenerateRequest, DatasetSampling
 from seam_studio.schemas.devices import Device
 from seam_studio.schemas.scene import Actor, ActorTrajectory, MeshRef, Prim, RFBinding, Scene
 from seam_studio.schemas.simulation import SimulationConfig, TrajectorySimulateRequest
-from seam_studio.services.availability import sionna_available
 from seam_studio.services.dataset import generate_dataset
 from seam_studio.services.project_store import load_default_library
 from seam_studio.services.scenario import (
@@ -32,7 +31,9 @@ from seam_studio.services.scenario import (
 from seam_studio.services.simulation_backends.sionna_backend import SionnaBackend
 from seam_studio.services.trajectory import run_trajectory
 
-pytestmark = pytest.mark.skipif(not sionna_available(), reason="sionna-rt not installed")
+from .conftest import requires_sionna
+
+pytestmark = requires_sionna
 
 FREQ = 3.5e9  # keeps the ITU ground (valid 1-10 GHz) in band
 LAM = 299_792_458.0 / FREQ

@@ -14,7 +14,7 @@ and exported as NumPy `.npz`.
   (random/grid/trajectory), number of samples, CFR points, region → Generate.
   When finished, download `dataset.npz` / `metadata.json` from the list.
 - **API**: `POST /api/projects/{pid}/datasets/generate`
-  (schema: `backend/app/schemas/datasets.py`). The backend supports both mock
+  (schema: `backend/seam_studio/schemas/datasets.py`). The backend supports both mock
   (no GPU required, for testing) and sionna (real, with the `engine` field to
   select the sionna-rt version).
 - File location: `<project>/export/datasets/<dataset_id>/`.
@@ -92,11 +92,13 @@ channel estimation task, and compares an LS baseline (numpy) with a small MLP (i
 PyTorch is installed):
 
 ```powershell
-backend\.venv\Scripts\python.exe examples/ml/train_channel_estimator.py examples/demo_project/sample_demo.seam/export/datasets/<dataset_id>/dataset.npz
+backend\.venv\Scripts\python.exe examples/ml/train_channel_estimator.py projects/sample_demo.seam/export/datasets/<dataset_id>/dataset.npz
 ```
 
 Run it with `<dataset_id>` replaced by the actual dataset id shown in the UI (the
-ML dataset list in Results mode) or in the generated `metadata.json`.
+ML dataset list in Results mode) or in the generated `metadata.json`. The path is
+the source-checkout project root (`projects/`); after a pip install the project
+lives in `~/.seam/projects/sample_demo.seam/`.
 
 If PyTorch is not present, only the LS/LMMSE baseline runs (enable it with
 `pip install torch`). Adjust `PILOT_SPACING`, `SNR_DB` at the top of the script to

@@ -9,7 +9,8 @@ provenance, and a ResultSetRef exactly like a locally-solved result). The
 imported sets are stamped with backend "aodt_import".
 
 Status codes:
-- 409 when pyarrow is not installed (AODT parquet cannot be read);
+- 409 when pyarrow (the ``parquet`` extra) is not installed (AODT parquet
+  cannot be read);
 - 400 on a bad source directory or malformed/columnless parquet;
 - 404 on an unknown project.
 """
@@ -62,7 +63,9 @@ def import_aodt(project_id: str, request: ImportAodtRequest) -> ImportAodtRespon
     project_dir = store.resolve(project_id)
     source = Path(request.source_dir)
 
-    imported: list[ImportedResult] = []
+    # Read every requested kind before persisting any, so a bad second table
+    # (400/409) never leaves the first one stored behind an error response.
+    parsed = []
     warnings: list[str] = []
     for kind in request.kinds:
         our_kind = _KIND_MAP.get(kind)
@@ -77,9 +80,15 @@ def import_aodt(project_id: str, request: ImportAodtRequest) -> ImportAodtRespon
         except AodtImportError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
         warnings.extend(result.warnings)
+        parsed.append((our_kind, result))
+
+    imported: list[ImportedResult] = []
+    for our_kind, result in parsed:
+        # An import is not a solve: SEAM_AUTO_PRUNE_KEEP neither prunes local
+        # runs here nor (see _prune_refs) ever removes the imported result.
         persisted = _persist_result(
             project_id, scene, project_dir, our_kind, result.backend,
-            result.simulation_config_id, result,
+            result.simulation_config_id, result, auto_prune=False,
         )
         imported.append(ImportedResult(kind=our_kind, result_id=persisted.result_id))
 

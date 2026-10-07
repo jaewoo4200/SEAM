@@ -25,7 +25,7 @@ bash scripts/start.sh
 
 브라우저에서 **http://localhost:5173** 을 엽니다. 상단 툴바 왼쪽에
 **SEAM Studio** 타이틀과 프로젝트 셀렉트가 있고, **Sample Demo**
-프로젝트가 자동 로드됩니다. (셀렉트에서 `Lab Room`, `FTC Outdoor`로도 전환 가능.)
+프로젝트가 자동 로드됩니다. (소스 체크아웃에서는 셀렉트에서 `Lab Room`, `FTC Outdoor`로도 전환 가능.)
 
 툴바 오른쪽 상태칩 두 개를 확인하세요:
 
@@ -98,7 +98,7 @@ bash scripts/start.sh
 씬이 바뀌지 않습니다. 이미 **reject** 한 프림은 그대로 유지되고 다시 제안되지 않습니다.
 
 **(선택) 검증 결과 설명 듣기.** **Validate** 로 나온 경고들이 무슨 뜻이고 무엇을
-해야 하는지 헷갈리면 *Explain validation*(`POST …/ai/explain-validation`)을 누르세요.
+해야 하는지 헷갈리면 Validation 패널의 **Explain with AI**(`POST …/ai/explain-validation`)를 누르세요.
 씬 검증을 돌린 뒤 각 이슈를 평문으로 풀어 설명해 줍니다(예: "프림 3개가 미지정이며,
 28 GHz 에서 ITU 지면 재질이 대역 밖이라 `ground_28ghz` 로 바꾸세요"). 씬을 절대
 바꾸지 않는 읽기 전용 기능이고, 각 이슈에는 UI 가 원클릭으로 보여 주는
@@ -287,23 +287,31 @@ fading envelope**, **Path-loss model 비교** 차트가 깔립니다.
 3. **Auto update** 체크박스(Paths / Radio map / Beamforming 섹션에 각각 있음)를
    켜 두면, 디바이스를 옮길 때마다 해당 결과가 자동으로 다시 계산됩니다.
 
-> 참고: 뷰포트 내 드래그 기즈모(gizmo)는 로드맵 항목이며, 현재는 인스펙터의
-> 위치 필드로 정밀 이동합니다.
+> 팁: 디바이스나 액터를 선택하면 뷰포트에 X/Y/Z 이동 기즈모(gizmo)도 나타납니다.
+> 기즈모를 끌어 옮기고, 정확한 값은 인스펙터의 위치 필드로 입력하세요.
 
 ---
 
 ## 8. 액터 + 시나리오 재생 (Simulate scenario) (1분)
 
-Sample Demo에는 움직이는 **액터**가 있습니다: 도로를 달리는 **차량(car_001)**과
-건물 앞을 걷는 **보행자(human_001)**. 각 액터는 자체 RF 형상으로 컴파일되어 프레임
-마다 이동합니다.
+Sample Demo에는 움직이는 **액터**가 있습니다: 도로를 달리는 **차량(car_001)**,
+건물 앞을 걷는 **보행자(human_001)**, 그리고 v0.1.14부터 레이더 센싱 타깃으로
+바인딩되어 40 m 높이에서 L자로 나는 **드론(uav_001)**. 각 액터는 자체 RF 형상으로
+컴파일되어 프레임마다 이동합니다. 데모에는 옥상 TX 위치에 놓인 **TX 1 sensing RX
+(tx_001_rx)** 도 있는데, 센싱용으로 TX와 같은 위치에 둔 레이더 수신기입니다
+([docs/guides/sensing.md](docs/guides/sensing.ko.md)).
 
-1. **Results** 모드에서 **Scenario (V2X)** 섹션으로 갑니다.
+1. **Results** 모드에서 **Scenario playback** 패널을 엽니다.
 2. **Num frames**(예: 20), **dt**(s), 필요하면 **Include paths (per frame)**를
    설정합니다.
 3. **Simulate scenario** 를 누릅니다.
 4. 재생 트랜스포트(▶ / ⏸, 프레임 슬라이더, ⟳ 반복, 속도 0.5×~4×)로 타임라인을
    재생하며, 프레임별 **Link metrics**(RSS / SINR / 경로 수)를 확인합니다.
+5. (선택) *Include paths* 아래의 **Sensing (ISAC)** 를 체크하고 **Integrated pulses** 를
+   `1000000`(데모의 100 MHz 대역폭에서 10 ms CPI 전체. 이보다 적으면 28 GHz에서 드론이 13 dB
+   임계값에 못 미침)으로 정한 뒤 다시 실행하면, 프레임마다 센싱 RX에서 드론의 레이더 에코도
+   풀어 탐지 여부·거리·도플러를 보여 줍니다
+   ([docs/guides/sensing.md 6절](docs/guides/sensing.ko.md#6-시간에-따른-센싱-탐지와-다중-스태틱-융합)).
 
 ---
 
@@ -342,7 +350,8 @@ Sample Demo에는 움직이는 **액터**가 있습니다: 도로를 달리는 *
 
 ### 파일이 저장되는 위치
 
-프로젝트 폴더 아래에 결과물이 쌓입니다(예: `examples/demo_project/sample_demo.seam/`):
+프로젝트 폴더 아래에 결과물이 쌓입니다(예: 소스 체크아웃은 `projects/sample_demo.seam/`,
+pip 설치는 `~/.seam/projects/sample_demo.seam/`):
 
 | 산출물 | 경로 |
 |---|---|
@@ -363,4 +372,5 @@ Sample Demo에는 움직이는 **액터**가 있습니다: 도로를 달리는 *
   [docs/scene_format.md](docs/scene_format.ko.md)
 - RF 재질 라이브러리와 AI 어시스턴트: [docs/rf_materials.md](docs/rf_materials.ko.md),
   [docs/ai_assistant.md](docs/ai_assistant.ko.md)
-- 로드맵(메시 라디오맵, 이동성, 측정 보정, 확장 포인트): [docs/roadmap.md](docs/roadmap.md)
+- 레이더 센싱, 시간에 따른 ISAC, EKF 추적, 센싱 데이터셋: [docs/guides/sensing.md](docs/guides/sensing.ko.md)
+- 로드맵(이미 나온 것과 남은 것): [docs/roadmap.md](docs/roadmap.md)

@@ -11,13 +11,13 @@ meaning.
 ## Library files
 
 The app ships a built-in library at
-`backend/app/data/default_rf_materials.yaml`. Creating a project copies it
+`backend/seam_studio/data/default_rf_materials.yaml`. Creating a project copies it
 to `<project>/rf/materials.yaml`, which the project may edit and extend;
 from then on the project file is authoritative for that project (if it is
 missing, the built-in defaults are used).
 
 Format (`RFMaterialLibrary` / `RFMaterial` in
-`backend/app/schemas/materials.py`):
+`backend/seam_studio/schemas/materials.py`):
 
 ```yaml
 materials:

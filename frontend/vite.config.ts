@@ -5,6 +5,26 @@ import react from "@vitejs/plugin-react";
 // the FastAPI backend so there is no CORS boundary.
 export default defineConfig({
   plugins: [react()],
+  build: {
+    // The three.js/r3f stack alone is ~1 MB minified and Viewer3D needs it at
+    // first paint; the limit sits just above it so a NEW oversized chunk warns.
+    chunkSizeWarningLimit: 1200,
+    rollupOptions: {
+      output: {
+        // By package path, not the {name: [entries]} form: that form let the
+        // three chunk absorb react-dom's CommonJS body (r3f depends on react),
+        // leaving an empty react chunk.
+        manualChunks(id) {
+          const m = /[\\/]node_modules[\\/]((?:@[^\\/]+[\\/])?[^\\/]+)/.exec(id);
+          if (!m) return undefined;
+          const pkg = m[1].replace("\\", "/");
+          if (pkg === "react" || pkg === "react-dom" || pkg === "scheduler") return "react";
+          if (pkg === "three" || pkg.startsWith("@react-three/")) return "three";
+          return undefined;
+        },
+      },
+    },
+  },
   server: {
     // Honor a harness/CI-assigned port (PORT env). Default stays 5173, but
     // that port often belongs to ANOTHER local app — CLI --port (e.g. the

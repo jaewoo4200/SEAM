@@ -11,7 +11,6 @@ Two layers, mirroring the rest of the suite:
   the value is surfaced through PathResultSet.metadata["doppler_hz"].
 """
 
-import math
 from pathlib import Path
 
 import pytest
@@ -19,7 +18,6 @@ import trimesh
 
 from seam_studio.schemas.channel import ChannelAnalysisRequest
 from seam_studio.schemas.devices import Device
-from seam_studio.schemas.materials import RFMaterialLibrary
 from seam_studio.schemas.results import PathResultSet, RayPath
 from seam_studio.schemas.scene import (
     Actor,
@@ -37,13 +35,13 @@ from seam_studio.schemas.actors import ScenarioSimulateRequest
 from seam_studio.services import channel_analysis as ca
 from seam_studio.services import scenario as scen
 from seam_studio.services import trajectory as traj
-from seam_studio.services.availability import sionna_available
 from seam_studio.services.project_store import load_default_library
 from seam_studio.services.simulation_backends.base import UNSAVED_RESULT_ID, RayTracingBackend
 from seam_studio.services.simulation_backends.sionna_backend import SionnaBackend
 
+from .conftest import requires_sionna
+
 C = 299_792_458.0
-SIONNA_INSTALLED = sionna_available()
 
 
 # ===================================================== schema: velocity field
@@ -348,7 +346,7 @@ def project(tmp_path: Path) -> Path:
     return proj
 
 
-@pytest.mark.skipif(not SIONNA_INSTALLED, reason="sionna-rt not installed (optional backend)")
+@requires_sionna
 def test_sionna_moving_rx_doppler_matches_v_over_lambda(project: Path):
     scene = _los_scene()
     library = load_default_library()
@@ -371,7 +369,7 @@ def test_sionna_moving_rx_doppler_matches_v_over_lambda(project: Path):
     assert doppler[los_idx] == pytest.approx(expected, rel=0.02), doppler
 
 
-@pytest.mark.skipif(not SIONNA_INSTALLED, reason="sionna-rt not installed (optional backend)")
+@requires_sionna
 def test_sionna_static_link_has_no_doppler_metadata(project: Path):
     scene = _los_scene()
     for d in scene.devices:
@@ -386,7 +384,7 @@ def test_sionna_static_link_has_no_doppler_metadata(project: Path):
     assert "doppler_hz" not in result.metadata
 
 
-@pytest.mark.skipif(not SIONNA_INSTALLED, reason="sionna-rt not installed (optional backend)")
+@requires_sionna
 def test_sionna_channel_analysis_reports_doppler(project: Path, tmp_path: Path):
     scene = _los_scene()
     library = load_default_library()

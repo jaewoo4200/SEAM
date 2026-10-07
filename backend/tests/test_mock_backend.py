@@ -22,6 +22,8 @@ from seam_studio.services.simulation_backends.mock_backend import (
 )
 from seam_studio.services.simulation_backends.sionna_backend import SionnaBackend
 
+from .conftest import requires_sionna
+
 # Whether Sionna RT is installed in this environment. The backend registry
 # tests below branch on it so the suite passes both with and without Sionna:
 # when installed, "auto" resolves to sionna and a named "sionna" request runs.
@@ -216,10 +218,23 @@ def test_sionna_backend_availability_matches_probe():
     assert SionnaBackend().is_available() == SIONNA_INSTALLED
 
 
-@pytest.mark.skipif(SIONNA_INSTALLED, reason="sionna installed: named request succeeds")
-def test_resolve_named_sionna_raises_when_absent():
+@pytest.fixture()
+def sionna_absent(monkeypatch):
+    """Simulate a machine without Sionna, so the no-Sionna contract runs
+    everywhere (sionna-rt is a base dependency, so it is installed in CI)."""
+    from seam_studio.services import availability
+
+    monkeypatch.setattr(SionnaBackend, "is_available", lambda self: False)
+    monkeypatch.setattr(availability, "sionna_available", lambda: False)
+
+
+def test_resolve_named_sionna_raises_when_absent(sionna_absent):
     with pytest.raises(BackendUnavailableError):
         resolve_backend(SimulationConfig(backend="sionna"))
+
+
+def test_resolve_auto_falls_back_to_mock_when_absent(sionna_absent):
+    assert resolve_backend(SimulationConfig(backend="auto")).name == "mock"
 
 
 def test_resolve_auto_prefers_sionna_when_available():
@@ -227,7 +242,7 @@ def test_resolve_auto_prefers_sionna_when_available():
     assert backend.name == ("sionna" if SIONNA_INSTALLED else "mock")
 
 
-@pytest.mark.skipif(not SIONNA_INSTALLED, reason="requires sionna-rt installed")
+@requires_sionna
 def test_resolve_named_sionna_when_installed():
     assert resolve_backend(SimulationConfig(backend="sionna")).name == "sionna"
 
@@ -350,8 +365,7 @@ def test_api_unknown_config_id_404(api_client):
     assert resp.status_code == 404
 
 
-@pytest.mark.skipif(SIONNA_INSTALLED, reason="sionna installed: named request runs, no 409")
-def test_api_named_sionna_backend_409_when_absent(api_client):
+def test_api_named_sionna_backend_409_when_absent(api_client, sionna_absent):
     client, _root = api_client
     resp = client.post(
         "/api/projects/sim_test/simulate/paths",

@@ -3,9 +3,10 @@
 Two run modes share this module:
 
 - **Source checkout** (git clone): the package lives at ``<repo>/backend/seam_studio``.
-  Project roots default to the repo's ``projects/`` + the committed example,
-  and the engines/plugins registries sit at the repo root — the historical
-  developer layout.
+  Projects live in the repo's ``projects/``; the committed examples under
+  ``examples/demo_project/`` are copied there on first start (never opened in
+  place, so sessions do not edit tracked files), and the engines/plugins
+  registries sit at the repo root — the historical developer layout.
 - **Installed package** (``pip install seam-studio``): the package lives in
   site-packages, so nothing repo-relative exists. Everything user-writable
   moves under ``SEAM_HOME`` (default ``~/.seam``): projects, plugins, and the
@@ -64,9 +65,13 @@ def settings_file() -> Path:
 # projects are created. (SEAM_PROJECT_ROOTS env overrides this entirely —
 # see seam_studio.core.config.get_settings.)
 if REPO_ROOT is not None:
-    DEFAULT_PROJECT_ROOTS = [
-        REPO_ROOT / "projects",
-        REPO_ROOT / "examples" / "demo_project",
-    ]
+    DEFAULT_PROJECT_ROOTS = [REPO_ROOT / "projects"]
 else:
     DEFAULT_PROJECT_ROOTS = [SEAM_HOME / "projects"]
+
+# Committed example projects of a source checkout, seeded into projects/ on
+# start (services.demo_project.seed_default_checkout_projects). None when
+# installed.
+EXAMPLE_PROJECTS_DIR: Optional[Path] = (
+    REPO_ROOT / "examples" / "demo_project" if REPO_ROOT is not None else None
+)

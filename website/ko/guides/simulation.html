@@ -124,6 +124,8 @@ footer{border-top:1px solid var(--line)}
     <a class="active" href="simulation.html">시뮬레이션</a>
     <a href="trajectory_uav.html">궤적 &amp; UAV</a>
     <a href="datasets_export.html">ML 데이터셋 &amp; 내보내기</a>
+    <a href="sensing.html">레이더 센싱 &amp; ISAC</a>
+    <a href="playback_dashboard.html">멀티모달 재생</a>
     <a class="all" href="./">← 전체 가이드</a>
   </aside>
 
@@ -131,9 +133,10 @@ footer{border-top:1px solid var(--line)}
     <div class="eyebrow">Guide 04 · SEAM Studio docs</div>
     <h1>시뮬레이션: 경로, 라디오맵, 빔포밍, 채널 분석</h1>
     <p class="lead">SEAM Studio의 모든 계산은 <b>Results</b> 모드에서 이뤄집니다: 레이 경로, 커버리지 라디오맵, MIMO 빔포밍, 링크별 채널 분석. 이 가이드는 각 솔버와 핵심 노브, 결과를 읽는 법을 차례로 안내합니다. Sionna RT가 설치되어 있지 않아도 전 과정이 <b>Mock 백엔드</b>로 동작하므로 GPU 없이 그대로 따라 할 수 있습니다.</p>
+
     <div class="spectrum"></div>
 
-    <h2>1. Results 모드 화면 구성</h2>
+    <h2 id="1-results-모드-화면-구성">1. Results 모드 화면 구성</h2>
 
     <p>툴바에서 <b>Results</b> 탭을 클릭하세요. 오른쪽 사이드바에 <b>Global</b>,
     <b>Paths</b>, <b>Radio map</b> 세 개의 접이식 섹션을 가진 <b>Simulation</b> 패널과,
@@ -150,8 +153,8 @@ footer{border-top:1px solid var(--line)}
       </thead>
       <tbody>
         <tr><td><b>Preset</b></td><td>대표 시나리오 설정을 Paths와 Radio map에 한 번에 적용: <code>28 GHz Indoor Lab</code>, <code>28 GHz Outdoor Campus</code>, <code>3.5 GHz Urban Macro</code>, <code>60 GHz Indoor</code>, <code>28 GHz UAV A2G</code>. 노브를 손으로 바꾸면 <code>Custom</code>으로 전환됩니다.</td></tr>
-        <tr><td><b>Backend</b></td><td><code>auto</code> / <code>mock</code> / <code>sionna</code>. <code>auto</code>는 Sionna RT가 설치되어 있으면 사용하고, 없으면 mock 솔버로 대체합니다.</td></tr>
-        <tr><td><b>Engine</b></td><td>등록된 Sionna RT 버전이 둘 이상일 때만 표시 — paths 솔브를 돌릴 버전을 고릅니다(예: <code>Sionna RT 2.0.1</code>). <a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/engines.ko.md">../engines.ko.md</a> 참고.</td></tr>
+        <tr><td><b>Backend</b></td><td><code>auto</code> / <code>mock</code> / <code>sionna</code>. <code>auto</code>는 Sionna RT가 설치되어 있고 Dr.Jit 백엔드가 동작하면(CUDA GPU, 또는 CPU의 LLVM. <a href="https://github.com/jaewoo4200/SEAM/blob/master/INSTALL.ko.md#실제-sionna-rt-엔진-자동-설치됨">INSTALL</a> 참고) 사용하고, 아니면 mock 솔버로 대체하며 그 이유를 결과 경고에 적습니다.</td></tr>
+        <tr><td><b>Engine</b></td><td>등록된 Sionna RT 버전이 둘 이상일 때만 표시 — paths 솔브를 돌릴 버전을 고릅니다(예: <code>Sionna RT 1.2.2</code>). <a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/engines.ko.md">../engines.ko.md</a> 참고.</td></tr>
         <tr><td><b>Frequency</b> (GHz)</td><td>반송파 주파수(기본 28 GHz).</td></tr>
         <tr><td><b>Bandwidth</b> (MHz)</td><td>잡음·CFR·용량 계산에 쓰는 채널 대역폭.</td></tr>
         <tr><td><b>Noise figure</b> (dB)</td><td>SNR/SINR용 수신기 잡음지수.</td></tr>
@@ -162,7 +165,12 @@ footer{border-top:1px solid var(--line)}
     <p>Global 섹션에는 <b>Beamforming array</b> 설정(4절)과 <b>Live sync</b> 토글도
     함께 있습니다.</p>
 
-    <h2>2. 경로 (Paths)</h2>
+    <p><b>디바이스 안테나.</b> TX와 RX는 디바이스 인스펙터에서 저마다 안테나(패턴, 편파, 배열
+    크기)를 갖지만, Sionna RT에는 씬 단위 TX 배열과 RX 배열이 하나씩뿐입니다. 그래서
+    Sionna의 경로·센싱·시나리오 솔브는 처음 선택한 TX(RX)의 안테나를 모든 TX(RX)에
+    적용하고, v0.1.14부터는 안테나가 다른 디바이스 이름을 적어 경고합니다.</p>
+
+    <h2 id="2-경로-paths">2. 경로 (Paths)</h2>
 
     <figure class="doc-shot"><img loading="lazy" decoding="async" src="../../assets/guides/06_paths.png" alt="3D 씬 위에 TX에서 RX로 그려진 다섯 개의 레이 경로와 오른쪽에 열린 Simulation 패널"><figcaption>경로 솔브 결과: 상호작용 종류별로 색이 다른 TX→RX 폴리라인과 Simulation 패널의 Global·Paths 섹션.</figcaption></figure>
 
@@ -186,7 +194,7 @@ footer{border-top:1px solid var(--line)}
         나타납니다.</li>
     </ol>
 
-    <h3>정확도 프리셋 (Accuracy)</h3>
+    <h3 id="정확도-프리셋-accuracy">정확도 프리셋 (Accuracy)</h3>
 
     <p>레이 수를 하나씩 만지는 대신 Paths 섹션의 <b>Accuracy</b> 세그먼트 버튼을
     쓰세요:</p>
@@ -208,7 +216,7 @@ footer{border-top:1px solid var(--line)}
     <b>Refraction</b>, <b>Diffraction</b>, <b>Edge diffraction</b>,
     <b>Lit-region diffraction</b>)로 솔버가 추적할 상호작용을 고릅니다.</p>
 
-    <h3>오버레이 토글과 필터</h3>
+    <h3 id="오버레이-토글과-필터">오버레이 토글과 필터</h3>
 
     <p>Results 패널의 <b>Show:</b> 줄에서 오버레이를 각각 켜고 끕니다 — <b>Rays</b>,
     <b>Radio map</b>, <b>Beamforming</b>, <b>Trajectory rays</b>, <b>Scenario</b>.
@@ -218,7 +226,7 @@ footer{border-top:1px solid var(--line)}
     <b>Remove</b>를 누르세요. <b>Auto update</b>를 켜 두면 씬이 바뀔 때마다 경로가
     자동으로 다시 계산됩니다.</p>
 
-    <h2>3. 라디오맵 (Radio map)</h2>
+    <h2 id="3-라디오맵-radio-map">3. 라디오맵 (Radio map)</h2>
 
     <figure class="doc-shot"><img loading="lazy" decoding="async" src="../../assets/guides/07_radio_map.png" alt="jet 컬러맵 커버리지 히트맵과 Path gain 범례, 결과 토스트"><figcaption>씬에 깔린 라디오맵: jet 컬러맵, "Path gain" dB 컬러바, 완료 토스트.</figcaption></figure>
 
@@ -238,7 +246,7 @@ footer{border-top:1px solid var(--line)}
         센싱 씬을 위해 고정 주기로 다시 풉니다.</li>
     </ol>
 
-    <h3>셀 맵 vs 메시 맵</h3>
+    <h3 id="셀-맵-vs-메시-맵">셀 맵 vs 메시 맵</h3>
 
     <p>위의 맵은 고정 높이의 수평 격자, 즉 <b>평면 셀 맵</b>입니다. 커버리지를
     <b>실제 표면</b>(벽·바닥·도로)에 칠하려면 대상 프림을 선택한 뒤 Results
@@ -247,7 +255,7 @@ footer{border-top:1px solid var(--line)}
     전용 <b>Mesh map</b> 체크박스로 오버레이를 토글하며, 값 범위는 예를 들어
     <code>Path gain range −95.2 … −61.4 dB (jet: low → high)</code>처럼 표시됩니다.</p>
 
-    <h2>4. 빔포밍 어레이 (Beamforming array)</h2>
+    <h2 id="4-빔포밍-어레이-beamforming-array">4. 빔포밍 어레이 (Beamforming array)</h2>
 
     <figure class="doc-shot"><img loading="lazy" decoding="async" src="../../assets/guides/08_beamforming.png" alt="빔포밍 결과 토스트와 Global 섹션의 어레이 설정"><figcaption>코드북 스윕 결과: Global 섹션의 어레이 설정과 요약 토스트.</figcaption></figure>
 
@@ -271,7 +279,7 @@ footer{border-top:1px solid var(--line)}
         체크박스를 켜면 씬이 바뀔 때 자동으로 다시 실행됩니다.</li>
     </ol>
 
-    <h2>5. 채널 분석 (Channel analysis)</h2>
+    <h2 id="5-채널-분석-channel-analysis">5. 채널 분석 (Channel analysis)</h2>
 
     <figure class="doc-shot"><img loading="lazy" decoding="async" src="../../assets/guides/09_channel_analysis.png" alt="링크 버짓 KPI와 CIR/CFR 차트가 있는 플로팅 Channel analysis 패널"><figcaption>뷰포트 위에 플로팅한 Channel analysis 패널: 링크 버짓, CIR 전력-지연 프로파일, CFR 크기.</figcaption></figure>
 
@@ -298,7 +306,11 @@ footer{border-top:1px solid var(--line)}
       <li><b>Link budget</b> — <b>RSS</b>, <b>SNR</b>, <b>SINR</b>, <b>Interference</b>(다중 TX
         씬에서는 간섭 TX 수 포함), <b>Shannon</b> 용량, <b>K-factor</b>, <b>RMS DS</b>
         (지연확산), <b>Coh. BW</b>, 그리고 시변 채널이면 <b>Doppler spread</b>·
-        <b>Coh. time</b>.</li>
+        <b>Coh. time</b>. TX나 RX에 속도가 있거나(움직이는 액터에 타고 있는 경우
+        포함), 씬에 t = 0에 움직이는 궤적을 가진 액터가 하나라도 있으면 시변
+        채널로 봅니다(Sionna 백엔드, <a href="sensing.html">sensing.ko.md</a> 4절 참고).
+        움직이는 액터에 닿는 경로가 하나도 없어도 마찬가지이며, 이때 Doppler
+        spread는 0 Hz로 나오고 Coh. time은 표시되지 않습니다.</li>
       <li><b>CIR (power delay profile)</b> — 탭마다 경로 종류 색으로 그린 스템 플롯.</li>
       <li><b>CFR magnitude</b> — 대역에 걸친 |H| (dB).</li>
       <li><b>Path-loss models vs RT</b> — 3GPP 모델 예측과 레이 트레이싱 기준 대비
@@ -316,7 +328,7 @@ footer{border-top:1px solid var(--line)}
     <b>Flight-log validation</b>(<b>Validate</b> — 경로를 따라 실측 vs 예측
     path gain 비교).</p>
 
-    <h2>6. 백엔드, 결과 보존, stale 표시</h2>
+    <h2 id="6-백엔드-결과-보존-stale-표시">6. 백엔드, 결과 보존, stale 표시</h2>
 
     <ul>
       <li>Sionna RT가 없으면 <b>모든 솔버가 Mock 백엔드로 대체</b>됩니다(툴바 칩이
@@ -330,6 +342,13 @@ footer{border-top:1px solid var(--line)}
       <li>결과는 프로젝트별로 보존됩니다: 경로 결과는 프로젝트 폴더의
         <code>results/{backend}_paths_{NNN}.json</code>에 쌓이고, 종류별 최신 결과는
         프로젝트를 열 때 함께 로드됩니다.</li>
+      <li>Results 패널의 <b>A/B compare (pin A → re-solve → B)</b> 는 현재 경로 +
+        채널 결과를 기준선 <b>A</b>로 고정합니다. 파라미터를 바꾸고 다시 solve하면
+        경로 수, 최강 경로 파워·게인, 최초 도달, RSRP/RSRQ/RSSI/RSS/SINR,
+        RMS 지연확산의 A / B / Δ 표와 출처 칩 두 개 — <em>solver config</em>(솔버 노브만)와
+        <em>scene</em>(디바이스·재질·지오메트리; 의도한 파라미터 편집이면 <em>scene differs</em>로
+        보이는 게 정상) — 가 표시됩니다. 핀은 클라이언트 전용이라 지우거나
+        프로젝트를 바꾸기 전까지 유지되며, 디스크에는 아무것도 추가로 쓰지 않습니다.</li>
       <li>Results 패널의 <b>Run history</b> 접이식 섹션이 결과 탐색기입니다: 지난
         실행을 종류별로 묶어 보여주고, 클릭 한 번으로 다시 로드하며, 라벨을
         붙이고, 정리할 수 있습니다(<b>Keep latest</b> N per kind →
@@ -338,7 +357,7 @@ footer{border-top:1px solid var(--line)}
         조용히 보여주는 일은 없으니, 다시 실행해 갱신하세요.</li>
     </ul>
 
-    <h2>관련 문서</h2>
+    <h2 id="관련-문서">관련 문서</h2>
 
     <ul>
       <li><a href="getting_started.html">시작 가이드</a> — 설치, 첫 프로젝트, 모드 둘러보기</li>

@@ -138,6 +138,9 @@ def mesh_radio_map(
                 }
             )
             result = backend.simulate_paths(project_dir, step, library, cfg)
+            for w in result.warnings:  # dedupe: every chunk repeats the same ones
+                if w not in warnings:
+                    warnings.append(w)
             by_rx: dict[str, float] = {}
             for path in result.paths:
                 if path.tx_id != tx.id:

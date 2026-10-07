@@ -21,7 +21,6 @@ from seam_studio.schemas.devices import Device
 from seam_studio.schemas.scene import Actor, ActorTrajectory, MeshRef, Prim, RFBinding, Scene
 from seam_studio.schemas.sensing import SensingSimulateRequest
 from seam_studio.schemas.simulation import SimulationConfig
-from seam_studio.services.availability import sionna_available, sionna_rcs_available
 from seam_studio.services.project_store import load_default_library
 from seam_studio.services.scenario import run_scenario
 from seam_studio.services.sensing import select_targets
@@ -33,14 +32,12 @@ from seam_studio.services.simulation_backends.sionna_backend import (
     _load_scene_cached,
 )
 
+from .conftest import requires_sionna_rcs
 from .test_sensing_sionna import _config as sensing_config
 from .test_sensing_sionna import _hits, _write_ground
 from .test_sensing_sionna import _scene as sensing_scene
 
-pytestmark = pytest.mark.skipif(
-    not (sionna_available() and sionna_rcs_available()),
-    reason="sionna-rt >= 2.2 (sionna.rt.rcs) not installed",
-)
+pytestmark = requires_sionna_rcs
 
 FREQ = 3.5e9  # keeps the ITU ground (1-10 GHz) in band
 SAMPLES = 100_000

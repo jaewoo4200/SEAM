@@ -14,14 +14,13 @@ from fastapi.testclient import TestClient
 from seam_studio.api import deps
 from seam_studio.api import simulate as simulate_api
 from seam_studio.core.config import get_settings
-from seam_studio.schemas.materials import AssignRequest
 from seam_studio.schemas.scene import Device, MeshRef, Prim, RFBinding, Scene
 from seam_studio.schemas.simulation import BeamformingRequest, SimulationConfig
-from seam_studio.services.availability import sionna_available
-from seam_studio.services.material_assignment import assign_materials
 from seam_studio.services.project_store import load_default_library
 from seam_studio.services.simulation_backends.mock_backend import MockBackend
 from seam_studio.services.simulation_backends.sionna_backend import SionnaBackend
+
+from .conftest import requires_sionna
 
 
 def _scene() -> Scene:
@@ -185,7 +184,7 @@ def test_solve_guard_emits_failed_on_http_exception(event_log):
     assert event_log[1]["error"] == "backend unavailable"
 
 
-@pytest.mark.skipif(not sionna_available(), reason="sionna-rt not installed")
+@requires_sionna
 def test_sionna_beamforming_real_gain(tmp_path: Path):
     proj = tmp_path / "bf.sionnatwin"
     (proj / "visual").mkdir(parents=True)

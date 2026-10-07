@@ -24,8 +24,8 @@ SEAM Studio의 모든 계산은 **Results** 모드에서 이뤄집니다: 레이
 | 필드 | 하는 일 |
 |---|---|
 | **Preset** | 대표 시나리오 설정을 Paths와 Radio map에 한 번에 적용: `28 GHz Indoor Lab`, `28 GHz Outdoor Campus`, `3.5 GHz Urban Macro`, `60 GHz Indoor`, `28 GHz UAV A2G`. 노브를 손으로 바꾸면 `Custom`으로 전환됩니다. |
-| **Backend** | `auto` / `mock` / `sionna`. `auto`는 Sionna RT가 설치되어 있으면 사용하고, 없으면 mock 솔버로 대체합니다. |
-| **Engine** | 등록된 Sionna RT 버전이 둘 이상일 때만 표시 — paths 솔브를 돌릴 버전을 고릅니다(예: `Sionna RT 2.0.1`). [../engines.ko.md](../engines.ko.md) 참고. |
+| **Backend** | `auto` / `mock` / `sionna`. `auto`는 Sionna RT가 설치되어 있고 Dr.Jit 백엔드가 동작하면(CUDA GPU, 또는 CPU의 LLVM. [INSTALL](../../INSTALL.ko.md#실제-sionna-rt-엔진-자동-설치됨) 참고) 사용하고, 아니면 mock 솔버로 대체하며 그 이유를 결과 경고에 적습니다. |
+| **Engine** | 등록된 Sionna RT 버전이 둘 이상일 때만 표시 — paths 솔브를 돌릴 버전을 고릅니다(예: `Sionna RT 1.2.2`). [../engines.ko.md](../engines.ko.md) 참고. |
 | **Frequency** (GHz) | 반송파 주파수(기본 28 GHz). |
 | **Bandwidth** (MHz) | 잡음·CFR·용량 계산에 쓰는 채널 대역폭. |
 | **Noise figure** (dB) | SNR/SINR용 수신기 잡음지수. |
@@ -33,6 +33,11 @@ SEAM Studio의 모든 계산은 **Results** 모드에서 이뤄집니다: 레이
 
 Global 섹션에는 **Beamforming array** 설정(4절)과 **Live sync** 토글도
 함께 있습니다.
+
+**디바이스 안테나.** TX와 RX는 디바이스 인스펙터에서 저마다 안테나(패턴, 편파, 배열
+크기)를 갖지만, Sionna RT에는 씬 단위 TX 배열과 RX 배열이 하나씩뿐입니다. 그래서
+Sionna의 경로·센싱·시나리오 솔브는 처음 선택한 TX(RX)의 안테나를 모든 TX(RX)에
+적용하고, v0.1.14부터는 안테나가 다른 디바이스 이름을 적어 경고합니다.
 
 ---
 

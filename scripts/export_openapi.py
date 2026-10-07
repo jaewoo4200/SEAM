@@ -15,7 +15,7 @@ or from the repo root ::
     python scripts/export_openapi.py
 
 Either way it writes ``<repo>/backend/openapi.json`` with sorted keys so the
-diff is stable across runs. It imports ``app.main`` from the backend package,
+diff is stable across runs. It imports ``seam_studio.main`` from the backend package,
 adding ``backend/`` to ``sys.path`` when needed so the invocation directory
 does not matter.
 """
@@ -36,7 +36,7 @@ def _ensure_backend_importable() -> None:
     """Make ``import seam_studio.main`` work regardless of the current directory."""
     backend = str(BACKEND_DIR)
     if backend not in sys.path:
-        # Prepend so the backend's ``app`` package wins over any same-named module.
+        # Prepend so the backend's ``seam_studio`` package wins over an installed copy.
         sys.path.insert(0, backend)
 
 

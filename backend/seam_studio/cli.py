@@ -2,8 +2,9 @@
 
 Launches the FastAPI backend (which also serves the bundled frontend in a
 pip install) and opens the browser. First run bootstraps the Sample Demo
-project into the default project root (``~/.seam/projects`` when installed,
-the repo roots in a source checkout) so the app never starts empty.
+project into the default project root (``~/.seam/projects`` when installed;
+in a source checkout the committed examples are copied into the repo's
+``projects/``) so the app never starts empty.
 
     seam-studio                     # start on 127.0.0.1:8000 + open browser
     seam-studio --port 9000
@@ -55,8 +56,8 @@ def main() -> None:
         "--project-root",
         default=None,
         help="projects directory (default: ~/.seam/projects when installed; "
-        "the repo's projects/ + examples in a source checkout). Equivalent to "
-        "the SEAM_PROJECT_ROOTS environment variable.",
+        "the repo's projects/ in a source checkout). Equivalent to the "
+        "SEAM_PROJECT_ROOTS environment variable.",
     )
     parser.add_argument(
         "--no-browser", action="store_true", help="do not open the browser on start"
@@ -72,11 +73,13 @@ def main() -> None:
 
     from seam_studio.core.config import get_settings
     from seam_studio.main import app
+    from seam_studio.services.demo_project import seed_default_checkout_projects
 
     # Ensure the primary root exists so first project creation never 500s.
     roots = get_settings().project_roots
     if roots:
         roots[0].mkdir(parents=True, exist_ok=True)
+    seed_default_checkout_projects()
     _bootstrap_demo()
 
     url = f"http://{args.host}:{args.port}"

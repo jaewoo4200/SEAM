@@ -15,6 +15,9 @@ the mock cannot:
   scene as a plain load. With tr38901 elements the map's per-leg element
   gain (sensing_coverage.element_gain_db) matches the echo too, and the
   closed forms equal sionna's own pattern functions;
+- L2p: pitched V / cross panels, mono- and bistatic: the map's per-leg
+  polarization projection (sensing_coverage.polarization_loss_db) matches
+  the echo, and the mock echo equals the map;
 - L1e: the elevation (2-D) codebook on a 4x1 vertical ULA, TX and RX side:
   run_isac's path synthesis and echo_beam_matrix's receive factor against
   the same steering vectors applied to Sionna's synthetic-array channel
@@ -36,7 +39,6 @@ from seam_studio.schemas.sensing import (
     SensingSimulateRequest,
 )
 from seam_studio.schemas.simulation import BeamformingRequest, SimulationConfig
-from seam_studio.services.availability import sionna_available, sionna_rcs_available
 from seam_studio.services.isac import (
     codebook_angles,
     codebook_weights,
@@ -55,10 +57,9 @@ from seam_studio.services.simulation_backends.sionna_backend import (
     noise_floor_dbm,
 )
 
-pytestmark = pytest.mark.skipif(
-    not (sionna_available() and sionna_rcs_available()),
-    reason="sionna-rt >= 2.2 (sionna.rt.rcs) not installed",
-)
+from .conftest import requires_sionna_rcs
+
+pytestmark = requires_sionna_rcs
 
 FREQ = 3.5e9  # ITU ground / concrete in band
 SAMPLES = 200_000
@@ -428,6 +429,70 @@ def test_l2_coverage_matches_echo_with_tr38901(building_site: Path, yaw: float):
         j = int((xy[1] - grid.origin[1]) // grid.cell_size_m)
         echo_snr = max(p.power_dbm for p in direct) - n0
         assert abs(echo_snr - coverage.values["best_snr_db"][j][i]) <= 0.01, (xy, echo_snr)
+
+
+# ------------------------------------ L2p: polarization of pitched panels
+
+
+def _l2p_scene(probe_xy, pitch: float, pol: str, rx_pos) -> Scene:
+    antenna = Antenna(pattern="iso", polarization=pol)
+    orientation = [0.0, pitch, 0.0]
+    scene = _l2_scene(probe_xy)
+    scene.devices = [
+        Device(id="trp", kind="tx", position=list(TX_POS), power_dbm=30.0,
+               orientation_deg=orientation, antenna=antenna),
+        Device(id="trp_rx", kind="rx", position=list(rx_pos),
+               orientation_deg=list(orientation), antenna=antenna.model_copy()),
+    ]
+    return scene
+
+
+@pytest.mark.parametrize("rx_pos", [TX_POS, [0.0, 40.0, 10.0]], ids=["mono", "bistatic"])
+@pytest.mark.parametrize("pol", ["V", "cross"])
+@pytest.mark.parametrize("pitch", [-15.0, -45.0])
+def test_l2_coverage_matches_echo_of_pitched_panels(
+    building_site: Path, keep_flush_counter, pitch: float, pol: str, rx_pos
+):
+    # A pitched element's field leaves the world theta/phi basis Sionna's RCS
+    # scattering matrix is the identity in: up to -29 dB at -45 deg (measured
+    # within 3.2e-5 dB of polarization_loss_db). The mock echo equals the map.
+    from seam_studio.services.simulation_backends.mock_backend import MockBackend
+
+    library = load_default_library()
+    config = _config(max_depth=1, reflection=False)
+    mock_config = config.model_copy(update={"backend": "mock"})
+    backend = SionnaBackend()
+    request = SensingCoverageRequest(
+        rcs_dbsm=RCS_DBSM, height_m=HEIGHT, cell_size_m=10.0,
+        center_xy=[40.0, 0.0], size_xy=[120.0, 120.0], cpi_pulses=1,
+        sensing_rx_ids=["trp_rx"],
+    )
+    coverage = run_sensing_coverage(
+        backend, building_site, _l2p_scene(LOS_CELLS[0], pitch, pol, rx_pos),
+        library, config, request,
+    )
+    assert coverage.metadata["polarization_model"].startswith("per-leg projection")
+    grid = coverage.grid
+    n0 = noise_floor_dbm(config)
+    for xy in LOS_CELLS[:3]:
+        scene = _l2p_scene(xy, pitch, pol, rx_pos)
+        targets = select_targets(scene, None)
+        echo = backend.simulate_sensing(
+            building_site, scene, library, config,
+            SensingSimulateRequest(samples_per_sp=SAMPLES), targets,
+        )
+        direct = [p for p in echo.paths if [i.type for i in p.interactions] == ["sensing"]]
+        assert direct, echo.warnings
+        i = int((xy[0] - grid.origin[0]) // grid.cell_size_m)
+        j = int((xy[1] - grid.origin[1]) // grid.cell_size_m)
+        cell = coverage.values["best_snr_db"][j][i]
+        echo_snr = max(p.power_dbm for p in direct) - n0
+        assert abs(echo_snr - cell) <= 0.01, (xy, echo_snr, cell)
+        mock = MockBackend().simulate_sensing(
+            building_site, scene, library, mock_config,
+            SensingSimulateRequest(samples_per_sp=SAMPLES), targets,
+        )
+        assert abs(mock.paths[0].power_dbm - n0 - cell) <= 1e-9
 
 
 # ------------------------------- L1e: elevation codebook on a vertical ULA

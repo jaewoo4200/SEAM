@@ -10,7 +10,7 @@ local extras (Sionna RT, Ollama) that degrade gracefully when absent.
 ## Unified scene graph and its two projections
 
 There is exactly one source of truth per project: `scene.seam.json`,
-the canonical unified scene graph (`app.schemas.scene.Scene`). The visual
+the canonical unified scene graph (`seam_studio.schemas.scene.Scene`). The visual
 and RF sides are *projections* compiled from it — never independent files
 that can drift.
 
@@ -45,12 +45,13 @@ A mesh primitive carries two independent material bindings:
 
 Visual material info is never used as RF truth. A texture called
 `concrete.jpg` can *suggest* `itu_concrete`, with tracked provenance, but
-only a user confirmation (or a future calibration run) promotes it.
+only a user confirmation (or an applied measurement calibration,
+`POST /calibrate/materials` with `apply: true`) promotes it.
 
 ## Module map
 
 ```text
-backend/app/
+backend/seam_studio/
   main.py                     FastAPI factory; mounts routers under /api
   core/
     config.py                 env-driven Settings (project roots, AI config)
@@ -116,13 +117,20 @@ POST /api/projects/{id}/compile/sionna
 POST /api/projects/{id}/simulate/paths       body: SimulateRequest
   resolve SimulationConfig (inline config wins over config_id; 404/400)
   simulation_backends.resolve_backend(config)
-      "auto"  -> sionna when importable, else mock
-      "sionna" when not installed -> BackendUnavailableError -> HTTP 409
+      "auto"  -> sionna when usable (installed, a Dr.Jit CUDA/LLVM backend
+                 works and sionna.rt imports: availability.sionna_runtime(),
+                 probed once per process in a subprocess), else mock; the
+                 result then carries "auto backend: <reason>; ran the mock backend"
+      "sionna" when unusable -> BackendUnavailableError -> HTTP 409 (+ reason)
   backend.simulate_paths(...) -> PathResultSet (backend-neutral schema)
-  persist results/<result_id>.json
+  persist results/<result_id>.json   (compact JSON, no indentation)
       result_id = f"{backend_name}_{kind}_{n:03d}",
-      n = 1 + count of existing refs of that kind in scene.result_sets
+      n = 1 + highest existing suffix of that kind (skipping ids whose
+          ref or results file already exists)
   append ResultSetRef to scene.result_sets; save scene
+  with SEAM_AUTO_PRUNE_KEEP=N: drop all but the newest N unlabeled refs of
+      that kind (files too; labeled runs and imported AODT results are
+      kept; a provenance event)
   -> PathResultSet
 GET /api/projects/{id}/results/paths         latest = last ref of that kind
 ```
@@ -134,7 +142,7 @@ see [guides/sensing.md](guides/sensing.md)) follows the same shape with
 
 ## Result schemas, reproducibility, and events
 
-The backend-neutral result models (`app.schemas.results`) carry more than raw
+The backend-neutral result models (`seam_studio.schemas.results`) carry more than raw
 power. What the frontend reads out of them:
 
 ### Angle of arrival / departure (AoA / AoD)
@@ -203,9 +211,11 @@ result is detectable (`simulate.py::_provenance_hashes`):
   pure material re-assignment is detectable on its own.
 - `sim_config_hash` — the exact solver knobs; the full `config_snapshot` is
   stored alongside.
-- `request_hash` (sensing results only) — the sensing-only knobs that are not
-  config fields (`target_actor_ids`, `max_depth`, `samples_per_sp`,
-  `include_comm_paths`, …): the hash of `metadata.sensing_request`.
+- `request_hash` (sensing, isac and sensing_coverage results) — sha256 of
+  `metadata.sensing_request` (sensing) or `metadata.request` (isac /
+  coverage): the solve-only knobs not in the config. Fields added after a
+  release are left out of that dump while they hold their defaults
+  (`PHASE_C_FIELDS`), so an older request keeps its hash.
 
 The frontend compares a result's stamped hashes against the live scene to badge
 results as stale when the scene or assignments have moved on since the solve.
@@ -216,8 +226,14 @@ results as stale when the scene or assignments have moved on since the solve.
 capability-aware UIs. `capabilities` is a stable, additive feature map
 (`paths`, `radio_map`, `mesh_radio_map`, `cir`, `beamforming`, `doppler`,
 `diffraction`, `sensing`, `gpu`, …); **frontends treat a missing key as `false`**. The
-`mock` backend is always available; `sionna` reports `available: false` with a
-"not installed (optional)" detail when Sionna RT is not importable.
+`mock` backend is always available; `sionna` reports `available: false` with
+the reason in `detail`: "not installed (optional)", "sionna-rt installed but no
+Dr.Jit backend works (no CUDA device and LLVM-C not found); set
+DRJIT_LIBLLVM_PATH to LLVM-C.dll/libLLVM", "sionna-rt installed but its
+Dr.Jit/Mitsuba runtime failed to load: <error>" (drjit/mitsuba import or the
+probe child failed), or the `sionna.rt` import error.
+Until a solve activates a Mitsuba variant, `capabilities.gpu` / `compute`
+(`cuda` / `llvm` / `none`) come from the same runtime probe.
 
 ### Live events (WebSocket)
 
@@ -238,14 +254,17 @@ columns, defaulting to `"tx"`/`"rx"`; there is no object-id→prim-id remap
 today), and persists them through the shared
 `_persist_result` helper — so imported sets get canonical ids, provenance
 hashes, and a `ResultSetRef` with `backend: "aodt_import"` exactly like a local
-solve. Returns 409 when `pyarrow` is not installed.
+solve. Returns 409 when `pyarrow` is not installed (the `parquet` extra:
+`pip install "seam-studio[parquet]"`). The UI calls it from **Actions ▾ → AODT
+import (parquet)** with a folder path on the machine running SEAM.
 
 ### Measurement CSV import
 
 `POST /projects/{id}/calibrate/measurements/import-csv {csv_text}` parses
 measured per-link samples (RX position + measured path gain) into
 `MeasurementSample`s (each with an optional `measurement_id`), reporting
-`skipped` rows and `warnings`; `GET /projects/{id}/calibrate/measurements`
+`skipped` rows and `warnings`; a CSV that yields no sample answers 400 and
+keeps the stored set. `GET /projects/{id}/calibrate/measurements`
 returns the stored set. These feed material calibration and RF disambiguation
 (see `docs/ai_assistant.md`, `docs/accuracy.md`).
 
@@ -274,7 +293,7 @@ response (`evidence_images`) and `ai/suggestions.jsonl` for reproducibility.
 
 ### Material segmentation (multi-material buildings)
 
-Real buildings mix glass/concrete/metal; `app/services/material_segmentation.py`
+Real buildings mix glass/concrete/metal; `seam_studio/services/material_segmentation.py`
 ports the FTC SAM2/DINOv2 study's split scaffold: texture atlas + UV mesh ->
 material mask -> per-face assignment (mask sampled at each face's UV centroid,
 `y=(1-v)*(H-1)`) -> PHYSICAL split into per-material named sub-meshes baked
@@ -299,7 +318,7 @@ FE enables draping by default for routes drawn via surface picks.
 
 ### SEAM-Agent (retrieval-augmented material authoring)
 
-`app/services/seam_agent.py` + `/projects/{id}/agent/material-assignment/*`:
+`seam_studio/services/seam_agent.py` + `/projects/{id}/agent/material-assignment/*`:
 segments ONE building-level prim into RF components and proposes materials.
 The FE captures multi-view orthographic renders (RGB + triangle-id buffers,
 faceIndex as uint24 vertex colors) inside the r3f world; the backend runs a
@@ -318,7 +337,7 @@ queries, evidence cards) - never raw chain-of-thought.
 
 `POST /projects/import-osm {name, lat, lon, width_m, height_m, ...}` builds a
 ready-to-simulate outdoor project from a geographic rectangle in one shot
-(`app.services.osm_import`). It fetches building footprints from the Overpass
+(`seam_studio.services.osm_import`). It fetches building footprints from the Overpass
 API, projects each way's lon/lat ring to local ENU meters via an
 equirectangular tangent-plane approximation about the center (sub-metre for the
 ≤3 km rectangles it allows), extrudes the footprints with
@@ -339,7 +358,7 @@ timeout returns 504.
 ## Simulation backend interface
 
 All backends implement one abstract base class
-(`app.services.simulation_backends`):
+(`seam_studio.services.simulation_backends`):
 
 ```python
 class RayTracingBackend(abc.ABC):
@@ -359,15 +378,20 @@ available_backends() -> list[HealthBackendStatus]                # feeds /api/he
 - **mock** is always available and deterministic: a LoS path, a reflection
   path with prim-id interactions, and a synthetic radio map. It exists so the
   entire app (frontend, tests, result explorer) works with no GPU, no Sionna.
-- **sionna** imports Sionna RT lazily inside functions
-  (`availability.sionna_available()` only probes module specs). If the import
-  or run fails, the API reports 409 instead of crashing the app.
-- **AODT (future)** slots in two ways without touching the schemas: as
-  another `RayTracingBackend` wrapping a remote AODT worker, or as an
-  importer that normalizes AODT Parquet outputs into `PathResultSet` /
-  `RadioMapResultSet`, remapping AODT object ids to canonical prim ids via
-  `mapping/object_map.json`. Either way results land in `results/` with a
-  `ResultSetRef` whose `backend` field records their origin.
+- **sionna** imports Sionna RT lazily inside functions.
+  `availability.sionna_available()` checks the installed package and, once per
+  process, a subprocess runtime probe (`sionna_runtime()`: which Dr.Jit
+  backends work, whether `sionna.rt` imports; a probe timeout counts as
+  usable). If it is unusable, `auto` falls back to the mock with a warning and
+  a named `sionna` request answers 409 with the reason instead of crashing the app.
+- **AODT** results come in through an importer (`POST /results/import-aodt`,
+  `services/aodt_import.py`) that normalizes AODT Parquet outputs into
+  `PathResultSet` / `RadioMapResultSet` without touching the schemas; they land
+  in `results/` with a `ResultSetRef` whose `backend` is `aodt_import`
+  (interactions keep their points and types; mapping AODT object ids to prim
+  ids is not done yet, so `prim_id` is `null`). `POST /export/aodt` writes the
+  other direction. A remote AODT worker could still slot in as another
+  `RayTracingBackend`.
 
 ## Key decisions
 
@@ -392,9 +416,14 @@ available_backends() -> list[HealthBackendStatus]                # feeds /api/he
   visual/RF mismatches are warnings the user can ship past; only structural
   errors abort a compile.
 - **Results stored per-id, latest by ref order.** Every run writes an
-  immutable `results/<result_id>.json`; the scene keeps an ordered
-  `result_sets` list and "latest" is simply the last ref of a kind. History
-  is never overwritten.
+  immutable `results/<result_id>.json` (compact JSON since v0.1.14, about 2×
+  smaller; the scene, provenance and sidecars stay indented); the scene keeps
+  an ordered `result_sets` list and "latest" is simply the last ref of a
+  kind. History is never overwritten, only pruned on request
+  (`POST /results/prune`, or automatically with `SEAM_AUTO_PRUNE_KEEP`;
+  labeled runs and imported AODT results are never pruned). A `provenance.json` that fails to parse is
+  renamed to `provenance.corrupt-<UTC timestamp>.json` and a fresh log starts
+  with a `provenance_recovered` event, so its history is never silently lost.
 - **Moving-RX (UE) trajectories move the existing device.** Each waypoint/step
   deep-copies the scene and mutates only the routed UE's `position` and
   finite-difference `velocity_m_s`; every other field (antenna
@@ -420,7 +449,7 @@ available_backends() -> list[HealthBackendStatus]                # feeds /api/he
   Ollama model when configured and reachable; otherwise (or on invalid AI
   JSON) they fall back to the deterministic rule-based provider. Suggestions
   never auto-apply by default.
-- **Portable local toolchain.** The whole stack runs from user-local,
-  relocatable installs — the backend venv under `backend/.venv` and a
-  portable Node distribution for the frontend. No admin rights, system
+- **Local toolchain.** The whole stack runs from user-local installs — the
+  backend venv under `backend/.venv`, and Node.js 20+ on PATH (source route
+  only; the pip package ships a pre-built frontend). No admin rights, system
   services, or cloud dependencies are required.
