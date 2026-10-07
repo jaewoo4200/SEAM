@@ -1505,7 +1505,7 @@ def get_provider_statuses() -> list[AIProviderStatus]:
                     "AI assistance disabled (SEAM_AI_ENABLED=off; legacy alias: "
                     "SIONNATWIN_AI_ENABLED)"
                     if off
-                    else "inactive (AI assistance is enabled)"
+                    else f"not selected (AI assistance is on; SEAM_AI_ENABLED={settings.enabled})"
                 ),
             )
         )

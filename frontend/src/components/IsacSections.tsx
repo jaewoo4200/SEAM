@@ -8,10 +8,9 @@
  * store slices. The Pd curve is pure maths (runPdCurve, not persisted).
  */
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { InputHTMLAttributes } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useAppStore } from "../store/appStore";
-import { Collapsible, EpochStaleChip } from "./common";
+import { Collapsible, EpochStaleChip, NumericInput } from "./common";
 import { Axes, CHART_COLORS, CHART_FONT, ChartFrame, exportCsv, ticks, xScale, yScale } from "../charts";
 import type { ChartGeom } from "../charts";
 import { ISAC_COMM_COLOR, ISAC_SENSING_COLOR } from "./IsacOverlay";
@@ -164,44 +163,6 @@ function DetectorFields({
         title={`Monte Carlo trials per Pd estimate (0 = analytic only; at most ${MAX_MC_TRIALS.toExponential(0)})`}
       />
     </>
-  );
-}
-
-/** type="number" input that keeps unparseable partial text ("-", "1e") to
- *  itself: the parent only ever sees finite numbers. Mapping "-" to 0 would
- *  make React write "0" back, so editing -60 to -45 ended at +45. */
-function NumericInput({
-  value,
-  onChange,
-  onBlur,
-  ...rest
-}: {
-  value: number;
-  onChange: (v: number) => void;
-  onBlur?: () => void;
-} & Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "onBlur" | "type">) {
-  // The raw text; a partial "-" reads back as "" and stays "" here, so React
-  // leaves the browser's own "-" alone.
-  const [text, setText] = useState(String(value));
-  useEffect(() => {
-    setText((t) => (t.trim() !== "" && Number(t) === value ? t : String(value)));
-  }, [value]);
-  return (
-    <input
-      {...rest}
-      type="number"
-      value={text}
-      onChange={(e) => {
-        const t = e.target.value;
-        setText(t);
-        const v = Number(t);
-        if (t.trim() !== "" && Number.isFinite(v)) onChange(v);
-      }}
-      onBlur={() => {
-        setText(String(value));
-        onBlur?.();
-      }}
-    />
   );
 }
 

@@ -87,6 +87,26 @@ export function normalizeConfig(
       cell_size_m: rm?.cell_size_m ?? d.radio_map.cell_size_m,
       height_m: rm?.height_m ?? d.radio_map.height_m,
       metric: rm?.metric ?? d.radio_map.metric,
+      // Optional explicit extent (settable over the API): carried through so
+      // opening, picking and saving a stored config never drops it.
+      center_xy: rm?.center_xy ?? null,
+      size_xy: rm?.size_xy ?? null,
     },
   };
+}
+
+/**
+ * Do two configs solve identically? Compares every field `normalizeConfig`
+ * keeps except the `id` / `name` labels, so a stored config and the live
+ * solver config loaded from it stay equal until a knob is edited.
+ */
+export function sameSolverConfig(
+  a: Partial<SimulationConfig> | null | undefined,
+  b: Partial<SimulationConfig> | null | undefined,
+): boolean {
+  // normalizeConfig rebuilds the object field by field in a fixed order, so
+  // the serialized forms are directly comparable.
+  const key = (c: Partial<SimulationConfig> | null | undefined) =>
+    JSON.stringify({ ...normalizeConfig(c), id: "", name: "" });
+  return key(a) === key(b);
 }

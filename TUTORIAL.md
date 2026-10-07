@@ -164,6 +164,15 @@ radio-map grid together, and does not touch the backend/TX/RX selection. If you 
 automatically switches to **Custom**. A preset is only a starting point, not the right answer, so if you have
 measurements, reduce the residual with material calibration.
 
+**Stored configs.** A project can store several simulation configs; the Sample Demo has **Default 28 GHz**
+(`default`, the one a project opens with) and **Sensing demo (3.5 GHz)** (`sensing_fr1`). They are listed at the
+top of the **Preset** dropdown, under *Stored configs*. Picking one loads it unchanged into the Paths and Radio
+map settings, and every solve after that runs with it and tags its result with the config's id (the line below
+the dropdown reads *Results tagged `sensing_fr1`*). Editing a knob switches the dropdown to **Custom** as above
+and adds *(edited)* to that line; the id stays. With `sensing_fr1` active, the button at the bottom of the panel
+reads **Save to stored config "Sensing demo (3.5 GHz)"** and writes your edits back into that config; with the
+first config active it is **Save as project default**, as before.
+
 ---
 
 ## 4. Overlay toggles & radio map (2 min)
@@ -302,20 +311,27 @@ The two buttons on the right of the viewport save scene images:
 The Sample Demo has moving **actors**: a **car (car_001)** driving on the road, a
 **pedestrian (human_001)** walking in front of the building and, since v0.1.14, a
 **drone (uav_001)** flying an L at 40 m that is bound as a radar sensing target. Each
-actor is compiled into its own RF geometry and moves per frame. The demo also has a
-**TX 1 sensing RX (tx_001_rx)** at the rooftop TX's position, the co-located radar
-receiver for sensing ([docs/guides/sensing.md](docs/guides/sensing.md)).
+actor is compiled into its own RF geometry and moves per frame. The demo also has three
+radar sites (TRPs): the rooftop TX with its co-located **TX 1 sensing RX (tx_001_rx)**, and
+**TX 2 (tx_002)** and **TX 3 (tx_003)** on street masts, each with its own sensing RX
+([docs/guides/sensing.md](docs/guides/sensing.md)).
 
 1. In **Results** mode, open the **Scenario playback** panel.
 2. Set **Num frames** (e.g. 20), **dt** (s), and if needed **Include paths (per frame)**.
 3. Press **Simulate scenario**.
 4. With the playback transport (▶ / ⏸, frame slider, ⟳ loop, speed 0.5×–4×), play the timeline
    and check the per-frame **Link metrics** (RSS / SINR / number of paths).
-5. (Optional) Tick **Sensing (ISAC)** under *Include paths*, set **Integrated pulses** to
-   `1000000` (the whole 10 ms CPI at the demo's 100 MHz bandwidth; with fewer the drone stays
-   below the 13 dB threshold at 28 GHz) and run again: every frame then also solves the drone's
-   radar echo at the sensing RX and reports its detection, range and Doppler
+5. (Optional) Detect and track the drone. In the **Simulation** panel's **Preset** dropdown pick
+   the stored config **Sensing demo (3.5 GHz)** (`sensing_fr1`: 3.5 GHz, 20 MHz, max depth 2; at
+   the default 28 GHz / 100 MHz the drone stays below the 13 dB threshold). Set **Num frames** `19` and
+   **dt** `0.5` (the drone's 9 s flight), tick **Sensing (ISAC)** under *Include paths*, keep
+   **Integrated pulses** at `4096`, tick **Measurement noise** and **Tracking (EKF)**, and run
+   again. Every frame then also solves the drone's radar echoes on the 9 TX × sensing-RX links,
+   fuses them into a position and carries an EKF track; on Sionna 18 of the 19 frames detect
+   the drone and all 19 are tracked, with a median track error of about 0.4 m
    ([docs/guides/sensing.md §6](docs/guides/sensing.md#6-sensing-over-time-detection-and-multistatic-fusion)).
+   A Sample Demo created before v0.1.15 has one site and lists no stored configs: create a fresh
+   demo first, as the [sensing guide's introduction](docs/guides/sensing.md) shows.
 
 ---
 

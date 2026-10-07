@@ -20,6 +20,7 @@ import type {
   SpectrogramResult,
   MeasurementImportResponse,
   MeasurementSample,
+  SimulationConfig,
   TrajectoryValidationReport,
 } from "../types/api";
 
@@ -1046,6 +1047,19 @@ export default function ChannelPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [txId]);
 
+  // Re-sync the config-backed values whenever the solver config changes
+  // elsewhere (Preset select, a stored config, the Simulation panel). A stale
+  // copy here would otherwise show the old values and, on the next edit in
+  // this panel, write them back over the user's pick.
+  useEffect(() => {
+    setLive((prev) => ({
+      ...prev,
+      freqGhz: pathsConfig.frequency_hz / 1e9,
+      bandwidthMhz: pathsConfig.bandwidth_hz / 1e6,
+      noiseFigureDb: pathsConfig.noise_figure_db,
+    }));
+  }, [pathsConfig.frequency_hz, pathsConfig.bandwidth_hz, pathsConfig.noise_figure_db]);
+
   // Derived N_RB shown next to the SCS select: floor(BW / (12 * SCS)).
   const numResourceBlocks = useMemo(() => {
     const bwHz = live.bandwidthMhz * 1e6;
@@ -1073,25 +1087,34 @@ export default function ChannelPanel() {
     prevPowerDbm: selectedTx?.power_dbm ?? 30,
   };
 
+  // Config-backed fields edited here since the last apply: only these are
+  // pushed, so a TX-power or SCS edit never rewrites the solver config.
+  const dirtyConfig = useRef(new Set<"freqGhz" | "bandwidthMhz" | "noiseFigureDb">());
+
   /** Stage a change and schedule the 500 ms debounced apply. The side effect is
    *  kept out of the state updater (StrictMode double-invokes updaters). */
   function patchLive(patch: Partial<LiveParams>): void {
     const next = { ...live, ...patch };
     setLive(next);
+    if ("freqGhz" in patch) dirtyConfig.current.add("freqGhz");
+    if ("bandwidthMhz" in patch) dirtyConfig.current.add("bandwidthMhz");
+    if ("noiseFigureDb" in patch) dirtyConfig.current.add("noiseFigureDb");
     if (applyTimer.current) clearTimeout(applyTimer.current);
     const armedPid = useAppStore.getState().projectId;
     applyTimer.current = setTimeout(() => {
       applyTimer.current = null;
+      const dirty = dirtyConfig.current;
+      dirtyConfig.current = new Set();
       // Bail if the project changed while the debounce was pending: the
       // staged values belong to the old scene (audit B4).
       if (useAppStore.getState().projectId !== armedPid) return;
       const ctx = applyCtx.current;
-      // (a) push frequency/bandwidth/noise-figure into the solver config.
-      setPathsConfig({
-        frequency_hz: Math.round(next.freqGhz * 1e9),
-        bandwidth_hz: Math.round(next.bandwidthMhz * 1e6),
-        noise_figure_db: next.noiseFigureDb,
-      });
+      // (a) push the frequency/bandwidth/noise-figure edits into the solver config.
+      const configPatch: Partial<SimulationConfig> = {};
+      if (dirty.has("freqGhz")) configPatch.frequency_hz = Math.round(next.freqGhz * 1e9);
+      if (dirty.has("bandwidthMhz")) configPatch.bandwidth_hz = Math.round(next.bandwidthMhz * 1e6);
+      if (dirty.has("noiseFigureDb")) configPatch.noise_figure_db = next.noiseFigureDb;
+      if (dirty.size > 0) setPathsConfig(configPatch);
       // (b) persist TX power only when it actually changed (writes the scene).
       if (ctx.txId && Math.abs(next.txPowerDbm - ctx.prevPowerDbm) > 1e-9) {
         void updateDevice(ctx.txId, { power_dbm: next.txPowerDbm });
@@ -1118,6 +1141,7 @@ export default function ChannelPanel() {
       clearTimeout(applyTimer.current);
       applyTimer.current = null;
     }
+    dirtyConfig.current = new Set();
     setLive(seedFromConfig());
   }
 

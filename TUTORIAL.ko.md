@@ -158,6 +158,16 @@ diffraction, Lit-region diffraction)가 있습니다. 레이를 지우려면 **R
 선택은 건드리지 않습니다. 노브를 손으로 바꾸면 자동으로 **Custom** 으로 전환됩니다.
 프리셋은 출발점일 뿐 정답이 아니므로, 실측이 있으면 재질 보정으로 잔차를 줄이세요.
 
+**저장 구성(Stored configs).** 프로젝트에는 시뮬레이션 구성을 여러 개 저장할 수 있습니다.
+Sample Demo에는 **Default 28 GHz**(`default`, 프로젝트를 열 때 쓰는 구성)와 **Sensing demo
+(3.5 GHz)**(`sensing_fr1`)가 있고, 둘 다 **Preset** 드롭다운 맨 위 *Stored configs* 묶음에
+나옵니다. 하나를 고르면 그 구성이 경로·라디오맵 설정에 그대로 들어가고, 그 뒤의 모든 솔브가
+그 구성으로 돌며 결과에 그 구성의 id가 붙습니다(드롭다운 아래 줄에 *Results tagged
+`sensing_fr1`* 처럼 표시). 노브를 바꾸면 위와 같이 **Custom** 으로 바뀌고 그 줄에
+*(edited)*가 붙지만, id는 그대로입니다. `sensing_fr1`이 활성이면 패널 맨 아래 버튼이
+**Save to stored config "Sensing demo (3.5 GHz)"** 로 바뀌어 바꾼 값을 그 구성에 다시 쓰고,
+첫 번째 구성이 활성이면 예전처럼 **Save as project default** 입니다.
+
 ---
 
 ## 4. 오버레이 토글 & 라디오맵 (2분)
@@ -297,8 +307,9 @@ fading envelope**, **Path-loss model 비교** 차트가 깔립니다.
 Sample Demo에는 움직이는 **액터**가 있습니다: 도로를 달리는 **차량(car_001)**,
 건물 앞을 걷는 **보행자(human_001)**, 그리고 v0.1.14부터 레이더 센싱 타깃으로
 바인딩되어 40 m 높이에서 L자로 나는 **드론(uav_001)**. 각 액터는 자체 RF 형상으로
-컴파일되어 프레임마다 이동합니다. 데모에는 옥상 TX 위치에 놓인 **TX 1 sensing RX
-(tx_001_rx)** 도 있는데, 센싱용으로 TX와 같은 위치에 둔 레이더 수신기입니다
+컴파일되어 프레임마다 이동합니다. 데모에는 레이더 사이트(TRP)도 세 개 있습니다. 옥상
+TX와 같은 위치의 **TX 1 sensing RX (tx_001_rx)**, 그리고 가로등 마스트 위의 **TX 2
+(tx_002)** 와 **TX 3 (tx_003)** 이며, 각자 센싱 RX를 하나씩 둡니다
 ([docs/guides/sensing.md](docs/guides/sensing.ko.md)).
 
 1. **Results** 모드에서 **Scenario playback** 패널을 엽니다.
@@ -307,11 +318,18 @@ Sample Demo에는 움직이는 **액터**가 있습니다: 도로를 달리는 *
 3. **Simulate scenario** 를 누릅니다.
 4. 재생 트랜스포트(▶ / ⏸, 프레임 슬라이더, ⟳ 반복, 속도 0.5×~4×)로 타임라인을
    재생하며, 프레임별 **Link metrics**(RSS / SINR / 경로 수)를 확인합니다.
-5. (선택) *Include paths* 아래의 **Sensing (ISAC)** 를 체크하고 **Integrated pulses** 를
-   `1000000`(데모의 100 MHz 대역폭에서 10 ms CPI 전체. 이보다 적으면 28 GHz에서 드론이 13 dB
-   임계값에 못 미침)으로 정한 뒤 다시 실행하면, 프레임마다 센싱 RX에서 드론의 레이더 에코도
-   풀어 탐지 여부·거리·도플러를 보여 줍니다
+5. (선택) 드론을 탐지하고 추적해 봅니다. **Simulation** 패널의 **Preset** 드롭다운에서 저장
+   구성 **Sensing demo (3.5 GHz)**(`sensing_fr1`: 3.5 GHz, 20 MHz, 최대 깊이 2)를 고릅니다(기본
+   28 GHz / 100 MHz에서는 드론이 13 dB 임계값에 못 미칩니다). **Num frames** 를 `19`,
+   **dt** 를 `0.5`로(드론의 9초 비행) 두고, *Include paths* 아래의 **Sensing (ISAC)** 를
+   체크하고, **Integrated pulses** 는 기본값 `4096` 그대로, **Measurement noise** 와
+   **Tracking (EKF)** 를 체크한 뒤 다시 실행합니다. 그러면 프레임마다 9개 TX × 센싱 RX
+   링크에서 드론의 레이더 에코를 풀고, 이를 융합해 위치를 구하고, EKF 트랙을 이어 갑니다.
+   Sionna에서는 19프레임 중 18프레임에서 드론을 탐지하고 19프레임 모두 추적하며, 트랙
+   오차 중앙값은 약 0.4 m입니다
    ([docs/guides/sensing.md 6절](docs/guides/sensing.ko.md#6-시간에-따른-센싱-탐지와-다중-스태틱-융합)).
+   v0.1.15 이전에 만든 Sample Demo에는 사이트가 하나뿐이고 저장 구성도 나오지 않습니다.
+   [센싱 가이드 도입부](docs/guides/sensing.ko.md)처럼 먼저 새 데모를 만드세요.
 
 ---
 

@@ -654,6 +654,8 @@ class AodtExportRequest(StrictModel):
     kind; None takes the latest.
     """
 
+    # None: the config the exported result was solved with (its
+    # metadata.config_snapshot), else the scene's first stored config.
     config_id: Optional[str] = None
     source: Literal["paths", "playback", "sensing"] = "paths"
     result_id: Optional[str] = None

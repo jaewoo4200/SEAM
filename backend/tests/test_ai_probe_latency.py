@@ -118,6 +118,10 @@ def test_health_does_not_wait_on_ai_probes(slow_servers, api_client):
     assert resp.status_code == 200
     by_name = {p["name"]: p for p in resp.json()["ai_providers"]}
     assert "probing" in by_name["ollama_text"]["detail"]
+    assert by_name["disabled"]["available"] is False
+    assert by_name["disabled"]["detail"] == (
+        "not selected (AI assistance is on; SEAM_AI_ENABLED=auto)"
+    )
 
 
 def test_cold_health_overlaps_the_runtime_probe(slow_servers, api_client, monkeypatch):

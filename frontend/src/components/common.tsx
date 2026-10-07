@@ -1,5 +1,5 @@
-import { useState } from "react";
-import type { ReactNode } from "react";
+import { useEffect, useState } from "react";
+import type { InputHTMLAttributes, ReactNode } from "react";
 import { useAppStore } from "../store/appStore";
 import type {
   AssignmentStatus,
@@ -73,6 +73,54 @@ export function Collapsible({
       </div>
       {open && <div style={{ marginTop: 8 }}>{children}</div>}
     </div>
+  );
+}
+
+/** type="number" input that keeps unparseable partial text ("-", "1e", "")
+ *  to itself: the parent only ever sees finite numbers. Mapping "-" to 0 would
+ *  make React write "0" back, so editing -60 to -45 ended at +45. Clamp on
+ *  commit (`onBlur`), never per keystroke: a live clamp turns "0" of "0.5"
+ *  into the minimum mid-edit. With `clamp`, an out-of-range value stays local
+ *  until blur, which commits the clamped value, so the parent never sees one
+ *  (for values that feed the store directly). */
+export function NumericInput({
+  value,
+  onChange,
+  onBlur,
+  clamp,
+  ...rest
+}: {
+  value: number;
+  onChange: (v: number) => void;
+  onBlur?: () => void;
+  clamp?: (v: number) => number;
+} & Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "onChange" | "onBlur" | "type">) {
+  // The raw text; a partial "-" reads back as "" and stays "" here, so React
+  // leaves the browser's own "-" alone.
+  const [text, setText] = useState(String(value));
+  useEffect(() => {
+    setText((t) => (t.trim() !== "" && Number(t) === value ? t : String(value)));
+  }, [value]);
+  return (
+    <input
+      {...rest}
+      type="number"
+      value={text}
+      onChange={(e) => {
+        const t = e.target.value;
+        setText(t);
+        const v = Number(t);
+        if (t.trim() !== "" && Number.isFinite(v) && (!clamp || clamp(v) === v)) onChange(v);
+      }}
+      onBlur={() => {
+        const v = Number(text);
+        const committed =
+          clamp && text.trim() !== "" && Number.isFinite(v) ? clamp(v) : value;
+        if (committed !== value) onChange(committed);
+        setText(String(committed));
+        onBlur?.();
+      }}
+    />
   );
 }
 

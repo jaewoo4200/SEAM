@@ -8,6 +8,8 @@ on the repo's ``projects/`` and seeds it from the committed examples.
 """
 
 import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -44,9 +46,24 @@ def test_demo_template_materializes_full_project(api_client):
 
     scene = api_client.get(f"/api/projects/{info['project_id']}/scene").json()
     assert len(scene["prims"]) == 13  # 8 mesh + 5 group
-    assert len(scene["devices"]) == 3  # + the v0.1.14 co-located sensing RX
+    # tx_001, the UE rx_001, and three TRP sensing RXs (v0.1.14: tx_001_rx;
+    # v0.1.15: TX 2 and TX 3 with theirs).
+    assert [d["id"] for d in scene["devices"]] == [
+        "tx_001", "rx_001", "tx_001_rx", "tx_002", "tx_002_rx", "tx_003", "tx_003_rx",
+    ]
+    for tx_id in ("tx_002", "tx_003"):
+        tx = next(d for d in scene["devices"] if d["id"] == tx_id)
+        rx = next(d for d in scene["devices"] if d["id"] == f"{tx_id}_rx")
+        assert tx["kind"] == "tx" and rx["kind"] == "rx"
+        assert tx["position"] == rx["position"] and tx["power_dbm"] == 30.0
+        assert tx["antenna"] == rx["antenna"] == scene["devices"][0]["antenna"]
     assert len(scene["actors"]) == 3  # + the v0.1.14 drone target
-    assert scene["simulation_configs"][0]["frequency_hz"] == 28e9
+    default, fr1 = scene["simulation_configs"]
+    assert default["id"] == "default" and default["frequency_hz"] == 28e9
+    assert default["max_depth"] == 3 and default["bandwidth_hz"] == 100e6
+    assert fr1["id"] == "sensing_fr1" and fr1["name"] == "Sensing demo (3.5 GHz)"
+    assert (fr1["frequency_hz"], fr1["bandwidth_hz"], fr1["noise_figure_db"]) == (3.5e9, 2e7, 7.0)
+    assert fr1["max_depth"] == 2 and fr1["diffraction"] is False and fr1["backend"] == "auto"
 
     # The GLB was generated and every mesh prim resolves into it.
     glb = Path(info["path"]) / "visual" / "scene.glb"
@@ -72,6 +89,32 @@ def test_demo_template_duplicate_id_400(api_client):
         "/api/projects", json={"name": "Demo", "template": "demo"}
     )
     assert again.status_code == 400
+    # The documented upgrade path: a fresh demo next to an existing one.
+    fresh = api_client.post(
+        "/api/projects",
+        json={"name": "Sample Demo v2", "template": "demo", "project_id": "sample_demo_v2"},
+    )
+    assert fresh.status_code == 201, fresh.text
+    scene = api_client.get("/api/projects/sample_demo_v2/scene").json()
+    assert [c["id"] for c in scene["simulation_configs"]] == ["default", "sensing_fr1"]
+
+
+def test_create_demo_script_regenerates_the_current_demo(tmp_path: Path):
+    # examples/scripts/create_demo_project.py checks the generator's invariants
+    # after writing; a stale count there made `--force` / `--out` fail.
+    script = paths.REPO_ROOT / "examples" / "scripts" / "create_demo_project.py"
+    out = tmp_path / "out"
+    first = subprocess.run(
+        [sys.executable, str(script), "--out", str(out)],
+        capture_output=True, text=True, timeout=300,
+    )
+    assert first.returncode == 0, first.stderr
+    assert "devices: 7, actors: 3, configs: default, sensing_fr1" in first.stdout
+    again = subprocess.run(
+        [sys.executable, str(script), "--out", str(out)],
+        capture_output=True, text=True, timeout=300,
+    )
+    assert again.returncode == 0 and "keeping it" in again.stdout
 
 
 MOCK = {"id": "t", "name": "t", "backend": "mock", "frequency_hz": 28e9, "max_depth": 2}
@@ -94,16 +137,59 @@ def test_demo_supports_sensing_out_of_the_box(api_client):
     )
     assert scenario.status_code == 200, scenario.text
     summary = scenario.json()["metadata"]["sensing"]
-    assert summary["sensing_rx_ids"] == ["tx_001_rx"]
+    assert summary["sensing_rx_ids"] == ["tx_001_rx", "tx_002_rx", "tx_003_rx"]
     assert summary["sensing_rx_rule"] == "colocated"
 
     isac = api_client.post(
         f"{base}/simulate/isac", json={"config": MOCK, "tx_rows": 2, "tx_cols": 2}
     )
     assert isac.status_code == 200, isac.text
-    tx = isac.json()["txs"][0]
-    assert tx["tx_id"] == "tx_001" and tx["sensing_rx_id"] == "tx_001_rx"
-    assert tx["ue_ids"] == ["rx_001"] and tx["target_ids"] == ["uav_001"]
+    txs = isac.json()["txs"]
+    assert [(t["tx_id"], t["sensing_rx_id"]) for t in txs] == [
+        ("tx_001", "tx_001_rx"), ("tx_002", "tx_002_rx"), ("tx_003", "tx_003_rx"),
+    ]
+    assert all(t["target_ids"] == ["uav_001"] for t in txs)
+    # The one UE is served by exactly one TRP (the strongest best beam).
+    assert sorted(u for t in txs for u in t["ue_ids"]) == ["rx_001"]
+
+
+def _demo_sensing_fr1_mock(api_client) -> dict:
+    scene = api_client.get("/api/projects/sample_demo/scene").json()
+    stored = next(c for c in scene["simulation_configs"] if c["id"] == "sensing_fr1")
+    return {**stored, "backend": "mock"}
+
+
+def test_demo_tracks_the_drone_with_sensing_fr1(api_client):
+    # v0.1.15: three TRPs and the 3.5 GHz config let the multistatic fusion
+    # start the EKF out of the box (one TRP at 28 GHz gave 1 link and 0 tracks).
+    assert api_client.post("/api/projects", json={"name": "Demo", "template": "demo"}).status_code == 201
+    resp = api_client.post(
+        "/api/projects/sample_demo/simulate/scenario",
+        json={"config": _demo_sensing_fr1_mock(api_client), "num_frames": 19, "dt_s": 0.5,
+              "include_paths": False,
+              "sensing": {"enabled": True, "threshold_db": 13, "cpi_s": 0.01,
+                          "cpi_pulses": 4096, "measurement_noise": True,
+                          "tracking": {"enabled": True}}},
+    )
+    assert resp.status_code == 200, resp.text
+    result = resp.json()
+    md = result["metadata"]["sensing"]
+    assert md["num_links"] == 9  # 3 TX x 3 co-located sensing RX
+    links_per_frame = [
+        sum(1 for lk in f["sensing"]["links"] if lk["target_id"] == "uav_001")
+        for f in result["frames"]
+    ]
+    assert links_per_frame == [9] * 19
+    # Every link has a direct echo in every frame (mock: no occlusion).
+    assert all(
+        lk["reason"] != "no_echo" and not lk["multipath"]
+        for f in result["frames"] for lk in f["sensing"]["links"]
+    )
+    t = md["targets"]["uav_001"]
+    assert t["detection_rate"] >= 0.8  # 18/19: the drone hovers in the last frame
+    assert t["frames_ge3_links"] >= 3 and t["ok_frames"] > 0
+    assert t["tracked_frames"] >= 0.8 * 19 and t["lost_frames"] == 0
+    assert t["median_track_position_error_m"] < 1.0
 
 
 # ------------------------------------------------ source-checkout seeding
@@ -135,8 +221,11 @@ def test_seed_copies_missing_examples_once(tmp_path: Path, examples: Path):
     assert demo_project.seed_checkout_projects(root, examples) == ["lab_room", "sample_demo"]
 
     scene = ProjectStore(roots=[root]).load_scene("sample_demo")
-    assert scene.device_by_id("tx_001_rx") is not None
+    assert [d.id for d in scene.devices] == [
+        "tx_001", "rx_001", "tx_001_rx", "tx_002", "tx_002_rx", "tx_003", "tx_003_rx",
+    ]
     assert [a.id for a in scene.actors][-1] == "uav_001"
+    assert [c.id for c in scene.simulation_configs] == ["default", "sensing_fr1"]
     rf = root / "sample_demo.seam" / "rf"
     assert not (rf / "generated_scene.xml").exists()
     assert not (rf / "compile_manifest.json").exists() and not (rf / "meshes").exists()
@@ -144,6 +233,8 @@ def test_seed_copies_missing_examples_once(tmp_path: Path, examples: Path):
     # The examples themselves are never touched.
     example_scene = ProjectStore(roots=[examples]).load_scene("sample_demo")
     assert example_scene.device_by_id("tx_001_rx") is None
+    assert example_scene.device_by_id("tx_002") is None
+    assert [c.id for c in example_scene.simulation_configs] == ["default"]
     assert (examples / "sample_demo.seam" / "rf" / "generated_scene.xml").is_file()
 
     assert demo_project.seed_checkout_projects(root, examples) == []

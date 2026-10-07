@@ -253,9 +253,13 @@ last ref of that kind.
 `examples/scripts/create_demo_project.py` regenerates
 `examples/demo_project/sample_demo.seam` deterministically: 8 named
 meshes in `visual/scene.glb` (world transforms baked into vertices), 13
-prims (5 groups + 8 mesh primitives), 3 devices (rooftop TX, street RX and
-the TX's co-located sensing RX `tx_001_rx`), 3 actors (car, pedestrian and
-the drone sensing target `uav_001`), and one stored simulation config. The
-committed copy predates the v0.1.14 sensing RX and drone; a source checkout
-adds them when it copies the demo into `projects/`. It doubles as the
-reference example for every convention on this page.
+prims (5 groups + 8 mesh primitives), 7 devices (rooftop TX `tx_001`, street
+RX `rx_001`, the TX's co-located sensing RX `tx_001_rx`, and two more TRPs
+`tx_002` / `tx_003` with their co-located sensing RXs `tx_002_rx` /
+`tx_003_rx`), 3 actors (car, pedestrian and the drone sensing target
+`uav_001`), and two stored simulation configs (`default`, 28 GHz, and
+`sensing_fr1`, 3.5 GHz / 20 MHz for the sensing guide). The committed copy
+predates the v0.1.14 sensing RX and drone and the v0.1.15 TRPs and
+`sensing_fr1`; a source checkout adds them when it copies the demo into
+`projects/`. It doubles as the reference example for every convention on
+this page.

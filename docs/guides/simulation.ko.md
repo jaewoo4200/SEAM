@@ -23,7 +23,7 @@ SEAM Studio의 모든 계산은 **Results** 모드에서 이뤄집니다: 레이
 
 | 필드 | 하는 일 |
 |---|---|
-| **Preset** | 대표 시나리오 설정을 Paths와 Radio map에 한 번에 적용: `28 GHz Indoor Lab`, `28 GHz Outdoor Campus`, `3.5 GHz Urban Macro`, `60 GHz Indoor`, `28 GHz UAV A2G`. 노브를 손으로 바꾸면 `Custom`으로 전환됩니다. |
+| **Preset** | 대표 시나리오 설정을 Paths와 Radio map에 한 번에 적용: `28 GHz Indoor Lab`, `28 GHz Outdoor Campus`, `3.5 GHz Urban Macro`, `60 GHz Indoor`, `28 GHz UAV A2G`. 노브를 손으로 바꾸면 `Custom`으로 전환됩니다. 씬에 시뮬레이션 구성이 둘 이상 저장되어 있으면(Sample Demo의 `Default 28 GHz`와 `Sensing demo (3.5 GHz)`) 맨 위 **Stored configs** 묶음에 나옵니다. 하나를 고르면 그 구성이 그대로 Paths와 Radio map에 들어가고, 이후 모든 솔브의 결과 `simulation_config_id`에 그 id가 붙습니다(드롭다운 아래 *Results tagged …* 줄. 노브를 바꾸면 *(edited)*가 붙지만 id는 그대로). 프로젝트를 열면 첫 번째 저장 구성 위에 환경 프리셋의 솔버·격자 필드를 덮어 시작하므로, 첫 구성이 그 프리셋과 다른 프로젝트에서는 열자마자 *(edited)*가 붙습니다. 그 구성을 고르면 그대로 불러옵니다. 패널 아래 **Save as project default**는 Paths 구성을 그것을 불러온 저장 구성에 다시 씁니다. 두 번째 이후 저장 구성이 활성일 때는 버튼이 **Save to stored config "…"**로 바뀌고 그 구성의 id와 이름을 유지하며, 첫 번째 구성이 활성이면 예전처럼 프로젝트 기본 구성에 저장합니다. |
 | **Backend** | `auto` / `mock` / `sionna`. `auto`는 Sionna RT가 설치되어 있고 Dr.Jit 백엔드가 동작하면(CUDA GPU, 또는 CPU의 LLVM. [INSTALL](../../INSTALL.ko.md#실제-sionna-rt-엔진-자동-설치됨) 참고) 사용하고, 아니면 mock 솔버로 대체하며 그 이유를 결과 경고에 적습니다. |
 | **Engine** | 등록된 Sionna RT 버전이 둘 이상일 때만 표시 — paths 솔브를 돌릴 버전을 고릅니다(예: `Sionna RT 1.2.2`). [../engines.ko.md](../engines.ko.md) 참고. |
 | **Frequency** (GHz) | 반송파 주파수(기본 28 GHz). |

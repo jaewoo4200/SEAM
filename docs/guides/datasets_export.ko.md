@@ -105,6 +105,11 @@ mock 솔버가 만들지만, 파이프라인 테스트에는 충분합니다).
 | `radio_map.csv` | 평면 히트맵 샘플 |
 | `calibration_points.json` | 좌표 검증용 기준점 3개 |
 
+`scenario_meta.json`과 `devices.json`의 주파수는 프로젝트의 첫 번째 저장 구성이 아니라,
+저장된 결과를 실제로 푼 구성(가장 최근 paths 결과의 구성 스냅샷)을 따릅니다. API(`POST
+/api/projects/{project_id}/export/rfdata`)에서는 `config_id`나 인라인 `config`로 바꿀 수
+있습니다.
+
 내보내기가 끝나면 **Results** 에 닫을 수 있는 행이 나타납니다 — *"Exported
 RFData to `export/rfdata`"* — 파일별 다운로드 링크가 붙어 있어 프로젝트
 폴더를 뒤질 필요가 없습니다.
@@ -130,7 +135,9 @@ POST /api/projects/{project_id}/export/aodt
 `source: "playback"` 은 저장된 playback 팩의 프레임마다 `time_idx` 를 하나씩
 써서 `time_info`·`raypaths`·`cirs`·`cfrs` 가 주행 구간 전체를 덮고 UE 의
 `route_*` 컬럼에 프레임 위치가 담깁니다. `source: "sensing"` 은 저장된 센싱
-결과를 스냅숏 하나로 씁니다([sensing.ko.md](sensing.ko.md)).
+결과를 스냅숏 하나로 씁니다([sensing.ko.md](sensing.ko.md)). 반송파 주파수,
+대역폭(따라서 `cfrs`의 톤 격자)과 패널 간격은 내보내는 결과를 푼 구성을 따르며, 요청에
+`config_id`를 주면 그 구성으로 바뀝니다.
 
 AODT 테이블 중 `telemetry` 와 `ran_config` 는 **쓰지 않습니다**. 둘 다
 RAN 시뮬레이션 산출물(스케줄러/PHY KPI, gNB 설정)이라 레이 트레이싱

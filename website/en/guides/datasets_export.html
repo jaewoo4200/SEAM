@@ -247,6 +247,11 @@ footer{border-top:1px solid var(--line)}
       </tbody>
     </table>
 
+    <p>The frequency in <code>scenario_meta.json</code> and <code>devices.json</code> is the one the
+    stored results were solved with (the latest paths result's config snapshot),
+    not the project's first stored config; over the API (<code>POST /api/projects/{project_id}/export/rfdata</code>) a <code>config_id</code> or an inline <code>config</code>
+    overrides it.</p>
+
     <p>After the export, a dismissible row appears in <b>Results</b> — <em>"Exported RFData
     to <code>export/rfdata</code>"</em> — with a download link per file, so you don't have to dig
     through the project folder.</p>
@@ -271,7 +276,9 @@ footer{border-top:1px solid var(--line)}
     playback pack, so <code>time_info</code>, <code>raypaths</code>, <code>cirs</code> and <code>cfrs</code> span the drive and
     the UE's <code>route_*</code> columns carry the frame positions. <code>source: "sensing"</code>
     writes a single snapshot of a stored sensing result
-    (<a href="sensing.html">sensing.md</a>).</p>
+    (<a href="sensing.html">sensing.md</a>). Carrier frequency, bandwidth (and so the <code>cfrs</code>
+    tone grid) and the panel spacing follow the config the exported result was
+    solved with; a <code>config_id</code> in the request overrides it.</p>
 
     <p>Two AODT tables are <b>never</b> written: <code>telemetry</code> and <code>ran_config</code>. Both are
     RAN-simulation outputs (scheduler/PHY KPIs, gNB configuration) that a

@@ -13,9 +13,22 @@ SEAM Studio에서는 어떤 액터(차량, 보행자, UAV, 커스텀 객체)든 
 **Sample Demo**(v0.1.14 이상)는 바로 센싱을 해 볼 수 있게 되어 있습니다. 드론 타깃
 (`uav_001`, TR 38.901 `uav-small-size`, 40 m 높이에서 10 m/s로 90 m짜리 L자 경로를
 난 뒤 제자리 비행)과 옥상 TX와 같은 위치의 센싱 수신기(`tx_001_rx`, "TX 1 sensing RX")가
-들어 있어서, 아래 API 예제는 `sample_demo`에서 그대로 돌아갑니다. v0.1.14 이전에 만든
-프로젝트는 디바이스와 액터가 그대로이므로, 타깃과 같은 위치의 RX를 직접 추가하세요
-(2절, 3절).
+들어 있어서, 아래 API 예제는 `sample_demo`에서 그대로 돌아갑니다. v0.1.15부터는
+가로등 마스트 위의 센싱 사이트 두 개(`tx_002`와 `tx_002_rx`, `tx_003`와 `tx_003_rx`)와
+두 번째 저장 구성 `sensing_fr1`(3.5 GHz, 20 MHz)도 들어 있어서, 6절의 시나리오가 별도
+설정 없이 드론을 탐지하고 추적합니다. 이전 버전이 만든 프로젝트는 디바이스·액터·구성이
+그대로입니다(업그레이드가 프로젝트를 고쳐 쓰지는 않습니다). 지금의 데모를 쓰려면 옆에 새
+데모를 만들고, 페이지를 새로 고친 뒤 프로젝트 셀렉트에서 **Sample Demo v2**를 고르세요
+(API 예제에서는 `sample_demo` 대신 `sample_demo_v2`).
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/projects -H "Content-Type: application/json" \
+  -d '{"name": "Sample Demo v2", "template": "demo", "project_id": "sample_demo_v2"}'
+```
+
+소스 체크아웃이라면 `projects/sample_demo.seam`을 지우고 다시 시작해도 됩니다. 추가된
+내용을 모두 담아 다시 복사됩니다. 아니면 내 프로젝트에 타깃과 같은 위치의 RX를 직접
+추가하세요(2절, 3절).
 
 ---
 
@@ -191,27 +204,72 @@ TX와 RX가 정지해 있어도, 움직이는 액터에서 반사되는 통신 �
 액터 궤적과 비교해 오차를 냅니다.
 
 **실행.** Results 모드에서 **Scenario playback**을 열고 *Include paths* 아래의
-**Sensing (ISAC)**를 체크한 뒤 임계값, CPI, 적분 펄스 수와 **Sensing receivers**
-(기본 **Auto**, 아래 참고)를 정하고 실행합니다. 센싱 바인딩이 켜진 액터가 하나도
-없으면 체크박스가 비활성화됩니다. API에서는 시나리오 요청에 `sensing` 블록을 더합니다.
+**Sensing (ISAC)**를 체크한 뒤 임계값, CPI, 적분 펄스 수(v0.1.15부터 폼 기본값 4096)와
+**Sensing receivers**(기본 **Auto**, 아래 참고)를 정하고 실행합니다. 센싱 바인딩이
+켜진 액터가 하나도 없으면 체크박스가 비활성화됩니다. 폼은 Simulation 패널의 구성으로
+푸는데, 프로젝트를 열 때 이 구성은 첫 번째 저장 구성(Sample Demo에서는 `default`)에서
+옵니다. 그래서 아래 데모 실행을 폼에서 하려면 먼저 그 패널의 **Preset** 드롭다운에서 저장
+구성 **Sensing demo (3.5 GHz)** 를 고르세요. 그러면 `sensing_fr1`이 그대로 쓰이고, 결과의
+`simulation_config_id`도 아래 API 호출처럼 `sensing_fr1`이 됩니다. API에서는 시나리오
+요청에 `sensing` 블록을 더합니다.
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/projects/sample_demo/simulate/scenario \
   -H "Content-Type: application/json" \
-  -d '{"config_id": "default", "num_frames": 19, "dt_s": 0.5, "include_paths": false,
+  -d '{"config_id": "sensing_fr1", "num_frames": 19, "dt_s": 0.5, "include_paths": false,
        "sensing": {"enabled": true, "threshold_db": 13, "cpi_s": 0.01,
-                   "cpi_pulses": 1000000, "measurement_noise": true}}'
+                   "cpi_pulses": 4096, "measurement_noise": true,
+                   "tracking": {"enabled": true}}}'
 ```
 
-Sample Demo에서는 이것으로 드론의 9초 비행을 덮습니다. 데모의 28 GHz 설정은 대역폭이
-100 MHz라서, 예제는 10 ms CPI 전체인 B · cpi_s = 10⁶ 샘플(+60 dB)을 적분합니다. 그러면
-30 dBm 옥상 TX에서 40–53 m 떨어진 드론이 13 dB 임계값을 넘고(mock에서 23–28 dB), 4096
-펄스(+36 dB)로는 모든 프레임이 `below_threshold`입니다. mock에서는 19프레임 중 16프레임에서
-드론을 탐지하고, 나머지 세 프레임은 `mti_rejected`(도플러가 100 Hz MTI 노치 아래)입니다.
-드론이 시선을 거의 가로지르는 t = 1.5 s와 7.5 s, 그리고 드론이 멈춘 t = 9 s입니다. TRP가 하나뿐이라 프레임마다 모노스태틱 링크 하나가 생기고,
-프레임별 탐지·거리·도플러는 나오지만 융합에는 서로 다른 링크 세 개가 필요하므로
-`insufficient_links`가 됩니다. 다중 스태틱 융합과 추적을 보려면 TRP(같은 위치에 RX를 둔
-TX)를 더 추가하세요.
+v0.1.15 이전에 만든 Sample Demo에는 사이트가 하나뿐이고 `sensing_fr1`도 없습니다(이 요청은
+404를 돌려주고, Preset 드롭다운에 저장 구성이 나오지 않습니다). 도입부처럼 새 데모를 만들거나,
+사이트 두 개를 직접 추가한 뒤 `"config_id": "sensing_fr1"`을 인라인
+`"config": {"frequency_hz": 3.5e9, "bandwidth_hz": 2e7, "noise_figure_db": 7, "max_depth": 2}`로
+바꾸세요.
+
+Sample Demo에서는 이것으로 드론의 9초 비행을 덮습니다. 데모에는 TRP가 세 개 있고, 각각
+30 dBm iso TX와 같은 위치의 센싱 RX로 이루어집니다. 건물 b01 옥상 (−9, 7, 10.5) m의
+`tx_001`, 가로등 마스트 위 (30, −30, 10) m의 `tx_002`와 (35, 35, 10) m의 `tx_003`입니다.
+Auto가 이 세 RX를 레이더 수신기로 잡으므로 프레임마다 링크가 9개(모노스태틱 3, 바이스태틱
+6) 생기고, 서로 다른 기하는 6개입니다. 예제는 데모의 두 번째 저장 구성 `sensing_fr1`(3.5 GHz,
+20 MHz, NF 7 dB, 최대 깊이 2)을 씁니다. 28 GHz / 100 MHz에서는 소자 하나로 받는 드론
+에코가 4096 펄스(+36 dB)를 적분해도 13 dB 임계값에 못 미칩니다. λ²에서 18 dB를 잃고(아래
+*FR1 대 mmWave*), 대역폭이 5배라 잡음도 7 dB 더 들어오기 때문입니다. 3.5 GHz에서는 비행
+내내 모든 링크가 15–33 dB이고, 건물과 나무에 RF 재질이 있든 없든 모든 프레임의 모든 링크에
+직접 에코가 있습니다. 측정값(잡음 시드 0):
+
+| `metadata.sensing.targets.uav_001` | mock | sionna (sionna-rt 2.2.0, CUDA) |
+|---|---|---|
+| `detection_rate` | 0.947 (19프레임 중 18) | 0.947 (19프레임 중 18) |
+| `link_detection_rate` | 0.439 | 0.439 |
+| `frames_ge3_links` | 15 | 15 |
+| `ok_frames` (융합) | 10 | 10 |
+| `median_position_error_m` (융합) | 0.43 m | 0.79 m |
+| `median_gdop` | 1.62 | 1.62 |
+| `tracked_frames` / `lost_frames` | 19 / 0 | 19 / 0 |
+| `median_track_position_error_m` (EKF) | 0.36 m | 0.38 m |
+| `p90_track_position_error_m` | 2.89 m | 2.98 m |
+| `median_track_velocity_error_m_s` | 0.66 m/s | 0.66 m/s |
+
+놓친 링크는 모두 `mti_rejected`입니다. 3.5 GHz에서 100 Hz 노치는 모노스태틱 링크의 시선
+방향 속도 4.28 m/s 미만을 보지 못하는데, 드론 속도 10 m/s에 비하면 작지 않은 몫입니다.
+t = 9 s에는 드론이 제자리 비행이라 9개 링크가 모두 걸러집니다(탐지가 없는 유일한
+프레임). t = 1.5–3 s에는 TX 2와 TX 3 사이의 링크만 남고(t = 5 s에는 TX 1과 TX 3 사이),
+사이트가 둘뿐이라 융합은 `diverged`를 냅니다(*융합* 참고). t = 4–4.5 s에는 TX 1의
+모노스태틱 링크 하나만 남습니다. 이런 프레임은 EKF가 트랙을 이어 갑니다
+(`frames_track_without_fusion` = 9). 트랙은 t = 0에 7.6 m 빗나간 링크 5개짜리 융합에서
+시작하고(GDOP 2.8: 드론이 세 사이트가 이루는 삼각형 밖에서 출발), t = 1.5–3 s에는
+1.3–2.5 m, t = 3.5 s부터는 0.4 m 오차를 보이며, 모서리(t = 5.5 s, `init`)에서 다시 시작한
+뒤 두 번째 구간 내내 0.1–0.4 m 안에 머뭅니다.
+
+이 가이드의 다른 예제는 `"config_id": "default"`(28 GHz)를 그대로 씁니다. 이 구성에서
+4096 펄스로는 가장 좋은 드론 링크가 7.7 dB에 그쳐 아무것도 탐지하지 못하지만, 10 ms CPI
+전체인 B · cpi_s = 10⁶ 샘플(+60 dB)을 적분하면 드론을 탐지합니다. 위 요청에서
+`"config_id": "default"`, `"cpi_pulses": 1000000`으로 바꾸면 Sionna에서 19프레임 중
+18프레임을 탐지하고, `ok` 융합 18회, 융합 오차 중앙값 0.11 m, 트랙 오차 중앙값 0.08 m가
+나옵니다(100 MHz의 거리 셀은 15 m가 아니라 1.5 m). 그 대역폭에서 10 ms CPI가 적분할 수
+있는 최대가 10⁶입니다.
 
 결과는 평범한 `scenario` 결과입니다. 프레임마다 `sensing: {echoes, links, estimates}`가
 붙고, 실행 요약은 `metadata.sensing`에 들어갑니다. `sensing`이 없거나
@@ -232,7 +290,7 @@ sionna에서 링크 16개면 프레임당 약 45 KB(61프레임에 약 2.6 MB, 1
 | `enabled` | `false` | 프레임별 센싱 솔브를 돌립니다. |
 | `threshold_db` | 13 | 적분 후 SNR의 탐지 임계값(dB, −30…60). |
 | `cpi_s` | 0.01 | 코히어런트 처리 구간(CPI, 초). 도플러 분해능 = 1 / CPI. |
-| `cpi_pulses` | 1 | 코히어런트하게 적분하는 펄스 수 또는 OFDM 자원 요소 수. 이득 = 10·log10(N). |
+| `cpi_pulses` | 1 (폼: 4096) | 코히어런트하게 적분하는 펄스 수 또는 OFDM 자원 요소 수. 이득 = 10·log10(N). |
 | `mti_min_doppler_hz` | `null` | MTI 노치. \|f_D − f_nodes\|가 이보다 작으면 버립니다(TX/RX가 정지해 있으면 f_nodes = 0, 아래 MTI 참고). `null` = 1 / CPI(도플러 셀 하나), `0`이면 MTI를 끕니다. |
 | `include_comm_paths` | `false` | 프레임마다 타깃을 흡수체로 둔 통신 경로도 풀어 `echoes` 뒤에 붙입니다(`target_id` null). 프레임당 솔브가 하나 늘어납니다. |
 | `target_actor_ids` | `null` | 이 액터들만 봅니다(기본: 켜진 바인딩 전부). |
@@ -452,6 +510,15 @@ curl http://127.0.0.1:8000/api/projects/sample_demo/results/isac   # 마지막�
 모르는 디바이스나 액터, UE 없음, 센싱 수신기가 없는 TX, `use_device_orientation: false`는
 아무것도 풀기 전에 **400**으로 응답합니다.
 
+Sample Demo에서 `"config_id": "sensing_fr1"`로 돌리면(Sionna, 드론은 t = 0 위치), 기본
+방위각 전용 4×4 코드북은 `rx_001`을 TX 2(통신 빔 55°)가 서비스하게 하고, 드론은 TX 1(센싱
+빔 −35°, 31.9 dB, P_d 0.99)과 TX 3(−40°, 23.4 dB, P_d 0.94)로는 보지만 TX 2로는 보지
+못합니다. 10 m 마스트에서 보면 드론이 28° 위에 있어서, 4행 패널의 앙각 0° 빔이 수직
+널에 걸리기 때문입니다(−1.0 dB). 앙각 스윕
+`"elevation_start_deg": -10, "elevation_stop_deg": 60, "elevation_step_deg": 5`를 더하면
+모든 TRP가 탐지하는 센싱 빔을 얻고(앙각 40°, 30°, 20°에서 51.5, 44.9, 39.4 dB), UE는
+TX 1이 서비스합니다(방위각 −20°, 앙각 −10°).
+
 | 요청 필드 | 기본값 | 의미 |
 |---|---|---|
 | `tx_ids` | `null` | 평가할 TX(기본: 모든 TX). |
@@ -638,6 +705,11 @@ curl http://127.0.0.1:8000/api/projects/sample_demo/results/sensing-coverage
 
 결과는 `sensing_coverage` 결과 세트로 저장됩니다. 센싱 수신기는 ISAC 규칙을 따릅니다
 (선택한 TX에서 1 m 안의 RX, 또는 `sensing_rx_ids`). 수신기가 없는 TX가 있으면 **400**입니다.
+
+Sample Demo에서 `"config_id": "sensing_fr1"`, `height_m` 40, `cell_size_m` 5로 돌리면
+(Sionna) 셀 441개, 링크 9개, 기하 6개가 나오고, 모든 셀(100 %)이 LOS·탐지·융합 가능이며
+최적 SNR 중앙값은 29.3 dB입니다. 이 맵에는 MTI가 없으므로, 6절의 시나리오는 실제 비행에서
+여전히 도플러 노치 때문에 링크를 잃습니다.
 
 | 요청 필드 | 기본값 | 의미 |
 |---|---|---|

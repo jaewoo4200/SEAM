@@ -14,8 +14,24 @@ The **Sample Demo** (v0.1.14 and later) is ready for sensing: it ships a
 drone target (`uav_001`, TR 38.901 `uav-small-size`, flying a 90 m L at 40 m
 and 10 m/s, then hovering) and a sensing receiver co-located with the rooftop
 TX (`tx_001_rx`, "TX 1 sensing RX"), so the API examples below run on
-`sample_demo` as they are. A project created before v0.1.14 keeps its devices
-and actors; add a target and a co-located RX yourself (§2, §3).
+`sample_demo` as they are. Since v0.1.15 it also has two more sensing sites
+on street masts (`tx_002` with `tx_002_rx`, `tx_003` with `tx_003_rx`) and a
+second stored config, `sensing_fr1` (3.5 GHz, 20 MHz), with which the
+scenario of §6 detects and tracks the drone out of the box. A project
+created by an earlier version keeps its devices, actors and configs (an
+upgrade never rewrites a project). To get the current demo, create a fresh
+one next to it, reload the page and pick **Sample Demo v2** in the project
+select (or use `sample_demo_v2` in place of `sample_demo` in the API
+examples):
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/projects -H "Content-Type: application/json" \
+  -d '{"name": "Sample Demo v2", "template": "demo", "project_id": "sample_demo_v2"}'
+```
+
+In a source checkout you can instead delete `projects/sample_demo.seam` and
+restart: it is copied again with every addition. Or add a target and
+co-located RXs to your own project (§2, §3).
 
 ---
 
@@ -206,29 +222,78 @@ the true actor track.
 
 **Running it.** In Results mode open **Scenario playback**, tick
 **Sensing (ISAC)** under *Include paths*, set the threshold, CPI and
-integrated pulses, pick the **Sensing receivers** (default **Auto**, below),
-and run. The checkbox stays disabled until at least one actor has an enabled
-sensing binding. Over the API, add a `sensing` block to the scenario request:
+integrated pulses (the form defaults to 4096 since v0.1.15), pick the
+**Sensing receivers** (default **Auto**, below), and run. The checkbox stays
+disabled until at least one actor has an enabled sensing binding. The form
+solves with the Simulation panel's config, which starts from the project's
+first stored config (`default` on the Sample Demo), so for the demo run below
+first pick the stored config **Sensing demo (3.5 GHz)** in that panel's
+**Preset** dropdown: the run then uses `sensing_fr1` as is, and the result's
+`simulation_config_id` is `sensing_fr1`, as with the API call below. Over the
+API, add a `sensing` block to the scenario request:
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/projects/sample_demo/simulate/scenario \
   -H "Content-Type: application/json" \
-  -d '{"config_id": "default", "num_frames": 19, "dt_s": 0.5, "include_paths": false,
+  -d '{"config_id": "sensing_fr1", "num_frames": 19, "dt_s": 0.5, "include_paths": false,
        "sensing": {"enabled": true, "threshold_db": 13, "cpi_s": 0.01,
-                   "cpi_pulses": 1000000, "measurement_noise": true}}'
+                   "cpi_pulses": 4096, "measurement_noise": true,
+                   "tracking": {"enabled": true}}}'
 ```
 
-On the Sample Demo that covers the drone's 9 s flight. The demo's 28 GHz
-config has a 100 MHz bandwidth, so the example integrates the whole 10 ms CPI,
-B · cpi_s = 10⁶ samples (+60 dB): the drone, 40–53 m from the 30 dBm rooftop
-TX, then clears the 13 dB threshold (23–28 dB on the mock), while 4096 pulses
-(+36 dB) leave every frame `below_threshold`. On the mock 16 of the 19 frames
-detect it; the other three are `mti_rejected` (Doppler under the 100 Hz MTI
-notch): t = 1.5 s and 7.5 s, where the drone flies almost across the line of
-sight, and t = 9 s, where it has stopped. It has one TRP, so each frame has a single
-monostatic link: detection, range and Doppler per frame, but the fusion needs
-three distinct links and reports `insufficient_links`. Add TRPs (a TX with a
-co-located RX each) for multistatic fusion and tracking.
+A Sample Demo created before v0.1.15 has one site and no `sensing_fr1`
+(this request answers 404 and the Preset dropdown lists no stored configs):
+create a fresh demo as in the introduction, or, after adding the two sites
+yourself, replace `"config_id": "sensing_fr1"` with the inline
+`"config": {"frequency_hz": 3.5e9, "bandwidth_hz": 2e7, "noise_figure_db": 7, "max_depth": 2}`.
+
+On the Sample Demo that covers the drone's 9 s flight. The demo has three
+TRPs, each a 30 dBm iso TX with a co-located sensing RX: `tx_001` on the
+roof of building b01 at (−9, 7, 10.5) m, and `tx_002` at (30, −30, 10) m and
+`tx_003` at (35, 35, 10) m on street masts. Auto makes their three RXs the
+radar receivers, so every frame has 9 links (3 monostatic, 6 bistatic) over
+6 distinct geometries. The example runs the demo's second stored config,
+`sensing_fr1` (3.5 GHz, 20 MHz, NF 7 dB, max depth 2): at 28 GHz / 100 MHz a
+single element's drone echo stays under the 13 dB threshold even with 4096
+pulses (+36 dB), because λ² costs 18 dB (*FR1 vs mmWave* below) and the 5×
+bandwidth adds 7 dB of noise. At 3.5 GHz every link of the flight is at
+15–33 dB, and every link has a direct echo in every frame, with or without
+RF materials on the buildings and the tree. Measured (noise seed 0):
+
+| `metadata.sensing.targets.uav_001` | mock | sionna (sionna-rt 2.2.0, CUDA) |
+|---|---|---|
+| `detection_rate` | 0.947 (18 / 19 frames) | 0.947 (18 / 19 frames) |
+| `link_detection_rate` | 0.439 | 0.439 |
+| `frames_ge3_links` | 15 | 15 |
+| `ok_frames` (fusion) | 10 | 10 |
+| `median_position_error_m` (fusion) | 0.43 m | 0.79 m |
+| `median_gdop` | 1.62 | 1.62 |
+| `tracked_frames` / `lost_frames` | 19 / 0 | 19 / 0 |
+| `median_track_position_error_m` (EKF) | 0.36 m | 0.38 m |
+| `p90_track_position_error_m` | 2.89 m | 2.98 m |
+| `median_track_velocity_error_m_s` | 0.66 m/s | 0.66 m/s |
+
+Every missed link is `mti_rejected`: at 3.5 GHz the 100 Hz notch
+blinds a monostatic link below 4.28 m/s of radial speed, a large share of the
+drone's 10 m/s. At t = 9 s the drone hovers and all 9 links are rejected (the
+one frame without a detection). From t = 1.5 to 3 s only links between TX 2
+and TX 3 survive (at t = 5 s, between TX 1 and TX 3): two sites, which the
+fusion reports `diverged` (see *Fusion*). At t = 4–4.5 s only TX 1's
+monostatic link does. The EKF carries the track through those frames
+(`frames_track_without_fusion` = 9). It starts at t = 0 from a 5-link fusion
+7.6 m off (GDOP 2.8: the drone starts outside the triangle of the three
+sites), is 1.3–2.5 m off from t = 1.5 to 3 s and 0.4 m from t = 3.5 s,
+restarts at the corner (t = 5.5 s, `init`), and stays within 0.1–0.4 m on
+the second leg.
+
+The other examples in this guide keep `"config_id": "default"` (28 GHz). With
+4096 pulses its best drone link peaks at 7.7 dB, so nothing is detected, but
+it does detect the drone when it integrates the whole 10 ms CPI, B · cpi_s =
+10⁶ samples (+60 dB): the request above with `"config_id": "default"` and
+`"cpi_pulses": 1000000` detects it in 18 of 19 frames on Sionna, with 18 `ok`
+fusions, a 0.11 m median fusion error and a 0.08 m median track error (the
+100 MHz range cell is 1.5 m, not 15 m). 10⁶ is the most a 10 ms CPI can
+integrate at that bandwidth.
 
 The result is an ordinary `scenario` result. Each frame gains
 `sensing: {echoes, links, estimates}` and `metadata.sensing` holds the run
@@ -252,7 +317,7 @@ files of earlier versions were about twice that size.)
 | `enabled` | `false` | Run the per-frame sensing solve. |
 | `threshold_db` | 13 | Detection threshold on the post-integration SNR (dB, −30…60). |
 | `cpi_s` | 0.01 | Coherent processing interval (s). Doppler resolution = 1 / CPI. |
-| `cpi_pulses` | 1 | Coherently integrated pulses or OFDM resource elements. Gain = 10·log10(N). |
+| `cpi_pulses` | 1 (the form: 4096) | Coherently integrated pulses or OFDM resource elements. Gain = 10·log10(N). |
 | `mti_min_doppler_hz` | `null` | MTI notch: \|f_D − f_nodes\| below it is rejected (f_nodes = 0 with static TX/RX; see MTI below). `null` = 1 / CPI (one Doppler cell); `0` disables MTI. |
 | `include_comm_paths` | `false` | Also solve each frame's comm paths with the targets as absorbers and append them to `echoes` (`target_id` null). One extra solve per frame. |
 | `target_actor_ids` | `null` | Restrict to these actors (default: every enabled binding). |
@@ -503,6 +568,17 @@ without the RCS solver answers **409**. An unknown device or actor, no UE,
 a TX without a sensing receiver, or `use_device_orientation: false` answers
 **400** before anything is solved.
 
+On the Sample Demo with `"config_id": "sensing_fr1"` (Sionna, drone at its
+t = 0 position), the default azimuth-only 4×4 codebook serves `rx_001` from
+TX 2 (comm beam 55°) and sees the drone with TX 1 (sensing beam −35°,
+31.9 dB, P_d 0.99) and TX 3 (−40°, 23.4 dB, P_d 0.94), but not with TX 2:
+from its 10 m mast the drone is 28° up, in the vertical null of an
+elevation-0 beam of a 4-row panel (−1.0 dB). Adding the elevation sweep
+`"elevation_start_deg": -10, "elevation_stop_deg": 60, "elevation_step_deg": 5`
+gives every TRP a detecting sensing beam (51.5, 44.9 and 39.4 dB at 40°, 30°
+and 20° elevation), and TX 1 then serves the UE (−20° azimuth, −10°
+elevation).
+
 | Request field | Default | Meaning |
 |---|---|---|
 | `tx_ids` | `null` | TXs to evaluate (default: every TX). |
@@ -714,6 +790,12 @@ curl http://127.0.0.1:8000/api/projects/sample_demo/results/sensing-coverage
 The result persists as a `sensing_coverage` result set. Sensing receivers
 follow the ISAC rule (an RX within 1 m of a selected TX, or
 `sensing_rx_ids`). A TX without one answers **400**.
+
+On the Sample Demo with `"config_id": "sensing_fr1"`, `height_m` 40 and
+`cell_size_m` 5 (Sionna), the map has 441 cells and 9 links over 6
+geometries: 100 % of the cells are LOS, detected and fusion-feasible, with a
+median best SNR of 29.3 dB. The map has no MTI, so the scenario of §6 still
+loses links to the Doppler notch along the actual flight.
 
 | Request field | Default | Meaning |
 |---|---|---|

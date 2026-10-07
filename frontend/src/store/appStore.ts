@@ -671,6 +671,11 @@ interface AppState {
 
   // config presets (SolverControls Preset dropdown)
   applyConfigPreset: (id: ConfigPresetId) => void;
+  /** Load one of scene.simulation_configs (by id) verbatim into BOTH solver
+   *  configs (the Preset select's "Stored configs" group). The configs keep
+   *  the stored id, and every solve sends them inline, so each result is
+   *  stamped with that id (simulation_config_id). */
+  loadStoredConfig: (configId: string) => void;
 
   // viewport lighting/helpers
   setViewport: (patch: Partial<ViewportSettings>) => void;
@@ -3311,24 +3316,36 @@ export const useAppStore = create<AppState>()((set, get) => {
     saveProjectDefault: async () => {
       const { projectId, scene, pathsConfig } = get();
       if (!projectId || !scene) return;
-      await run("Saving project default config…", async () => {
-        // Write pathsConfig into simulation_configs[0], keeping its id/name so
-        // downstream config_id references stay valid.
-        const existing = scene.simulation_configs[0];
-        const merged: SimulationConfig = {
-          ...pathsConfig,
-          id: existing?.id ?? pathsConfig.id,
-          name: existing?.name ?? pathsConfig.name,
-        };
-        const configs = scene.simulation_configs.length > 0
-          ? [merged, ...scene.simulation_configs.slice(1)]
-          : [merged];
-        const next: Scene = { ...scene, simulation_configs: configs };
-        set({
-          scene: normalizeScene(await putSceneTracked(projectId, next)),
-          notice: "Saved as project default config",
-        });
-      });
+      // Write pathsConfig back into the stored config it was loaded from (the
+      // Preset select's Stored configs; the first one on project open), or
+      // into simulation_configs[0] when its id matches none. The target keeps
+      // its id/name so downstream config_id references stay valid, and a
+      // picked `sensing_fr1` is never written over `default`.
+      const found = scene.simulation_configs.findIndex((c) => c.id === pathsConfig.id);
+      const target = found >= 0 ? found : 0;
+      const existing = scene.simulation_configs[target];
+      const label = existing ? existing.name || existing.id : pathsConfig.id;
+      await run(
+        target > 0 ? `Saving stored config "${label}"…` : "Saving project default config…",
+        async () => {
+          const merged: SimulationConfig = {
+            ...pathsConfig,
+            id: existing?.id ?? pathsConfig.id,
+            name: existing?.name ?? pathsConfig.name,
+          };
+          const configs = scene.simulation_configs.length > 0
+            ? scene.simulation_configs.map((c, k) => (k === target ? merged : c))
+            : [merged];
+          const next: Scene = { ...scene, simulation_configs: configs };
+          set({
+            scene: normalizeScene(await putSceneTracked(projectId, next)),
+            notice:
+              target > 0
+                ? `Saved into stored config "${label}"`
+                : "Saved as project default config",
+          });
+        },
+      );
     },
 
     setBeamArray: (patch) => set(patch),
@@ -3360,6 +3377,19 @@ export const useAppStore = create<AppState>()((set, get) => {
         // The overwrite must be visible (audit M5): both solver configs were
         // just replaced by the preset's fields.
         notice: `Applied preset "${preset.label}" to Paths + Radio map configs`,
+      });
+    },
+
+    loadStoredConfig: (configId) => {
+      const stored = get().scene?.simulation_configs?.find((c) => c.id === configId);
+      if (!stored) return;
+      // Verbatim, unlike project open (which overlays the environment preset):
+      // picking a stored config means "solve exactly this one". Two separate
+      // normalized objects, so a Paths edit never aliases into the Radio map.
+      set({
+        pathsConfig: normalizeConfig(stored),
+        radioMapConfig: normalizeConfig(stored),
+        notice: `Loaded stored config "${stored.name || stored.id}" into Paths + Radio map configs`,
       });
     },
 

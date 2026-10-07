@@ -107,6 +107,12 @@ toolbar: **Actions ▾ → Export RFData**. It writes a bundle to
 | `radio_map.csv` | plane heatmap samples |
 | `calibration_points.json` | 3 coordinate-check reference points |
 
+The frequency in `scenario_meta.json` and `devices.json` is the one the
+stored results were solved with (the latest paths result's config snapshot),
+not the project's first stored config; over the API (`POST
+/api/projects/{project_id}/export/rfdata`) a `config_id` or an inline `config`
+overrides it.
+
 After the export, a dismissible row appears in **Results** — *"Exported RFData
 to `export/rfdata`"* — with a download link per file, so you don't have to dig
 through the project folder.
@@ -133,7 +139,9 @@ result; `source: "playback"` writes one `time_idx` per frame of a stored
 playback pack, so `time_info`, `raypaths`, `cirs` and `cfrs` span the drive and
 the UE's `route_*` columns carry the frame positions. `source: "sensing"`
 writes a single snapshot of a stored sensing result
-([sensing.md](sensing.md)).
+([sensing.md](sensing.md)). Carrier frequency, bandwidth (and so the `cfrs`
+tone grid) and the panel spacing follow the config the exported result was
+solved with; a `config_id` in the request overrides it.
 
 Two AODT tables are **never** written: `telemetry` and `ran_config`. Both are
 RAN-simulation outputs (scheduler/PHY KPIs, gNB configuration) that a

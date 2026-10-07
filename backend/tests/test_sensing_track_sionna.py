@@ -218,3 +218,45 @@ def test_sionna_frame_mode_moves_non_target_actors(project: Path):
     gone = solve([60.0, 40.0, 0.0], {})
     assert _hits(gone.paths, "actor-car_02") == 0
     assert [p for p in gone.paths if p.target_id == "car_01"], gone.warnings
+
+
+def test_sample_demo_detects_and_tracks_the_drone(api_client):
+    # The v0.1.15 Sample Demo as the sensing guide (§6) runs it: config
+    # sensing_fr1 (3.5 GHz / 20 MHz), 4096 pulses, measurement noise, EKF. The
+    # demo leaves the buildings and the tree without RF materials (skipped by
+    # the solver), so they get one here: the three TRPs must see the drone
+    # past them, on every link (monostatic and bistatic) of every frame.
+    assert api_client.post(
+        "/api/projects", json={"name": "Demo", "template": "demo"}
+    ).status_code == 201
+    base = "/api/projects/sample_demo"
+    scene = api_client.get(f"{base}/scene").json()
+    for prim in scene["prims"]:
+        if prim["mesh_ref"] is not None and prim["rf"]["material_id"] is None:
+            prim["rf"].update(material_id="itu_concrete", assignment_status="user_confirmed",
+                              assignment_sources=["user"], confidence=1.0)
+    assert api_client.put(f"{base}/scene", json=scene).status_code == 200
+
+    resp = api_client.post(
+        f"{base}/simulate/scenario",
+        json={"config_id": "sensing_fr1", "num_frames": 19, "dt_s": 0.5,
+              "include_paths": False,
+              "sensing": {"enabled": True, "threshold_db": 13, "cpi_s": 0.01,
+                          "cpi_pulses": 4096, "measurement_noise": True,
+                          "tracking": {"enabled": True}}},
+    )
+    assert resp.status_code == 200, resp.text
+    result = resp.json()
+    assert result["backend"] == "sionna"
+    assert not any("no RF material" in w for w in result["warnings"])
+    for frame in result["frames"]:
+        links = frame["sensing"]["links"]
+        assert len(links) == 9
+        assert all(lk["reason"] != "no_echo" and not lk["multipath"] for lk in links), frame
+    t = result["metadata"]["sensing"]["targets"]["uav_001"]
+    # Measured (sionna-rt 2.2.0, CUDA): 18/19 detected (hovering in the last
+    # frame), 10 ok fusions, 19 tracked, fusion 0.79 m / EKF 0.38 m median.
+    assert t["detection_rate"] >= 0.8
+    assert t["ok_frames"] >= 5
+    assert t["tracked_frames"] >= 0.8 * 19 and t["lost_frames"] == 0
+    assert t["median_track_position_error_m"] < 1.0

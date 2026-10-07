@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
+from pydantic import ValidationError
 
 from seam_studio.api.deps import get_store, load_scene_or_404
 from seam_studio.schemas.results import (
@@ -56,6 +57,18 @@ def _resolve_config(scene: Scene, config_id: Optional[str]) -> SimulationConfig:
     return SimulationConfig()
 
 
+def _snapshot_config(raw: Optional[dict]) -> Optional[SimulationConfig]:
+    """The config a stored result was solved with (``metadata.config_snapshot``,
+    stamped on every solve), or None for a result without a usable one."""
+    snapshot = ((raw or {}).get("metadata") or {}).get("config_snapshot")
+    if not isinstance(snapshot, dict):
+        return None
+    try:
+        return SimulationConfig.model_validate(snapshot)
+    except ValidationError:
+        return None
+
+
 def _latest(store, project_id: str, scene: Scene, kind: str):
     refs = [r for r in scene.result_sets if r.kind == kind]
     if not refs:
@@ -76,15 +89,30 @@ def export_rfdata_endpoint(
 
     store = get_store()
     scene = load_scene_or_404(store, project_id)
-    config = _resolve_config(scene, (request or SimulateRequest()).config_id)
-    if request and request.config is not None:
-        config = request.config
+    req = request or SimulateRequest()
+    config = _resolve_config(scene, req.config_id)
     project_dir = store.resolve(project_id)
 
     paths_raw = _latest(store, project_id, scene, "paths")
     rm_raw = _latest(store, project_id, scene, "radio_map")
     traj_raw = _latest(store, project_id, scene, "trajectory")
     sensing_raw = _latest(store, project_id, scene, "sensing")
+
+    if req.config is not None:
+        config = req.config
+    elif req.config_id is None:
+        # Neither given: describe the data with the config it was solved with
+        # (paths first), not simulation_configs[0], so results solved with a
+        # second stored config (the Sample Demo's 3.5 GHz sensing_fr1) are
+        # not exported as 28 GHz / 100 MHz.
+        config = next(
+            (
+                snap
+                for snap in map(_snapshot_config, (paths_raw, rm_raw, traj_raw, sensing_raw))
+                if snap is not None
+            ),
+            config,
+        )
 
     paths = PathResultSet.model_validate(paths_raw) if paths_raw else None
     radio_map = RadioMapResultSet.model_validate(rm_raw) if rm_raw else None
@@ -150,17 +178,18 @@ def export_aodt_endpoint(
 
     paths = playback = sensing = None
     if req.source == "playback":
-        playback = PlaybackResultSet.model_validate(
-            _load_result_of_kind(store, project_id, scene, "playback", req.result_id)
-        )
+        raw = _load_result_of_kind(store, project_id, scene, "playback", req.result_id)
+        playback = PlaybackResultSet.model_validate(raw)
     elif req.source == "sensing":
-        sensing = SensingResultSet.model_validate(
-            _load_result_of_kind(store, project_id, scene, "sensing", req.result_id)
-        )
+        raw = _load_result_of_kind(store, project_id, scene, "sensing", req.result_id)
+        sensing = SensingResultSet.model_validate(raw)
     else:
-        paths = PathResultSet.model_validate(
-            _load_result_of_kind(store, project_id, scene, "paths", req.result_id)
-        )
+        raw = _load_result_of_kind(store, project_id, scene, "paths", req.result_id)
+        paths = PathResultSet.model_validate(raw)
+    if req.config_id is None:
+        # Wavelength, bandwidth and the CFR grid follow the config the exported
+        # result was solved with, not simulation_configs[0].
+        config = _snapshot_config(raw) or config
 
     try:
         summary = export_aodt(

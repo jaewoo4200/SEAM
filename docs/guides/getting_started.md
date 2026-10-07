@@ -112,7 +112,13 @@ The **Devices** header has four buttons:
 The Sample Demo ships with `tx_001` ("Rooftop TX", red ▲), `rx_001`
 ("Street RX", blue ●) and `tx_001_rx` ("TX 1 sensing RX", blue ●, at the
 TX's position: the co-located radar receiver that sensing, ISAC and the
-sensing coverage map use). Each row has a × delete button.
+sensing coverage map use). Two more sensing sites (TRPs) on 10 m street
+masts east of the scene form, with the rooftop TX, a triangle that covers
+the drone's second leg (it starts outside it; see
+[sensing §6](sensing.md#6-sensing-over-time-detection-and-multistatic-fusion)): `tx_002`
+("TX 2", at (30, −30, 10) m) with `tx_002_rx` ("TX 2 sensing RX") and
+`tx_003` ("TX 3", at (35, 35, 10) m) with `tx_003_rx` ("TX 3 sensing RX").
+Each row has a × delete button.
 
 ### Actors section
 
@@ -121,8 +127,10 @@ header adds them with **+Car**, **+Human**, **+UAV**, and **+Custom**.
 The demo includes `car_001` (a sedan driving down the road), `human_001`
 (a pedestrian) and `uav_001` ("Drone", a TR 38.901 sensing target flying
 an L at 40 m; see [sensing.md](sensing.md)). The sensing RX and the drone
-arrived in v0.1.14: a Sample Demo created by an earlier version keeps its
-original devices and actors.
+arrived in v0.1.14, TX 2 and TX 3 (with their sensing RXs) and the 3.5 GHz
+`sensing_fr1` config in v0.1.15: a Sample Demo created by an earlier
+version keeps its original devices and actors (to get the current one,
+create a fresh demo as the [sensing guide](sensing.md) intro shows).
 
 ### Navigating and picking
 

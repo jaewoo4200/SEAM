@@ -762,6 +762,39 @@ def test_api_export_aodt_endpoint(api_client):
     assert len(_rows(out, "cfrs")[0]["cfr_re"]) == 16
 
 
+def test_api_export_aodt_follows_the_solved_config(api_client):
+    """Without config_id the export describes the result with the config it
+    was solved with (metadata.config_snapshot), not simulation_configs[0]: a
+    3.5 GHz / 20 MHz solve (the Sample Demo's sensing_fr1) is never written as
+    28 GHz / 100 MHz. An explicit config_id still wins."""
+    from seam_studio.api.deps import get_store
+
+    store = get_store()
+    store.create_project("AODT Snapshot", project_id="aodtexp_snap")
+    scene = _scene()
+    scene.simulation_configs = [_cfg()]  # stored default: 28 GHz / 100 MHz
+    store.save_scene("aodtexp_snap", scene)
+    P = "/api/projects/aodtexp_snap"
+    assert api_client.post(
+        f"{P}/simulate/paths",
+        json={"config": {"id": "sensing_fr1", "backend": "mock",
+                         "frequency_hz": 3.5e9, "bandwidth_hz": 20e6}},
+    ).status_code == 200
+    out = store.resolve("aodtexp_snap") / EXPORT_DIR_REL
+
+    assert api_client.post(f"{P}/export/aodt", json={}).status_code == 200
+    du = _rows(out, "dus")[0]
+    assert du["reference_freq"] == pytest.approx(3.5e3)  # MHz
+    assert du["max_channel_bandwidth"] == pytest.approx(20.0)  # MHz
+
+    assert api_client.post(
+        f"{P}/export/aodt", json={"config_id": "default"}
+    ).status_code == 200
+    du = _rows(out, "dus")[0]
+    assert du["reference_freq"] == pytest.approx(28e3)
+    assert du["max_channel_bandwidth"] == pytest.approx(100.0)
+
+
 def test_api_export_aodt_409_without_pyarrow(api_client, monkeypatch):
     """pyarrow is optional, so the route answers 409 (not 500) without it."""
     from seam_studio.api.deps import get_store

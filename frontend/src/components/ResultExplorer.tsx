@@ -7,6 +7,7 @@ import PlaybackPanel from "./PlaybackPanel";
 import {
   Collapsible,
   EpochStaleChip,
+  NumericInput,
   PATH_COLORS,
   SELECTED_PATH_COLOR,
   formatVec,
@@ -735,27 +736,27 @@ export function TrajectorySection() {
       <label className="solver-field">
         <span className="solver-field-label">Num points</span>
         <span className="solver-field-input">
-          <input
-            type="number"
+          <NumericInput
             min={2}
             max={200}
             step={1}
             value={numPoints}
             disabled={disabled}
-            onChange={(e) => setNumPoints(Math.max(2, Math.min(200, Number(e.target.value))))}
+            onChange={setNumPoints}
+            clamp={(v) => Math.round(clampNum(v, 2, 200, 8))}
           />
         </span>
       </label>
       <label className="solver-field">
         <span className="solver-field-label">dt</span>
         <span className="solver-field-input">
-          <input
-            type="number"
+          <NumericInput
             min={0.001}
             step={0.05}
             value={dt}
             disabled={disabled}
-            onChange={(e) => setDt(Math.max(0.001, Number(e.target.value)))}
+            onChange={setDt}
+            clamp={(v) => clampNum(v, 0.001, 1e6, 0.1)}
           />
           <span className="solver-unit">s</span>
         </span>
@@ -766,13 +767,13 @@ export function TrajectorySection() {
       >
         <span className="solver-field-label">UE height</span>
         <span className="solver-field-input">
-          <input
-            type="number"
+          <NumericInput
             min={0}
             step={0.1}
             value={ueHeight}
             disabled={disabled}
-            onChange={(e) => setUeHeight(Math.max(0, Number(e.target.value)))}
+            onChange={setUeHeight}
+            clamp={(v) => clampNum(v, 0, 1e6, 1.5)}
           />
           <span className="solver-unit">m</span>
         </span>
@@ -1557,7 +1558,9 @@ export function ScenarioSection() {
   const [sensingOn, setSensingOn] = useState(false);
   const [thresholdDb, setThresholdDb] = useState(13);
   const [cpiMs, setCpiMs] = useState(10);
-  const [cpiPulses, setCpiPulses] = useState(1);
+  // UI default only (the schema default stays 1): +36 dB lets the Sample
+  // Demo's 3.5 GHz sensing config detect its drone out of the box.
+  const [cpiPulses, setCpiPulses] = useState(4096);
   const [measurementNoise, setMeasurementNoise] = useState(false);
   const [trackingOn, setTrackingOn] = useState(false);
   const [accelSigma, setAccelSigma] = useState(2);
@@ -1596,15 +1599,15 @@ export function ScenarioSection() {
 
   const simulate = () =>
     void simulateScenario({
-      num_frames: numFrames,
-      dt_s: dt,
+      num_frames: Math.round(clampNum(numFrames, 1, 500, 20)),
+      dt_s: clampNum(dt, 0.001, 1e6, 0.1),
       include_paths: includePaths,
       sensing: sensingActive
         ? {
             enabled: true,
             threshold_db: clampNum(thresholdDb, -30, 60, 13),
             cpi_s: clampNum(cpiMs, 0.1, 10000, 10) / 1000,
-            cpi_pulses: Math.round(clampNum(cpiPulses, 1, 1e8, 1)),
+            cpi_pulses: Math.round(clampNum(cpiPulses, 1, 1e8, 4096)),
             measurement_noise: measurementNoise,
             // Omitted on Auto: a pre-v0.1.14 backend rejects unknown keys.
             ...(pickedRxIds.length > 0 ? { sensing_rx_ids: pickedRxIds } : {}),
@@ -1634,27 +1637,27 @@ export function ScenarioSection() {
       <label className="solver-field">
         <span className="solver-field-label">Num frames</span>
         <span className="solver-field-input">
-          <input
-            type="number"
+          <NumericInput
             min={1}
             max={500}
             step={1}
             value={numFrames}
             disabled={disabled}
-            onChange={(e) => setNumFrames(Math.max(1, Math.min(500, Number(e.target.value))))}
+            onChange={setNumFrames}
+            clamp={(v) => Math.round(clampNum(v, 1, 500, 20))}
           />
         </span>
       </label>
       <label className="solver-field">
         <span className="solver-field-label">dt</span>
         <span className="solver-field-input">
-          <input
-            type="number"
+          <NumericInput
             min={0.001}
             step={0.05}
             value={dt}
             disabled={disabled}
-            onChange={(e) => setDt(Math.max(0.001, Number(e.target.value)))}
+            onChange={setDt}
+            clamp={(v) => clampNum(v, 0.001, 1e6, 0.1)}
           />
           <span className="solver-unit">s</span>
         </span>
@@ -1736,15 +1739,14 @@ export function ScenarioSection() {
           <label className="solver-field">
             <span className="solver-field-label">Threshold</span>
             <span className="solver-field-input">
-              <input
-                type="number"
+              <NumericInput
                 min={-30}
                 max={60}
                 step={1}
                 value={thresholdDb}
                 disabled={disabled}
-                onChange={(e) => setThresholdDb(Number(e.target.value))}
-                onBlur={() => setThresholdDb(clampNum(thresholdDb, -30, 60, 13))}
+                onChange={setThresholdDb}
+                clamp={(v) => clampNum(v, -30, 60, 13)}
               />
               <span className="solver-unit">dB</span>
             </span>
@@ -1752,15 +1754,14 @@ export function ScenarioSection() {
           <label className="solver-field">
             <span className="solver-field-label">CPI</span>
             <span className="solver-field-input">
-              <input
-                type="number"
+              <NumericInput
                 // No min: it would be the step base (0.1, 1.1, …); clampNum keeps ≥ 0.1 ms.
                 max={10000}
                 step={1}
                 value={cpiMs}
                 disabled={disabled}
-                onChange={(e) => setCpiMs(Number(e.target.value))}
-                onBlur={() => setCpiMs(clampNum(cpiMs, 0.1, 10000, 10))}
+                onChange={setCpiMs}
+                clamp={(v) => clampNum(v, 0.1, 10000, 10)}
               />
               <span className="solver-unit">ms</span>
             </span>
@@ -1768,15 +1769,14 @@ export function ScenarioSection() {
           <label className="solver-field" title="Coherent integration gain = 10·log10(pulses)">
             <span className="solver-field-label">Integrated pulses</span>
             <span className="solver-field-input">
-              <input
-                type="number"
+              <NumericInput
                 min={1}
                 max={100000000}
                 step={1}
                 value={cpiPulses}
                 disabled={disabled}
-                onChange={(e) => setCpiPulses(Number(e.target.value))}
-                onBlur={() => setCpiPulses(Math.round(clampNum(cpiPulses, 1, 1e8, 1)))}
+                onChange={setCpiPulses}
+                clamp={(v) => Math.round(clampNum(v, 1, 1e8, 4096))}
               />
             </span>
           </label>
@@ -1812,13 +1812,12 @@ export function ScenarioSection() {
               >
                 <span className="solver-field-label">Accel σ</span>
                 <span className="solver-field-input">
-                  <input
-                    type="number"
+                  <NumericInput
                     step={0.5}
                     value={accelSigma}
                     disabled={disabled}
-                    onChange={(e) => setAccelSigma(Number(e.target.value))}
-                    onBlur={() => setAccelSigma(clampNum(accelSigma, 0.01, 1000, 2))}
+                    onChange={setAccelSigma}
+                    clamp={(v) => clampNum(v, 0.01, 1000, 2)}
                   />
                   <span className="solver-unit">m/s²</span>
                 </span>
@@ -1829,13 +1828,12 @@ export function ScenarioSection() {
               >
                 <span className="solver-field-label">Gate χ²</span>
                 <span className="solver-field-input">
-                  <input
-                    type="number"
+                  <NumericInput
                     step={1}
                     value={gateChi2}
                     disabled={disabled}
-                    onChange={(e) => setGateChi2(Number(e.target.value))}
-                    onBlur={() => setGateChi2(clampNum(gateChi2, 0.1, 1e6, 16))}
+                    onChange={setGateChi2}
+                    clamp={(v) => clampNum(v, 0.1, 1e6, 16)}
                   />
                 </span>
               </label>
@@ -1845,13 +1843,12 @@ export function ScenarioSection() {
               >
                 <span className="solver-field-label">Max σ</span>
                 <span className="solver-field-input">
-                  <input
-                    type="number"
+                  <NumericInput
                     step={5}
                     value={maxStd}
                     disabled={disabled}
-                    onChange={(e) => setMaxStd(Number(e.target.value))}
-                    onBlur={() => setMaxStd(clampNum(maxStd, 0.1, 1e6, 25))}
+                    onChange={setMaxStd}
+                    clamp={(v) => clampNum(v, 0.1, 1e6, 25)}
                   />
                   <span className="solver-unit">m</span>
                 </span>
@@ -2761,16 +2758,14 @@ function MeshRadioMapSection() {
       <label className="solver-field">
         <span className="solver-field-label">Triangle budget</span>
         <span className="solver-field-input">
-          <input
-            type="number"
+          <NumericInput
             min={1}
             max={20000}
             step={100}
             value={maxTriangles}
             disabled={disabled}
-            onChange={(e) =>
-              setMaxTriangles(Math.max(1, Math.min(20000, Number(e.target.value))))
-            }
+            onChange={setMaxTriangles}
+            clamp={(v) => Math.round(clampNum(v, 1, 20000, 2000))}
           />
         </span>
       </label>
@@ -4087,14 +4082,14 @@ function RunHistorySection() {
         <label className="solver-field">
           <span className="solver-field-label">Keep latest</span>
           <span className="solver-field-input">
-            <input
-              type="number"
+            <NumericInput
               min={0}
               max={100}
               step={1}
               value={keepN}
               disabled={disabled || pruning}
-              onChange={(e) => setKeepN(Math.max(0, Math.min(100, Number(e.target.value))))}
+              onChange={setKeepN}
+              clamp={(v) => Math.round(clampNum(v, 0, 100, 3))}
             />
             <span className="solver-unit">per kind</span>
           </span>

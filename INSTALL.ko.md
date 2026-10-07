@@ -182,7 +182,8 @@ npm install
 > 그 복사본을 열기 때문에, 세션이 추적 중인 예제를 바꾸지 않습니다. 복사본은 다 복사된
 > 뒤에야 제자리로 옮겨지므로, 복사가 중간에 끊기면(파일 잠금, 디스크 부족, Ctrl-C)
 > 아무것도 남지 않고 다음 시작 때 다시 복사합니다. `sample_demo`
-> 복사본에는 v0.1.14의 드론 타깃과 같은 위치의 센싱 RX도 더해집니다. 아래처럼 예제를
+> 복사본에는 v0.1.14의 드론 타깃과 같은 위치의 센싱 RX, 그리고 v0.1.15의 TRP
+> `tx_002` / `tx_003`(각자 센싱 RX 포함)과 3.5 GHz `sensing_fr1` 구성도 더해집니다. 아래처럼 예제를
 > 재생성해도 이미 `projects/`에 있는 복사본은 **바뀌지 않습니다**. 데모를 되돌리려면
 > `projects/<이름>.seam`을 지우고 다시 시작하세요. `examples/demo_project/`에서 다시
 > 복사됩니다.
@@ -212,7 +213,9 @@ backend/.venv/bin/python examples/scripts/import_bundle_scene.py --xml "referenc
 > — lab_room·ftc_outdoor는 이미 커밋된 상태로 유지됩니다.
 
 - `create_demo_project.py` → **sample_demo** (작은 야외 도심 씬: 지면/도로/건물
-  2동+창문/나무, TX/RX, 차량·보행자 액터). `examples/demo_project/` 아래에 씁니다.
+  2동+창문/나무, TX/RX, 차량·보행자 액터, 드론 센싱 타깃, 같은 위치의 센싱 RX를 둔 TRP 세 개,
+  3.5 GHz `sensing_fr1` 구성). `examples/demo_project/` 아래에 씁니다(이미 있으면 건너뜀.
+  `--force`로 재생성, `--out DIR`로 다른 곳에 씀).
 - `import_bundle_scene.py` (인자 없음) → **lab_room** (참조 번들의 실내 28 GHz 랩룸
   씬을 로드 가능한 프로젝트로 임포트).
 - `import_bundle_scene.py --scene-id ftc_outdoor …` → **ftc_outdoor** (참조 번들의

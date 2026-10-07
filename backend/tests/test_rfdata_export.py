@@ -382,3 +382,30 @@ def test_api_trajectory_and_export_roundtrip(api_client):
     summary = ex.json()
     assert len(summary["files"]) == 6
     assert summary["has_paths"] and summary["has_trajectory"] and summary["has_radio_map"]
+
+
+def test_api_export_rfdata_follows_the_solved_config(api_client):
+    # With neither config nor config_id the export states the frequency the
+    # paths were solved with (their config_snapshot), not the scene's first
+    # stored config; an explicit config_id or inline config still wins.
+    from seam_studio.api.deps import get_store
+
+    store = get_store()
+    store.create_project("RFData Snapshot", project_id="rfdata_snap")
+    scene = _scene()
+    scene.simulation_configs = [SimulationConfig(id="default", backend="mock")]  # 28 GHz
+    store.save_scene("rfdata_snap", scene)
+    P = "/api/projects/rfdata_snap"
+    assert api_client.post(
+        f"{P}/simulate/paths",
+        json={"config": {"id": "sensing_fr1", "backend": "mock", "frequency_hz": 3.5e9}},
+    ).status_code == 200
+    meta_file = store.resolve("rfdata_snap") / "export" / "rfdata" / "scenario_meta.json"
+
+    def exported_frequency(body: dict) -> float:
+        assert api_client.post(f"{P}/export/rfdata", json=body).status_code == 200
+        return json.loads(meta_file.read_text())["frequency_hz"]
+
+    assert exported_frequency({}) == 3.5e9
+    assert exported_frequency({"config_id": "default"}) == 28e9
+    assert exported_frequency({"config": {"frequency_hz": 60e9}}) == 60e9

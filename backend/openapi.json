@@ -12785,7 +12785,7 @@
   "info": {
     "description": "Unified RF-visual scene authoring, RF material assignment, Sionna RT projection compilation, and simulation result APIs.",
     "title": "SEAM Studio",
-    "version": "0.1.14"
+    "version": "0.1.15"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -12928,7 +12928,7 @@
         ]
       },
       "post": {
-        "description": "Create a new project folder under the first configured project root.\n\n``template=\"demo\"`` generates the Sample Demo content (toy urban scene\nGLB, TX/RX pair plus a sensing RX at the TX, car + pedestrian actors and a\ndrone sensing target) programmatically — this is how a pip install gets\nits first project without shipping binary assets.",
+        "description": "Create a new project folder under the first configured project root.\n\n``template=\"demo\"`` generates the Sample Demo content (toy urban scene\nGLB, a rooftop TX and two street-mast TXs, each with a co-located sensing\nRX, a street RX, car + pedestrian actors, a drone sensing target, and the\n3.5 GHz ``sensing_fr1`` config next to the 28 GHz default) programmatically\n— this is how a pip install gets its first project without shipping\nbinary assets. Pass ``project_id`` (e.g. ``sample_demo_v2``) to create a\nfresh demo next to an existing one.",
         "operationId": "create_project_api_projects_post",
         "requestBody": {
           "content": {

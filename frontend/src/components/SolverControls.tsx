@@ -3,7 +3,12 @@ import type { ReactNode } from "react";
 import { useAppStore } from "../store/appStore";
 import type { BeamformingMode, SimulationConfig } from "../types/api";
 import { PRESETS, detectPreset } from "../configPresets";
-import { EpochStaleChip } from "./common";
+import type { ConfigPresetId } from "../configPresets";
+import { sameSolverConfig } from "../simConfig";
+import { EpochStaleChip, NumericInput } from "./common";
+
+/** Preset-select value prefix for the scene's stored configs (never a preset id). */
+const STORED_PREFIX = "stored:";
 
 // ------------------------------------------------------------ primitives
 
@@ -33,7 +38,9 @@ function Section({
   );
 }
 
-/** Number field bound to a config value with a unit suffix and optional scale. */
+/** Number field bound to a config value with a unit suffix and optional scale.
+ *  Partial text ("", "-", "0." of "0.5") stays local; `clamp` applies on blur,
+ *  so the store only ever receives in-range values. */
 function NumField({
   label,
   value,
@@ -41,6 +48,7 @@ function NumField({
   step,
   min,
   onChange,
+  clamp,
   disabled,
 }: {
   label: string;
@@ -49,22 +57,20 @@ function NumField({
   step?: number;
   min?: number;
   onChange: (v: number) => void;
+  clamp?: (v: number) => number;
   disabled?: boolean;
 }) {
   return (
     <label className="solver-field">
       <span className="solver-field-label">{label}</span>
       <span className="solver-field-input">
-        <input
-          type="number"
-          value={Number.isFinite(value) ? value : ""}
+        <NumericInput
+          value={value}
           step={step}
           min={min}
           disabled={disabled}
-          onChange={(e) => {
-            const n = Number(e.target.value);
-            if (!Number.isNaN(n)) onChange(n);
-          }}
+          onChange={onChange}
+          clamp={clamp}
         />
         {unit && <span className="solver-unit">{unit}</span>}
       </span>
@@ -347,28 +353,79 @@ function GlobalSection() {
   );
 
   const applyConfigPreset = useAppStore((s) => s.applyConfigPreset);
+  const loadStoredConfig = useAppStore((s) => s.loadStoredConfig);
+  const radioMapConfig = useAppStore((s) => s.radioMapConfig);
+  const storedConfigs = useAppStore((s) => s.scene?.simulation_configs);
   // Which named preset the live paths config currently matches ("custom" if
   // none). The select reflects it and re-derives on every config edit.
   const activePreset = detectPreset(pathsConfig);
+  // A scene with several stored configs (the Sample Demo's `default` and
+  // `sensing_fr1`) lists them above the presets; with one the select is
+  // unchanged. The live configs carry the id of the stored config they were
+  // loaded from (the first one on project open) and every solve sends them,
+  // so results are stamped with that id. The select shows the stored config
+  // while both live configs still equal it; any edit falls back to the
+  // matching preset or Custom, as before (the id is kept either way).
+  const stored = storedConfigs && storedConfigs.length > 1 ? storedConfigs : [];
+  const baseStored = stored.find((c) => c.id === pathsConfig.id);
+  const storedActive =
+    baseStored != null &&
+    sameSolverConfig(pathsConfig, baseStored) &&
+    sameSolverConfig(radioMapConfig, baseStored);
+  const selectValue = storedActive ? STORED_PREFIX + baseStored.id : activePreset;
+  const presetOptions = PRESETS.map((p) => (
+    <option key={p.id} value={p.id}>
+      {p.label}
+    </option>
+  ));
 
   return (
     <Section title="Global">
       <label className="solver-field">
         <span className="solver-field-label">Preset</span>
         <select
-          value={activePreset}
+          value={selectValue}
           disabled={disabled}
-          onChange={(e) => applyConfigPreset(e.target.value as typeof activePreset)}
-          title="Apply a canonical solver configuration to both Paths and Radio map"
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v.startsWith(STORED_PREFIX)) loadStoredConfig(v.slice(STORED_PREFIX.length));
+            else applyConfigPreset(v as ConfigPresetId);
+          }}
+          title={
+            stored.length > 0
+              ? "Load one of the scene's stored configs, or apply a canonical solver configuration, to both Paths and Radio map"
+              : "Apply a canonical solver configuration to both Paths and Radio map"
+          }
         >
-          {PRESETS.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.label}
-            </option>
-          ))}
+          {stored.length > 0 ? (
+            <>
+              <optgroup label="Stored configs">
+                {stored.map((c) => (
+                  <option key={c.id} value={STORED_PREFIX + c.id}>
+                    {c.name || c.id}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="Presets">{presetOptions}</optgroup>
+            </>
+          ) : (
+            presetOptions
+          )}
           <option value="custom">Custom</option>
         </select>
       </label>
+      {stored.length > 0 && (
+        // Always rendered with stored configs, so the line never appears
+        // mid-edit and shifts the fields below under the cursor.
+        <p
+          className="hint"
+          style={{ margin: "0 0 4px" }}
+          title="Every solve sends this config inline; its result's simulation_config_id is this id"
+        >
+          Results tagged <span className="mono">{pathsConfig.id}</span>
+          {storedActive ? "" : " (edited)"}
+        </p>
+      )}
       <label className="solver-field">
         <span className="solver-field-label">Backend</span>
         <select
@@ -434,7 +491,8 @@ function GlobalSection() {
         min={0}
         value={pathsConfig.seed}
         disabled={disabled}
-        onChange={(v) => patchBoth({ seed: Math.max(0, Math.round(v)) })}
+        onChange={(v) => patchBoth({ seed: v })}
+        clamp={(v) => Math.max(0, Math.round(v))}
       />
 
       <div className="solver-subhead">Beamforming array</div>
@@ -489,7 +547,8 @@ function GlobalSection() {
             min={0.5}
             value={bfSweepStepDeg}
             disabled={disabled}
-            onChange={(v) => setBeamforming({ bfSweepStepDeg: Math.max(0.5, v) })}
+            onChange={(v) => setBeamforming({ bfSweepStepDeg: v })}
+            clamp={(v) => Math.max(0.5, v)}
           />
         </div>
       )}
@@ -580,9 +639,8 @@ function PathsSection() {
         min={1}
         value={config.max_num_paths_per_src}
         disabled={disabled}
-        onChange={(v) =>
-          patch({ max_num_paths_per_src: Math.max(1, Math.round(v)) })
-        }
+        onChange={(v) => patch({ max_num_paths_per_src: v })}
+        clamp={(v) => Math.max(1, Math.round(v))}
       />
       <Check
         label="Synthetic array"
@@ -700,6 +758,13 @@ export default function SolverControls() {
   const saveProjectDefault = useAppStore((s) => s.saveProjectDefault);
   const busy = useAppStore((s) => s.busy);
   const projectId = useAppStore((s) => s.projectId);
+  const activeId = useAppStore((s) => s.pathsConfig.id);
+  const storedConfigs = useAppStore((s) => s.scene?.simulation_configs);
+  // Same target saveProjectDefault picks: the stored config the live config
+  // was loaded from. Only a non-first one changes the label.
+  const target = storedConfigs?.findIndex((c) => c.id === activeId) ?? -1;
+  const targetConfig = target > 0 ? storedConfigs?.[target] : undefined;
+  const targetLabel = targetConfig ? targetConfig.name || targetConfig.id : null;
 
   return (
     <div className="panel solver-controls">
@@ -711,9 +776,13 @@ export default function SolverControls() {
         <button
           disabled={!projectId || busy !== null}
           onClick={() => void saveProjectDefault()}
-          title="Write the Paths config into the scene's default simulation config and save"
+          title={
+            targetLabel
+              ? `Write the Paths config into the scene's stored config "${targetLabel}" (${activeId}) and save`
+              : "Write the Paths config into the scene's default simulation config and save"
+          }
         >
-          Save as project default
+          {targetLabel ? `Save to stored config "${targetLabel}"` : "Save as project default"}
         </button>
       </div>
     </div>

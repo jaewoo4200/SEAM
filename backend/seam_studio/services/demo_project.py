@@ -1,16 +1,17 @@
 """Programmatic "Sample Demo" project generator.
 
 Builds the small urban toy scene (ground, road, two buildings with windows,
-one tree, TX/RX pair, car + pedestrian actors, and since v0.1.14 a drone
-sensing target plus a sensing RX co-located with the TX) entirely from code —
-meshes via trimesh, exported as a GLB with exact per-object mesh names — and
-writes a complete project folder around it.
+one tree, TX/RX pair, car + pedestrian actors, since v0.1.14 a drone sensing
+target plus a sensing RX co-located with the TX, and since v0.1.15 two more
+TRPs (TX + co-located sensing RX) and the 3.5 GHz ``sensing_fr1`` config)
+entirely from code — meshes via trimesh, exported as a GLB with exact
+per-object mesh names — and writes a complete project folder around it.
 
 This is how a pip-installed run gets its first project without shipping any
 binary assets in the wheel: the CLI (and POST /projects with
 ``template="demo"``) call :func:`create_demo_project` on demand. The
 ``examples/scripts/create_demo_project.py`` repo script delegates here too.
-The committed example predates the v0.1.14 additions; seeding a source
+The committed example predates the v0.1.14/v0.1.15 additions; seeding a source
 checkout's ``projects/`` (:func:`seed_checkout_projects`) adds them to the
 copy, never to ``examples/``.
 
@@ -204,6 +205,51 @@ def demo_sensing_rx() -> Device:
     )
 
 
+# (tx id, name, position): street masts east of the scene that form, with the
+# rooftop TX, a triangle covering the drone's second leg (the first leg starts
+# outside it, so the fusion GDOP is worst at t=0; see the sensing guide's §6).
+# Every monostatic and bistatic echo of the flight has line of
+# sight (checked on Sionna), and the three sites give the multistatic fusion
+# (and so the EKF, which starts from it) its >= 3 distinct links.
+DEMO_TRP_SITES: tuple[tuple[str, str, tuple[float, float, float]], ...] = (
+    ("tx_002", "TX 2", (30.0, -30.0, 10.0)),
+    ("tx_003", "TX 3", (35.0, 35.0, 10.0)),
+)
+
+
+def demo_trp_devices() -> list[Device]:
+    """TX 2 and TX 3, each with a co-located sensing RX (same style as tx_001
+    and tx_001_rx: iso 1x1, 30 dBm)."""
+    devices: list[Device] = []
+    for tx_id, name, position in DEMO_TRP_SITES:
+        devices.append(
+            Device(id=tx_id, name=name, kind="tx", position=list(position),
+                   power_dbm=30.0, color="#ff0000")
+        )
+        devices.append(
+            Device(id=f"{tx_id}_rx", name=f"{name} sensing RX", kind="rx",
+                   position=list(position), color="#2e9bff")
+        )
+    return devices
+
+
+def demo_sensing_config() -> SimulationConfig:
+    """FR1 config for the sensing guide. At 28 GHz / 100 MHz the drone echo
+    of one 30 dBm iso element peaks at 7.7 dB with 4096 pulses (+36 dB),
+    under the 13 dB threshold; 3.5 GHz (+18 dB from lambda^2) and 20 MHz
+    (7 dB less noise) put every link of the flight at 15-33 dB."""
+    return SimulationConfig(
+        id="sensing_fr1",
+        name="Sensing demo (3.5 GHz)",
+        backend="auto",
+        frequency_hz=3.5e9,
+        bandwidth_hz=20e6,
+        noise_figure_db=7.0,
+        max_depth=2,
+        diffraction=False,
+    )
+
+
 def demo_uav_actor() -> Actor:
     """A TR 38.901 small-UAV sensing target flying 90 m (9 s at 10 m/s) at
     40 m, well above both buildings."""
@@ -321,6 +367,7 @@ def build_scene(scene_id: str = PROJECT_ID, name: str = SCENE_NAME) -> Scene:
             color="#2e9bff",
         ),
         demo_sensing_rx(),
+        *demo_trp_devices(),
     ]
 
     # Movable actors (compiled as their own RF shapes; moved per frame by the
@@ -379,7 +426,8 @@ def build_scene(scene_id: str = PROJECT_ID, name: str = SCENE_NAME) -> Scene:
                 backend="auto",
                 frequency_hz=28e9,
                 max_depth=3,
-            )
+            ),
+            demo_sensing_config(),
         ],
     )
 
@@ -439,7 +487,7 @@ def create_demo_project(
 
 # Explicit allowlist: the gitignored *_xeng.seam paper copies are never seeded.
 EXAMPLE_PROJECT_IDS = ("ftc_outdoor", "lab_room", "sample_demo")
-# The v0.1.14 demo additions change the scene, so the copy recompiles on its
+# The v0.1.14+ demo additions change the scene, so the copy recompiles on its
 # first solve instead of reusing the committed projection.
 _SAMPLE_DEMO_SKIP_RF = frozenset({"generated_scene.xml", "compile_manifest.json", "meshes"})
 
@@ -465,8 +513,16 @@ def _add_demo_additions(project_dir: Path) -> None:
     if scene.device_by_id("tx_001_rx") is None:
         scene.devices.append(demo_sensing_rx())
         changed = True
+    for device in demo_trp_devices():
+        if scene.device_by_id(device.id) is None:
+            scene.devices.append(device)
+            changed = True
     if not any(a.id == "uav_001" for a in scene.actors):
         scene.actors.append(demo_uav_actor())
+        changed = True
+    sensing_config = demo_sensing_config()
+    if not any(c.id == sensing_config.id for c in scene.simulation_configs):
+        scene.simulation_configs.append(sensing_config)
         changed = True
     if changed:
         store.save_scene(pid, scene, clear_live_overlay=False, record_history=False)
@@ -490,7 +546,8 @@ def seed_checkout_projects(root: Path, examples_dir: Path) -> list[str]:
     ``.sionnatwin``) is never overwritten or modified. The whole folder is
     copied, local results and history included, so an earlier session that
     ran on the example carries over. The Sample Demo copy also gains the
-    v0.1.14 drone target and co-located sensing RX. Each copy is built in a
+    v0.1.14 drone target and co-located sensing RX, and the v0.1.15 TRPs
+    TX 2 / TX 3 and the ``sensing_fr1`` config. Each copy is built in a
     hidden staging folder and renamed into place only when complete, so an
     interrupted copy (lock, full disk, Ctrl-C) leaves nothing behind and the
     next start retries it. Never raises (except KeyboardInterrupt): a failing

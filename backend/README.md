@@ -37,9 +37,10 @@ seam-studio            # starts on http://127.0.0.1:8000 and opens the browser
 ```
 
 The first run creates a **Sample Demo** project (toy urban scene with a
-rooftop TX and its co-located sensing RX, a street RX, car and pedestrian
-actors, and a drone sensing target) under `~/.seam/projects`, so you can
-press **Simulate paths** immediately.
+rooftop TX and two street-mast TXs, each with a co-located sensing RX, a
+street RX, car and pedestrian actors, a drone sensing target, and a 3.5 GHz
+`sensing_fr1` config that detects and tracks it) under `~/.seam/projects`,
+so you can press **Simulate paths** immediately.
 
 ```
 seam-studio --port 9000            # different port

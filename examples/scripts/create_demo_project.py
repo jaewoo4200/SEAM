@@ -26,7 +26,12 @@ REPO_ROOT = SCRIPT_DIR.parents[1]
 BACKEND_DIR = REPO_ROOT / "backend"
 sys.path.insert(0, str(BACKEND_DIR))
 
-from seam_studio.services.demo_project import GEOMETRY_NAMES, PROJECT_ID, create_demo_project  # noqa: E402
+from seam_studio.services.demo_project import (  # noqa: E402
+    GEOMETRY_NAMES,
+    PROJECT_ID,
+    build_scene,
+    create_demo_project,
+)
 from seam_studio.services.project_store import ProjectStore  # noqa: E402
 
 DEFAULT_OUT = REPO_ROOT / "examples" / "demo_project"
@@ -64,14 +69,28 @@ def main() -> None:
 
     scene = store.load_scene(PROJECT_ID)
     n_prims, n_devices, n_actors = len(scene.prims), len(scene.devices), len(scene.actors)
-    # v0.1.14: + the co-located sensing RX and the drone sensing target.
-    if n_prims != 13 or n_devices != 3 or n_actors != 3:
+    config_ids = [c.id for c in scene.simulation_configs]
+    # v0.1.14: + the co-located sensing RX and the drone sensing target;
+    # v0.1.15: + TX 2 / TX 3 with their sensing RXs (7 devices) and the
+    # sensing_fr1 config. The device count follows the generator.
+    expected_devices = len(build_scene().devices)
+    expected_configs = ["default", "sensing_fr1"]
+    if (
+        n_prims != 13
+        or n_devices != expected_devices
+        or n_actors != 3
+        or config_ids != expected_configs
+    ):
         raise RuntimeError(
-            f"expected 13 prims, 3 devices and 3 actors, got {n_prims} prims / "
-            f"{n_devices} devices / {n_actors} actors"
+            f"expected 13 prims, {expected_devices} devices, 3 actors and configs "
+            f"{expected_configs}, got {n_prims} prims / {n_devices} devices / "
+            f"{n_actors} actors / configs {config_ids}"
         )
     print(f"project: {project_dir}")
-    print(f"prims: {n_prims} (8 mesh + 5 group), devices: {n_devices}, actors: {n_actors}")
+    print(
+        f"prims: {n_prims} (8 mesh + 5 group), devices: {n_devices}, actors: {n_actors}, "
+        f"configs: {', '.join(config_ids)}"
+    )
     print("GLB mesh names verified:", ", ".join(GEOMETRY_NAMES))
 
 

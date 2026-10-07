@@ -343,7 +343,7 @@ cd frontend && npm run build                          # 타입체크 + 빌드
              Mapping for Wireless Digital Twins},
   url     = {https://github.com/jaewoo4200/SEAM},
   doi     = {10.5281/zenodo.23207109},
-  version = {0.1.14},
+  version = {0.1.15},
   year    = {2026}
 }
 ```

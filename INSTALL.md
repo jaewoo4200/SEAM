@@ -187,7 +187,9 @@ otherwise warns and skips it — using the committed demos as-is.)
 > large one) and opens the copies, so your sessions never modify the tracked examples.
 > A copy is renamed into place only when complete: an interrupted one (file lock, full
 > disk, Ctrl-C) leaves nothing behind and is retried on the next start.
-> The `sample_demo` copy also gains the v0.1.14 drone target and co-located sensing RX.
+> The `sample_demo` copy also gains the v0.1.14 drone target and co-located sensing RX,
+> and the v0.1.15 TRPs `tx_002` / `tx_003` (each with a sensing RX) and the 3.5 GHz
+> `sensing_fr1` config.
 > Regenerating the examples below does **not** touch copies already in `projects/`: to
 > reset a demo, delete `projects/<name>.seam` and restart — it is re-copied from
 > `examples/demo_project/`.
@@ -218,7 +220,9 @@ backend/.venv/bin/python examples/scripts/import_bundle_scene.py --xml "referenc
 > — lab_room and ftc_outdoor remain in their already-committed state.
 
 - `create_demo_project.py` → **sample_demo** (a small outdoor urban scene: ground/road/2 buildings
-  +windows/trees, TX/RX, vehicle·pedestrian actors). Written under `examples/demo_project/`.
+  +windows/trees, TX/RX, vehicle·pedestrian actors, the drone sensing target, three TRPs with
+  co-located sensing RXs and the 3.5 GHz `sensing_fr1` config). Written under `examples/demo_project/`
+  (skipped when it exists; `--force` regenerates it, `--out DIR` writes elsewhere).
 - `import_bundle_scene.py` (no args) → **lab_room** (imports the reference bundle's indoor 28 GHz lab-room
   scene into a loadable project).
 - `import_bundle_scene.py --scene-id ftc_outdoor …` → **ftc_outdoor** (the reference bundle's
