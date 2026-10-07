@@ -14,6 +14,15 @@ authors:
     affiliation: "Wireless Systems Lab, Hanyang University"
 version: 0.1.14
 date-released: "2026-10-07"
+# Concept DOI (resolves to the latest version); the version DOI is listed below.
+doi: 10.5281/zenodo.23207109
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.23207109
+    description: "Concept DOI for all versions of SEAM Studio"
+  - type: doi
+    value: 10.5281/zenodo.23207110
+    description: "Version DOI for v0.1.14"
 repository-code: "https://github.com/jaewoo4200/SEAM"
 url: "https://jaewoo4200.github.io/SEAM/"
 license: Apache-2.0

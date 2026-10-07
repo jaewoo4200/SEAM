@@ -4,6 +4,7 @@
 [![CI](https://github.com/jaewoo4200/SEAM/actions/workflows/ci.yml/badge.svg)](https://github.com/jaewoo4200/SEAM/actions/workflows/ci.yml)
 [![License](https://img.shields.io/pypi/l/seam-studio)](LICENSE)
 [![Python](https://img.shields.io/pypi/pyversions/seam-studio)](https://pypi.org/project/seam-studio/)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.23207109.svg)](https://doi.org/10.5281/zenodo.23207109)
 
 **SEAM** — Scene-to-Electromagnetic Authoring and Mapping for Wireless Digital Twins
 
@@ -341,6 +342,7 @@ cd frontend && npm run build                          # 타입체크 + 빌드
   title   = {{SEAM Studio}: Scene-to-Electromagnetic Authoring and
              Mapping for Wireless Digital Twins},
   url     = {https://github.com/jaewoo4200/SEAM},
+  doi     = {10.5281/zenodo.23207109},
   version = {0.1.14},
   year    = {2026}
 }
