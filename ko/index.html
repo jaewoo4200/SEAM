@@ -217,7 +217,7 @@ footer{margin-top:40px;border-top:1px solid var(--line)}
   <nav class="theme-sw" aria-label="테마"><button data-theme="auto">자동</button><button data-theme="light">라이트</button><button data-theme="dark">다크</button></nav>
   <nav class="lang" aria-label="Language"><b>KO</b><span>·</span><a href="../en/">EN</a></nav>
   <div class="wrap">
-    <div class="newsline"><span class="nv">NEW v0.1.13</span> 프레임 간 EKF 드론 추적, Swerling 0/1/3 탐지기 + Pd/Pfa 몬테카를로, 라벨링 센싱 데이터셋 export, 고각 스티어링 ISAC 빔·셀 간 간섭 —
+    <div class="newsline"><span class="nv">NEW v0.1.14</span> 신선 설치 감사 기반 유지보수 릴리스: CPU 전용 환경의 Sionna 감지, 라디오맵·빔포밍 액터 포즈 수정, 시나리오 센싱 수신기 선택, 편파 반영 커버리지, AODT·측정 UI, 드론 포함 샘플 데모, 문서·CI 게이트 —
       <a href="https://pypi.org/project/seam-studio/">pip install -U seam-studio</a></div>
     <div class="eyebrow">Scene-to-Electromagnetic Authoring and Mapping</div>
     <h1 class="wordmark">SEAM <span class="studio">Studio</span></h1>
@@ -328,6 +328,12 @@ footer{margin-top:40px;border-top:1px solid var(--line)}
         SINR = S/(I+N)을 계산합니다. 서빙 셀 선택, SINR 라디오맵, 셀별 서빙 TX 지도까지.</p></div>
       <div class="feat"><h5><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21v-8"/><circle cx="12" cy="11" r="2"/><path d="M8.5 7.5a5 5 0 0 1 7 0M6 5a8.5 8.5 0 0 1 12 0"/></svg>MIMO 빔포밍</h5>
         <p>코드북 스윕 / TX-MRT / SVD 빔포밍 이득을 실제 레이 채널 위에서 계산합니다(4×4 기준 약 12/24 dB 검증).</p></div>
+      <div class="feat"><h5><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-9-9"/><path d="M16.5 12A4.5 4.5 0 1 1 12 7.5"/><path d="M12 12l6.4-6.4"/><circle cx="17.5" cy="15.5" r="1.3"/></svg>레이더 센싱 &amp; ISAC</h5>
+        <p>차량·사람·드론을 TR 38.901 또는 고정 RCS 타깃으로 바인딩하고 도플러가 붙은 에코를
+        Sionna RT <span class="mono">RCSSolver</span>로 풉니다. 시나리오 프레임에 걸쳐 링크별 탐지,
+        다중 스태틱 융합, EKF 추적을 하고, ISAC 빔 트레이드오프(통신 빔 대 센싱 빔, Pd–전송률
+        파레토), 센싱 커버리지 맵, 몬테카를로를 곁들인 Swerling Pd/Pfa 탐지기, 라벨링된 센싱
+        데이터셋 내보내기도 제공합니다.</p></div>
       <div class="feat"><h5><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="1.5"/><path d="M4 10h16M4 16h16M10 4v16M16 4v16"/></svg>메시 라디오맵 + 영역 정밀화</h5>
         <p>수평 평면이 아니라 벽·바닥·도로 표면 위 삼각형 단위로 커버리지를 칠하고,
         관심 영역만 더 작은 셀로 다시 계산합니다.</p></div>
@@ -339,14 +345,16 @@ footer{margin-top:40px;border-top:1px solid var(--line)}
         면 단위 재질 분할하고, 병합 메시는 연결 성분으로 건물별 분리합니다. 모든 분할은
         GLB 백업과 함께 undo 가능합니다.</p></div>
       <div class="feat"><h5><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg>측정 기반 캘리브레이션</h5>
-        <p>실측 링크 CSV를 불러와 재질 파라미터를 그리드 피팅하고, 시각적으로 같은 재질을
-        측정 path gain으로 판별하며, 재질 지정이 링크에 미치는 임팩트를 NMSE·용량으로 정량화합니다.</p></div>
+        <p>실측 링크 CSV를 불러와 비행 기록을 따라 검증하고, 그에 맞춰 재질 파라미터를 그리드
+        피팅하며(피팅은 API로), 시각적으로 같은 재질을 측정 path gain으로 판별하고, 재질 지정이
+        링크에 미치는 임팩트를 NMSE·용량으로 정량화합니다.</p></div>
       <div class="feat"><h5><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 20v-6M11 20V6M17 20v-9M3 20h18"/></svg>Metrics dashboard &amp; 논문용 내보내기</h5>
         <p>링크 KPI와 CIR·CFR·도플러·경로손실 차트를 흰 배경 serif 논문 스타일로 그려내고,
         차트마다 PNG/SVG/CSV 버튼을 내장했습니다. 뷰포트 캡처와 Mitsuba 오프라인 렌더도 지원합니다.</p></div>
       <div class="feat"><h5><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5.5" rx="8" ry="2.8"/><path d="M4 5.5v13c0 1.6 3.6 2.9 8 2.9s8-1.3 8-2.9v-13"/><path d="M4 12c0 1.6 3.6 2.9 8 2.9s8-1.3 8-2.9"/></svg>데이터셋 &amp; AODT 연동</h5>
         <p>ML ground-truth 데이터셋(npz + metadata)을 생성하고, AODT RFData 컨트랙트를 내보내며,
-        NVIDIA AODT parquet 결과를 같은 스키마로 가져옵니다.</p></div>
+        NVIDIA AODT parquet 결과를 같은 스키마로 가져오거나 저장된 실행을 AODT parquet 테이블로
+        내보냅니다(parquet은 <span class="mono">pip install "seam-studio[parquet]"</span> 필요).</p></div>
       <div class="feat"><h5><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z"/><path d="M8 8h8M8 12h5"/></svg>자연어 규칙 &amp; 검증 설명</h5>
         <p>"창문은 유리, 콘크리트 벽은 itu_concrete" 한 문장을 검토 가능한 지정 규칙으로 바꿔
         일괄 적용하고, 검증 경고를 평문으로 풀어 원클릭 조치와 함께 설명합니다.</p></div>
@@ -425,8 +433,11 @@ bash scripts/start.sh   <span class="c"># → http://localhost:5173</span></pre>
     <p class="qs-note"><b>사전 요구사항:</b> Python 3.11&ndash;3.14. 소스 경로는 Node.js 20+도
       PATH에 있어야 합니다 (Windows: <span class="mono">winget install OpenJS.NodeJS.LTS</span> 후 새 터미널).
       나머지는 알아서 준비됩니다 — 실제 레이트레이싱 엔진 <span class="mono">sionna-rt</span>도
-      기본 의존성으로 함께 설치되며, Sionna를 불러올 수 없는 환경에서는 내장 Mock 백엔드로 자동 강등됩니다.
-      NVIDIA GPU·로컬 LLM(LM Studio/Ollama)은 선택 업그레이드입니다. 자세한 내용은
+      기본 의존성으로 함께 설치되며, Sionna를 돌릴 수 없는 환경에서는 내장 Mock 백엔드로 자동 강등됩니다.
+      NVIDIA GPU·로컬 LLM(LM Studio/Ollama)은 선택 업그레이드입니다. GPU가 없으면 Sionna의 CPU 백엔드에
+      LLVM 설치가 필요합니다(<a href="https://github.com/jaewoo4200/SEAM/blob/master/INSTALL.ko.md#cpu-전용-pc-nvidia-gpu-없음-llvm-설치">CPU 전용 PC</a>).
+      AODT parquet 임포트/내보내기와 parquet 데이터셋에는
+      <span class="mono">pip install "seam-studio[parquet]"</span>가 필요합니다. 자세한 내용은
       <a href="https://github.com/jaewoo4200/SEAM/blob/master/INSTALL.ko.md">INSTALL.md</a> ·
       <a href="https://github.com/jaewoo4200/SEAM/blob/master/TUTORIAL.ko.md">TUTORIAL.md</a> ·
       또는 그림으로 따라가는 <a href="guides/">사용 가이드</a>에서 시작하세요.</p>

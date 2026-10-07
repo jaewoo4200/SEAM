@@ -124,6 +124,8 @@ footer{border-top:1px solid var(--line)}
     <a href="simulation.html">Simulating</a>
     <a href="trajectory_uav.html">Trajectories &amp; UAVs</a>
     <a class="active" href="datasets_export.html">ML datasets &amp; exports</a>
+    <a href="sensing.html">Radar sensing &amp; ISAC</a>
+    <a href="playback_dashboard.html">Multimodal playback</a>
     <a class="all" href="./">← All guides</a>
   </aside>
 
@@ -131,20 +133,29 @@ footer{border-top:1px solid var(--line)}
     <div class="eyebrow">Guide 06 · SEAM Studio docs</div>
     <h1>ML datasets and exports</h1>
     <p class="lead">SEAM Studio is not just a viewer — everything you simulate can leave the app as files: NumPy <code>.npz</code> ground-truth datasets for training ML models, an AODT-viewer-compatible RFData bundle, WYSIWYG viewport captures, and per-chart CSV/PNG/SVG exports. This guide walks through each export path.</p>
+
     <div class="spectrum"></div>
 
-    <p>Everything here works with the <b>Mock backend</b> too — if Sionna RT is not installed, dataset generation and all exports still run end to end (the numbers come from the mock solver, which is fine for testing pipelines).</p>
+    <p>Everything here works with the <b>Mock backend</b> too — if Sionna RT is not
+    installed, dataset generation and all exports still run end to end (the numbers
+    come from the mock solver, which is fine for testing pipelines).</p>
 
-    <h2>1. The ML dataset panel</h2>
-    <p>The dataset generator lives in the <b>ML dataset</b> panel (its header renders as <code>ML DATASET</code>). You can reach it two ways:</p>
+    <h2 id="1-the-ml-dataset-panel">1. The ML dataset panel</h2>
+
+    <p>The dataset generator lives in the <b>ML dataset</b> panel (its header renders as
+    <code>ML DATASET</code>). You can reach it two ways:</p>
+
     <ul>
       <li><b>Results</b> mode — it is one of the dockable cards on the right.</li>
-      <li>From any mode via the toolbar <b>Panels ▾</b> menu — click the <b>ML dataset</b> row to float it over the viewport, or dock it left/right with the <b>◧ / ◨</b> buttons. A floated panel stays visible when you switch modes.</li>
+      <li>From any mode via the toolbar <b>Panels ▾</b> menu — click the <b>ML dataset</b>
+        row to float it over the viewport, or dock it left/right with the <b>◧ / ◨</b>
+        buttons. A floated panel stays visible when you switch modes.</li>
     </ul>
 
     <figure class="doc-shot"><img loading="lazy" decoding="async" src="../../assets/guides/10_dataset.png" alt="Floating ML DATASET panel over a radio-map heatmap, showing sampling controls, region fields, the Generate dataset button, and two existing dataset rows with npz/json links"><figcaption>The ML DATASET panel floated over a computed radio map — sampling controls on top, the region picker in the middle, and the dataset list with <code>npz</code> / <code>json</code> downloads at the bottom.</figcaption></figure>
 
-    <h3>Generate a dataset step by step</h3>
+    <h3 id="generate-a-dataset-step-by-step">Generate a dataset step by step</h3>
+
     <ol>
       <li><b>Name</b> — the dataset's display name (it also appears in the list below).</li>
       <li><b>Sampling mode</b> — how UE positions are chosen:
@@ -154,39 +165,74 @@ footer{border-top:1px solid var(--line)}
           <li><code>trajectory</code> — points along a straight start→end line.</li>
         </ul>
       </li>
-      <li><b>Actor flight path</b> — optionally sample along a scene actor's authored trajectory (a car, pedestrian, or UAV with waypoints). Pick an actor here and it <b>overrides</b> the region / start-end below; leave it at <code>— none —</code> to use the sampling mode's own geometry. If no actor has a trajectory yet, the panel says so — assign one in Visual mode first. The hint under the field spells out the precedence: <em>waypoints &gt; actor flight path &gt; start/end (or region)</em>.</li>
-      <li><b>dt</b> (s) — the finite-difference time step behind the velocity / Doppler labels the backend adds to moving samples.</li>
-      <li><b>Num samples</b> — how many UE positions to solve (1–20000). <b>CFR points</b> — frequency-response samples per position (2–4096). <b>Height</b> (m) — the UE sampling height.</li>
+      <li><b>Actor flight path</b> — optionally sample along a scene actor's authored
+        trajectory (a car, pedestrian, or UAV with waypoints). Pick an actor here and
+        it <b>overrides</b> the region / start-end below; leave it at <code>— none —</code> to use
+        the sampling mode's own geometry. If no actor has a trajectory yet, the panel
+        says so — assign one in Visual mode first. The hint under the field spells
+        out the precedence: <em>waypoints &gt; actor flight path &gt; start/end (or region)</em>.</li>
+      <li><b>dt</b> (s) — the finite-difference time step behind the velocity / Doppler
+        labels the backend adds to moving samples.</li>
+      <li><b>Num samples</b> — how many UE positions to solve (1–20000).
+        <b>CFR points</b> — frequency-response samples per position (2–4096).
+        <b>Height</b> (m) — the UE sampling height.</li>
       <li>Set the region (for <code>random</code> / <code>grid</code>):
         <ul>
-          <li><b>⌖ Pick region in viewport</b> — the button switches to <code>Click 2 corners… (Esc)</code>; click two opposite corners of the region on the scene surface and the XY fields fill in (Esc cancels).</li>
-          <li><b>Fit to scene</b> — sets the region and height to cover the whole scene (the panel also seeds itself from the real scene bounds when a project loads, so you rarely start from garbage values).</li>
+          <li><b>⌖ Pick region in viewport</b> — the button switches to
+            <code>Click 2 corners… (Esc)</code>; click two opposite corners of the region on the
+            scene surface and the XY fields fill in (Esc cancels).</li>
+          <li><b>Fit to scene</b> — sets the region and height to cover the whole scene
+            (the panel also seeds itself from the real scene bounds when a project
+            loads, so you rarely start from garbage values).</li>
           <li><b>Region min</b> / <b>Region max</b> — the XY corners as numbers.</li>
-          <li>Watch the hint line, e.g. <em>"Scene spans [-40.0, -40.0]…[40.0, 40.0] m — samples outside it get zero paths."</em> Sampling outside the geometry is the #1 cause of useless datasets.</li>
+          <li>Watch the hint line, e.g. <em>"Scene spans [-40.0, -40.0]…[40.0, 40.0] m —
+            samples outside it get zero paths."</em> Sampling outside the geometry is the
+            #1 cause of useless datasets.</li>
         </ul>
-        <p>For <code>trajectory</code> mode you instead get <b>⌖ Pick path in viewport</b> plus <b>Start</b> / <b>End</b> XYZ fields.</p>
+        <p>For <code>trajectory</code> mode you instead get <b>⌖ Pick path in viewport</b> plus
+        <b>Start</b> / <b>End</b> XYZ fields.</p>
       </li>
       <li><b>Seed</b> — makes the random sampling reproducible; record it for papers.</li>
-      <li><b>Include paths</b> — additionally dumps every sample's full ray paths (vertices + interactions) as <code>paths.jsonl</code>. Large; off by default.</li>
-      <li><b>Follow terrain</b> — snaps each sample's height to the surface below it plus the height offset. Use it on sloped outdoor scenes; leave it off indoors (it would snap to the roof).</li>
-      <li>Press <b>Generate dataset</b>. The button shows <code>Generating…</code> while the solver sweeps the positions.</li>
+      <li><b>Include paths</b> — additionally dumps every sample's full ray paths
+        (vertices + interactions) as <code>paths.jsonl</code>. Large; off by default.</li>
+      <li><b>Follow terrain</b> — snaps each sample's height to the surface below it
+        plus the height offset. Use it on sloped outdoor scenes; leave it off
+        indoors (it would snap to the roof).</li>
+      <li>Press <b>Generate dataset</b>. The button shows <code>Generating…</code> while the solver
+        sweeps the positions.</li>
     </ol>
 
-    <h3>The dataset list</h3>
+    <h3 id="the-dataset-list">The dataset list</h3>
+
     <p>Finished datasets appear in the table below the button, one row each:</p>
+
     <ul>
       <li><b>name / # / created / size</b> — name, sample count, creation time, file size.</li>
-      <li><b>files</b> — download links for <b>npz</b> (<code>dataset.npz</code>, the arrays) and <b>json</b> (<code>metadata.json</code>, the config echo + conventions).</li>
-      <li>A <b>⚠ N zero-path</b> flag on the name means N samples produced no paths at all (UE outside the scene or fully occluded) — re-check your region.</li>
-      <li>The <b>×</b> button deletes a dataset; it arms to <b>✓?</b> and you click again to confirm (it auto-disarms after a few seconds).</li>
+      <li><b>files</b> — download links for <b>npz</b> (<code>dataset.npz</code>, the arrays) and
+        <b>json</b> (<code>metadata.json</code>, the config echo + conventions).</li>
+      <li>A <b>⚠ N zero-path</b> flag on the name means N samples produced no paths at
+        all (UE outside the scene or fully occluded) — re-check your region.</li>
+      <li>The <b>×</b> button deletes a dataset; it arms to <b>✓?</b> and you click again to
+        confirm (it auto-disarms after a few seconds).</li>
     </ul>
-    <p>On disk, datasets live under the project folder at <code>export/datasets/&lt;dataset_id&gt;/</code>.</p>
 
-    <h3>What is in the labels</h3>
-    <p>The <code>.npz</code> contains per-sample positions, complex CFR, per-path CIR gains and delays, LOS flags, RSS, and dispersion metrics — the exact array schema, the AODT field mapping, and a ready-to-run training example (<code>examples/ml/train_channel_estimator.py</code>) are documented in <a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/ml_datasets.md">ML ground-truth datasets</a>.</p>
+    <p>On disk, datasets live under the project folder at
+    <code>export/datasets/&lt;dataset_id&gt;/</code>.</p>
 
-    <h2>2. RFData export (AODT-viewer bundle)</h2>
-    <p>To hand results to an external AODT-style viewer or your own pipeline, use the toolbar: <b>Actions ▾ → Export RFData</b>. It writes a bundle to <code>export/rfdata/</code> inside the project folder:</p>
+    <h3 id="what-is-in-the-labels">What is in the labels</h3>
+
+    <p>The <code>.npz</code> contains per-sample positions, complex CFR, per-path CIR gains and
+    delays, LOS flags, RSS, and dispersion metrics — the exact array schema, the
+    AODT field mapping, and a ready-to-run training example
+    (<code>examples/ml/train_channel_estimator.py</code>) are documented in
+    <a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/ml_datasets.md">ML ground-truth datasets</a>.</p>
+
+    <h2 id="2-rfdata-export-aodt-viewer-bundle">2. RFData export (AODT-viewer bundle)</h2>
+
+    <p>To hand results to an external AODT-style viewer or your own pipeline, use the
+    toolbar: <b>Actions ▾ → Export RFData</b>. It writes a bundle to
+    <code>export/rfdata/</code> inside the project folder:</p>
+
     <table>
       <thead>
         <tr><th>File</th><th>Content</th></tr>
@@ -200,36 +246,221 @@ footer{border-top:1px solid var(--line)}
         <tr><td><code>calibration_points.json</code></td><td>3 coordinate-check reference points</td></tr>
       </tbody>
     </table>
-    <p>After the export, a dismissible row appears in <b>Results</b> — <em>"Exported RFData to <code>export/rfdata</code>"</em> — with a download link per file, so you don't have to dig through the project folder.</p>
 
-    <h2>3. Viewport captures — Snapshot and Render</h2>
-    <p>The two icon buttons in the bottom-right cluster of the viewport save scene images:</p>
+    <p>After the export, a dismissible row appears in <b>Results</b> — <em>"Exported RFData
+    to <code>export/rfdata</code>"</em> — with a download link per file, so you don't have to dig
+    through the project folder.</p>
+
+    <h3 id="aodt-results-schema-export">AODT results-schema export</h3>
+
+    <p>The bundle above is the <em>viewer</em> contract. For tooling written against NVIDIA
+    AODT's own <a href="https://docs.nvidia.com/aerial/aodt/">results schemas</a>, there is a
+    second export that writes those tables as Parquet. In the UI: <b>Actions ▾ →
+    AODT export (parquet)</b> (pick the source and, optionally, a result id; blank
+    = the latest). Over the API:</p>
+
+    <pre><code>POST /api/projects/{project_id}/export/aodt
+     {"source": "paths", "result_id": null, "fft_size": 64,
+      "subcarrier_spacing_hz": 30000}</code></pre>
+
+    <p>It writes one <code>&lt;table&gt;.parquet</code> per AODT table into <code>export/aodt/</code>:
+    <code>ues</code>, <code>scatterers</code>, <code>rus</code>, <code>dus</code>, <code>panels</code>, <code>patterns</code>, <code>time_info</code>, <code>cfrs</code>,
+    <code>cirs</code>, <code>raypaths</code> — column names and types verbatim from the AODT docs.
+    <code>source: "paths"</code> writes a single snapshot (<code>time_idx</code> 0) from a stored paths
+    result; <code>source: "playback"</code> writes one <code>time_idx</code> per frame of a stored
+    playback pack, so <code>time_info</code>, <code>raypaths</code>, <code>cirs</code> and <code>cfrs</code> span the drive and
+    the UE's <code>route_*</code> columns carry the frame positions. <code>source: "sensing"</code>
+    writes a single snapshot of a stored sensing result
+    (<a href="sensing.html">sensing.md</a>).</p>
+
+    <p>Two AODT tables are <b>never</b> written: <code>telemetry</code> and <code>ran_config</code>. Both are
+    RAN-simulation outputs (scheduler/PHY KPIs, gNB configuration) that a
+    ray-tracing pipeline does not produce — emitting empty ones would claim
+    coverage SEAM does not have.</p>
+
+    <p>Alongside the tables, <code>id_map.json</code> records the string ↔ integer id mapping the
+    Parquet rows cannot carry: device id → <code>ru_id</code>/<code>ue_id</code>, prim id → <code>prim_ids</code>
+    index, actor id → scatterer <code>ID</code>, and device → panel index.</p>
+
+    <p>Caveats worth knowing before you consume the tables:</p>
+
     <ul>
-      <li><b>Snapshot</b> (camera icon) — saves <em>exactly</em> what you see (WYSIWYG): current camera pose, rays, markers, radio-map overlay, at full canvas resolution, as PNG. The tooltip reads <em>"Save this exact view as a PNG (what you see, full resolution — paper-ready)"</em>. This is the button for paper and slide figures.</li>
-      <li><b>Render</b> (film icon) — an offline, physically shaded path-traced render via Mitsuba. Slower, and deliberately <em>not</em> the on-screen view — no rays or overlays, just the shaded scene.</li>
+      <li><code>normals</code> is all zeros — SEAM records the interaction point and the prim it
+        belongs to, never the surface normal there; <code>object_ids</code> repeat <code>prim_ids</code>
+        (there is no separate USD object table), except at a sensing target, whose
+        object id is 1 000 000 + its index in sorted actor-id order
+        (<code>sensing_targets</code> in <code>id_map.json</code>).</li>
+      <li><code>ru_ant_el</code>/<code>ue_ant_el</code> are <code>(0, 0[, 0])</code> and each <code>ampl_*</code> list has one
+        entry: the path solver resolves per-link coefficients, not per-element ones.</li>
+      <li><code>patterns</code> is a single isotropic placeholder row.</li>
+      <li>Amplitudes (and therefore <code>cirs</code>/<code>cfrs</code>) are channel coefficients —
+        |a| = 10^(path_gain_dB/20), phase from the path's carrier phase — not
+        received power. <code>cir_delay</code> is in <b>seconds</b>, per the AODT schema.</li>
+      <li>In <code>raypaths</code>, <code>points</code> is the whole polyline (TX, every interaction, RX)
+        and <code>interaction_types</code>/<code>normals</code>/<code>prim_ids</code>/<code>object_ids</code>/
+        <code>vegetation_depths</code> all have one entry per point. <code>interaction_types</code> runs
+        <code>"emission"</code>, one token per interaction, <code>"reception"</code>, using only AODT's
+        documented tokens (<code>reflection</code>, <code>diffraction</code>, <code>diffuse</code>,
+        <code>transmission</code>); SEAM's <code>scattering</code> and sensing echoes are written as
+        <code>diffuse</code>. The two endpoints carry prim/object id −1.</li>
+      <li>A path whose interaction points cannot all be typed (no interactions
+        recorded and a path type that is not one mechanism, such as <code>mixed</code>) is
+        left out of <code>raypaths</code> with a warning;
+        its tap still counts in <code>cirs</code>/<code>cfrs</code>.</li>
     </ul>
-    <p>The entity <b>POV inset</b> (the live first-person view from a device or actor) has its own camera button that saves the POV frame as a full-resolution PNG.</p>
 
-    <h2>4. CSV and figure exports from the dashboards</h2>
+    <p>This export needs <code>pyarrow</code> (<code>pip install "seam-studio[parquet]"</code>, the
+    <code>parquet</code> extra; a source checkout installed with <code>backend[dev,parquet]</code> has
+    it); without it the endpoint answers <b>409</b> with that command, and it answers
+    <b>404</b> when the project has no stored result of the requested source kind.
+    The written <code>raypaths.parquet</code> reads back through SEAM's own AODT importer
+    (<code>POST /results/import-aodt</code>, or <b>Actions ▾ → AODT import (parquet)</b> with a
+    folder path on the machine running SEAM), which rebuilds one interaction per
+    interior point (<code>diffuse</code> becomes <code>scattering</code>).</p>
+
+    <h2 id="3-channel-dataset-npz--the-aodthyray-per-link-layout">3. Channel dataset (<code>.npz</code>) — the AODT/HYRAY per-link layout</h2>
+
+    <p>The ML dataset in section 1 is a <em>per-position</em> dataset (CFR, aggregated KPIs).
+    When you need the raw <b>per-link multipath</b> in the layout NVIDIA AODT / HYRAY
+    reference files use — one row per UE, one column per TRP, one entry per path —
+    use the toolbar: <b>Actions ▾ → Channel dataset (.npz)</b>. It writes
+    <code>export/channel_npz/channel_dataset.npz</code> plus a <code>metadata.json</code> sidecar.</p>
+
+    <p>The UE grid is chosen for you: the <b>latest stored trajectory run</b> if the
+    project has one (many UE rows), otherwise the scene's <b>receiver devices</b> —
+    which is exactly what a UE list imported through <code>POST /import/devices</code> lands
+    in. The transient notice and the dismissible <b>Results</b> row both say which grid
+    was used, together with the link count. Because the export runs one paths solve
+    per UE, it reports progress in the solve-progress card and is cancellable.</p>
+
+    <p>The npz carries the 13 canonical keys, nothing more:</p>
+
+    <table>
+      <thead>
+        <tr><th>key</th><th>shape</th><th>dtype</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>num_TRP</code>, <code>num_trajectory</code>, <code>batch</code></td><td>scalar</td><td><code>int64</code></td></tr>
+        <tr><td><code>dataset_TRP_pos</code></td><td>(T, 3)</td><td><code>float32</code></td></tr>
+        <tr><td><code>dataset_TRP_ori_angle</code></td><td>(T, 2)</td><td><code>float32</code></td></tr>
+        <tr><td><code>dataset_UE_pos</code></td><td>(U, 3)</td><td><code>float32</code></td></tr>
+        <tr><td><code>sorted_dataset_ampl</code></td><td>(U, T, P)</td><td><code>complex128</code></td></tr>
+        <tr><td><code>sorted_dataset_azimuth</code> / <code>_elevation</code></td><td>(U, T, P)</td><td><code>float32</code></td></tr>
+        <tr><td><code>sorted_dataset_toa</code></td><td>(U, T, P)</td><td><code>float32</code></td></tr>
+        <tr><td><code>is_nlos</code></td><td>(U, T)</td><td><code>bool</code></td></tr>
+        <tr><td><code>ue_id</code>, <code>time_idx</code></td><td>(U,)</td><td><code>int32</code></td></tr>
+      </tbody>
+    </table>
+
+    <p>T = transmitters, U = UE positions, P = <code>max_paths</code> (default 500). Each link's
+    path axis is sorted <b>strongest-first</b> by |amplitude| and zero-padded to P; a
+    link the solver found no path for stays all-zero with <code>is_nlos = True</code>.</p>
+
+    <p>Conventions you must know before consuming the arrays:</p>
+
     <ul>
-      <li>Every chart in the <b>Metrics dashboard</b> panel (and the other paper-styled charts) sits in a frame with <b>PNG / SVG / CSV</b> buttons in its header — bitmap at 3×, vector, or the raw data as CSV. Figures export as shown: white background, Times New Roman.</li>
-      <li>The dashboard header has an <b>Export all (CSV)</b> button that downloads the entire KPI table as <code>metric,value,unit</code> rows.</li>
-      <li>The paths table in <b>Results</b> has <b>Export filtered CSV (N)</b> — it exports exactly the currently filtered path set, one row per path with type, power, delay, and interaction materials.</li>
+      <li><code>sorted_dataset_ampl</code> is the linear complex channel amplitude
+        <code>10^((path_gain_db + normalization_db)/20) · e^{j·phase_rad}</code> — <b>not</b>
+        received power. <code>normalization_db</code> defaults to <code>0.0</code> (SEAM's own physical
+        gain); the lab's AODT files carry a fixed <b>−5.06 dB</b> offset, so pass
+        <code>normalization_db: -5.06</code> to match them numerically.</li>
+      <li><code>sorted_dataset_azimuth</code> / <code>_elevation</code> are <b>departure</b> angles in the
+        emitting TX's <b>local array frame</b>, in <b>radians</b>: azimuth is
+        <code>atan2(y_local, x_local)</code> in (−π, π], elevation is the <b>zenith</b> angle
+        <code>arccos(z_local)</code> in [0, π]. The local frame comes from that TX device's own
+        <code>orientation_deg</code> ([yaw, pitch, roll] degrees) through
+        <code>R = Rz(yaw)·Ry(pitch)·Rx(roll)</code> — the exact matrix sionna-rt builds from the
+        orientation SEAM hands its <code>Transmitter</code>, so the dataset's angles and the
+        solver's array steering share one frame.</li>
+      <li><code>sorted_dataset_toa</code> is absolute propagation delay in <b>seconds</b>.</li>
+      <li><code>dataset_TRP_ori_angle</code> is <code>[yaw_deg, pitch_deg]</code> per TX, in <b>degrees</b>
+        (matching the reference files, whose orientation pair is degree-valued while
+        the per-path angle arrays are radians).</li>
     </ul>
 
-    <h2>Related docs</h2>
+    <p>The whole surface is available over HTTP for scripted runs:</p>
+
+    <pre><code>POST /api/projects/{project_id}/export/channel-npz
+     {"ue_source": "explicit",
+      "ue_positions": [[25, 5, 1.5], [40, -12, 1.5]],
+      "tx_ids": null,          // null = every tx device, in scene order
+      "max_paths": 500,
+      "normalization_db": 0.0,
+      "ue_ids": null, "time_idx": null, "batch": 0}</code></pre>
+
+    <p><code>ue_source</code> is <code>"explicit"</code> (the <code>ue_positions</code> list), <code>"devices"</code> (every <code>rx</code>
+    device, ordered by id) or <code>"trajectory"</code> (a stored trajectory result's
+    per-sample positions — <code>ue_result_id</code> picks one, <code>null</code> takes the latest).
+    <code>ue_ids</code> / <code>time_idx</code> are optional passthrough columns (defaults <code>arange(U)</code> and
+    <code>zeros(U)</code>); when given they must be exactly U long. A single export is capped
+    at 5000 UE positions.</p>
+
+    <p>The export <b>never touches your scene</b>: each UE is solved on an in-memory copy
+    whose only receiver is an ephemeral probe, and no result set is persisted — only
+    <code>export/channel_npz/</code> is written, plus one <code>export_channel_npz</code> provenance
+    event.</p>
+
+    <blockquote>
+      <p>Pair this with the <b>Max paths / TX</b> field in the Paths solver panel
+      (<code>max_num_paths_per_src</code>) when you want the solver itself to stop at the same
+      path count the export keeps.</p>
+    </blockquote>
+
+    <h2 id="4-viewport-captures--snapshot-and-render">4. Viewport captures — Snapshot and Render</h2>
+
+    <p>The two icon buttons in the bottom-right cluster of the viewport save scene
+    images:</p>
+
     <ul>
-      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/ml_datasets.md">ML ground-truth datasets</a> — the <code>.npz</code> schema, zero-path warnings, AODT field mapping, and the training example script.</li>
+      <li><b>Snapshot</b> (camera icon) — saves <em>exactly</em> what you see (WYSIWYG): current
+        camera pose, rays, markers, radio-map overlay, at full canvas resolution, as
+        PNG. The tooltip reads <em>"Save this exact view as a PNG (what you see, full
+        resolution — paper-ready)"</em>. This is the button for paper and slide figures.</li>
+      <li><b>Render</b> (film icon) — an offline, physically shaded path-traced render via
+        Mitsuba. Slower, and deliberately <em>not</em> the on-screen view — no rays or
+        overlays, just the shaded scene.</li>
+    </ul>
+
+    <p>The entity <b>POV inset</b> (the live first-person view from a device or actor)
+    has its own camera button that saves the POV frame as a full-resolution PNG.</p>
+
+    <h2 id="5-csv-and-figure-exports-from-the-dashboards">5. CSV and figure exports from the dashboards</h2>
+
+    <ul>
+      <li>Every chart in the <b>Metrics dashboard</b> panel (and the other paper-styled
+        charts) sits in a frame with <b>PNG / SVG / CSV</b> buttons in its header —
+        bitmap at 3×, vector, or the raw data as CSV. Figures export as shown: white
+        background, Times New Roman.</li>
+      <li>The dashboard header has an <b>Export all (CSV)</b> button that downloads the
+        entire KPI table as <code>metric,value,unit</code> rows.</li>
+      <li>The paths table in <b>Results</b> has <b>Export filtered CSV (N)</b> — it exports
+        exactly the currently filtered path set, one row per path with type, power,
+        delay, and interaction materials.</li>
+    </ul>
+
+    <h2 id="related-docs">Related docs</h2>
+
+    <ul>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/ml_datasets.md">ML ground-truth datasets</a> — the <code>.npz</code> schema, zero-path
+        warnings, AODT field mapping, and the training example script.</li>
       <li><a href="getting_started.html">Getting started</a> — install, first project, the mode tabs.</li>
-      <li><a href="simulation.html">Simulation guide</a> — paths, radio maps, and the solver settings a dataset inherits.</li>
-      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/scene_format.md">Scene &amp; project format</a> — where files live inside a project folder.</li>
-      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/sionna_versions.md">Sionna versions</a> — the <code>engine</code> recorded in <code>metadata.json</code> for reproducibility.</li>
-      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/TUTORIAL.md">15-minute tutorial</a> — the full first-session loop, including dataset generation.</li>
+      <li><a href="simulation.html">Simulation guide</a> — paths, radio maps, and the solver
+        settings a dataset inherits.</li>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/scene_format.md">Scene &amp; project format</a> — where files live inside a
+        project folder.</li>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/sionna_versions.md">Sionna versions</a> — the <code>engine</code> recorded in
+        <code>metadata.json</code> for reproducibility.</li>
+      <li><a href="https://github.com/jaewoo4200/SEAM/blob/master/TUTORIAL.md">15-minute tutorial</a> — the full first-session loop,
+        including dataset generation.</li>
+      <li><a href="sensing.html">Radar sensing</a> — the sensing dataset export (§10) and the
+        sensing source of the AODT export.</li>
+      <li><a href="playback_dashboard.html">Playback dashboard</a> — GT-vs-DT playback packs, the
+        <code>playback</code> source of the AODT export.</li>
     </ul>
 
     <div class="pn">
       <a href="trajectory_uav.html"><span class="lbl">Previous</span>Trajectories and UAVs: moving receivers, playback, and POV views</a>
-      <span></span>
+      <a href="sensing.html"><span class="lbl">Next</span>Radar sensing: RCS targets, echo solves, and Doppler</a>
     </div>
   </article>
 </div>

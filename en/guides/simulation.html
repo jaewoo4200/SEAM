@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <script>(function(){try{var t=localStorage.getItem('seam-theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);}catch(e){}})();</script>
 <title>Simulating: paths, radio maps, beamforming, and channel analysis — SEAM Studio</title>
-<meta name="description" content="Run ray-path solves, coverage radio maps, MIMO beamforming, and per-link channel analysis in SEAM Studio's Results mode — with or without Sionna RT.">
+<meta name="description" content="Run ray-path solves, coverage radio maps, MIMO beamforming, and per-link channel analysis in SEAM Studio&#x27;s Results mode — with or without Sionna RT.">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Cdefs%3E%3ClinearGradient%20id%3D%22g%22%20x1%3D%220%22%20x2%3D%221%22%3E%3Cstop%20offset%3D%220%22%20stop-color%3D%22%23173a8a%22/%3E%3Cstop%20offset%3D%22.5%22%20stop-color%3D%22%232fd0c0%22/%3E%3Cstop%20offset%3D%221%22%20stop-color%3D%22%23e2632e%22/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect%20width%3D%2264%22%20height%3D%2264%22%20rx%3D%2212%22%20fill%3D%22%230b111b%22/%3E%3Ctext%20x%3D%2232%22%20y%3D%2242%22%20font-family%3D%22Segoe%20UI%2CArial%2Csans-serif%22%20font-size%3D%2236%22%20font-weight%3D%22700%22%20fill%3D%22%232e9bff%22%20text-anchor%3D%22middle%22%3ES%3C/text%3E%3Crect%20x%3D%2214%22%20y%3D%2250%22%20width%3D%2236%22%20height%3D%225%22%20rx%3D%222.5%22%20fill%3D%22url%28%23g%29%22/%3E%3C/svg%3E">
 <link rel="canonical" href="https://jaewoo4200.github.io/SEAM/en/guides/simulation.html">
 <link rel="alternate" hreflang="ko" href="https://jaewoo4200.github.io/SEAM/ko/guides/simulation.html">
@@ -124,6 +124,8 @@ footer{border-top:1px solid var(--line)}
     <a class="active" href="simulation.html">Simulating</a>
     <a href="trajectory_uav.html">Trajectories &amp; UAVs</a>
     <a href="datasets_export.html">ML datasets &amp; exports</a>
+    <a href="sensing.html">Radar sensing &amp; ISAC</a>
+    <a href="playback_dashboard.html">Multimodal playback</a>
     <a class="all" href="./">← All guides</a>
   </aside>
 
@@ -131,9 +133,10 @@ footer{border-top:1px solid var(--line)}
     <div class="eyebrow">Guide 04 · SEAM Studio docs</div>
     <h1>Simulating: paths, radio maps, beamforming, and channel analysis</h1>
     <p class="lead">Everything you compute in SEAM Studio happens in <b>Results</b> mode: ray paths, coverage radio maps, MIMO beamforming, and per-link channel analysis. This guide walks through each solver, the knobs that matter, and how to read the results. The whole workflow runs on the <b>Mock backend</b> if Sionna RT is not installed, so you can follow along without a GPU.</p>
+
     <div class="spectrum"></div>
 
-    <h2>1. Results mode layout</h2>
+    <h2 id="1-results-mode-layout">1. Results mode layout</h2>
 
     <p>Click the <b>Results</b> tab in the toolbar. The right sidebar holds the
     <b>Simulation</b> panel with three collapsible sections — <b>Global</b>, <b>Paths</b>,
@@ -152,8 +155,8 @@ footer{border-top:1px solid var(--line)}
       </thead>
       <tbody>
         <tr><td><b>Preset</b></td><td>Applies a canonical solver configuration to both Paths and Radio map: <code>28 GHz Indoor Lab</code>, <code>28 GHz Outdoor Campus</code>, <code>3.5 GHz Urban Macro</code>, <code>60 GHz Indoor</code>, <code>28 GHz UAV A2G</code>. Editing any knob by hand flips it to <code>Custom</code>.</td></tr>
-        <tr><td><b>Backend</b></td><td><code>auto</code> / <code>mock</code> / <code>sionna</code>. <code>auto</code> uses Sionna RT when installed and falls back to the mock solver otherwise.</td></tr>
-        <tr><td><b>Engine</b></td><td>Only shown when more than one Sionna RT version is registered — pick which version solves paths (e.g. <code>Sionna RT 2.0.1</code>). See <a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/engines.md">../engines.md</a>.</td></tr>
+        <tr><td><b>Backend</b></td><td><code>auto</code> / <code>mock</code> / <code>sionna</code>. <code>auto</code> uses Sionna RT when it is installed and has a working Dr.Jit backend (a CUDA GPU, or LLVM on the CPU: see <a href="https://github.com/jaewoo4200/SEAM/blob/master/INSTALL.md#the-real-sionna-rt-engine-installed-automatically">INSTALL</a>), and falls back to the mock solver otherwise; the result's warnings then say why.</td></tr>
+        <tr><td><b>Engine</b></td><td>Only shown when more than one Sionna RT version is registered — pick which version solves paths (e.g. <code>Sionna RT 1.2.2</code>). See <a href="https://github.com/jaewoo4200/SEAM/blob/master/docs/engines.md">../engines.md</a>.</td></tr>
         <tr><td><b>Frequency</b> (GHz)</td><td>Carrier frequency (default 28 GHz).</td></tr>
         <tr><td><b>Bandwidth</b> (MHz)</td><td>Channel bandwidth used for noise, CFR, and capacity.</td></tr>
         <tr><td><b>Noise figure</b> (dB)</td><td>Receiver noise figure for SNR/SINR.</td></tr>
@@ -164,7 +167,13 @@ footer{border-top:1px solid var(--line)}
     <p>The Global section also hosts the <b>Beamforming array</b> settings (section 4)
     and the <b>Live sync</b> toggle.</p>
 
-    <h2>2. Paths</h2>
+    <p><b>Device antennas.</b> Each TX and RX carries its own antenna (pattern,
+    polarization, array size) in the device inspector, but Sionna RT has one
+    scene-level TX array and one RX array: a Sionna paths, sensing or scenario
+    solve applies the first selected TX's (RX's) antenna to every TX (RX), and
+    since v0.1.14 it warns, naming the devices whose antennas differ.</p>
+
+    <h2 id="2-paths">2. Paths</h2>
 
     <figure class="doc-shot"><img loading="lazy" decoding="async" src="../../assets/guides/06_paths.png" alt="Five ray paths drawn TX to RX over the 3D scene, with the Simulation panel open on the right"><figcaption>A paths solve: TX→RX polylines colored by interaction type, with the Simulation panel's Global and Paths sections.</figcaption></figure>
 
@@ -189,7 +198,7 @@ footer{border-top:1px solid var(--line)}
         <b>AoA / AoD</b> plot.</li>
     </ol>
 
-    <h3>Accuracy presets</h3>
+    <h3 id="accuracy-presets">Accuracy presets</h3>
 
     <p>Instead of tuning ray counts by hand, use the <b>Accuracy</b> segmented control
     in the Paths section:</p>
@@ -211,7 +220,7 @@ footer{border-top:1px solid var(--line)}
     reflection</b>, <b>Refraction</b>, <b>Diffraction</b>, <b>Edge diffraction</b>,
     <b>Lit-region diffraction</b>) pick which interactions the solver traces.</p>
 
-    <h3>Overlay toggles and filters</h3>
+    <h3 id="overlay-toggles-and-filters">Overlay toggles and filters</h3>
 
     <p>The <b>Show:</b> row in the Results panel toggles each overlay independently —
     <b>Rays</b>, <b>Radio map</b>, <b>Beamforming</b>, <b>Trajectory rays</b>, <b>Scenario</b>.
@@ -221,7 +230,7 @@ footer{border-top:1px solid var(--line)}
     section. Keep <b>Auto update</b> checked and the paths re-solve automatically
     whenever the scene changes.</p>
 
-    <h2>3. Radio map</h2>
+    <h2 id="3-radio-map">3. Radio map</h2>
 
     <figure class="doc-shot"><img loading="lazy" decoding="async" src="../../assets/guides/07_radio_map.png" alt="Jet-colormap coverage heatmap over the scene floor with the Path gain legend and a result toast"><figcaption>A radio map draped over the scene: jet colormap, the "Path gain" dB colorbar, and the completion toast.</figcaption></figure>
 
@@ -242,7 +251,7 @@ footer{border-top:1px solid var(--line)}
         fixed period for live-sensing scenes.</li>
     </ol>
 
-    <h3>Cell map vs mesh map</h3>
+    <h3 id="cell-map-vs-mesh-map">Cell map vs mesh map</h3>
 
     <p>The map above is a <b>planar cell map</b> — a horizontal grid at a fixed height.
     To paint coverage <b>onto actual surfaces</b> (walls, floors, roads), select the
@@ -251,7 +260,7 @@ footer{border-top:1px solid var(--line)}
     the color over the geometry; its own <b>Mesh map</b> checkbox toggles the
     overlay, and the value range is reported as e.g. <code>Path gain range −95.2 … −61.4 dB (jet: low → high)</code>.</p>
 
-    <h2>4. Beamforming array</h2>
+    <h2 id="4-beamforming-array">4. Beamforming array</h2>
 
     <figure class="doc-shot"><img loading="lazy" decoding="async" src="../../assets/guides/08_beamforming.png" alt="Beamforming result toast and the array configuration in the Global section"><figcaption>A codebook sweep result: array setup in the Global section and the summary toast.</figcaption></figure>
 
@@ -275,7 +284,7 @@ footer{border-top:1px solid var(--line)}
         update</b> checkbox next to the button re-runs it on scene changes.</li>
     </ol>
 
-    <h2>5. Channel analysis</h2>
+    <h2 id="5-channel-analysis">5. Channel analysis</h2>
 
     <figure class="doc-shot"><img loading="lazy" decoding="async" src="../../assets/guides/09_channel_analysis.png" alt="Floating Channel analysis panel with link budget KPIs and CIR/CFR charts"><figcaption>The Channel analysis panel floated over the viewport: link budget, CIR power-delay profile, and CFR magnitude.</figcaption></figure>
 
@@ -302,7 +311,12 @@ footer{border-top:1px solid var(--line)}
       <li><b>Link budget</b> — <b>RSS</b>, <b>SNR</b>, <b>SINR</b>, <b>Interference</b> (with the
         interfering-TX count in multi-TX scenes), <b>Shannon</b> capacity,
         <b>K-factor</b>, <b>RMS DS</b> (delay spread), <b>Coh. BW</b>, and, when the channel
-        is time-varying, <b>Doppler spread</b> and <b>Coh. time</b>.</li>
+        is time-varying, <b>Doppler spread</b> and <b>Coh. time</b>. The channel counts
+        as time-varying when the TX or RX has a velocity (or rides a moving
+        actor), or when any actor in the scene has a trajectory that moves at
+        t = 0 (Sionna backend; see <a href="sensing.html">sensing.md</a> §4). That holds even
+        when no path touches the moving actor: the Doppler spread then reads 0 Hz
+        and Coh. time is not shown.</li>
       <li><b>CIR (power delay profile)</b> — one stem per tap, colored by path type.</li>
       <li><b>CFR magnitude</b> — |H| in dB across the band.</li>
       <li><b>Path-loss models vs RT</b> — 3GPP model predictions with their delta
@@ -320,7 +334,7 @@ footer{border-top:1px solid var(--line)}
     channel), and <b>Flight-log validation</b> (<b>Validate</b> measured vs predicted
     path gain along a route).</p>
 
-    <h2>6. Backends, persistence, and stale results</h2>
+    <h2 id="6-backends-persistence-and-stale-results">6. Backends, persistence, and stale results</h2>
 
     <ul>
       <li><b>Every solver falls back to the Mock backend</b> when Sionna RT is not
@@ -329,11 +343,19 @@ footer{border-top:1px solid var(--line)}
         laptop, then flip <b>Backend</b> to <code>sionna</code> on a real machine.</li>
       <li><b>Mock rays are not physical.</b> The mock emits a fixed demo set (LOS + a
         ground bounce + one wall reflection) so the UI pipeline can be exercised —
-        reflection and refraction points are <em>not</em> geometrically traced against
-        the scene. Judge ray plausibility only on the Sionna backend.</li>
+        reflection and refraction points are <em>not</em> geometrically traced against the
+        scene. Judge ray plausibility only on the Sionna backend.</li>
       <li>Results persist per project: paths land in
         <code>results/{backend}_paths_{NNN}.json</code> under the project folder, and the
         latest of each kind reloads with the project.</li>
+      <li><b>A/B compare (pin A → re-solve → B)</b> in the Results panel freezes the
+        current paths + channel results as baseline <b>A</b>; change a parameter,
+        re-solve, and the table shows A / B / Δ for path count, best-path power and
+        gain, first arrival, RSRP/RSRQ/RSSI/RSS/SINR and RMS delay spread, plus two
+        provenance chips: <em>solver config</em> (solver knobs only) and <em>scene</em> (devices,
+        materials, geometry — a deliberate parameter edit should read <em>scene
+        differs</em>). The pin is client-side and lives until you clear it or switch
+        project; nothing extra is written to disk.</li>
       <li>The <b>Run history</b> collapsible in the Results panel is the results
         explorer: past runs grouped by kind, reloadable with one click, labelable,
         and prunable (<b>Keep latest</b> N per kind → <b>Prune old results</b>; labeled
@@ -342,7 +364,7 @@ footer{border-top:1px solid var(--line)}
         badge — the numbers are never silently outdated; re-run to refresh.</li>
     </ul>
 
-    <h2>Related docs</h2>
+    <h2 id="related-docs">Related docs</h2>
 
     <ul>
       <li><a href="getting_started.html">Getting started guide</a> — install, first project, modes tour</li>
