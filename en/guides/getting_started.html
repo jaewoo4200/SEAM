@@ -240,7 +240,13 @@ bash scripts/start.sh</code></pre>
     <p>The Sample Demo ships with <code>tx_001</code> ("Rooftop TX", red ▲), <code>rx_001</code>
     ("Street RX", blue ●) and <code>tx_001_rx</code> ("TX 1 sensing RX", blue ●, at the
     TX's position: the co-located radar receiver that sensing, ISAC and the
-    sensing coverage map use). Each row has a × delete button.</p>
+    sensing coverage map use). Two more sensing sites (TRPs) on 10 m street
+    masts east of the scene form, with the rooftop TX, a triangle that covers
+    the drone's second leg (it starts outside it; see
+    <a href="sensing.html#6-sensing-over-time-detection-and-multistatic-fusion">sensing §6</a>): <code>tx_002</code>
+    ("TX 2", at (30, −30, 10) m) with <code>tx_002_rx</code> ("TX 2 sensing RX") and
+    <code>tx_003</code> ("TX 3", at (35, 35, 10) m) with <code>tx_003_rx</code> ("TX 3 sensing RX").
+    Each row has a × delete button.</p>
 
     <h3 id="actors-section">Actors section</h3>
 
@@ -249,8 +255,10 @@ bash scripts/start.sh</code></pre>
     The demo includes <code>car_001</code> (a sedan driving down the road), <code>human_001</code>
     (a pedestrian) and <code>uav_001</code> ("Drone", a TR 38.901 sensing target flying
     an L at 40 m; see <a href="sensing.html">sensing.md</a>). The sensing RX and the drone
-    arrived in v0.1.14: a Sample Demo created by an earlier version keeps its
-    original devices and actors.</p>
+    arrived in v0.1.14, TX 2 and TX 3 (with their sensing RXs) and the 3.5 GHz
+    <code>sensing_fr1</code> config in v0.1.15: a Sample Demo created by an earlier
+    version keeps its original devices and actors (to get the current one,
+    create a fresh demo as the <a href="sensing.html">sensing guide</a> intro shows).</p>
 
     <h3 id="navigating-and-picking">Navigating and picking</h3>
 
