@@ -12,8 +12,14 @@ from typing import Literal, Optional
 from pydantic import Field, model_validator
 
 from .common import StrictModel, Vec3
-from .sensing import DetectorModel, SensingCoverageMetric
+from .sensing import BackgroundOptions, DetectorModel, EnsembleSource, SensingCoverageMetric
 from .simulation import SimulationConfig
+
+def _is_none(value: object) -> bool:
+    # v0.1.16 fields of stored results are left out of the JSON while None,
+    # so a run without the new options serializes exactly as in v0.1.15.
+    return value is None
+
 
 PathType = Literal[
     "los", "reflection", "diffraction", "scattering", "transmission", "mixed", "sensing"
@@ -112,8 +118,37 @@ class SensingResultSet(StrictModel):
     metadata: dict = Field(default_factory=dict)
 
 
-DetectionReason = Literal["detected", "no_echo", "below_threshold", "mti_rejected"]
+# cfar_miss: sensing.detection.mode "cfar" and no detection inside the
+# oracle gate around the link's true echo (v0.1.16).
+DetectionReason = Literal[
+    "detected", "no_echo", "below_threshold", "mti_rejected", "cfar_miss"
+]
 TargetEstimateStatus = Literal["ok", "insufficient_links", "diverged"]
+
+
+class SensingDetection(StrictModel):
+    """One CFAR detection on one TX -> RX delay-Doppler map (#24). No truth
+    fields: the oracle match is SensingLinkReport.detection_index."""
+
+    tx_id: str
+    rx_id: str
+    # Map cell: delay index u in [0, K') and signed Doppler index v in
+    # [-N'/2, N'/2) (K', N' = zero-padded FFT lengths).
+    cell_tau: int
+    cell_nu: int
+    # Parabolic interpolation of the peak (dB) around the cell, per axis.
+    delay_ns: float
+    range_sum_m: float
+    doppler_hz: float
+    # |Z|^2 over the CFAR noise estimate (CA: training mean; OS: the
+    # os_rank-th smallest training cell); detected when > threshold.
+    statistic: float
+    threshold: float
+    # 10log10 |Z|^2 / (sigma_H^2 sum w_f^2 sum w_t^2): the cell's SNR scale.
+    power_db: float
+    # 10log10(|Z|^2 / noise_mean - 1) with the unbiased noise mean; None
+    # when that is <= 0.
+    snr_est_db: Optional[float] = None
 
 
 class SensingLinkReport(StrictModel):
@@ -147,6 +182,9 @@ class SensingLinkReport(StrictModel):
     # (detector.monte_carlo_trials > 0 and an echo).
     pd: Optional[float] = None
     pd_mc: Optional[float] = None
+    # cfar mode: index into SensingFrame.detections of the detection inside
+    # the oracle gate (strongest statistic) that detected this link.
+    detection_index: Optional[int] = Field(default=None, ge=0, exclude_if=_is_none)
 
 
 TrackStatus = Literal["none", "init", "tracking", "coasting", "lost"]
@@ -200,6 +238,45 @@ class SensingNodeState(StrictModel):
     velocity: Vec3 = Field(default_factory=lambda: [0.0, 0.0, 0.0])
 
 
+class BackgroundHypothesisMeta(StrictModel):
+    """One background hypothesis (H0 or H1) of one frame."""
+
+    # False: reused from source_frame (static_nodes cache hit); this frame's
+    # background_h0 / background_h1 is then None.
+    solved: bool
+    cache_hit: bool = False
+    # Frame index whose background_h0 / background_h1 holds the paths.
+    source_frame: int = Field(ge=0)
+    cache_key: str
+    solve_s: float = 0.0
+    num_paths: int = Field(default=0, ge=0)
+    # Paths dropped by background.max_paths_per_link (weakest first).
+    dropped_paths: int = Field(default=0, ge=0)
+    # "tx_id>rx_id" -> 10log10(sum |a|^2) of the kept paths (None: no path).
+    total_power_db: dict[str, Optional[float]] = Field(default_factory=dict)
+    # False: the paths fed the CFAR map but are not in the result
+    # (sensing.background.store); resolve_background then returns None.
+    stored: bool = True
+    # The solve failed (the backend's warning); the frame used no paths for
+    # this hypothesis and the next frame solves again.
+    error: Optional[str] = Field(default=None, exclude_if=_is_none)
+
+
+class BackgroundMeta(StrictModel):
+    """How SensingFrame.background_h0 / background_h1 were solved (#21)."""
+
+    mode: Literal["h1_absorber", "h0_removed", "both"]
+    # PathSolver mechanisms switched on: los, specular_reflection,
+    # diffuse_reflection, refraction, diffraction, edge_diffraction.
+    mechanisms: list[str] = Field(default_factory=list)
+    max_depth: int = Field(ge=0)
+    num_samples: int = Field(ge=1)
+    seed: int
+    deterministic: bool
+    h0: Optional[BackgroundHypothesisMeta] = None
+    h1: Optional[BackgroundHypothesisMeta] = None
+
+
 class SensingFrame(StrictModel):
     # Echo paths of this frame (path_type "sensing", doppler_hz, target_id),
     # then the comm paths when include_comm_paths (target_id None).
@@ -209,6 +286,76 @@ class SensingFrame(StrictModel):
     # Every selected TX, then every sensing RX, at this frame (v0.1.13+; None
     # in older results). Until v0.1.13 every selected RX was a sensing RX.
     nodes: Optional[list[SensingNodeState]] = None
+    # sensing.background (v0.1.16): TX -> sensing-RX background paths with
+    # the targets removed (H0) / as absorbers (H1); doppler_hz always set,
+    # target_id None. None: not solved, or reused (background_meta.h0/h1
+    # .source_frame holds them).
+    background_h0: Optional[list[RayPath]] = Field(default=None, exclude_if=_is_none)
+    background_h1: Optional[list[RayPath]] = Field(default=None, exclude_if=_is_none)
+    background_meta: Optional[BackgroundMeta] = Field(default=None, exclude_if=_is_none)
+    # sensing.detection.mode "cfar" (v0.1.16): every link's stored
+    # detections, link by link (tx-major), strongest statistic first.
+    detections: Optional[list[SensingDetection]] = Field(default=None, exclude_if=_is_none)
+
+
+class EnsembleMaterialDraw(StrictModel):
+    eps_r_scale: float
+    sigma_scale: float
+
+
+class EnsembleLink(StrictModel):
+    tx_id: str
+    rx_id: str
+
+
+class BackgroundRealization(StrictModel):
+    """One H0 background realization of a sensing_background_ensemble (#30).
+    Its H0 noise frame m of link (tx, rx) is the noise of
+    services/channel_synthesis.noise_frame(seed, realization=index, frame=m,
+    stream=H0_NOISE_STREAM = 0x5EA031)."""
+
+    index: int = Field(ge=0)
+    # nominal: no perturbation; perturbed: at least one nonzero draw.
+    label: Literal["nominal", "perturbed"]
+    # Solver radio material name -> scales applied to eps_r and sigma.
+    material_draws: dict[str, EnsembleMaterialDraw] = Field(default_factory=dict)
+    # Node id -> position offset [m] (TX and sensing RX).
+    node_offsets_m: dict[str, Vec3] = Field(default_factory=dict)
+    # Sensing RX id -> CFO [Hz], a Doppler offset on every path at synthesis.
+    cfo_hz: dict[str, float] = Field(default_factory=dict)
+    # None when the paths are those of realization source_realization (an
+    # identical earlier realization: every nominal one reuses index 0).
+    background_h0: Optional[list[RayPath]] = None
+    source_realization: int = Field(ge=0)
+    solve_s: float = 0.0
+    num_paths: int = Field(default=0, ge=0)
+    dropped_paths: int = Field(default=0, ge=0)
+    # "tx_id>rx_id" -> 10log10(sum |a|^2) (None: no path).
+    total_power_db: dict[str, Optional[float]] = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
+
+
+class SensingBackgroundEnsembleResultSet(StrictModel):
+    """POST /simulate/sensing-background-ensemble (#30): H0 background paths
+    per realization at one scenario frame's node poses, plus the seed that
+    defines every realization's noise frames (drawn on demand, never stored)."""
+
+    result_id: str
+    kind: Literal["sensing_background_ensemble"] = "sensing_background_ensemble"
+    backend: str
+    simulation_config_id: str
+    created_at: Optional[str] = None
+    source: EnsembleSource
+    seed: int = Field(ge=0)
+    noise_frames_per_realization: int = Field(ge=1)
+    # The background solver options the realizations used (mode h0_removed).
+    background: BackgroundOptions
+    # Sensing links in solve order (tx-major), and the nominal node states.
+    links: list[EnsembleLink] = Field(default_factory=list)
+    nodes: list[SensingNodeState] = Field(default_factory=list)
+    realizations: list[BackgroundRealization] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    metadata: dict = Field(default_factory=dict)
 
 
 class ISACBeam(StrictModel):
@@ -483,6 +630,11 @@ class SensingDatasetExportResult(StrictModel):
     rows_per_result: dict[str, int] = Field(default_factory=dict)
     rows_per_split: dict[str, int] = Field(default_factory=dict)
     num_echo_rows: int = 0
+    # include_background_paths: background.* rows; include_channel: the
+    # (frame, link) rows of channel.npz and its complex64 element count.
+    num_background_rows: int = 0
+    num_channel_rows: int = 0
+    channel_elements: int = 0
     # Fraction of link rows with detected = true (None: no rows).
     detected_fraction: Optional[float] = None
     size_bytes: int = 0

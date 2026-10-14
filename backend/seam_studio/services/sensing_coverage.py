@@ -59,6 +59,13 @@ from seam_studio.services.simulation_backends.base import (
     UNSAVED_RESULT_ID,
     RayTracingBackend,
 )
+from seam_studio.services.numerology import (
+    DEFAULT_CPI_S,
+    Numerology,
+    NumerologyError,
+    effective_cpi_pulses,
+    resolve_numerology,
+)
 from seam_studio.services.simulation_backends.sionna_backend import noise_floor_dbm
 
 SPEED_OF_LIGHT = 299_792_458.0
@@ -78,7 +85,13 @@ def coverage_grid(
 ) -> GridSpec:
     """Grid of the request: its explicit extent, else the scene bounds padded
     like the sionna radio map (min(15, max(3, 15 % of the larger side))).
-    More than MAX_COVERAGE_CELLS cells coarsens the cell size."""
+    More than MAX_COVERAGE_CELLS cells coarsens the cell size. A waveform
+    that does not fit cpi_s is rejected here, before any solve."""
+    if request.waveform is not None:
+        try:
+            resolve_numerology(request.waveform, request.cpi_s)
+        except NumerologyError as exc:
+            raise SensingCoverageError(str(exc)) from exc
     cell = float(request.cell_size_m)
     if request.center_xy is not None and request.size_xy is not None:
         width, depth = float(request.size_xy[0]), float(request.size_xy[1])
@@ -373,8 +386,27 @@ def run_sensing_coverage(
         if request.array_gain == "steered"
         else 0.0
     )
-    noise_dbm = noise_floor_dbm(config)
-    integration_db = 10.0 * math.log10(request.cpi_pulses)
+    # Numerology (#23): the waveform sets the pulse count and the noise
+    # bandwidth; without one cpi_pulses stands and cpi_s is unused.
+    original = request
+    num: Optional[Numerology] = None
+    if request.waveform is None:
+        if abs(request.cpi_s - DEFAULT_CPI_S) > 1e-12:
+            warnings.append("sensing-coverage: cpi_s is unused without waveform")
+    else:
+        cpi_pulses, numerology_warnings, num = effective_cpi_pulses(
+            request.waveform, request.cpi_s, request.cpi_pulses,
+            "cpi_pulses" in request.model_fields_set, "sensing-coverage",
+        )
+        warnings += numerology_warnings
+        if cpi_pulses != request.cpi_pulses:
+            request = request.model_copy(update={"cpi_pulses": cpi_pulses})
+    if num is not None:
+        noise_dbm = num.noise_floor_dbm(config.noise_figure_db)
+        integration_db = num.integration_gain_db
+    else:
+        noise_dbm = noise_floor_dbm(config)
+        integration_db = 10.0 * math.log10(request.cpi_pulses)
     alpha, absorption_warning = atmosphere.absorption_db_per_km(config)
     if absorption_warning:
         warnings.append(absorption_warning)
@@ -466,7 +498,7 @@ def run_sensing_coverage(
     else:
         los_model = f"none ({backend.name}: no geometry occlusion)"
     metadata = {
-        "request": metadata_dump(request, exclude=("config",)),
+        "request": metadata_dump(original, exclude=("config",)),
         "wavelength_m": wavelength,
         "noise_floor_dbm": noise_dbm,
         "integration_gain_db": integration_db,
@@ -485,6 +517,12 @@ def run_sensing_coverage(
         "los_model": los_model,
         "elapsed_s": time.perf_counter() - t_start,
     }
+    if num is not None:
+        metadata.update(
+            n_re_per_cpi=num.n_re_per_cpi,
+            b_occ_hz=num.b_occ_hz,
+            numerology=num.as_dict(),
+        )
     if det != DetectorOptions():
         metadata["detector"] = detector_metadata(
             det.model, request.pfa, det.monte_carlo_trials, mc_ref

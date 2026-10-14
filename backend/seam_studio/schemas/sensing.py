@@ -180,6 +180,182 @@ class TrackingOptions(StrictModel):
     use_as_prior: bool = True
 
 
+# ------------------------------------------------- Track B (v0.1.16, #21-#24)
+
+CyclicPrefix = Literal["normal", "extended"]
+PilotPattern = Literal["comb", "block"]
+
+
+class PilotOptions(StrictModel):
+    """Pilot lattice of the sensing waveform: pilots on every
+    ``subcarrier_step``-th active subcarrier of every ``symbol_step``-th
+    symbol, both from index 0 ("block": every subcarrier of the pilot
+    symbols). K x N pilot REs per CPI are the coherent integration."""
+
+    pattern: PilotPattern = "comb"
+    subcarrier_step: int = Field(default=1, ge=1, le=64)
+    symbol_step: int = Field(default=1, ge=1, le=1024)
+
+    @model_validator(mode="after")
+    def _block_is_full_band(self) -> "PilotOptions":
+        if self.pattern == "block" and self.subcarrier_step != 1:
+            raise ValueError("pilot pattern 'block' needs subcarrier_step 1")
+        return self
+
+    def fraction(self) -> float:
+        return 1.0 / (self.subcarrier_step * self.symbol_step)
+
+
+class WaveformOptions(StrictModel):
+    """OFDM numerology of the sensing waveform (#23): derives cpi_pulses
+    (pilot REs per CPI), the occupied bandwidth B_occ = n_active_sc * scs_hz,
+    the noise floor over B_occ and the delay / Doppler resolution
+    (services/numerology.py)."""
+
+    scs_hz: float = Field(default=30e3, gt=0.0, le=4e6, allow_inf_nan=False)
+    n_fft: int = Field(ge=16, le=65536)
+    n_active_sc: int = Field(default=612, ge=1, le=65536)
+    cp: CyclicPrefix = "normal"
+    # Average symbol duration incl. CP [s]; None = from scs_hz and cp.
+    symbol_duration_s: Optional[float] = Field(
+        default=None, gt=0.0, le=1.0, allow_inf_nan=False
+    )
+    # None = floor(cpi_s / symbol duration).
+    symbols_per_cpi: Optional[int] = Field(default=None, ge=1, le=1_000_000)
+    pilot: PilotOptions = Field(default_factory=PilotOptions)
+
+    @model_validator(mode="after")
+    def _fits(self) -> "WaveformOptions":
+        if self.n_active_sc > self.n_fft:
+            raise ValueError("waveform.n_active_sc must be <= waveform.n_fft")
+        if self.symbol_duration_s is not None and self.symbol_duration_s * self.scs_hz < 1.0 - 1e-9:
+            raise ValueError(
+                "waveform.symbol_duration_s must be >= 1 / scs_hz (the useful symbol)"
+            )
+        return self
+
+
+BackgroundMode = Literal["off", "h1_absorber", "h0_removed", "both"]
+
+
+class BackgroundOptions(StrictModel):
+    """TX -> sensing-RX background (clutter) solve per frame (#21): H1 = the
+    targets as absorbers with their actor meshes hidden, H0 = the target
+    actors removed. PathSolver with config's los / reflection / refraction
+    and the mechanisms below; SensingFrame.background_h1 / background_h0."""
+
+    mode: BackgroundMode = "off"
+    diffuse_reflection: bool = True
+    diffraction: bool = False
+    edge_diffraction: bool = False
+    # None = config.max_depth / config.num_samples.
+    max_depth: Optional[int] = Field(default=None, ge=0, le=12)
+    num_samples: Optional[int] = Field(default=None, ge=1, le=100_000_000)
+    # PathSolver(deterministic=...) for the background solve (#32(a)).
+    deterministic: bool = True
+    # Keep the strongest paths per link (a warning counts the dropped ones);
+    # None = every path (a diffuse solve can return tens of thousands).
+    max_paths_per_link: Optional[int] = Field(default=256, ge=1, le=1_000_000)
+    # static_nodes: one solve per distinct (nodes, non-target actors, [H1:
+    # targets], solver options) key per run; per_frame: solve every frame.
+    cache: Literal["per_frame", "static_nodes"] = "static_nodes"
+    # Which solved hypotheses the result keeps (SensingFrame.background_h0 /
+    # background_h1): h0 = H0 only (H1, solved every frame for a moving
+    # target, feeds the CFAR map in memory and is not stored); both = H0 and
+    # H1; none = neither (maps only). Not part of the solve cache key.
+    store: Literal["h0", "both", "none"] = "h0"
+
+
+CfarType = Literal["ca", "os"]
+
+
+class DetectionMapOptions(StrictModel):
+    """Delay-Doppler map of one link's pilot channel H[n, k] (#24)."""
+
+    window: Literal["hann", "rect"] = "hann"
+    # FFT length = zero_pad x K (delay) and x N (Doppler).
+    zero_pad: int = Field(default=1, ge=1, le=8)
+    # mean_subtract: remove the slow-time mean per subcarrier before the
+    # Doppler FFT (static clutter at 0 Hz); its 0 Hz row is then notched and
+    # the rows whose noise it lowers by > 1 % do not train the CFAR.
+    clutter_removal: Literal["none", "mean_subtract"] = "none"
+    # Coarse Doppler bins -k..k around 0 Hz are neither tested nor used as
+    # CFAR training cells; None = no notch (0 with mean_subtract).
+    zero_doppler_notch_bins: Optional[int] = Field(default=None, ge=0, le=64)
+
+
+class CfarOptions(StrictModel):
+    """2-D CFAR on the map's square-law cells (circular in both axes).
+    guard / train are [delay, Doppler] half-widths in map cells."""
+
+    type: CfarType = "ca"
+    guard: list[Annotated[int, Field(ge=0, le=64)]] = Field(
+        default_factory=lambda: [1, 1], min_length=2, max_length=2
+    )
+    train: list[Annotated[int, Field(ge=1, le=256)]] = Field(
+        default_factory=lambda: [8, 4], min_length=2, max_length=2
+    )
+    # OS-CFAR rank k (1-based, ascending) among the training cells; None =
+    # ceil(0.75 * N_train).
+    os_rank: Optional[int] = Field(default=None, ge=1)
+    pfa_cell: float = Field(default=1e-4, gt=0.0, lt=1.0)
+
+    def n_train(self) -> int:
+        outer = (2 * (self.guard[0] + self.train[0]) + 1) * (2 * (self.guard[1] + self.train[1]) + 1)
+        return outer - (2 * self.guard[0] + 1) * (2 * self.guard[1] + 1)
+
+    @model_validator(mode="after")
+    def _rank_fits(self) -> "CfarOptions":
+        if self.os_rank is not None:
+            if self.type != "os":
+                raise ValueError("cfar.os_rank applies to type 'os' only")
+            if self.os_rank > self.n_train():
+                raise ValueError(
+                    f"cfar.os_rank {self.os_rank} exceeds the {self.n_train()} training cells"
+                )
+        return self
+
+
+class DetectionOptions(StrictModel):
+    """Link detection (#24). threshold: snr_db >= threshold_db plus the MTI
+    notch (v0.1.15). cfar: CA/OS-CFAR on each link's delay-Doppler map built
+    from echo + background + thermal noise (needs sensing.waveform)."""
+
+    mode: Literal["threshold", "cfar"] = "threshold"
+    map: DetectionMapOptions = Field(default_factory=DetectionMapOptions)
+    cfar: CfarOptions = Field(default_factory=CfarOptions)
+    # analytic: alpha from cfar.pfa_cell; h0_calibrated: quantile of the
+    # CFAR statistic over the H0 frames of h0_result_id.
+    threshold: Literal["analytic", "h0_calibrated"] = "analytic"
+    # A sensing_background_ensemble result or a scenario result with
+    # background_h0 frames.
+    h0_result_id: Optional[str] = None
+    # h0_calibrated only: threshold the per-frame max statistic over every
+    # link instead of each cell (system false-alarm rate per frame).
+    system_pfa: Optional[float] = Field(default=None, gt=0.0, lt=1.0)
+    # Oracle association gate (P0): a detection within this many coarse
+    # cells of the cell nearest the true echo's (range sum, Doppler) detects
+    # the link (0: that cell only).
+    oracle_gate_cells: int = Field(default=1, ge=0, le=16)
+    # Stored detections per link, strongest first (the gated one is always
+    # kept); the achieved P_FA counts every detection.
+    max_detections_per_link: int = Field(default=256, ge=1, le=100_000)
+
+    @model_validator(mode="after")
+    def _threshold_source(self) -> "DetectionOptions":
+        if self.threshold == "h0_calibrated":
+            if self.mode != "cfar":
+                raise ValueError("detection.threshold 'h0_calibrated' needs mode 'cfar'")
+            if self.h0_result_id is None:
+                raise ValueError("detection.threshold 'h0_calibrated' needs h0_result_id")
+        else:
+            if self.h0_result_id is not None:
+                raise ValueError("detection.h0_result_id needs threshold 'h0_calibrated'")
+            if self.system_pfa is not None:
+                raise ValueError("detection.system_pfa needs threshold 'h0_calibrated'")
+        return self
+
+
 class SensingTrackOptions(StrictModel):
     """Sensing over time: run a sensing solve in every scenario frame and turn
     the echoes into per-link detections and a fused target estimate."""
@@ -220,6 +396,13 @@ class SensingTrackOptions(StrictModel):
     detector: DetectorOptions = Field(default_factory=DetectorOptions)
     # None: link reports carry no Pd (v0.1.12 output).
     pfa: Optional[float] = Field(default=None, gt=0.0, lt=1.0)
+    # None: cpi_pulses free, gain 10log10(cpi_pulses), noise over
+    # config.bandwidth_hz (v0.1.15). Set: all of these derive from it (#23).
+    waveform: Optional[WaveformOptions] = None
+    # None / mode "off": no background solve (#21).
+    background: Optional[BackgroundOptions] = None
+    # None / mode "threshold": v0.1.15 detection (#24).
+    detection: Optional[DetectionOptions] = None
 
     @model_validator(mode="after")
     def _detector_needs_pfa(self) -> "SensingTrackOptions":
@@ -230,7 +413,18 @@ class SensingTrackOptions(StrictModel):
             check_empirical_trials(
                 self.detector.monte_carlo_trials, self.pfa, "sensing.detector"
             )
+        if self.cfar_enabled() and self.waveform is None:
+            raise ValueError(
+                "sensing.detection.mode 'cfar' needs sensing.waveform (the map is "
+                "built on its pilot grid)"
+            )
         return self
+
+    def background_enabled(self) -> bool:
+        return self.background is not None and self.background.mode != "off"
+
+    def cfar_enabled(self) -> bool:
+        return self.detection is not None and self.detection.mode == "cfar"
 
     def resolved_mti_min_doppler_hz(self) -> float:
         return 1.0 / self.cpi_s if self.mti_min_doppler_hz is None else self.mti_min_doppler_hz
@@ -316,6 +510,8 @@ class ISACRequest(StrictModel):
     # Inter-TX interference in the UE SINR (ue_association "serving" only).
     interference: bool = False
     detector: DetectorOptions = Field(default_factory=DetectorOptions)
+    # Set: cpi_pulses and the noise floor derive from it with cpi_s (#23).
+    waveform: Optional[WaveformOptions] = None
 
     def elevation_sweep(self) -> bool:
         return self.elevation_start_deg is not None
@@ -398,6 +594,10 @@ class SensingCoverageRequest(StrictModel):
     min_links_for_fusion: int = Field(default=3, ge=1, le=64)
     # pd_best uses detector.model; Monte Carlo only spot-checks 5 cells.
     detector: DetectorOptions = Field(default_factory=DetectorOptions)
+    # Set: cpi_pulses and the noise floor derive from it with cpi_s (#23).
+    waveform: Optional[WaveformOptions] = None
+    # CPI [s] of the waveform numerology; unused without waveform.
+    cpi_s: float = Field(default=0.01, gt=0.0, le=10.0)
 
     @model_validator(mode="after")
     def _rcs_source(self) -> "SensingCoverageRequest":
@@ -439,6 +639,9 @@ class PdCurveRequest(StrictModel):
     seed: int = Field(default=0, ge=0)
     cpi_pulses: int = Field(default=1, ge=1, le=100_000_000)
     pd_target: float = Field(default=0.9, gt=0.0, lt=1.0)
+    # Set: cpi_pulses derives from it with cpi_s (#23).
+    waveform: Optional[WaveformOptions] = None
+    cpi_s: float = Field(default=0.01, gt=0.0, le=10.0)
 
     def snr_axis_db(self) -> list[float]:
         """snr_min_db, snr_min_db + step_db, ... <= snr_max_db (+1e-9)."""
@@ -493,6 +696,53 @@ class SensingDatasetSplit(StrictModel):
         return self
 
 
+ChannelComponent = Literal["echo", "background_h0", "background_h1", "total"]
+# complex64 elements of one channel export (8 bytes each: 1.6 GB).
+MAX_CHANNEL_EXPORT_ELEMENTS = 200_000_000
+
+
+class ChannelNoiseOptions(StrictModel):
+    """Thermal noise per resource element of the channel export (#22)."""
+
+    enabled: bool = False
+    # None = kT0 F scs: -174 dBm/Hz + 10log10(scs_hz) + noise_figure_db.
+    n0_dbm_per_re: Optional[float] = Field(default=None, ge=-250.0, le=50.0)
+    # None = each result's sensing.noise_seed (the noise its CFAR map used).
+    seed: Optional[int] = Field(default=None, ge=0)
+
+
+class ChannelExportOptions(StrictModel):
+    """Slow-time channel tensors per (frame, sensing link) in channel.npz
+    (#22): H[row, symbol, subcarrier], complex64, one array per component."""
+
+    kind: Literal["cfr"] = "cfr"
+    # pilot: the K x N pilot lattice; active: every active subcarrier and symbol.
+    subcarriers: Literal["active", "pilot"] = "pilot"
+    # None = the run's sensing.waveform, else Grid S (15.625 kHz, 1280 SC,
+    # pilots every 5th subcarrier of every 9th 1/14400 s symbol: K 256, N 16).
+    waveform: Optional[WaveformOptions] = None
+    # Deduplicated, order kept. total = echo + background (H1, else H0).
+    components: list[ChannelComponent] = Field(
+        default_factory=lambda: ["echo"], min_length=1, max_length=4
+    )
+    noise: ChannelNoiseOptions = Field(default_factory=ChannelNoiseOptions)
+    # Also write H_ls = H_total + noise (the LS pilot estimate); needs noise.
+    pilot_ls: bool = False
+    # Every array of channel.npz together (400 beyond).
+    max_elements: int = Field(default=50_000_000, ge=1, le=MAX_CHANNEL_EXPORT_ELEMENTS)
+
+    @field_validator("components")
+    @classmethod
+    def _dedupe_components(cls, v: list[str]) -> list[str]:
+        return list(dict.fromkeys(v))
+
+    @model_validator(mode="after")
+    def _ls_needs_noise(self) -> "ChannelExportOptions":
+        if self.pilot_ls and not self.noise.enabled:
+            raise ValueError("include_channel.pilot_ls needs include_channel.noise.enabled")
+        return self
+
+
 class SensingDatasetExportRequest(StrictModel):
     """Body for POST /projects/{id}/export/sensing-dataset."""
 
@@ -509,6 +759,12 @@ class SensingDatasetExportRequest(StrictModel):
     )
     # None = one split "all".
     split: Optional[SensingDatasetSplit] = None
+    # Also write channel.npz (slow-time CFR tensors, #22). Set (or
+    # include_background_paths): echo rows gain the channel columns and the
+    # manifest schema_version is 2.
+    include_channel: Optional[ChannelExportOptions] = None
+    # Also write one row per H0 / H1 background path (background.* tables, #21).
+    include_background_paths: bool = False
 
     @field_validator("formats", "result_ids")
     @classmethod
@@ -516,16 +772,73 @@ class SensingDatasetExportRequest(StrictModel):
         return list(dict.fromkeys(v)) if v is not None else None
 
 
-# Fields added in v0.1.13 (ISAC Phase C) and later (sensing_rx_ids: v0.1.14).
-# metadata_dump omits them while they hold their defaults, so an older
-# request keeps its metadata and request_hash.
+# ------------------------------------------------- H0 ensemble (v0.1.16, #30)
+
+MAX_ENSEMBLE_REALIZATIONS = 200
+MAX_ENSEMBLE_NOISE_FRAMES = 100_000
+
+
+class EnsembleSource(StrictModel):
+    """The scenario frame whose node poses the ensemble re-solves."""
+
+    result_id: str
+    frame_index: int = Field(ge=0)
+
+
+class MaterialPerturbation(StrictModel):
+    """Per realization, every radio material's eps_r and sigma scale by
+    (1 + d), d ~ N(0, (pct / 100)^2), eps_r clipped at 1 and sigma at 0."""
+
+    eps_r_pct: float = Field(default=0.0, ge=0.0, le=100.0)
+    sigma_pct: float = Field(default=0.0, ge=0.0, le=1000.0)
+    # material: one draw per solver radio material; prim: answers 400 in
+    # v0.1.16 (material groups are merged meshes).
+    scope: Literal["material", "prim"] = "material"
+
+
+class EnsemblePerturbation(StrictModel):
+    material: MaterialPerturbation = Field(default_factory=MaterialPerturbation)
+    # Per realization and node (TX and sensing RX): N(0, sigma^2 I3) offset [m].
+    node_pos_sigma_m: float = Field(default=0.0, ge=0.0, le=100.0)
+    # Per realization and bistatic sensing RX (> 1 m from every TX):
+    # N(0, cfo_hz^2), applied at synthesis as a Doppler offset on every path.
+    cfo_hz: float = Field(default=0.0, ge=0.0, le=1e6)
+
+
+class BackgroundEnsembleRequest(StrictModel):
+    """Body for POST /projects/{id}/simulate/sensing-background-ensemble."""
+
+    source: EnsembleSource
+    n_realizations: int = Field(ge=1, le=MAX_ENSEMBLE_REALIZATIONS)
+    perturb: EnsemblePerturbation = Field(default_factory=EnsemblePerturbation)
+    # H0 noise frames per realization; noise is drawn from the seed on demand.
+    noise_frames_per_realization: int = Field(ge=1, le=MAX_ENSEMBLE_NOISE_FRAMES)
+    seed: int = Field(default=0, ge=0)
+    # None = the source run's sensing.background, else BackgroundOptions();
+    # the ensemble always solves H0 (mode must be "h0_removed" when set).
+    background: Optional[BackgroundOptions] = None
+
+    @model_validator(mode="after")
+    def _h0_only(self) -> "BackgroundEnsembleRequest":
+        if self.background is not None and self.background.mode != "h0_removed":
+            raise ValueError("background.mode must be 'h0_removed' (the ensemble solves H0)")
+        return self
+
+
+# Fields added in v0.1.13 (ISAC Phase C) and later (sensing_rx_ids: v0.1.14;
+# waveform, background, detection, coverage cpi_s: v0.1.16). metadata_dump
+# omits them while they hold their defaults, so an older request keeps its
+# metadata and request_hash.
 PHASE_C_FIELDS: dict[str, tuple[str, ...]] = {
-    "SensingTrackOptions": ("tracking", "detector", "pfa", "sensing_rx_ids"),
+    "SensingTrackOptions": (
+        "tracking", "detector", "pfa", "sensing_rx_ids",
+        "waveform", "background", "detection",
+    ),
     "ISACRequest": (
         "elevation_start_deg", "elevation_stop_deg", "elevation_step_deg",
-        "interference", "detector",
+        "interference", "detector", "waveform",
     ),
-    "SensingCoverageRequest": ("detector",),
+    "SensingCoverageRequest": ("detector", "waveform", "cpi_s"),
 }
 
 

@@ -222,6 +222,11 @@ Studio builds on the same Sionna RT engine and adds:
   scenario frames, and a sensing dataset export (npz/csv/parquet; parquet
   needs `pip install "seam-studio[parquet]"`) for learning. See
   [docs/guides/sensing.md](docs/guides/sensing.md).
+- **Signal-level sensing (Track B)** — OFDM numerology (the integration gain
+  follows the pilot grid and the CPI), H0/H1 background paths, slow-time
+  channel export, delay-Doppler CFAR with achieved P_FA, and an H0
+  calibration ensemble with seeded material / position / CFO perturbations.
+  All off by default. See [docs/guides/sensing.md](docs/guides/sensing.md).
 - **AI model picker** — models loaded in LM Studio / Ollama are auto-discovered
   and switchable in the UI; the responding model is recorded in provenance.
 
@@ -291,7 +296,7 @@ button and are meant for curl/scripts (backend defaults to
 | [docs/guides/simulation.md](docs/guides/simulation.md) | illustrated guide: paths, radio maps, beamforming, channel analysis |
 | [docs/guides/trajectory_uav.md](docs/guides/trajectory_uav.md) | illustrated guide: trajectories, UAV actors, playback, POV views |
 | [docs/guides/datasets_export.md](docs/guides/datasets_export.md) | illustrated guide: ML datasets and exports |
-| [docs/guides/sensing.md](docs/guides/sensing.md) | guide: radar sensing, ISAC over time + EKF tracking, beam trade-off, coverage, detectors, sensing dataset export (sections 1–11) |
+| [docs/guides/sensing.md](docs/guides/sensing.md) | guide: radar sensing, ISAC over time + EKF tracking, beam trade-off, coverage, detectors, sensing dataset export, signal-level detection (sections 1–12) |
 | [docs/guides/playback_dashboard.md](docs/guides/playback_dashboard.md) | guide: replaying a measured drive/flight (camera, LiDAR, beam power) against the twin |
 | [docs/architecture.md](docs/architecture.md) | unified scene graph & dual-projection architecture |
 | [docs/scene_format.md](docs/scene_format.md) | scene/project folder format and schemas |
@@ -367,7 +372,7 @@ If you use SEAM Studio in your research, please cite it
              Mapping for Wireless Digital Twins},
   url     = {https://github.com/jaewoo4200/SEAM},
   doi     = {10.5281/zenodo.23207109},
-  version = {0.1.15},
+  version = {0.1.16},
   year    = {2026}
 }
 ```

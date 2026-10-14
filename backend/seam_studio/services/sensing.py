@@ -272,12 +272,15 @@ def with_rider_velocities(scene: Scene, actor_velocities: dict[str, list[float]]
 
 
 def select_targets(
-    scene: Scene, target_actor_ids: Optional[list[str]]
+    scene: Scene, target_actor_ids: Optional[list[str]], *, allow_empty: bool = False
 ) -> list[ResolvedSensingTarget]:
-    """Resolve the request's targets; SensingRequestError when none qualify."""
+    """Resolve the request's targets; SensingRequestError when none qualify,
+    unless ``allow_empty`` (a background-only sensing run) returns []."""
     if target_actor_ids is None:
         bound = [a for a in scene.actors if a.sensing is not None and a.sensing.enabled]
         if not bound:
+            if allow_empty:
+                return []
             raise SensingRequestError(
                 "no sensing targets: bind an actor first "
                 "(actor.sensing, Inspector → Sensing target)"

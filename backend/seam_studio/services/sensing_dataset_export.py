@@ -11,6 +11,14 @@ parquet. Pure post-processing: no solve.
 
 Every column is always present (a stable schema): a missing value is NaN in
 float columns and "" in string columns.
+
+Opt-in (v0.1.16, Track B): ``include_background_paths`` writes one
+``background`` row per stored H0 / H1 background path (#21) and
+``include_channel`` writes ``channel.npz``, the slow-time channel tensors
+H[row, symbol, subcarrier] of every (frame, sensing link) synthesized from
+the stored path rows (#22, services/channel_synthesis.py). Either one
+appends the channel columns to the echo rows and raises the manifest
+schema_version to 2; without them the export is the v0.1.15 one.
 """
 
 import csv
@@ -19,7 +27,7 @@ import json
 import math
 import time
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
@@ -32,7 +40,17 @@ from seam_studio.schemas.results import RayPath, SensingLinkReport, TargetEstima
 from seam_studio.schemas.scene import ResultSetRef, Scene
 from seam_studio.schemas.sensing import (
     MAX_SENSING_DATASET_ROWS,
+    ChannelExportOptions,
     SensingDatasetExportRequest,
+    WaveformOptions,
+)
+from seam_studio.services.channel_synthesis import (
+    AMPLITUDE_CONVENTION,
+    NOISE_KEY,
+    SYNTHESIS_FORMULA,
+    noise_frame,
+    path_gain,
+    synthesize_cfr,
 )
 from seam_studio.services.scenario import _velocities_at
 
@@ -40,6 +58,11 @@ EXPORT_DIR = "export/sensing_dataset"
 SPEED_OF_LIGHT = 299_792_458.0
 SCHEMA = "seam.sensing_dataset"
 SCHEMA_VERSION = 1
+# include_channel / include_background_paths: the echo rows gain the channel
+# columns and background.* / channel.npz join the zip.
+SCHEMA_VERSION_TRACK_B = 2
+MAX_SENSING_BACKGROUND_ROWS = 500_000
+CHANNEL_FILE = "channel.npz"
 
 
 class SensingDatasetError(ValueError):
@@ -162,6 +185,81 @@ ECHO_COLUMNS: list[Column] = [
     Column("reported", "bool", "", "meta", "The echo its link report was built from"),
 ]
 
+# Link column descriptions when an exported run used sensing.detection.mode
+# "cfar" (#24); every other export keeps the v0.1.15 text.
+CFAR_LINK_DESCRIPTIONS = {
+    "measured_range_m": (
+        "Range sum the fusion used: the gated CFAR detection's (cfar runs), else "
+        "bistatic_range_m (+ noise with measurement_noise)"
+    ),
+    "measured_doppler_hz": (
+        "Doppler the fusion used: the gated CFAR detection's (cfar runs), else "
+        "doppler_hz (+ noise with measurement_noise)"
+    ),
+    "detected": (
+        "threshold runs: snr_db >= threshold_db and the echo passed the MTI notch; cfar "
+        "runs: a CFAR detection inside the oracle gate around the echo"
+    ),
+    "reason": "detected / no_echo / below_threshold / mti_rejected / cfar_miss",
+}
+CFAR_CONVENTION = (
+    "cfar runs (metadata.sensing.detection): detected / measured_* come from the "
+    "strongest CFAR detection within the oracle gate of the true echo; snr_db, "
+    "bistatic_range_m and doppler_hz stay the solver's values"
+)
+
+
+def _link_columns(cfar: bool) -> list[Column]:
+    if not cfar:
+        return LINK_COLUMNS
+    return [
+        replace(c, description=CFAR_LINK_DESCRIPTIONS[c.name])
+        if c.name in CFAR_LINK_DESCRIPTIONS
+        else c
+        for c in LINK_COLUMNS
+    ]
+
+
+ECHO_CHANNEL_COLUMNS: list[Column] = [
+    Column("a_re", "float64", "", "feature",
+           "Re of the dimensionless path gain 10^(path_gain_db/20) e^(j phase_rad)"),
+    Column("a_im", "float64", "", "feature",
+           "Im of the same gain (the carrier phase -2 pi f_c tau is in it)"),
+    Column("tx_power_dbm", "float64", "dBm", "meta", "TX power of the path's transmitter"),
+    Column("interaction_types", "str", "", "label",
+           "Interaction types along the path, ';'-joined (\"\" = LoS)"),
+    Column("rf_material_ids", "str", "", "label",
+           "RF material id per interaction, ';'-joined (\"\" entry = none)"),
+    Column("prim_ids", "str", "", "label",
+           "Prim id per interaction (the target actor id on a sensing interaction), ';'-joined"),
+]
+
+BACKGROUND_COLUMNS: list[Column] = [
+    Column("result_id", "str", "", "meta", "Scenario result the row comes from"),
+    Column("split", "str", "", "meta", "Split of the path's frame"),
+    Column("frame_index", "int64", "", "meta", "Frame whose background solve produced the path"),
+    Column("time_s", "float64", "s", "meta", "Frame time"),
+    Column("hypothesis", "str", "", "meta",
+           "h0: target actors removed; h1: targets as absorbers (sensing.background)"),
+    Column("path_id", "str", "", "meta", "Path id within the frame's background"),
+    Column("tx_id", "str", "", "meta", "Transmitter id"),
+    Column("rx_id", "str", "", "meta", "Sensing receiver id"),
+    Column("path_type", "str", "", "label", "Path type"),
+    Column("delay_ns", "float64", "ns", "feature", "Propagation delay"),
+    Column("bistatic_range_m", "float64", "m", "feature", "c * delay"),
+    Column("power_dbm", "float64", "dBm", "feature", "Received power"),
+    Column("path_gain_db", "float64", "dB", "feature", "Path gain (power - TX power)"),
+    Column("phase_rad", "float64", "rad", "feature", "Total passband phase at the carrier"),
+    Column("doppler_hz", "float64", "Hz", "feature",
+           "Doppler from the node motion (positive = closing; 0 for static nodes)"),
+    Column("aod_az_deg", "float64", "deg", "feature", "Departure azimuth"),
+    Column("aod_el_deg", "float64", "deg", "feature", "Departure elevation"),
+    Column("aoa_az_deg", "float64", "deg", "feature", "Arrival azimuth"),
+    Column("aoa_el_deg", "float64", "deg", "feature", "Arrival elevation"),
+    Column("num_interactions", "int64", "", "feature", "Interactions along the path"),
+    *ECHO_CHANNEL_COLUMNS,
+]
+
 CONVENTIONS = {
     "frame": "world coordinates, Z-up, metres",
     "angles": "degrees",
@@ -224,6 +322,27 @@ Caveats
 - Results solved before v0.1.13 did not store per-frame TX/RX kinematics:
   those are rebuilt from the current scene (see the export warnings and
   "kinematics_source" in manifest.json).
+"""
+
+README_TRACK_B = """
+Track B (schema_version 2)
+--------------------------
+echoes.<fmt>     also a_re, a_im (dimensionless complex path gain, carrier
+                 phase included), tx_power_dbm, interaction_types,
+                 rf_material_ids, prim_ids
+background.<fmt> one row per H0 / H1 background path of each frame that
+                 solved it (include_background_paths); manifest
+                 "background_index" maps a cache-hit frame to the frame
+                 holding its paths
+channel.npz      H_<component>[row, symbol, subcarrier] complex64 per
+                 (frame, sensing link) row (include_channel), noiseless; the
+                 noise realisation as "noise", H_ls = H_total + noise.
+                 manifest "channel": grid, amplitude convention, synthesis
+                 formula, noise seed and key
+
+    ch = np.load("channel.npz", allow_pickle=False)
+    H = ch["H_total"][0]                       # [symbol, subcarrier]
+    f, t = ch["f_hz"], ch["t_s"]               # baseband Hz, s
 """
 
 
@@ -462,6 +581,424 @@ def _echo_row(p: RayPath, reported: bool) -> dict[str, Any]:
     return row
 
 
+def _channel_cells(p: RayPath, tx_power_dbm: float) -> dict[str, Any]:
+    a = path_gain(p, tx_power_dbm)
+    return {
+        "a_re": a.real,
+        "a_im": a.imag,
+        "tx_power_dbm": None if math.isnan(tx_power_dbm) else tx_power_dbm,
+        "interaction_types": ";".join(i.type for i in p.interactions),
+        "rf_material_ids": ";".join(i.rf_material_id or "" for i in p.interactions),
+        "prim_ids": ";".join(i.prim_id or "" for i in p.interactions),
+    }
+
+
+def _background_row(p: RayPath, hypothesis: str, tx_power_dbm: float) -> dict[str, Any]:
+    row: dict[str, Any] = {
+        "hypothesis": hypothesis,
+        "path_id": p.path_id,
+        "tx_id": p.tx_id,
+        "rx_id": p.rx_id,
+        "path_type": p.path_type,
+        "delay_ns": p.delay_ns,
+        "bistatic_range_m": SPEED_OF_LIGHT * p.delay_ns * 1e-9,
+        "power_dbm": p.power_dbm,
+        "path_gain_db": p.path_gain_db,
+        "phase_rad": p.phase_rad,
+        "doppler_hz": p.doppler_hz,
+        "num_interactions": len(p.interactions),
+        **_channel_cells(p, tx_power_dbm),
+    }
+    row.update(_angles("aod", p.aod_deg))
+    row.update(_angles("aoa", p.aoa_deg))
+    return row
+
+
+def tx_powers(result: ScenarioResultSet, scene: Scene) -> dict[str, float]:
+    """TX id -> power [dBm]: power_dbm - path_gain_db of the first stored row
+    of that TX (echo or background); the current scene device's power when
+    it agrees within 1e-6 dB or no row has a gain; NaN when neither exists."""
+    derived: dict[str, float] = {}
+    for frame in result.frames:
+        s = frame.sensing
+        if s is None:
+            continue
+        for paths in (s.echoes, s.background_h0 or [], s.background_h1 or []):
+            for p in paths:
+                if p.tx_id not in derived and p.path_gain_db is not None:
+                    derived[p.tx_id] = float(p.power_dbm - p.path_gain_db)
+    devices = {d.id: float(d.power_dbm) for d in scene.devices if d.kind == "tx"}
+    out: dict[str, float] = {}
+    for tx in {*derived, *devices}:
+        d, dev = derived.get(tx), devices.get(tx)
+        if dev is not None and (d is None or abs(d - dev) <= 1e-6):
+            out[tx] = dev
+        else:
+            out[tx] = d if d is not None else math.nan
+    return out
+
+
+def _tx_power(powers: dict[str, float], tx_id: str) -> float:
+    return powers.get(tx_id, math.nan)
+
+
+def _background_index(result: ScenarioResultSet) -> list[list[Optional[int]]]:
+    """[frame_index, h0 source frame | None, h1 source frame | None] per
+    sensing frame; None also where the hypothesis was not stored
+    (sensing.background.store) or its solve failed."""
+
+    def source(meta) -> Optional[int]:
+        if meta is None or not meta.stored or meta.error is not None:
+            return None
+        return meta.source_frame
+
+    out: list[list[Optional[int]]] = []
+    for i, frame in enumerate(result.frames):
+        s = frame.sensing
+        if s is None:
+            continue
+        meta = s.background_meta
+        out.append([
+            i,
+            source(meta.h0) if meta is not None else None,
+            source(meta.h1) if meta is not None else None,
+        ])
+    return out
+
+
+def unstored_backgrounds(result: ScenarioResultSet) -> set[str]:
+    """Hypotheses ("h0" / "h1") the run solved but did not keep
+    (sensing.background.store), so no export can rebuild them."""
+    out: set[str] = set()
+    for frame in result.frames:
+        meta = frame.sensing.background_meta if frame.sensing is not None else None
+        if meta is None:
+            continue
+        for name, hyp in (("h0", meta.h0), ("h1", meta.h1)):
+            if hyp is not None and not hyp.stored and hyp.error is None:
+                out.add(name)
+    return out
+
+
+def _solved_backgrounds(result: ScenarioResultSet) -> set[str]:
+    out: set[str] = set()
+    for frame in result.frames:
+        meta = frame.sensing.background_meta if frame.sensing is not None else None
+        if meta is not None:
+            out |= {name for name, hyp in (("h0", meta.h0), ("h1", meta.h1)) if hyp is not None}
+    return out
+
+
+# ------------------------------------------------------------------ channel
+
+
+@dataclass
+class ChannelPlan:
+    """What channel.npz will hold; built (and checked) before any write."""
+
+    options: ChannelExportOptions
+    num: Any  # Numerology of the first result (every result shares the grid)
+    f_hz: np.ndarray
+    t_s: np.ndarray
+    # (source index, frame index, tx_id, rx_id) per row, export order.
+    rows: list[tuple[int, int, str, str]]
+    waveforms: dict[str, dict]
+    waveform_sources: dict[str, str]
+    seeds: dict[str, int]
+    noise_figure_db: dict[str, float]
+    n0_dbm_per_re: dict[str, float]
+    powers: dict[str, dict[str, float]]
+    nums: dict[str, Any]
+    elements: int
+    warnings: list[str] = field(default_factory=list)
+
+    def array_names(self) -> list[str]:
+        names = [f"H_{c}" for c in self.options.components]
+        if self.options.noise.enabled:
+            names.append("noise")
+        if self.options.pilot_ls:
+            names.append("H_ls")
+        return names
+
+
+def _result_waveform(
+    result: ScenarioResultSet, opts: ChannelExportOptions
+) -> tuple[WaveformOptions, str, float]:
+    from seam_studio.services.numerology import GRID_S
+
+    meta = result.metadata.get("sensing") or {}
+    run_options = meta.get("options") or {}
+    cpi_s = float(run_options.get("cpi_s", meta.get("cpi_s", 0.01)))
+    if opts.waveform is not None:
+        return opts.waveform, "request", cpi_s
+    if run_options.get("waveform") is not None:
+        return WaveformOptions.model_validate(run_options["waveform"]), "run", cpi_s
+    return GRID_S, "grid_s_default", cpi_s
+
+
+def plan_channel(
+    sources: list[DatasetSource], scene: Scene, opts: ChannelExportOptions
+) -> ChannelPlan:
+    """Resolve every result's grid (one shared grid, else 400), the rows,
+    seeds, noise levels and the element count (400 beyond max_elements)."""
+    from seam_studio.services.numerology import resolve_numerology
+    from seam_studio.services.sensing import SensingRequestError
+    from seam_studio.services.sensing_detection import sensing_link_pairs
+
+    rows: list[tuple[int, int, str, str]] = []
+    warnings: list[str] = []
+    waveforms: dict[str, dict] = {}
+    sources_of: dict[str, str] = {}
+    seeds: dict[str, int] = {}
+    nfs: dict[str, float] = {}
+    n0s: dict[str, float] = {}
+    powers: dict[str, dict[str, float]] = {}
+    nums: dict[str, Any] = {}
+    first: Optional[tuple[str, Any, np.ndarray, np.ndarray]] = None
+    for k, src in enumerate(sources):
+        result = src.result
+        rid = result.result_id
+        waveform, how, cpi_s = _result_waveform(result, opts)
+        try:
+            num = resolve_numerology(waveform, cpi_s)
+        except SensingRequestError as exc:
+            raise SensingDatasetError(f"include_channel: result {rid}: {exc}") from exc
+        f, t = num.axes(opts.subcarriers)
+        if first is None:
+            first = (rid, num, f, t)
+        elif not (
+            np.array_equal(f, first[2])
+            and np.array_equal(t, first[3])
+            and num.n_active_sc == first[1].n_active_sc
+            and num.scs_hz == first[1].scs_hz
+        ):
+            raise SensingDatasetError(
+                f"include_channel: results {first[0]} and {rid} resolve to different "
+                f"channel grids ({len(first[2])} x {len(first[3])} vs {len(f)} x {len(t)} "
+                "subcarriers x symbols, or other frequencies / symbol times); export them "
+                "separately or set include_channel.waveform"
+            )
+        unstored = unstored_backgrounds(result)
+        if unstored:
+            # total follows the CFAR map: H1 when the run solved it, else H0.
+            needed = {c[len("background_"):] for c in opts.components if c.startswith("background_")}
+            if "total" in opts.components or opts.pilot_ls:
+                needed.add("h1" if "h1" in _solved_backgrounds(result) else "h0")
+            lost = sorted(needed & unstored)
+            if lost:
+                store = ((result.metadata.get("sensing") or {}).get("options") or {}).get(
+                    "background", {}
+                ).get("store", "h0")
+                raise SensingDatasetError(
+                    f"include_channel: result {rid} solved {' and '.join(h.upper() for h in lost)} "
+                    f"but did not store it (sensing.background.store '{store}'), so the "
+                    "requested components cannot be rebuilt; components 'background_h1', "
+                    "'total' and pilot_ls with an H1 run need store 'both' (or export "
+                    "'echo' / 'background_h0' only)"
+                )
+        meta = result.metadata.get("sensing") or {}
+        run_options = meta.get("options") or {}
+        snapshot = result.metadata.get("config_snapshot") or {}
+        nf = float(snapshot.get("noise_figure_db", meta.get("noise_figure_db", 7.0)))
+        waveforms[rid] = waveform.model_dump(mode="json")
+        sources_of[rid] = how
+        seeds[rid] = int(
+            opts.noise.seed if opts.noise.seed is not None else run_options.get("noise_seed", 0)
+        )
+        nfs[rid] = nf
+        n0s[rid] = (
+            float(opts.noise.n0_dbm_per_re)
+            if opts.noise.n0_dbm_per_re is not None
+            else num.n0_dbm_per_re(nf)
+        )
+        nums[rid] = num
+        powers[rid] = tx_powers(result, scene)
+        skipped: set[str] = set()
+        for i, frame in enumerate(result.frames):
+            if frame.sensing is None:
+                continue
+            for tx, rx in sensing_link_pairs(result, frame):
+                if math.isnan(_tx_power(powers[rid], tx)):
+                    skipped.add(tx)
+                    continue
+                rows.append((k, i, tx, rx))
+        if skipped:
+            warnings.append(
+                f"result {rid}: TX power of {', '.join(sorted(skipped))} unknown (no stored "
+                "path gain, not in the current scene); its links are not in channel.npz"
+            )
+    if opts.noise.enabled:
+        by_seed: dict[int, list[str]] = {}
+        for rid, seed in seeds.items():
+            by_seed.setdefault(seed, []).append(rid)
+        for seed, rids in by_seed.items():
+            if len(rids) > 1:
+                warnings.append(
+                    f"results {', '.join(rids)} share noise seed {seed}: their noise is "
+                    "identical on equal (frame, tx, rx) keys"
+                )
+    assert first is not None
+    _, num0, f0, t0 = first
+    n_arrays = len(opts.components) + int(opts.noise.enabled) + int(opts.pilot_ls)
+    elements = len(rows) * len(t0) * len(f0) * n_arrays
+    if elements > opts.max_elements:
+        raise SensingDatasetError(
+            f"include_channel: {len(rows)} rows x {len(t0)} symbols x {len(f0)} subcarriers x "
+            f"{n_arrays} arrays = {elements} complex64 elements; at most "
+            f"include_channel.max_elements = {opts.max_elements} (export fewer results, use "
+            "subcarriers 'pilot' or fewer components)"
+        )
+    return ChannelPlan(
+        options=opts, num=num0, f_hz=f0, t_s=t0, rows=rows, waveforms=waveforms,
+        waveform_sources=sources_of, seeds=seeds, noise_figure_db=nfs, n0_dbm_per_re=n0s,
+        powers=powers, nums=nums, elements=elements, warnings=warnings,
+    )
+
+
+def build_channel_arrays(
+    sources: list[DatasetSource], plan: ChannelPlan
+) -> tuple[dict[str, np.ndarray], list[str]]:
+    """channel.npz arrays: row metadata, the grid axes, sigma_h2 /
+    es_dbm_per_re per row, H_<component> (noiseless), noise, H_ls."""
+    from seam_studio.services.sensing_background import resolve_background
+
+    opts = plan.options
+    comps = opts.components
+    n_rows, n_sym, n_sc = len(plan.rows), len(plan.t_s), len(plan.f_hz)
+    shape = (n_rows, n_sym, n_sc)
+    out: dict[str, np.ndarray] = {
+        "row": np.arange(n_rows, dtype=np.int64),
+        "result_id": np.array(
+            [sources[k].result.result_id for k, _, _, _ in plan.rows], dtype=np.str_
+        ).reshape(n_rows),
+        "frame_index": np.array([i for _, i, _, _ in plan.rows], dtype=np.int64).reshape(n_rows),
+        "time_s": np.array(
+            [sources[k].result.frames[i].time_s for k, i, _, _ in plan.rows], dtype=np.float64
+        ).reshape(n_rows),
+        "tx_id": np.array([tx for _, _, tx, _ in plan.rows], dtype=np.str_).reshape(n_rows),
+        "rx_id": np.array([rx for _, _, _, rx in plan.rows], dtype=np.str_).reshape(n_rows),
+        "f_hz": plan.f_hz.copy(),
+        "t_s": plan.t_s.copy(),
+        "sigma_h2": np.empty(n_rows, dtype=np.float64),
+        "es_dbm_per_re": np.empty(n_rows, dtype=np.float64),
+    }
+    tensors = {c: np.zeros(shape, dtype=np.complex64) for c in comps}
+    noise = np.empty(shape, dtype=np.complex64) if opts.noise.enabled else None
+    h_ls = np.empty(shape, dtype=np.complex64) if opts.pilot_ls else None
+    need_bg = opts.pilot_ls or any(c != "echo" for c in comps)
+    need_echo = opts.pilot_ls or "echo" in comps or "total" in comps
+    missing: dict[tuple[str, str], int] = {}
+    # Per hypothesis the current path list and its per-link grids. Rows are
+    # frame-major and a cache-hit frame resolves to its source frame's very
+    # list, so a static H0 is synthesized once per link while a per-frame H1
+    # is dropped as soon as the next frame's list arrives.
+    bg_cache: dict[str, tuple[list[RayPath], dict[tuple[str, str], np.ndarray]]] = {}
+    zeros = np.zeros((n_sym, n_sc), dtype=np.complex128)
+
+    def background(
+        which: str, paths: Optional[list[RayPath]], tx: str, rx: str, p_tx: float
+    ):
+        if paths is None:
+            return None
+        current = bg_cache.get(which)
+        if current is None or current[0] is not paths:
+            current = bg_cache[which] = (paths, {})
+        grids = current[1]
+        if (tx, rx) not in grids:
+            mine = [p for p in paths if p.tx_id == tx and p.rx_id == rx]
+            grids[(tx, rx)] = synthesize_cfr(mine, plan.f_hz, plan.t_s, p_tx)
+        return grids[(tx, rx)]
+
+    for row, (k, i, tx, rx) in enumerate(plan.rows):
+        result = sources[k].result
+        rid = result.result_id
+        sensing = result.frames[i].sensing
+        assert sensing is not None
+        num = plan.nums[rid]
+        p_tx = _tx_power(plan.powers[rid], tx)
+        sigma2 = float(num.sigma_h2(p_tx, plan.noise_figure_db[rid], opts.noise.n0_dbm_per_re))
+        out["sigma_h2"][row] = sigma2
+        out["es_dbm_per_re"][row] = num.es_dbm_per_re(p_tx)
+        h_echo = zeros
+        if need_echo:
+            echoes = [
+                p for p in sensing.echoes
+                if p.target_id is not None and p.tx_id == tx and p.rx_id == rx
+            ]
+            h_echo = synthesize_cfr(echoes, plan.f_hz, plan.t_s, p_tx)
+        h0 = h1 = None
+        if need_bg:
+            h0 = background("h0", resolve_background(result.frames, i, "h0"), tx, rx, p_tx)
+            h1 = background("h1", resolve_background(result.frames, i, "h1"), tx, rx, p_tx)
+        bg = h1 if h1 is not None else h0
+        total = h_echo + bg if bg is not None else h_echo
+        for c in comps:
+            if c == "echo":
+                tensors[c][row] = h_echo
+            elif c == "total":
+                tensors[c][row] = total
+            else:
+                h = h0 if c == "background_h0" else h1
+                if h is None:
+                    missing[(rid, c)] = missing.get((rid, c), 0) + 1
+                else:
+                    tensors[c][row] = h
+        if noise is not None:
+            w = noise_frame(plan.seeds[rid], i, tx, rx, (n_sym, n_sc), sigma2)
+            noise[row] = w
+            if h_ls is not None:
+                h_ls[row] = total + w
+    for c in comps:
+        out[f"H_{c}"] = tensors[c]
+    if noise is not None:
+        out["noise"] = noise
+    if h_ls is not None:
+        out["H_ls"] = h_ls
+    warnings = [
+        f"result {rid}: {n} channel rows have no {c[len('background_'):].upper()} background "
+        f"(not solved in that run); H_{c} is zero there"
+        for (rid, c), n in missing.items()
+    ]
+    return out, warnings
+
+
+def _channel_manifest(plan: ChannelPlan) -> dict:
+    opts = plan.options
+    return {
+        "file": CHANNEL_FILE,
+        "kind": opts.kind,
+        "subcarriers": opts.subcarriers,
+        "components": list(opts.components),
+        "arrays": plan.array_names(),
+        "rows": len(plan.rows),
+        "elements": plan.elements,
+        "tensor_layout": "H[row, symbol, subcarrier]",
+        "waveform": plan.waveforms,
+        "waveform_source": plan.waveform_sources,
+        "numerology": plan.num.as_dict(),
+        "noise": {
+            "enabled": opts.noise.enabled,
+            "n0_dbm_per_re": plan.n0_dbm_per_re,
+            "seed": plan.seeds,
+            "key": NOISE_KEY,
+        },
+        "pilot_ls": opts.pilot_ls,
+        "total": "echo + background H1 when solved, else H0 when solved, else echo alone",
+        "amplitude_convention": AMPLITUDE_CONVENTION,
+        "synthesis": SYNTHESIS_FORMULA,
+    }
+
+
+def _write_npz_entry(
+    zf: zipfile.ZipFile, name: str, arrays: dict[str, np.ndarray], when: tuple
+) -> None:
+    """Uncompressed npz streamed into the zip entry (never whole in memory)."""
+    info = zipfile.ZipInfo(name, date_time=when)
+    info.compress_type = zipfile.ZIP_STORED
+    with zf.open(info, "w", force_zip64=True) as fh:
+        np.savez(fh, **arrays)  # type: ignore[arg-type]
+
+
 def split_counts(num_frames: int, split) -> list[int]:
     """[train, val, test] frame counts: the fractions x F by largest
     remainder (ties to the smaller fraction, then train, val, test), so they
@@ -574,6 +1111,17 @@ def count_rows(sources: list[DatasetSource], include_echo_paths: bool) -> tuple[
     return links, echoes
 
 
+def count_background_rows(sources: list[DatasetSource]) -> int:
+    """Background rows include_background_paths would write (solved frames)."""
+    n = 0
+    for src in sources:
+        for frame in src.result.frames:
+            s = frame.sensing
+            if s is not None:
+                n += len(s.background_h0 or []) + len(s.background_h1 or [])
+    return n
+
+
 def export_sensing_dataset(
     project_dir: Path,
     project_id: str,
@@ -585,8 +1133,8 @@ def export_sensing_dataset(
     now: Optional[datetime] = None,
 ) -> dict:
     """Write the dataset zip; returns SensingDatasetExportResult fields.
-    Validation (pyarrow for parquet, the row cap) happens before anything is
-    written."""
+    Validation (pyarrow for parquet, the row caps, the channel grid and
+    element count) happens before anything is written."""
     started = time.perf_counter()
     if "parquet" in request.formats:
         _require_pyarrow()
@@ -596,6 +1144,20 @@ def export_sensing_dataset(
             f"{n_links} link rows + {n_echoes} echo rows = {n_links + n_echoes} rows; "
             f"at most {MAX_SENSING_DATASET_ROWS} per export (export fewer results)"
         )
+    track_b = request.include_channel is not None or request.include_background_paths
+    n_background = 0
+    if request.include_background_paths:
+        n_background = count_background_rows(sources)
+        if n_background > MAX_SENSING_BACKGROUND_ROWS:
+            raise SensingDatasetError(
+                f"{n_background} background rows; at most {MAX_SENSING_BACKGROUND_ROWS} per "
+                "export (export fewer results, or lower sensing.background.max_paths_per_link)"
+            )
+    plan = (
+        plan_channel(sources, scene, request.include_channel)
+        if request.include_channel is not None
+        else None
+    )
 
     units = [
         (k, i)
@@ -605,9 +1167,13 @@ def export_sensing_dataset(
     ]
     split_of = dict(zip(units, assign_splits(len(units), request.split)))
 
-    links = _Table(LINK_COLUMNS)
-    echoes = _Table(ECHO_COLUMNS)
-    warnings: list[str] = []
+    cfar_runs = any(
+        "detection" in (src.result.metadata.get("sensing") or {}) for src in sources
+    )
+    links = _Table(_link_columns(cfar_runs))
+    echoes = _Table(ECHO_COLUMNS + ECHO_CHANNEL_COLUMNS if track_b else ECHO_COLUMNS)
+    background = _Table(BACKGROUND_COLUMNS)
+    warnings: list[str] = list(plan.warnings) if plan is not None else []
     rows_per_result: dict[str, int] = {}
     result_entries: list[dict] = []
     for k, src in enumerate(sources):
@@ -616,6 +1182,9 @@ def export_sensing_dataset(
         rows_before = len(links)
         stored_kinematics = True
         missing: set[str] = set()
+        powers: dict[str, float] = {}
+        if track_b:
+            powers = plan.powers[rid] if plan is not None else tx_powers(result, scene)
         for i, frame in enumerate(result.frames):
             sensing = frame.sensing
             if sensing is None:
@@ -649,7 +1218,17 @@ def export_sensing_dataset(
                     echoes.add({
                         **meta,
                         **_echo_row(p, (p.tx_id, p.rx_id, p.target_id, p.path_id) in reported),
+                        **(_channel_cells(p, _tx_power(powers, p.tx_id)) if track_b else {}),
                     })
+            if request.include_background_paths:
+                for hypothesis, paths in (
+                    ("h0", sensing.background_h0), ("h1", sensing.background_h1)
+                ):
+                    for p in paths or []:
+                        background.add({
+                            **meta,
+                            **_background_row(p, hypothesis, _tx_power(powers, p.tx_id)),
+                        })
         rows_per_result[rid] = len(links) - rows_before
         scene_hash = result.metadata.get("scene_hash")
         if not stored_kinematics:
@@ -695,14 +1274,18 @@ def export_sensing_dataset(
     tables = [("links", links)]
     if request.include_echo_paths:
         tables.append(("echoes", echoes))
+    if request.include_background_paths:
+        tables.append(("background", background))
     files = ["manifest.json", "README.txt"] + [
         f"{name}.{fmt}" for name, _ in tables for fmt in request.formats
     ]
+    if plan is not None:
+        files.append(CHANNEL_FILE)
     created = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     split = request.split
     manifest = {
         "schema": SCHEMA,
-        "schema_version": SCHEMA_VERSION,
+        "schema_version": SCHEMA_VERSION_TRACK_B if track_b else SCHEMA_VERSION,
         "created_at": created.isoformat(),
         "seam_version": APP_VERSION,
         "project_id": project_id,
@@ -721,13 +1304,25 @@ def export_sensing_dataset(
         "columns": {name: _column_specs(table.columns) for name, table in tables},
         "conventions": CONVENTIONS,
     }
+    if track_b or cfar_runs:
+        manifest["conventions"] = {
+            **CONVENTIONS,
+            **({"amplitude": AMPLITUDE_CONVENTION, "channel": SYNTHESIS_FORMULA} if track_b else {}),
+            **({"detection": CFAR_CONVENTION} if cfar_runs else {}),
+        }
+    if request.include_background_paths:
+        manifest["background_index"] = {
+            src.result.result_id: _background_index(src.result) for src in sources
+        }
+    if plan is not None:
+        manifest["channel"] = _channel_manifest(plan)
 
     out_dir = project_dir / EXPORT_DIR
     zf, zip_path = _open_zip(out_dir, created.strftime("%Y%m%dT%H%M%SZ"))
     try:
         with zf:
             zf.writestr("manifest.json", json.dumps(manifest, indent=2))
-            zf.writestr("README.txt", README)
+            zf.writestr("README.txt", README + README_TRACK_B if track_b else README)
             for name, table in tables:
                 # Column arrays once per table, shared by npz and parquet.
                 arrays = (
@@ -745,6 +1340,11 @@ def export_sensing_dataset(
                     else:
                         zf.writestr(entry, _parquet_bytes(table, arrays), zipfile.ZIP_STORED)
                 del arrays
+            if plan is not None:
+                channel, channel_warnings = build_channel_arrays(sources, plan)
+                warnings += channel_warnings
+                _write_npz_entry(zf, CHANNEL_FILE, channel, created.timetuple()[:6])
+                del channel
     except BaseException:
         zip_path.unlink(missing_ok=True)
         raise
@@ -759,6 +1359,9 @@ def export_sensing_dataset(
         "rows_per_result": rows_per_result,
         "rows_per_split": rows_per_split,
         "num_echo_rows": len(echoes),
+        "num_background_rows": len(background),
+        "num_channel_rows": len(plan.rows) if plan is not None else 0,
+        "channel_elements": plan.elements if plan is not None else 0,
         "detected_fraction": detected_fraction,
         "size_bytes": zip_path.stat().st_size,
         "elapsed_s": time.perf_counter() - started,

@@ -45,6 +45,9 @@ SIBLING_ROUTES = [
     # ISAC Phase C (v0.1.13).
     ("POST", "/projects/{project_id}/analysis/pd-curve"),
     ("POST", "/projects/{project_id}/export/sensing-dataset"),
+    # Track B H0 calibration ensemble (v0.1.16, #30).
+    ("POST", "/projects/{project_id}/simulate/sensing-background-ensemble"),
+    ("GET", "/projects/{project_id}/results/sensing-background-ensemble"),
 ]
 
 

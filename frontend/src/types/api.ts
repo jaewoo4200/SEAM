@@ -158,7 +158,8 @@ export interface ResultSetRef {
     | "playback"
     | "sensing"
     | "isac"
-    | "sensing_coverage";
+    | "sensing_coverage"
+    | "sensing_background_ensemble";
   backend: string;
   simulation_config_id: string;
   uri: string;
@@ -830,6 +831,9 @@ export interface ChannelAnalysisRequest {
   num_cfr_points?: number;
   // OFDM subcarrier spacing for RSRP/RSSI/RSRQ (kHz; 30 = 5G FR1, 15 = LTE).
   subcarrier_spacing_khz?: number;
+  /** Set (v0.1.16): the RSRP/RSRQ grid is waveform.n_active_sc subcarriers at
+   *  waveform.scs_hz instead of int(B / (12 scs)) resource blocks. */
+  waveform?: WaveformOptions | null;
   /** Persist as a stored run (kind "channel") so the Metrics dashboard
    *  survives reload. Off for auto-reruns to avoid spamming results/. */
   persist?: boolean;
@@ -1921,6 +1925,250 @@ export interface TrackingOptions {
   use_as_prior?: boolean;
 }
 
+// ------------------------------- signal-level sensing (Track B, v0.1.16)
+
+export type CyclicPrefix = "normal" | "extended";
+export type PilotPattern = "comb" | "block";
+
+/** Pilot lattice of the sensing waveform: every subcarrier_step-th active
+ *  subcarrier of every symbol_step-th symbol, both from index 0 ("block":
+ *  subcarrier_step 1). K x N pilot REs per CPI are the coherent integration. */
+export interface PilotOptions {
+  pattern?: PilotPattern;
+  subcarrier_step?: number;
+  symbol_step?: number;
+}
+
+/** OFDM numerology of the sensing waveform (#23). Derives cpi_pulses (pilot
+ *  REs per CPI), B_occ = n_active_sc * scs_hz, the noise floor over B_occ and
+ *  the delay / Doppler resolution. n_fft is required. */
+export interface WaveformOptions {
+  scs_hz?: number;
+  n_fft: number;
+  n_active_sc?: number;
+  cp?: CyclicPrefix;
+  /** Average symbol duration incl. CP [s]; null = from scs_hz and cp. */
+  symbol_duration_s?: number | null;
+  /** null = floor(cpi_s / symbol duration). */
+  symbols_per_cpi?: number | null;
+  pilot?: PilotOptions;
+}
+
+export type BackgroundMode = "off" | "h1_absorber" | "h0_removed" | "both";
+
+/** TX -> sensing-RX background (clutter) solve per frame (#21): H1 = targets
+ *  as absorbers (meshes hidden), H0 = target actors removed. */
+export interface BackgroundOptions {
+  mode?: BackgroundMode;
+  diffuse_reflection?: boolean;
+  diffraction?: boolean;
+  edge_diffraction?: boolean;
+  /** null = config.max_depth / config.num_samples. */
+  max_depth?: number | null;
+  num_samples?: number | null;
+  deterministic?: boolean;
+  /** Keep the strongest paths per link (default 256); null = every path. */
+  max_paths_per_link?: number | null;
+  /** static_nodes: one solve per distinct node / actor / option key per run. */
+  cache?: "per_frame" | "static_nodes";
+  /** Hypotheses the result keeps: h0 (default; H1 feeds the CFAR map in
+   *  memory only), both, none. */
+  store?: "h0" | "both" | "none";
+}
+
+export type CfarType = "ca" | "os";
+
+/** Delay-Doppler map of one link's pilot channel H[n, k] (#24). */
+export interface DetectionMapOptions {
+  window?: "hann" | "rect";
+  /** FFT length = zero_pad x K (delay) and x N (Doppler); 1..8. */
+  zero_pad?: number;
+  /** mean_subtract also notches 0 Hz and keeps the rows it empties out of
+   *  the CFAR training. */
+  clutter_removal?: "none" | "mean_subtract";
+  /** Coarse Doppler bins -k..k are neither tested nor training; null = no
+   *  notch (0 with mean_subtract). */
+  zero_doppler_notch_bins?: number | null;
+}
+
+/** 2-D CFAR on the map's square-law cells; guard / train are [delay, Doppler]
+ *  half-widths in map cells. */
+export interface CfarOptions {
+  type?: CfarType;
+  guard?: [number, number];
+  train?: [number, number];
+  /** OS rank (1-based, ascending); null = ceil(0.75 * N_train). type "os" only. */
+  os_rank?: number | null;
+  /** Analytic cell false-alarm probability, (0, 1). */
+  pfa_cell?: number;
+}
+
+/** sensing.detection (#24). threshold: v0.1.15 snr_db >= threshold_db + MTI;
+ *  cfar: CA/OS-CFAR on each link's delay-Doppler map (needs sensing.waveform). */
+export interface DetectionOptions {
+  mode?: "threshold" | "cfar";
+  map?: DetectionMapOptions;
+  cfar?: CfarOptions;
+  /** h0_calibrated: quantile of the CFAR statistic over h0_result_id's H0 frames. */
+  threshold?: "analytic" | "h0_calibrated";
+  /** A sensing_background_ensemble result or a scenario result with H0 frames. */
+  h0_result_id?: string | null;
+  /** h0_calibrated only: threshold the per-frame max statistic over every link. */
+  system_pfa?: number | null;
+  /** Oracle association gate (coarse cells around the true echo). */
+  oracle_gate_cells?: number;
+  max_detections_per_link?: number;
+}
+
+/** One CFAR detection on one TX -> RX delay-Doppler map. No truth fields:
+ *  the oracle match is SensingLinkReport.detection_index. */
+export interface SensingDetection {
+  tx_id: string;
+  rx_id: string;
+  /** Delay index u in [0, K'); signed Doppler index v in [-N'/2, N'/2). */
+  cell_tau: number;
+  cell_nu: number;
+  /** Parabolically interpolated peak. */
+  delay_ns: number;
+  range_sum_m: number;
+  doppler_hz: number;
+  /** |Z|^2 over the CFAR noise estimate; detected when > threshold. */
+  statistic: number;
+  threshold: number;
+  /** 10log10 of the normalized cell power (noise cells average 0 dB). */
+  power_db: number;
+  snr_est_db?: number | null;
+}
+
+/** One background hypothesis (H0 or H1) of one frame. */
+export interface BackgroundHypothesisMeta {
+  /** false: reused from source_frame (static_nodes cache hit). */
+  solved: boolean;
+  cache_hit?: boolean;
+  /** Frame whose background_h0 / background_h1 holds the paths. */
+  source_frame: number;
+  cache_key: string;
+  solve_s?: number;
+  num_paths?: number;
+  dropped_paths?: number;
+  /** "tx_id>rx_id" -> 10log10(sum |a|^2) of the kept paths (null: no path). */
+  total_power_db?: Record<string, number | null>;
+  /** false: the paths fed the CFAR map but are not in the result (store). */
+  stored?: boolean;
+  /** The solve failed (backend warning); absent otherwise. */
+  error?: string;
+}
+
+/** How SensingFrame.background_h0 / background_h1 were solved (#21). */
+export interface BackgroundMeta {
+  mode: Exclude<BackgroundMode, "off">;
+  /** los, specular_reflection, diffuse_reflection, refraction, diffraction, edge_diffraction. */
+  mechanisms?: string[];
+  max_depth: number;
+  num_samples: number;
+  seed: number;
+  deterministic: boolean;
+  h0?: BackgroundHypothesisMeta | null;
+  h1?: BackgroundHypothesisMeta | null;
+}
+
+/** services/numerology.py Numerology.as_dict() (metadata "numerology"). */
+export interface NumerologySummary {
+  scs_hz: number;
+  n_fft: number;
+  n_active_sc: number;
+  cp: CyclicPrefix;
+  symbol_duration_s: number;
+  symbols_per_cpi: number;
+  cpi_s: number;
+  cpi_eff_s: number;
+  subcarrier_step: number;
+  symbol_step: number;
+  grid_k: number;
+  grid_n: number;
+  n_re_per_cpi: number;
+  pilot_fraction: number;
+  b_occ_hz: number;
+  pilot_spacing_hz: number;
+  pilot_period_s: number;
+  delay_bin_s: number;
+  unambiguous_delay_s: number;
+  doppler_resolution_hz: number;
+  unambiguous_doppler_hz: number;
+  range_resolution_m: number;
+  bistatic_range_resolution_m: number;
+  integration_gain_db: number;
+  pilot_pattern?: PilotPattern;
+}
+
+/** Achieved false-alarm rate with its Clopper-Pearson 95 % interval (cell:
+ *  at the effective sample n / dispersion). */
+export interface AchievedPfa {
+  false_alarms: number;
+  trials: number;
+  pfa: number | null;
+  ci95: [number, number] | null;
+  /** cell only: Pearson dispersion of the per-map counts (>= 1). */
+  dispersion?: number;
+}
+
+/** metadata.sensing.detection (sensing.detection.mode "cfar"). */
+export interface ScenarioDetectionSummary {
+  mode: "cfar";
+  map?: DetectionMapOptions & {
+    shape?: [number, number];
+    notch_bins?: number | null;
+    notched_rows?: number[];
+    non_training_rows?: number[];
+  };
+  cfar?: CfarOptions & { n_train?: number; alpha?: number | null };
+  threshold?: {
+    kind: "analytic" | "h0_calibrated";
+    value?: number | null;
+    pfa_cell?: number | null;
+    system_pfa?: number | null;
+    source?: Record<string, unknown> | null;
+  };
+  noise?: {
+    seed?: number;
+    n0_dbm_per_re?: number;
+    sigma_h2_db?: Record<string, number>;
+    key?: string;
+  };
+  /** False alarms: detections outside every oracle gate (clutter and
+   *  multipath ghosts included). */
+  achieved?: {
+    cell?: AchievedPfa;
+    link_frame?: AchievedPfa;
+    system?: AchievedPfa;
+  };
+  detections_total?: number;
+  detections_stored?: number;
+  frames?: number;
+}
+
+/** metadata.sensing.background (sensing.background enabled). */
+export interface ScenarioBackgroundSummary {
+  mode: Exclude<BackgroundMode, "off">;
+  mechanisms?: string[];
+  max_depth?: number;
+  num_samples?: number;
+  seed?: number;
+  deterministic?: boolean;
+  cache?: "per_frame" | "static_nodes";
+  store?: "h0" | "both" | "none";
+  max_paths_per_link?: number | null;
+  solves_h0?: number;
+  solves_h1?: number;
+  cache_hits_h0?: number;
+  cache_hits_h1?: number;
+  failed_solves_h0?: number;
+  failed_solves_h1?: number;
+  solve_s_total?: number;
+  paths_stored?: number;
+  paths_dropped?: number;
+}
+
 // ------------------------------------------- sensing over time (scenario)
 
 /** ScenarioSimulateRequest.sensing: a sensing solve in every scenario frame,
@@ -1953,9 +2201,24 @@ export interface SensingTrackOptions {
   detector?: DetectorOptions;
   /** null: link reports carry no Pd. */
   pfa?: number | null;
+  /** null: cpi_pulses free, gain 10log10(cpi_pulses), noise over the config
+   *  bandwidth (v0.1.15). Set: cpi_pulses, noise floor and resolutions derive
+   *  from it and cpi_s (#23); an explicit cpi_pulses is overridden. */
+  waveform?: WaveformOptions | null;
+  /** null / mode "off": no background solve (#21). Any other mode also
+   *  allows a run without sensing targets. */
+  background?: BackgroundOptions | null;
+  /** null / mode "threshold": v0.1.15 detection (#24). */
+  detection?: DetectionOptions | null;
 }
 
-export type SensingDetectionReason = "detected" | "no_echo" | "below_threshold" | "mti_rejected";
+/** cfar_miss: detection.mode "cfar" and no detection inside the oracle gate. */
+export type SensingDetectionReason =
+  | "detected"
+  | "no_echo"
+  | "below_threshold"
+  | "mti_rejected"
+  | "cfar_miss";
 
 /** Detection of one target on one TX->RX link in one scenario frame. */
 export interface SensingLinkReport {
@@ -1984,6 +2247,9 @@ export interface SensingLinkReport {
    *  run set no pfa. pd_mc: its Monte Carlo (trials > 0 and an echo). */
   pd?: number | null;
   pd_mc?: number | null;
+  /** cfar mode: index into SensingFrame.detections of the gated detection
+   *  that detected this link (absent otherwise). */
+  detection_index?: number | null;
 }
 
 export type TargetEstimateStatus = "ok" | "insufficient_links" | "diverged";
@@ -2040,6 +2306,15 @@ export interface SensingFrame {
   estimates: TargetEstimate[];
   /** Every selected TX and RX at this frame (v0.1.13+; null in older results). */
   nodes?: SensingNodeState[] | null;
+  /** sensing.background (v0.1.16): TX -> sensing-RX paths with the targets
+   *  removed (H0) / as absorbers (H1). Absent when not solved or reused
+   *  (background_meta.h0/h1.source_frame names the frame holding them). */
+  background_h0?: RayPath[] | null;
+  background_h1?: RayPath[] | null;
+  background_meta?: BackgroundMeta | null;
+  /** detection.mode "cfar" (v0.1.16): every link's stored detections, link by
+   *  link (tx-major), strongest statistic first. */
+  detections?: SensingDetection[] | null;
 }
 
 /** Per-target run summary in ScenarioResultSet.metadata.sensing.targets. */
@@ -2104,6 +2379,23 @@ export interface ScenarioSensingSummary {
   /** Tracking enabled only. */
   median_track_position_error_m?: number | null;
   tracking_model?: string;
+  // sensing.waveform set (v0.1.16): noise_floor_dbm, integration_gain_db and
+  // the resolutions above come from the numerology; these are appended.
+  /** Effective cpi_pulses = n_re_per_cpi (K x N pilot REs). */
+  cpi_pulses?: number;
+  b_occ_hz?: number;
+  n_re_per_cpi?: number;
+  symbols_per_cpi?: number;
+  symbol_duration_s?: number;
+  pilot_fraction?: number;
+  grid_k?: number;
+  grid_n?: number;
+  n0_dbm_per_re?: number;
+  numerology?: NumerologySummary;
+  /** waveform / background / cfar runs (v0.1.16). */
+  sensing_tx_ids?: string[];
+  background?: ScenarioBackgroundSummary;
+  detection?: ScenarioDetectionSummary;
 }
 
 // ------------------------------------------------ ISAC beam trade-off (B1)
@@ -2158,6 +2450,8 @@ export interface ISACRequest {
   /** Inter-TX interference in the UE SINR (ue_association "serving" only). */
   interference?: boolean;
   detector?: DetectorOptions;
+  /** Set (v0.1.16): cpi_pulses and the noise floor derive from it with cpi_s (#23). */
+  waveform?: WaveformOptions | null;
 }
 
 /** One codebook beam of one tx, used full time for comm OR sensing (rho = 1). */
@@ -2311,6 +2605,10 @@ export interface SensingCoverageRequest {
   min_links_for_fusion?: number;
   /** pd_best uses detector.model; Monte Carlo only spot-checks 5 cells. */
   detector?: DetectorOptions;
+  /** Set (v0.1.16): cpi_pulses and the noise floor derive from it with cpi_s (#23). */
+  waveform?: WaveformOptions | null;
+  /** CPI [s] of the waveform numerology; unused without waveform. */
+  cpi_s?: number;
 }
 
 export interface SensingCoverageLink {
@@ -2391,6 +2689,9 @@ export interface PdCurveRequest {
   seed?: number;
   cpi_pulses?: number;
   pd_target?: number;
+  /** Set (v0.1.16): cpi_pulses derives from it with cpi_s (#23). */
+  waveform?: WaveformOptions | null;
+  cpi_s?: number;
 }
 
 /** schemas/sensing.py MAX_PD_CURVE_POINTS. */
@@ -2456,6 +2757,42 @@ export interface SensingDatasetExportRequest {
   formats?: SensingDatasetFormat[];
   /** null = one split "all". */
   split?: SensingDatasetSplit | null;
+  /** Also write channel.npz (slow-time CFR tensors, #22). Set (or
+   *  include_background_paths): echo rows gain the channel columns and the
+   *  manifest schema_version is 2. */
+  include_channel?: ChannelExportOptions | null;
+  /** Also write one row per H0 / H1 background path (background.* tables, #21). */
+  include_background_paths?: boolean;
+}
+
+export type ChannelComponent = "echo" | "background_h0" | "background_h1" | "total";
+/** schemas/sensing.py MAX_CHANNEL_EXPORT_ELEMENTS (complex64 elements). */
+export const MAX_CHANNEL_EXPORT_ELEMENTS = 200_000_000;
+
+/** Thermal noise per resource element of the channel export (#22). */
+export interface ChannelNoiseOptions {
+  enabled?: boolean;
+  /** null = -174 dBm/Hz + 10log10(scs_hz) + noise_figure_db. */
+  n0_dbm_per_re?: number | null;
+  /** null = each result's sensing.noise_seed (the noise its CFAR map used). */
+  seed?: number | null;
+}
+
+/** Slow-time channel tensors per (frame, sensing link) in channel.npz (#22):
+ *  H[row, symbol, subcarrier], complex64, one array per component. */
+export interface ChannelExportOptions {
+  kind?: "cfr";
+  /** pilot: the K x N pilot lattice; active: every active subcarrier and symbol. */
+  subcarriers?: "active" | "pilot";
+  /** null = the run's sensing.waveform, else Grid S (K 256, N 16). */
+  waveform?: WaveformOptions | null;
+  /** Deduplicated, order kept. total = echo + background (H1, else H0). */
+  components?: ChannelComponent[];
+  noise?: ChannelNoiseOptions;
+  /** Also write H_ls = H_total + noise (needs noise.enabled). */
+  pilot_ls?: boolean;
+  /** Every array of channel.npz together (400 beyond). */
+  max_elements?: number;
 }
 
 export interface SensingDatasetExportResult {
@@ -2470,9 +2807,105 @@ export interface SensingDatasetExportResult {
   rows_per_result: Record<string, number>;
   rows_per_split: Record<string, number>;
   num_echo_rows: number;
+  /** include_background_paths: background.* rows (v0.1.16). */
+  num_background_rows?: number;
+  /** include_channel: (frame, link) rows of channel.npz and its complex64 elements. */
+  num_channel_rows?: number;
+  channel_elements?: number;
   /** Fraction of link rows with detected = true (null: no rows). */
   detected_fraction: number | null;
   size_bytes: number;
   elapsed_s: number;
   warnings: string[];
+}
+
+// ------------------------------------- H0 background ensemble (#30, v0.1.16)
+
+/** schemas/sensing.py MAX_ENSEMBLE_REALIZATIONS / MAX_ENSEMBLE_NOISE_FRAMES. */
+export const MAX_ENSEMBLE_REALIZATIONS = 200;
+export const MAX_ENSEMBLE_NOISE_FRAMES = 100_000;
+
+/** The scenario frame whose node poses the ensemble re-solves. */
+export interface EnsembleSource {
+  result_id: string;
+  frame_index: number;
+}
+
+/** Per realization, every radio material's eps_r and sigma scale by (1 + d),
+ *  d ~ N(0, (pct / 100)^2). scope "prim" answers 400 in v0.1.16. */
+export interface MaterialPerturbation {
+  eps_r_pct?: number;
+  sigma_pct?: number;
+  scope?: "material" | "prim";
+}
+
+export interface EnsemblePerturbation {
+  material?: MaterialPerturbation;
+  /** Per realization and site: N(0, sigma^2 I3) offset of TX / sensing RX [m]. */
+  node_pos_sigma_m?: number;
+  /** Per realization and bistatic sensing RX: CFO ~ N(0, cfo_hz^2) [Hz]. */
+  cfo_hz?: number;
+}
+
+/** Body for POST /projects/{pid}/simulate/sensing-background-ensemble. */
+export interface BackgroundEnsembleRequest {
+  source: EnsembleSource;
+  n_realizations: number;
+  perturb?: EnsemblePerturbation;
+  /** H0 noise frames per realization; drawn from the seed on demand. */
+  noise_frames_per_realization: number;
+  seed?: number;
+  /** null = the source run's sensing.background; mode must be "h0_removed". */
+  background?: BackgroundOptions | null;
+}
+
+export interface EnsembleMaterialDraw {
+  eps_r_scale: number;
+  sigma_scale: number;
+}
+
+export interface EnsembleLink {
+  tx_id: string;
+  rx_id: string;
+}
+
+/** One H0 background realization of a sensing_background_ensemble. */
+export interface BackgroundRealization {
+  index: number;
+  /** nominal: no perturbation; perturbed: at least one nonzero draw. */
+  label: "nominal" | "perturbed";
+  /** Solver radio material name -> scales applied to eps_r and sigma. */
+  material_draws?: Record<string, EnsembleMaterialDraw>;
+  /** Node id -> position offset [m]. */
+  node_offsets_m?: Record<string, Vec3>;
+  /** Sensing RX id -> CFO [Hz] (a Doppler offset on every path). */
+  cfo_hz?: Record<string, number>;
+  /** null: the paths of realization source_realization. */
+  background_h0?: RayPath[] | null;
+  source_realization: number;
+  solve_s?: number;
+  num_paths?: number;
+  dropped_paths?: number;
+  /** "tx_id>rx_id" -> 10log10(sum |a|^2) (null: no path). */
+  total_power_db?: Record<string, number | null>;
+  warnings?: string[];
+}
+
+export interface SensingBackgroundEnsembleResultSet {
+  result_id: string;
+  kind: "sensing_background_ensemble";
+  backend: string;
+  simulation_config_id: string;
+  created_at: string | null;
+  source: EnsembleSource;
+  seed: number;
+  noise_frames_per_realization: number;
+  /** The background solver options the realizations used (mode h0_removed). */
+  background: BackgroundOptions;
+  /** Sensing links in solve order (tx-major), and the nominal node states. */
+  links: EnsembleLink[];
+  nodes: SensingNodeState[];
+  realizations: BackgroundRealization[];
+  warnings: string[];
+  metadata: Record<string, unknown>;
 }

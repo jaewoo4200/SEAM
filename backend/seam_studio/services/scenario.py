@@ -428,7 +428,12 @@ def run_scenario(
         from seam_studio.services.sensing import select_targets
         from seam_studio.services.sensing_track import SensingTracker, resolve_sensing_rxs
 
-        target_ids = [t.actor_id for t in select_targets(scene, opts.target_actor_ids)]
+        target_ids = [
+            t.actor_id
+            for t in select_targets(
+                scene, opts.target_actor_ids, allow_empty=opts.background_enabled()
+            )
+        ]
         # Radar receivers only; the comm link table below keeps every rx.
         sensing_rxs, rule = resolve_sensing_rxs(txs, rxs, opts.sensing_rx_ids)
         tracker = SensingTracker(
@@ -448,6 +453,9 @@ def run_scenario(
             )
         else:
             warnings.extend(compile_result.warnings)
+    if tracker is not None:
+        # Run-wide sensing notes (numerology, detector), already "sensing: ...".
+        warnings.extend(tracker.warnings)
 
     if not scene.actors:
         warnings.append("scene has no actors; scenario frames are static")
@@ -520,6 +528,7 @@ def run_scenario(
     }
     if tracker is not None:
         metadata["sensing"] = tracker.summary(frames)
+        warnings.extend(tracker.run_warnings())
 
     return ScenarioResultSet(
         result_id="unsaved",

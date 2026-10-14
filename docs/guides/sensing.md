@@ -540,6 +540,185 @@ closer to the truth) and `frames_track_without_fusion` (a track in a frame
 whose fusion is not `ok`). The run adds `median_track_position_error_m` and
 `tracking_model`.
 
+### Waveform numerology (#23)
+
+Without a waveform, `cpi_pulses` is a free number and the integration gain
+is `10log10(cpi_pulses)` whatever `cpi_s` is (v0.1.15, still the default).
+`sensing.waveform` replaces it with an OFDM numerology: the pilot resource
+elements (REs) of one CPI set the gain, and the occupied bandwidth sets the
+noise floor and the resolutions. The same object is accepted by the ISAC
+request (`waveform`), the coverage request and `/analysis/pd-curve`
+(`waveform` plus `cpi_s`, default 0.01 s) and channel analysis (`waveform`:
+the RSRP/RSRQ grid then has `n_active_sc` subcarriers at `scs_hz`, e.g. 51
+PRB / 612 SC in 20 MHz at 30 kHz instead of `int(B / (12 scs))` = 55 RB).
+
+| Field | Default | Meaning |
+|---|---|---|
+| `scs_hz` | 30e3 | Subcarrier spacing Δf [Hz] |
+| `n_fft` | required | FFT size (≥ `n_active_sc`) |
+| `n_active_sc` | 612 | Active subcarriers; B_occ = `n_active_sc` · Δf |
+| `cp` | `normal` | `normal` or `extended` |
+| `symbol_duration_s` | `null` | Average symbol duration incl. CP; `null` = NR slot timing (Δf = 15 · 2^μ kHz: (1 ms / 2^μ) / 14, or / 12 with the extended CP), else (1/Δf)(1 + 144/2048 or 512/2048) |
+| `symbols_per_cpi` | `null` | `null` = floor(`cpi_s` / T_sym) |
+| `pilot.pattern` | `comb` | `comb` or `block` (block needs `subcarrier_step` 1) |
+| `pilot.subcarrier_step`, `pilot.symbol_step` | 1, 1 | Pilots on every n-th active subcarrier of every m-th symbol, from index 0 |
+
+The pilot lattice and everything derived from it:
+
+```
+K = ceil(n_active_sc / subcarrier_step)      N = ceil(symbols / symbol_step)
+cpi_pulses = K N        integration gain = 10 log10(K N)
+B_occ = n_active_sc Δf  noise floor = -174 dBm/Hz + 10 log10(B_occ) + NF
+range-sum cell c / B_occ (monostatic range c / 2 B_occ)
+delay bin 1 / (K · subcarrier_step Δf)     Doppler cell 1 / (N · symbol_step T_sym)
+pilot axes  f_k = (k · subcarrier_step - n_active_sc // 2) Δf,   t_j = j · symbol_step T_sym
+```
+
+Amplitude and noise convention (shared by every Track B feature): a path's
+channel coefficient is dimensionless, `a = 10^(path_gain_db / 20) e^(j phase_rad)`
+(`phase_rad` already holds −2π f_c τ); every active subcarrier carries
+Es = P_tx / `n_active_sc` per RE (CP excluded) and the noise per RE is
+N0 = −174 dBm/Hz + 10log10(Δf) + NF. A path's per-RE SNR |a|² Es / N0 is
+then P_echo − N_floor(B_occ), and `snr_db = P_echo − N_floor(B_occ) + 10log10(K N)`
+is the matched-filter SNR of the K N pilot REs.
+
+| Preset, `cpi_s` | T_sym | Symbols | K × N | Gain | B_occ | c / B_occ | Doppler cell | Floor (NF 7 dB) |
+|---|---|---|---|---|---|---|---|---|
+| NR 30 kHz 51 PRB, 10 ms | 0.5 ms / 14 | 280 | 612 × 280 = 171,360 | 52.34 dB | 18.36 MHz | 16.33 m | 100 Hz | −94.36 dBm |
+| NR 30 kHz 51 PRB, 50 ms | | 1400 | 612 × 1400 = 856,800 | 59.33 dB | | | 20 Hz | |
+| Grid S, 10 ms | 1/14400 s | 144 | 256 × 16 = 4096 | 36.12 dB | 20.0 MHz | 14.99 m | 100 Hz | −93.99 dBm |
+| Grid S, 50 ms | | 720 | 256 × 80 = 20,480 | 43.11 dB | | | 20 Hz | |
+
+NR 30 kHz 51 PRB is `{"scs_hz": 30000, "n_fft": 1024, "n_active_sc": 612}`;
+Grid S (the 4096-pulse default of the v0.1.15 demos, read as a pilot grid)
+is `{"scs_hz": 15625, "n_fft": 2048, "n_active_sc": 1280,
+"symbol_duration_s": 0.0000694444444444, "pilot": {"subcarrier_step": 5,
+"symbol_step": 9}}` (pass 1/14400 exactly from code). At the same pilot
+density a 50 ms CPI adds 10log10(5) = 6.99 dB over 10 ms; Grid S at 10 ms
+reproduces the v0.1.15 numbers (4096 pulses on the 20 MHz floor).
+
+With a waveform, `metadata.sensing` (and the ISAC, coverage and pd-curve
+metadata) gains `cpi_pulses` (= K N), `b_occ_hz`, `n_re_per_cpi`,
+`symbols_per_cpi`, `symbol_duration_s`, `pilot_fraction`, `grid_k`,
+`grid_n`, `n0_dbm_per_re` and the full `numerology` dict, and
+`noise_floor_dbm`, `integration_gain_db`, the resolutions and
+`velocity_resolution_m_s` follow it. `bandwidth_hz`, `cpi_s` and the MTI
+keys keep their v0.1.15 meaning. Two warnings keep old requests honest:
+`cpi_pulses` set together with a `cpi_s` other than 0.01 s and no waveform
+("integration gain does not follow cpi_s without sensing.waveform"), and a
+`cpi_pulses` that differs from the waveform's K N ("cpi_pulses 4096
+overridden by the waveform numerology: 171360 pilot REs per CPI (612 x
+280)"); the stored request keeps the number you sent. A `cpi_s` shorter
+than one symbol, `symbols_per_cpi` that do not fit the CPI, or more than
+10⁸ pilot REs per CPI answer 400 before any solve on every route that takes
+a waveform: scenario, ISAC, sensing coverage and `/analysis/pd-curve`. The
+coverage request warns "cpi_s is unused without waveform" when it gets a
+`cpi_s` and no waveform. Channel analysis has no `cpi_s`: its
+`metadata.numerology` covers `symbols_per_cpi` symbols when that is set,
+else 10 ms (at least one symbol), and only the subcarrier count and spacing
+enter RSRP/RSRQ, so any waveform the other routes accept is accepted there.
+
+```json
+"sensing": {"enabled": true, "cpi_s": 0.05, "threshold_db": 13,
+            "waveform": {"scs_hz": 30000, "n_fft": 1024, "n_active_sc": 612}}
+```
+
+### Background paths H0/H1 (#21)
+
+`include_comm_paths` appends the targets-as-absorbers comm paths to
+`echoes`: the background with the target present (H1). A false-alarm
+calibration needs the background with the target absent (H0), solved in
+the same frame, and the RCS solver traces no diffuse clutter.
+`sensing.background` solves both with PathSolver over the TX → sensing-RX
+links of every frame:
+
+- **H1** (`h1_absorber`): every target actor's mesh hidden and the target
+  added as an absorber (the `include_comm_paths` mechanism).
+- **H0** (`h0_removed`): every target actor's mesh hidden, nothing added.
+
+| Field | Default | Meaning |
+|---|---|---|
+| `mode` | `off` | `off`, `h1_absorber`, `h0_removed` or `both` |
+| `diffuse_reflection` | `true` | Diffuse clutter (the materials' scattering coefficients) |
+| `diffraction`, `edge_diffraction` | `false` | |
+| `max_depth`, `num_samples` | `null` | `null` = the config's |
+| `deterministic` | `true` | `PathSolver(deterministic=True)`: two runs give the same paths |
+| `max_paths_per_link` | 256 | Keep the strongest n paths per link and solve; `null` keeps every path. `dropped_paths` counts the rest, and one run warning sums them |
+| `cache` | `static_nodes` | `static_nodes`: solve once while the key repeats; `per_frame`: every frame |
+| `store` | `h0` | Hypotheses kept in the result: `h0` (H1 feeds the CFAR map in memory only), `both`, or `none` (maps only) |
+
+LoS, specular reflection and refraction follow the config. Each frame
+stores `background_h0` / `background_h1` (lists of `RayPath`: `power_dbm`,
+`path_gain_db`, `phase_rad`, `delay_ns`, `doppler_hz` always a float,
+`interactions` with type, `prim_id` and `rf_material_id`, `target_id`
+`null`) and `background_meta` (`mode`, `mechanisms`, `max_depth`,
+`num_samples`, `seed`, `deterministic`, and per hypothesis `solved`,
+`cache_hit`, `source_frame`, `cache_key`, `solve_s`, `num_paths`,
+`dropped_paths`, `total_power_db` = 10log10 Σ|a|² per `"tx>rx"` of the kept
+paths, `stored` and, after a failed solve, `error`). The paths come in a
+canonical order (link, then delay, interactions and vertices; renumbered
+`path_0001`…): the GPU solver returns the same set in a run-dependent order.
+
+`store` decides which solved hypotheses the result keeps. With the default
+`h0`, H1 is solved whenever the mode needs it and feeds the CFAR map, but
+`background_h1` stays out of the frame (`background_meta.h1.stored:
+false`); `both` keeps H1 too (needed to export `background_h1` or `total`
+channels, §10) and `none` keeps neither. The map is the same in all three.
+`max_paths_per_link` keeps the strongest paths of each link (by power): the
+sionna backend drops the rest before it turns solver paths into rows, and
+the run ends with one warning "background: max_paths_per_link 256 kept the
+strongest 256 paths per link: … of … solved background paths dropped over
+the run". The dropped paths are the weak diffuse tail, so
+`total_power_db` (of the kept paths) changes little; set `null` to keep
+every path.
+
+The `static_nodes` key hashes the RF projection fingerprint, the solver
+options, every TX and sensing RX position and velocity, every non-target
+actor's pose and velocity, and for H1 the target cuboids (H0 only needs
+which actors are removed). A frame with the key of an earlier frame stores
+no paths: `background_meta.h0.source_frame` names the frame that holds
+them (`services.sensing_background.resolve_background(frames, i, "h0")`
+follows it, and returns `null` for a hypothesis that was not stored). With
+static nodes and a static scene H0 is solved once per run; a moving TX/RX or
+car re-solves every frame. A run keeps the last 4 solved keys per
+hypothesis in memory. A failed solve (the sionna backend degrades to no
+paths and a warning) is never cached: that frame's meta carries `error`,
+its map falls back to H0 (or to no background), and the next frame solves
+again. `metadata.sensing.background` sums the run up (`store`,
+`max_paths_per_link`, `solves_h0`, `cache_hits_h0`, `failed_solves_h0`,
+`solve_s_total`, `paths_stored`, `paths_dropped`, …) and
+`metadata.sensing.sensing_tx_ids` lists the TXs.
+
+With a background the run may have no target at all (no bound actor):
+`links` and `estimates` are empty and the frames carry the background only
+(a background-only H0 run for calibration). Without one, a scene with no
+target still answers 400 "no sensing targets". The other frame fields are
+unchanged by the background (`echoes`, `links`, `estimates`, `nodes`).
+
+Diffuse clutter is many paths: the test scene of a 300 m baseline over a
+ground slab and one building gives 16,776 paths per link at 400,000 samples
+(about 10 MB of JSON per solved hypothesis), which is why the default keeps
+256 per link. The mock backend's background is its LoS, ground and wall
+bounce per link (H1 drops the paths whose legs cross a target cuboid), with
+the Doppler of the TX/RX motion.
+
+A moving target changes the H1 key, so H1 is solved again every frame even
+when every node is static. On the `isac_drone_fr1` demo (16 links, config
+`max_depth` 2, 200,000 samples) one background solve gives 64,356 paths
+(about 4,000 per link). Measured over 8 frames (NR 612 × 280, mode `both`,
+CFAR): with every path kept and H1 stored, 11.1 s per frame (H1 3.9 s per
+solve) and a 403 MB result; with the defaults (256 per link, H1 not
+stored), 1.2 s per frame (H1 0.28 s per solve, 4,025 paths) and a 4.6 MB
+result, with the same CFAR maps whatever `store` is. Before the cap moved
+ahead of the row conversion, a capped H1 solve still took about 2.6 s.
+`h0_removed` with static nodes solves once per run (0.6 s per frame with
+CFAR on the same demo).
+
+```json
+"sensing": {"enabled": true, "waveform": {"scs_hz": 30000, "n_fft": 1024, "n_active_sc": 612},
+            "background": {"mode": "both", "store": "both", "max_paths_per_link": 2000}}
+```
+
 ## 7. ISAC trade-off: beams and slot sharing
 
 One TRP panel cannot point at its UEs and at a drone at the same time. The
@@ -1010,6 +1189,204 @@ The response holds `snr_db` and `threshold` (−ln P_fa). Per model it gives
 draw ran. An unknown project answers **404** and an invalid request,
 including one over the trial budget, **422**.
 
+### Signal-level detection: delay-Doppler map and CFAR (#24)
+
+The §6 detection is a threshold on the true SNR of the strongest echo. It
+never misses a strong echo and never raises a false alarm. With
+`sensing.detection.mode: "cfar"` each frame instead builds the received
+pilot channel of every TX → sensing-RX link, turns it into a delay-Doppler
+map and runs a 2-D CFAR detector on it. A detection is now a cell that
+crosses a threshold. Thermal noise, clutter and target sidelobes can cross
+it too, and those false alarms are counted. CFAR mode needs
+`sensing.waveform` (*Waveform numerology (#23)* in §6), because the map is
+built on its pilot grid.
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/projects/sample_demo/simulate/scenario \
+  -H "Content-Type: application/json" \
+  -d '{"num_frames": 20, "dt_s": 0.5, "sensing": {"enabled": true,
+       "waveform": {"scs_hz": 15625, "n_fft": 2048, "n_active_sc": 1280,
+                    "symbol_duration_s": 6.944444444444444e-05,
+                    "pilot": {"subcarrier_step": 5, "symbol_step": 9}},
+       "background": {"mode": "both"},
+       "detection": {"mode": "cfar",
+                     "map": {"window": "hann", "clutter_removal": "mean_subtract"},
+                     "cfar": {"type": "ca", "guard": [1, 1], "train": [8, 4],
+                              "pfa_cell": 1e-4}}}}'
+```
+
+**Signal model.** Per frame i and link (tx, rx), on the K × N pilot lattice
+(subcarrier f_k, pilot symbol time t_n):
+
+    Y[n, k] = Σ_p a_p e^(−j2π f_k τ_p) e^(+j2π f_D,p t_n) + W[n, k]
+
+The sum runs over the frame's echoes of every target on the link (direct and
+multipath) and the background paths: H1 when the run solved it, else H0,
+else none (§6, *Background paths H0/H1*). a_p = 10^(path_gain_db/20) ·
+e^(j·phase_rad) is the dimensionless path gain. `phase_rad` already holds the
+carrier term −2π f_c τ, so f_k is the baseband subcarrier frequency and no
+carrier term is added again. W is circular Gaussian with variance
+
+    σ_H² = N0 / Es = 10^((N0,RE − Es,RE)/10),  N0,RE = −174 + 10 log10(scs) + NF,  Es,RE = P_tx − 10 log10(n_active_sc)
+
+per RE, the noise of a least-squares pilot estimate. σ_H² equals
+N_floor(B_occ) / P_tx, so a path's per-RE SNR |a|²/σ_H² is P_echo −
+N_floor(B_occ). The noise of (frame i, tx, rx) is drawn from
+`SeedSequence(entropy=[noise_seed, 0x5EA024], spawn_key=(0, i, id32(tx), id32(rx)))`
+(PCG64; real parts first, then imaginary parts; id32 = the first 4 bytes of
+sha256, little-endian). Two runs with the same `noise_seed` therefore share
+the noise on equal (frame, tx, rx) keys, and the channel export (§10) redraws
+it bit for bit. H0 calibration maps (below) draw from a stream of their own,
+0x5EA031, so a calibration never reuses the noise a run is tested on.
+
+**Map.** `clutter_removal: "mean_subtract"` first removes the slow-time mean
+of each subcarrier, which cancels every static path exactly. Then the window
+(periodic Hann w[i] = 0.5 − 0.5 cos(2πi/L), or rect) is applied on both axes,
+followed by a K' = z·K point IFFT over subcarriers (delay) and an N' = z·N
+point FFT over symbols (Doppler), z = `zero_pad`. The Doppler axis is
+shifted so 0 Hz is row N'/2:
+
+    Z[v, u] = Σ_n Σ_k w_t[n] w_f[k] Y[n, k] e^(+j2π k u/K') e^(−j2π n v/N')
+    P[v, u] = |Z|² / (σ_H² Σw_f² Σw_t²)
+
+A noise cell has mean 1, so P is an SNR. A path at (τ, f_D) peaks at
+u = τ K' Δf_p and v = f_D N' T_p (Δf_p = pilot subcarrier spacing, T_p =
+pilot period), at range sum c·u/(K'Δf_p) and Doppler v/(N'T_p). On a bin
+centre the peak is 10 log10 P = SNR_RE + 10 log10(K N) + L_t + L_f, with
+window loss L = 10 log10((Σw)²/(L Σw²)): 0 for rect and −1.76 dB for Hann,
+per axis. Off a bin centre the straddle loss can reach about 3.9 dB per axis
+without padding, and `zero_pad` 4–8 recovers most of it.
+`zero_doppler_notch_bins: k` excludes the coarse Doppler bins −k…k (rows
+|v| < (k + 0.5)·z): they are neither cells under test nor training cells.
+`mean_subtract` leaves 0 Hz without noise, so without a notch it implies
+k = 0, and every row whose noise variance it lowers by more than 1 % does
+not train either: 1 − |W_t(v)|² / (N Σw_t²) < 0.99, W_t the N'-point DFT of
+the slow-time window. That is the 0 Hz row for rect at z = 1, the rows
+−1…1 for Hann (±1 keep 5/6 of their noise). `metadata.sensing.detection.map`
+lists `notch_bins`, `notched_rows` and `non_training_rows` (signed v).
+
+**CFAR.** Each cell under test has training cells inside a box of
+±(guard + train) cells around it, minus the guard box. `guard` and `train`
+are [delay, Doppler] half-widths, and the box wraps around both axes. The
+defaults are guard [1, 1] and train [8, 4], N_t = 17·9 − 3·3 = 200. A cell is
+detected when its statistic s exceeds the threshold (strictly) and it is not
+notched:
+
+| `type` | Statistic s | Analytic threshold α at `pfa_cell` |
+|---|---|---|
+| `ca` | P / mean(training) | α = N_t (P_fa^(−1/N_t) − 1), so P_fa = (1 + α/N_t)^(−N_t) |
+| `os` | P / x₍k₎, the k-th smallest training cell (`os_rank`, default ⌈0.75 N_t⌉) | α solves Π_{i<k} (N_t − i)/(N_t − i + α) = P_fa |
+
+A cell under test whose training box holds only n_v < N_t cells of training
+rows (next to the notch) uses their mean (CA) or their k_v-th smallest, k_v
+= ⌈k·n_v/N_t⌉ (OS), and its statistic is mapped onto the N_t scale so one
+threshold keeps P_fa per cell everywhere: CA s' = N_t((1 + s/n_v)^(n_v/N_t)
+− 1), exact for every threshold; OS s' = s·α(N_t, k)/α(n_v, k_v), exact at
+`pfa_cell`. (When the emptied 0 Hz row still trained, rect with
+`mean_subtract` false-alarmed at about 1.9 × `pfa_cell` in the rows
+|v| = 1…5.)
+
+These P_fa values assume iid exponential cells (rect window, no padding).
+Hann and zero padding correlate neighbouring cells, so the achieved rate is
+higher than `pfa_cell`: 1.9·10⁻³ against 10⁻³ at N_t = 40 with a periodic
+Hann map. The report below shows the rate actually achieved.
+`threshold: "h0_calibrated"` replaces α with an empirical one, computed on
+the H0 maps of a stored result (`h0_result_id`): a `sensing_background_ensemble`
+(§12; every realization × noise frame × link) or a scenario result with
+stored H0 background frames (every frame; frames sharing one cached H0 list
+are synthesized once). These maps use this run's waveform, map, CFAR and
+σ_H², and their noise is drawn from
+`SeedSequence(entropy=[seed, 0x5EA031], spawn_key=(r, m, id32(tx), id32(rx)))`
+with the ensemble's `seed` and realization r, or the scenario source's
+`noise_seed` and r = 0: never the 0x5EA024 stream of in-run noise, so the
+achieved P_FA below stays a held-out check even when the seeds are equal.
+With n statistics of non-notched cells and m = ⌊n·p⌋, the threshold is
+`sorted(s)[n − m]` (0-based). m must be at least 20, and at most 5·10⁸ cells
+are evaluated. With `system_pfa` the statistic is the per-frame maximum over
+every link and every cell, and its quantile at `system_pfa` sets the
+threshold; the H0 source must then cover every TX → sensing-RX link of this
+run (400 otherwise), because a maximum over fewer links sets the threshold
+too low (about #links / #calibrated links × `system_pfa`). For a cell
+threshold, links without H0 maps use the threshold calibrated on the others
+with a warning (`source.uncalibrated_links`).
+
+**Output.** `SensingFrame.detections` lists every link's detections in link
+order (tx-major), strongest statistic first. Each entry holds `tx_id`, `rx_id`,
+`cell_tau` (u), `cell_nu` (signed v), `delay_ns`, `range_sum_m`, `doppler_hz`
+(parabolic interpolation of 10 log10 P across the neighbouring cells per
+axis, clipped to ±0.5 cell), `statistic`, `threshold`, `power_db`
+(10 log10 P) and `snr_est_db` (10 log10(P/noise − 1) with the unbiased noise
+mean: CA the training mean, OS x₍k₎ / Σ_{i=N_t−k+1}^{N_t} 1/i). Detections
+carry no truth. Association is still an oracle. A link report is `detected`
+when a detection lies within G = `oracle_gate_cells` coarse cells
+(× `zero_pad`) of the map cell nearest its echo's true (range sum, Doppler),
+circularly: 2G + 1 cells per axis, and `oracle_gate_cells: 0` is that cell
+alone. The strongest such
+detection supplies `measured_range_m`, `measured_doppler_hz`, `range_bin`,
+`doppler_bin` and `detection_index` (its index in `detections`), and fusion
+and the EKF use those values. With no detection in the gate, the reason is
+`cfar_miss` and the measured fields are null. `snr_db`, `bistatic_range_m`,
+`doppler_hz` and `path_id` keep the oracle values, and the MTI notch of §6
+does not apply. `measurement_noise` is ignored, with a warning, because the
+map already adds the noise. At most `max_detections_per_link` (256) are
+stored per link, strongest first, and a gated detection is always kept.
+
+**Achieved P_FA.** `metadata.sensing.detection` holds the map, CFAR and
+threshold settings (with α, or the calibration source with n, m and the
+quantile rule), the noise seed, N0 per RE and σ_H² per TX, and `achieved`:
+
+- `cell`: false-alarm detections over the tested cells (non-notched cells
+  outside every gate);
+- `link_frame`: maps with at least one false alarm;
+- `system`: frames with at least one false alarm on any link.
+
+Each comes with a 95 % Clopper–Pearson interval. A false alarm is any
+detection outside every gate of its link: thermal noise, clutter residue,
+multipath ghosts and target sidelobes beyond the gate all count.
+`link_frame` and `system` count one Bernoulli trial per map and per frame,
+so theirs are exact binomial intervals. Cells are not independent: Hann
+and zero padding correlate neighbours and false alarms cluster, so the
+`cell` interval is the Clopper–Pearson interval of the effective sample
+k/φ of n/φ, where φ = max(1, χ²/(M − 1)) is the Pearson dispersion of the
+M per-map false-alarm counts (`cell.dispersion`; measured on noise: 1.3 for
+Hann, 3 for Hann with `zero_pad` 2, about 1 for rect without padding). The
+Pd Monte Carlo of §9 keeps its Wilson intervals.
+
+A strong static path masks a weak echo near 0 Hz. In free space with a
+300 m bistatic baseline, 43 dBm and a 0.052 m² target (G1 geometry), the
+direct path is 68 dB above the echo. With Grid S at 10 ms, Hann and no
+clutter removal, the echo (12 dB integrated SNR at 22 Hz) was a `cfar_miss`
+in every frame, and the direct path's sidelobes raised the achieved cell
+P_FA to 1.3·10⁻³ against a 10⁻⁴ design (95 % interval 0.7–2.2·10⁻³,
+dispersion 3.9). With a 50 ms CPI, a rect window and
+`clutter_removal: "mean_subtract"` (notch 0 implied), the bistatic and the
+monostatic echo were detected in every frame, at an achieved cell P_FA of
+6.9·10⁻⁵ (95 % interval 3.1–13.3·10⁻⁵). On the `isac_drone_fr1` demo
+(NR 612 × 280, H0 background), mean subtraction raised the gated
+detections from 36 to 127 of 128 link-frames. The scenario form's
+"Clutter removal" select defaults to mean subtraction when a background is
+on.
+
+| Field | Default | Meaning |
+|---|---|---|
+| `detection.mode` | `"threshold"` | `"cfar"` turns on the detector (needs `waveform`). |
+| `map.window`, `map.zero_pad` | `"hann"`, 1 | Window on both axes; FFT length factor (1–8). |
+| `map.clutter_removal` | `"none"` | `"mean_subtract"` removes the slow-time mean per subcarrier (implies notch 0; emptied rows do not train). |
+| `map.zero_doppler_notch_bins` | `null` | Coarse Doppler bins −k…k neither tested nor training. |
+| `cfar.type`, `cfar.guard`, `cfar.train` | `"ca"`, [1, 1], [8, 4] | Detector and [delay, Doppler] half-widths. |
+| `cfar.os_rank`, `cfar.pfa_cell` | ⌈0.75 N_t⌉, 1e-4 | OS rank; design P_fa per cell. |
+| `threshold`, `h0_result_id`, `system_pfa` | `"analytic"`, null, null | Calibrated threshold source and per-frame target. |
+| `oracle_gate_cells`, `max_detections_per_link` | 1, 256 | Association gate around the nearest cell; stored detections per link. |
+
+These answer 400 before any solve: a CFAR window wider than the map (raise
+`zero_pad` or shrink `train`), a map of more than 2²⁴ = 16,777,216 cells
+(z²·K·N), a Hann window on an axis with one pilot, a notch that covers
+every Doppler row, and a tested row left without a training cell. So does
+an `h0_result_id` that is unknown, of another kind, without stored H0
+frames, without a link of this run, missing a link of this run with
+`system_pfa`, or with fewer than 20 expected exceedances. CFAR without
+`waveform` answers 422.
+
 ## 10. Sensing dataset export
 
 `POST /export/sensing-dataset` flattens the per-frame sensing of stored
@@ -1072,7 +1449,7 @@ field and `true`/`false`. **parquet** keeps NaN as NaN.
 | `aod_az_deg`, `aod_el_deg`, `aoa_az_deg`, `aoa_el_deg` | float64 | deg | feature | the reported echo (`path_id` in `frame.sensing.echoes`) |
 | `pd`, `pd_mc` | float64 | | feature | link report (NaN unless the run set `pfa`) |
 | `detected` | bool | | label | |
-| `reason` | str | | label | `detected` / `no_echo` / `below_threshold` / `mti_rejected` |
+| `reason` | str | | label | `detected` / `no_echo` / `below_threshold` / `mti_rejected` / `cfar_miss` (CFAR runs, see §9) |
 | `position_true_x/y/z`, `velocity_true_x/y/z` | float64 | m, m/s | label | the target's `estimates[]` row |
 | `est_status` | str | | estimate | `ok` / `insufficient_links` / `diverged` |
 | `n_links_detected`, `n_links_used` | int64 | | estimate | |
@@ -1125,6 +1502,104 @@ plus about 0.6 KB per row of arrays and the encoded files, so an export at
 the 500 000-row cap peaks around 1.3 GB of RAM; export fewer results on a
 small machine.
 
+### Channel tensors (include_channel, #22)
+
+Two opt-in flags add what a signal-level detector needs to the export. The
+export synthesizes the tensors from the stored path rows, so it still runs no
+solve.
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/projects/sample_demo/export/sensing-dataset \
+  -H "Content-Type: application/json" \
+  -d '{"include_echo_paths": true, "include_background_paths": true,
+       "include_channel": {"subcarriers": "pilot",
+                           "components": ["echo", "background_h0", "total"],
+                           "noise": {"enabled": true}}}'
+```
+
+| Field | Default | Meaning |
+|---|---|---|
+| `include_background_paths` | `false` | Also write `background.<fmt>`: one row per stored H0 / H1 background path (§6, *Background paths H0/H1*). |
+| `include_channel` | `null` | Also write `channel.npz` (options below). |
+| `include_channel.subcarriers` | `"pilot"` | `pilot`: the K × N pilot lattice. `active`: every active subcarrier of every symbol of the CPI. |
+| `include_channel.waveform` | `null` | Grid of the tensors. `null`: each run's `sensing.waveform`, else Grid S (15.625 kHz × 1280 SC, comb-5 pilots on every 9th 1/14400 s symbol: K 256 × N 16 per 10 ms). |
+| `include_channel.components` | `["echo"]` | Any of `echo`, `background_h0`, `background_h1`, `total` (deduplicated). |
+| `include_channel.noise.enabled` | `false` | Also write the thermal noise realization `noise`. |
+| `include_channel.noise.n0_dbm_per_re` | `null` | N0 per RE [dBm]. `null`: −174 + 10 log10(scs) + NF of the run's config. |
+| `include_channel.noise.seed` | `null` | `null`: each run's `sensing.noise_seed`. |
+| `include_channel.pilot_ls` | `false` | Also write `H_ls = H_total + noise`, the LS pilot estimate (needs noise). |
+| `include_channel.max_elements` | 50,000,000 | Cap on every complex64 element of `channel.npz` together (at most 2·10⁸). |
+
+With either flag on, `echoes` rows also get `a_re` and `a_im` (Re and Im of
+the dimensionless gain 10^(path_gain_db/20)·e^(j·phase_rad), carrier phase
+included), `tx_power_dbm`, and per interaction (`;`-joined; `""` for LoS or a
+missing value) `interaction_types`, `rf_material_ids` and `prim_ids` (the
+target actor id on a sensing interaction). The manifest then says
+`schema_version: 2`, and the response counts `num_background_rows`,
+`num_channel_rows` and `channel_elements`. Without either flag every table
+and manifest key is the v0.1.15 one (apart from `created_at` and
+`seam_version`).
+
+**background.\<fmt\>** has the columns `result_id`, `split`, `frame_index`,
+`time_s`, `hypothesis` (`h0` / `h1`), `path_id`, `tx_id`, `rx_id`,
+`path_type`, `delay_ns`, `bistatic_range_m`, `power_dbm`, `path_gain_db`,
+`phase_rad`, `doppler_hz`, the departure and arrival angles,
+`num_interactions` and the six channel columns above. It has rows only for
+frames that solved and stored a hypothesis. A cache-hit frame reuses the
+paths of an earlier frame, and the manifest's `background_index` maps each
+frame to `[frame_index, h0 source frame, h1 source frame]` (null = not
+solved, not stored, or failed). With the default `sensing.background.store:
+"h0"` a run has no H1 rows. The table has its own cap of 500 000 rows.
+
+**channel.npz** (stored uncompressed inside the zip) holds one row per
+result × frame with sensing × TX → sensing-RX link (TX-major, the run's
+`sensing_tx_ids` × `sensing_rx_ids`):
+
+| Array | Shape, dtype | Meaning |
+|---|---|---|
+| `row`, `frame_index` | [R] int64 | Row number, frame index. |
+| `result_id`, `tx_id`, `rx_id` | [R] str | |
+| `time_s`, `sigma_h2`, `es_dbm_per_re` | [R] float64 | Frame time, σ_H² = N0/Es of the row's TX, Es per RE [dBm]. |
+| `f_hz`, `t_s` | [K], [N] float64 | Baseband subcarrier frequencies, symbol times. |
+| `H_echo`, `H_background_h0`, `H_background_h1`, `H_total` | [R, N, K] complex64 | Requested components, noiseless. |
+| `noise`, `H_ls` | [R, N, K] complex64 | With `noise.enabled` / `pilot_ls`. |
+
+    H[n, k] = Σ_p a_p e^(−j2π f_k τ_p) e^(+j2π f_D,p t_n)
+
+f_k is the baseband frequency of subcarrier k. Because `phase_rad` already
+holds −2π f_c τ, a lone LoS path has phase −2π(f_c + f_k)τ, with the carrier
+applied once. No delay normalization is applied, and the Doppler sign is
+positive for a closing path. `echo` sums the link's target echoes (not the
+comm paths of `include_comm_paths`). `total` = echo + H1 when the frame has
+it, else + H0, the same rule the CFAR map uses. A missing background is
+zeros, with a warning. A run that solved H1 without storing it (the default
+`sensing.background.store: "h0"`) cannot rebuild `background_h1`, `total`
+or `pilot_ls` (whose total would differ from the run's map): those answer
+400; run with `store: "both"`, or export `echo` / `background_h0`. The same
+holds for H0 with `store: "none"`. The noise of a row is drawn with the key of the CFAR
+section above, at the row's σ_H². With the run's own waveform on the pilot
+grid, the exported noise is therefore the noise the run's map used, bit for
+bit. The manifest's `channel` block holds the grid (`waveform`,
+`numerology`), the components, the noise seeds and N0 per result, the noise
+key, the amplitude convention and the synthesis formula. The export warns
+when two exported results share a noise seed.
+
+```python
+import numpy as np
+ch = np.load("channel.npz", allow_pickle=False)
+H = ch["H_total"][0].astype(np.complex128)      # [symbol, subcarrier]
+Y = H + ch["noise"][0]                           # the LS pilot estimate
+snr_re = np.abs(H) ** 2 / ch["sigma_h2"][0]      # per-RE SNR of the noiseless channel
+```
+
+All results of one export must resolve to the same grid (same frequencies
+and symbol times), else 400: export them separately or set
+`include_channel.waveform`. More than `max_elements` elements (rows × N × K ×
+arrays) answers 400 before anything is written. A TX whose power is unknown
+(no stored path gain and no longer in the scene) is left out with a warning.
+The tensors are built in memory, at 8 bytes per element (400 MB at the
+default cap).
+
 ## 11. Limits
 
 - Targets move by rigid translation only: no rotation, no micro-Doppler.
@@ -1147,7 +1622,9 @@ small machine.
   about 1e-6 dB on strong paths and up to about 0.1 dB near beam nulls, and
   path order and `path_id` can change between runs, so compare results by
   geometry or path type rather than by `path_id` or exact dB. The same
-  `noise_seed` reproduces the measurement noise exactly.
+  `noise_seed` reproduces the measurement noise exactly. The background
+  solve (§6) uses `PathSolver(deterministic=True)` by default
+  (`background.deterministic`); the RCS echo solver stays non-deterministic.
 - Sensing over time (§6) uses **oracle association**: the ray tracer labels
   each echo with its target and as direct or multipath. A real receiver would
   have to infer both.
@@ -1156,8 +1633,18 @@ small machine.
   scattering point on each link, while `position_true` is the cuboid center.
   Expect a bias of up to half the target size (about 2.5 m for a car) in
   `position_error_m`. The mock uses one point at the center, so it has none.
-- Detection is per echo and noise-limited: no CFAR, no range–Doppler map, no
-  clutter or self-interference power.
+- Threshold detection (the default `sensing.detection.mode`) is per echo and
+  noise-limited: no CFAR, no range–Doppler map, no clutter or
+  self-interference power. `mode: "cfar"` (§9) builds the delay-Doppler map
+  with H0/H1 clutter and thermal noise and runs CFAR; self-interference and
+  a direct-path model (#25) are still missing, and association stays an
+  oracle.
+- Background (§6): in a scene whose only shape is an actor, the Sionna
+  loader cannot address that actor, so H0 cannot hide it: it stays in H0
+  with a warning. Add any other shape (a 0.1 m cube far away is enough). A
+  sensing RX at exactly the TX position has no TX → RX LoS background path
+  (the zero-length path is dropped, so `total_power_db` is null on that
+  link); self-interference is not modelled (#25).
 - Sensing over time (§6) counts antennas as single elements (no array
   gain), so integration gain is its only processing gain.
 - `measurement_noise` is a rule of thumb (cell / sqrt(2·SNR)), not a
@@ -1228,6 +1715,133 @@ small machine.
   closed forms describe (constant amplitude over the CPI, white Gaussian
   noise, ideal coherent integration). It checks the arithmetic and shows
   the sampling spread; it is not a waveform-level simulation.
+
+## 12. H0 calibration ensemble (#30)
+
+`POST /simulate/sensing-background-ensemble` builds the target-free (H0)
+frames that a CFAR threshold is calibrated on and that digital-twin mismatch
+studies compare against. It re-solves the H0 background of one stored
+scenario frame (§6, *Background paths H0/H1*: the target actors removed,
+PathSolver with diffuse reflection) at that frame's node poses, once per
+realization. Realization 0 is the nominal twin. Every later realization draws
+a perturbation from `seed`: a scale on each radio material's ε_r and σ, one
+position offset per node site, and a carrier-frequency offset (CFO) per
+bistatic sensing receiver. The result stores each realization's paths and
+the seed. Noise frames are never stored; the seed redraws them bit for bit.
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/projects/sample_demo/simulate/sensing-background-ensemble \
+  -H "Content-Type: application/json" \
+  -d '{"source": {"result_id": "sionna_scenario_003", "frame_index": 0},
+       "n_realizations": 20, "noise_frames_per_realization": 500, "seed": 1,
+       "perturb": {"material": {"eps_r_pct": 10, "sigma_pct": 30},
+                   "node_pos_sigma_m": 0.1, "cfo_hz": 5}}'
+```
+
+| Field | Default | Meaning |
+|---|---|---|
+| `source.result_id`, `source.frame_index` | required | The scenario result and frame whose node kinematics, actor poses and targets the ensemble uses. The frame must have sensing. |
+| `n_realizations` | required (1–200) | Realization 0 is nominal. |
+| `noise_frames_per_realization` | required (1–100,000) | H0 noise frames m = 0 … n−1 per realization, drawn on demand. |
+| `seed` | `0` | Seeds the perturbation draws and the noise. |
+| `perturb.material.eps_r_pct`, `perturb.material.sigma_pct` | `0`, `0` | Standard deviation [%] of each radio material's scale: ε_r × (1 + d) and σ × (1 + d′), d, d′ ~ N(0, (pct/100)²). The solver clips ε_r at 1 and σ at 0. |
+| `perturb.material.scope` | `"material"` | One draw per solver radio material. `"prim"` answers 400: material groups are merged meshes. |
+| `perturb.node_pos_sigma_m` | `0` | Per node site, an N(0, σ² I₃) offset [m]. A TX and a sensing RX within 1 m of each other are one site and move together. |
+| `perturb.cfo_hz` | `0` | Per bistatic sensing RX (more than 1 m from every TX), N(0, cfo²) [Hz], applied at synthesis as a Doppler offset of every path (positive = closing). A co-located receiver shares its TX's oscillator and gets none. |
+| `background` | `null` | Background solver options (§6). `null`: the source run's `sensing.background` with mode `h0_removed`, else the defaults. When set, `mode` must be `"h0_removed"` (422 otherwise). |
+
+**What is solved.** The links are every TX × sensing RX of the source run,
+TX-major (`metadata.sensing.sensing_tx_ids`, else the frame's nodes that are
+not sensing receivers). The nodes sit at the source frame's positions and
+velocities (`frame.sensing.nodes`) plus their offsets, the actors at the
+frame's `actor_states`, and the targets are resolved at that pose and
+removed. The ensemble uses the source run's backend and its simulation config
+(`config_snapshot`), and solves the realizations one after another. A
+realization with no material or position draw (nominal, or CFO only) has
+realization 0's solve inputs: it reuses those paths (`background_h0: null`,
+`source_realization: 0`) and is not solved again.
+
+**Draws.** Realization r ≥ 1 draws from
+`numpy.random.default_rng(SeedSequence(entropy=[seed, 0x5EA030], spawn_key=(r,)))`,
+in this order:
+
+1. per radio material (sorted by name): `normal(0, eps_r_pct/100)`, then
+   `normal(0, sigma_pct/100)`;
+2. per node site (TX first, then the sensing receivers, in site order):
+   `normal(0, node_pos_sigma_m, 3)`;
+3. per bistatic sensing RX (sorted ids): `normal(0, cfo_hz)`.
+
+Every draw is taken even at σ = 0, so switching one perturbation on does not
+change the values of another. Zero draws are left out of `material_draws`,
+`node_offsets_m` and `cfo_hz`, and `label` is `perturbed` when anything is
+left.
+
+**H0 frames.** Noise frame m of realization r on link (tx, rx) is
+
+Y[n, k] = H_r[n, k] + w[n, k],
+H_r[n, k] = Σ_p |a_p| e^{jφ_p} e^{−j2π f_k τ_p} e^{+j2π (f_D,p + cfo_rx) t_n}
+
+on the consumer's pilot grid (§6, *Waveform numerology*; f_k baseband, t_n
+the pilot symbol times, φ_p the stored `phase_rad`, which already holds the
+carrier term). w is complex Gaussian with E|w|² = σ_H² (N0 per RE over Es per
+RE), drawn from
+`SeedSequence(entropy=[seed, 0x5EA031], spawn_key=(r, m, id32(tx), id32(rx)))`,
+where `id32` is the first 4 bytes (little endian) of the id's SHA-256.
+0x5EA031 is the H0 calibration stream: a scenario run draws its in-run noise
+from 0x5EA024, so an ensemble `seed` equal to a run's `noise_seed` never
+reproduces that run's noise. The noise level is the consumer's: the
+detector uses its own waveform, noise figure and TX power. Frames,
+realizations and links draw from independent streams (adjacent frames
+correlate below |ρ| = 0.01 over 10⁵ REs).
+
+**Calibrating a threshold.** Set `sensing.detection.threshold:
+"h0_calibrated"` and `h0_result_id` to the ensemble's `result_id` (§9,
+*Signal-level detection*). The detector builds the map of every realization
+× noise frame × link with the run's numerology, map and CFAR options and
+takes `sorted(values)[n − floor(n·p)]` of the cell statistic, or of the
+per-frame maximum over every link with `system_pfa`. With n = 10,000
+calibration frames at P_FA 10⁻², a held-out 10,000 frames show 74–129 false
+alarms in 95 % of calibrations (beta-binomial: the calibration's own spread
+widens the binomial 81–120). 10⁻³ needs n ≥ 20,000; 10⁵ is better.
+
+**Result.** `SensingBackgroundEnsembleResultSet` holds `source`, `seed`,
+`noise_frames_per_realization`, `background` (the options used), `links`,
+the nominal `nodes`, and per realization `index`, `label`, `material_draws`
+(name → `eps_r_scale`, `sigma_scale`), `node_offsets_m`, `cfo_hz`,
+`background_h0` (RayPath list; null when reused), `source_realization`,
+`solve_s`, `num_paths`, `dropped_paths`, `total_power_db` ("tx>rx" →
+10 log10 Σ|a|²) and `warnings`. `metadata` carries the request and its
+`request_hash`, `material_names`, `sites`, `bistatic_rx_ids`, `solves`,
+`total_solve_s`, `draw_key`, `noise_key` and the provenance hashes. Read it
+back with `GET /results/sensing-background-ensemble?result_id=…` (the latest
+without `result_id`); `&summary=true` returns every realization without its
+`background_h0` paths, which is what the UI shows. Labels and pruning work
+as for every result kind. Each stored path takes about 0.7–1 KB of JSON, and
+the background options default to 256 paths per link.
+
+**Errors.** Unknown project or source result, or a source file that is not a
+valid scenario result: **404**. A frame index out of range or a frame without
+sensing, a device or target actor of the run missing from the scene, `scope:
+"prim"`, more than 2,000,000 paths stored over the solved realizations
+(lower `background.max_paths_per_link`), or a realization whose background
+solve failed (it would store a noise-only H0): **400**. The source run's backend
+unavailable or without sensing: **409**. Out-of-range values, unknown keys or
+a background mode other than `h0_removed`: **422**.
+
+**Limits.**
+
+- The material scales act on the loaded solver materials for one solve and
+  are restored after it; the stored project and its RF projection are never
+  written. The mock perturbs constant-model library materials only (ITU
+  materials keep their loss there).
+- With diffuse reflection on and `background.deterministic: false`,
+  realizations also differ by Monte Carlo ray resampling. That is RT sampling
+  noise, not a clutter realization, and the ensemble warns. Every realization
+  uses the config's solver seed.
+- The perturbations are static: no internal clutter motion, phase noise or
+  timing error beyond the CFO. A static nominal twin has an exactly 0 Hz
+  background.
+- Per-prim draws (`scope: "prim"`) are not available.
 
 ## Related docs
 

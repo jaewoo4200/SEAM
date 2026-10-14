@@ -12,8 +12,8 @@ authors:
   - family-names: Kim
     given-names: Sunwoo
     affiliation: "Wireless Systems Lab, Hanyang University"
-version: 0.1.15
-date-released: "2026-10-07"
+version: 0.1.16
+date-released: "2026-10-14"
 # Concept DOI (resolves to the latest version); the version DOI is listed below.
 doi: 10.5281/zenodo.23207109
 identifiers:

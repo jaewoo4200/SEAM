@@ -278,6 +278,7 @@ class ResultSetRef(StrictModel):
     kind: Literal[
         "paths", "radio_map", "mesh_radio_map", "trajectory", "scenario",
         "channel", "playback", "sensing", "isac", "sensing_coverage",
+        "sensing_background_ensemble",
     ]
     backend: str
     simulation_config_id: str

@@ -941,6 +941,8 @@ def test_openapi_pins_scenario_sensing():
         "tracking", "detector", "pfa",
         # v0.1.14: explicit bistatic sensing receivers (None = auto).
         "sensing_rx_ids",
+        # v0.1.16 (Track B): OFDM numerology, H0/H1 background, CFAR detection.
+        "waveform", "background", "detection",
     }
     for name in ("SensingLinkReport", "TargetEstimate", "SensingFrame"):
         assert name in components, name

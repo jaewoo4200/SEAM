@@ -1,0 +1,444 @@
+{
+ "source": "paper/blindspot_atb/method/runs/scen_r/R_a1_h15_full_cpi10.json (sha256 85cdd6a0...), frames 42 and 50, target uav_01; read-only extract for SEAM P0 golden tests",
+ "noise_floor_dbm": -93.98970004336019,
+ "integration_gain_db": 36.12359947967774,
+ "frequency_hz": 3500000000.0,
+ "cpi_s": 0.01,
+ "links": [
+  {
+   "frame_index": 42,
+   "time_s": 21.0,
+   "tx_id": "ru1",
+   "rx_id": "ru1_rx",
+   "reported_path_id": "sensing_0001",
+   "snr_db": 19.958917922059094,
+   "echo_power_dbm": -110.15438160097884,
+   "echoes": [
+    {
+     "path_id": "sensing_0001",
+     "tx_id": "ru1",
+     "rx_id": "ru1_rx",
+     "target_id": "uav_01",
+     "power_dbm": -110.15438160097884,
+     "path_gain_db": -153.15438160097884,
+     "phase_rad": 2.5254640193017295,
+     "delay_ns": 943.5994456907792,
+     "doppler_hz": 188.26123046875,
+     "interaction_types": [
+      "sensing"
+     ]
+    },
+    {
+     "path_id": "sensing_0002",
+     "tx_id": "ru1",
+     "rx_id": "ru1_rx",
+     "target_id": "uav_01",
+     "power_dbm": -128.2509154437203,
+     "path_gain_db": -171.2509154437203,
+     "phase_rad": -2.751614430970008,
+     "delay_ns": 972.1202332002576,
+     "doppler_hz": 185.25088500976562,
+     "interaction_types": [
+      "reflection",
+      "sensing"
+     ]
+    },
+    {
+     "path_id": "sensing_0003",
+     "tx_id": "ru1",
+     "rx_id": "ru1_rx",
+     "target_id": "uav_01",
+     "power_dbm": -130.38337446642524,
+     "path_gain_db": -173.38337446642524,
+     "phase_rad": -2.7788504457564756,
+     "delay_ns": 972.1202332002576,
+     "doppler_hz": 185.25088500976562,
+     "interaction_types": [
+      "sensing",
+      "reflection"
+     ]
+    }
+   ],
+   "expected_db": {
+    "columns": [
+     "mf",
+     "rect_x1",
+     "rect_x4",
+     "hann_x1",
+     "hann_x4"
+    ],
+    "A_direct_only": [
+     19.96,
+     19.53,
+     19.55,
+     16.27,
+     16.28
+    ],
+    "B_all_echoes": [
+     20.61,
+     20.39,
+     20.39,
+     17.35,
+     17.35
+    ]
+   }
+  },
+  {
+   "frame_index": 50,
+   "time_s": 25.0,
+   "tx_id": "ru1",
+   "rx_id": "ru1_rx",
+   "reported_path_id": "sensing_0001",
+   "snr_db": 24.10676289107868,
+   "echo_power_dbm": -106.00653663195925,
+   "echoes": [
+    {
+     "path_id": "sensing_0001",
+     "tx_id": "ru1",
+     "rx_id": "ru1_rx",
+     "target_id": "uav_01",
+     "power_dbm": -106.00653663195925,
+     "path_gain_db": -149.00653663195925,
+     "phase_rad": -0.7232795824909672,
+     "delay_ns": 743.175746720226,
+     "doppler_hz": 158.7152099609375,
+     "interaction_types": [
+      "sensing"
+     ]
+    },
+    {
+     "path_id": "sensing_0002",
+     "tx_id": "ru1",
+     "rx_id": "ru1_rx",
+     "target_id": "uav_01",
+     "power_dbm": -116.59418562545738,
+     "path_gain_db": -159.59418562545738,
+     "phase_rad": 0.5997943528878267,
+     "delay_ns": 878.4012948126474,
+     "doppler_hz": 193.6051483154297,
+     "interaction_types": [
+      "reflection",
+      "sensing"
+     ]
+    },
+    {
+     "path_id": "sensing_0003",
+     "tx_id": "ru1",
+     "rx_id": "ru1_rx",
+     "target_id": "uav_01",
+     "power_dbm": -116.47790399339019,
+     "path_gain_db": -159.47790399339019,
+     "phase_rad": -3.1096617606569694,
+     "delay_ns": 878.2841973697941,
+     "doppler_hz": 194.4376678466797,
+     "interaction_types": [
+      "reflection",
+      "sensing"
+     ]
+    },
+    {
+     "path_id": "sensing_0004",
+     "tx_id": "ru1",
+     "rx_id": "ru1_rx",
+     "target_id": "uav_01",
+     "power_dbm": -116.85177832771944,
+     "path_gain_db": -159.85177832771944,
+     "phase_rad": 0.5984808644812318,
+     "delay_ns": 878.4012948126474,
+     "doppler_hz": 193.6051483154297,
+     "interaction_types": [
+      "sensing",
+      "reflection"
+     ]
+    },
+    {
+     "path_id": "sensing_0005",
+     "tx_id": "ru1",
+     "rx_id": "ru1_rx",
+     "target_id": "uav_01",
+     "power_dbm": -116.81833355096987,
+     "path_gain_db": -159.81833355096987,
+     "phase_rad": -3.110847203480013,
+     "delay_ns": 878.2841973697941,
+     "doppler_hz": 194.4376678466797,
+     "interaction_types": [
+      "sensing",
+      "reflection"
+     ]
+    }
+   ],
+   "expected_db": {
+    "columns": [
+     "mf",
+     "rect_x1",
+     "rect_x4",
+     "hann_x1",
+     "hann_x4"
+    ],
+    "A_direct_only": [
+     24.11,
+     21.26,
+     23.81,
+     19.52,
+     20.47
+    ],
+    "B_all_echoes": [
+     23.93,
+     20.87,
+     23.71,
+     19.57,
+     20.49
+    ]
+   }
+  },
+  {
+   "frame_index": 50,
+   "time_s": 25.0,
+   "tx_id": "ru1",
+   "rx_id": "rx1",
+   "reported_path_id": "sensing_0006",
+   "snr_db": 20.83471511438534,
+   "echo_power_dbm": -109.27858440865259,
+   "echoes": [
+    {
+     "path_id": "sensing_0006",
+     "tx_id": "ru1",
+     "rx_id": "rx1",
+     "target_id": "uav_01",
+     "power_dbm": -109.27858440865259,
+     "path_gain_db": -152.2785844086526,
+     "phase_rad": 0.12729949325414935,
+     "delay_ns": 885.9942113303987,
+     "doppler_hz": 146.7890167236328,
+     "interaction_types": [
+      "sensing"
+     ]
+    },
+    {
+     "path_id": "sensing_0007",
+     "tx_id": "ru1",
+     "rx_id": "rx1",
+     "target_id": "uav_01",
+     "power_dbm": -119.65698210063991,
+     "path_gain_db": -162.6569821006399,
+     "phase_rad": 1.4503734285892875,
+     "delay_ns": 1021.2197594228201,
+     "doppler_hz": 181.678955078125,
+     "interaction_types": [
+      "reflection",
+      "sensing"
+     ]
+    },
+    {
+     "path_id": "sensing_0008",
+     "tx_id": "ru1",
+     "rx_id": "rx1",
+     "target_id": "uav_01",
+     "power_dbm": -119.53596126490208,
+     "path_gain_db": -162.53596126490208,
+     "phase_rad": -2.2590826850028023,
+     "delay_ns": 1021.1026619799668,
+     "doppler_hz": 182.51145935058594,
+     "interaction_types": [
+      "reflection",
+      "sensing"
+     ]
+    }
+   ],
+   "expected_db": {
+    "columns": [
+     "mf",
+     "rect_x1",
+     "rect_x4",
+     "hann_x1",
+     "hann_x4"
+    ],
+    "A_direct_only": [
+     20.83,
+     16.31,
+     20.81,
+     15.63,
+     17.3
+    ],
+    "B_all_echoes": [
+     20.74,
+     16.25,
+     20.7,
+     15.65,
+     17.32
+    ]
+   }
+  },
+  {
+   "frame_index": 50,
+   "time_s": 25.0,
+   "tx_id": "ru1",
+   "rx_id": "rx2",
+   "reported_path_id": "sensing_0009",
+   "snr_db": 16.38225829990312,
+   "echo_power_dbm": -113.73104122313481,
+   "echoes": [
+    {
+     "path_id": "sensing_0009",
+     "tx_id": "ru1",
+     "rx_id": "rx2",
+     "target_id": "uav_01",
+     "power_dbm": -113.73104122313481,
+     "path_gain_db": -156.7310412231348,
+     "phase_rad": 1.850323061953631,
+     "delay_ns": 1214.2015748395352,
+     "doppler_hz": 133.10874938964844,
+     "interaction_types": [
+      "sensing"
+     ]
+    },
+    {
+     "path_id": "sensing_0010",
+     "tx_id": "ru1",
+     "rx_id": "rx2",
+     "target_id": "uav_01",
+     "power_dbm": -124.11858309919805,
+     "path_gain_db": -167.11858309919805,
+     "phase_rad": -3.1085382578047103,
+     "delay_ns": 1349.4270660885377,
+     "doppler_hz": 167.99867248535156,
+     "interaction_types": [
+      "reflection",
+      "sensing"
+     ]
+    },
+    {
+     "path_id": "sensing_0011",
+     "tx_id": "ru1",
+     "rx_id": "rx2",
+     "target_id": "uav_01",
+     "power_dbm": -123.99962267596479,
+     "path_gain_db": -166.9996226759648,
+     "phase_rad": -0.5348090643518191,
+     "delay_ns": 1349.3099686456844,
+     "doppler_hz": 168.83119201660156,
+     "interaction_types": [
+      "reflection",
+      "sensing"
+     ]
+    }
+   ],
+   "expected_db": {
+    "columns": [
+     "mf",
+     "rect_x1",
+     "rect_x4",
+     "hann_x1",
+     "hann_x4"
+    ],
+    "A_direct_only": [
+     16.38,
+     13.58,
+     16.27,
+     11.79,
+     12.82
+    ],
+    "B_all_echoes": [
+     16.29,
+     13.57,
+     16.2,
+     11.79,
+     12.83
+    ]
+   }
+  },
+  {
+   "frame_index": 50,
+   "time_s": 25.0,
+   "tx_id": "ru1",
+   "rx_id": "rx3",
+   "reported_path_id": "sensing_0012",
+   "snr_db": 19.338658381021155,
+   "echo_power_dbm": -110.77464114201678,
+   "echoes": [
+    {
+     "path_id": "sensing_0012",
+     "tx_id": "ru1",
+     "rx_id": "rx3",
+     "target_id": "uav_01",
+     "power_dbm": -110.77464114201678,
+     "path_gain_db": -153.77464114201678,
+     "phase_rad": 2.36948983878645,
+     "delay_ns": 972.4636811370146,
+     "doppler_hz": 134.40872192382812,
+     "interaction_types": [
+      "sensing"
+     ]
+    },
+    {
+     "path_id": "sensing_0013",
+     "tx_id": "ru1",
+     "rx_id": "rx3",
+     "target_id": "uav_01",
+     "power_dbm": -121.16544227880541,
+     "path_gain_db": -164.16544227880541,
+     "phase_rad": -2.5918715851004492,
+     "delay_ns": 1107.6892860728549,
+     "doppler_hz": 169.29864501953125,
+     "interaction_types": [
+      "reflection",
+      "sensing"
+     ]
+    },
+    {
+     "path_id": "sensing_0014",
+     "tx_id": "ru1",
+     "rx_id": "rx3",
+     "target_id": "uav_01",
+     "power_dbm": -121.04632853308058,
+     "path_gain_db": -164.04632853308058,
+     "phase_rad": -0.01814239132377793,
+     "delay_ns": 1107.5721886300016,
+     "doppler_hz": 170.13116455078125,
+     "interaction_types": [
+      "reflection",
+      "sensing"
+     ]
+    },
+    {
+     "path_id": "sensing_0015",
+     "tx_id": "ru1",
+     "rx_id": "rx3",
+     "target_id": "uav_01",
+     "power_dbm": -126.69244881622782,
+     "path_gain_db": -169.69244881622782,
+     "phase_rad": 2.082953238403846,
+     "delay_ns": 1964.9062323878752,
+     "doppler_hz": 153.5111541748047,
+     "interaction_types": [
+      "sensing",
+      "reflection"
+     ]
+    }
+   ],
+   "expected_db": {
+    "columns": [
+     "mf",
+     "rect_x1",
+     "rect_x4",
+     "hann_x1",
+     "hann_x4"
+    ],
+    "A_direct_only": [
+     19.34,
+     14.48,
+     19.18,
+     14.0,
+     15.75
+    ],
+    "B_all_echoes": [
+     19.24,
+     14.53,
+     19.07,
+     14.0,
+     15.77
+    ]
+   }
+  }
+ ]
+}

@@ -166,6 +166,61 @@ def _dot(a: list[float], b: list[float]) -> float:
     return sum(ai * bi for ai, bi in zip(a, b))
 
 
+def segment_hits_box(
+    a: list[float], b: list[float], target: ResolvedSensingTarget, inflate_m: float = 0.0
+) -> bool:
+    """True when segment a -> b meets the target's oriented cuboid (slab
+    test in the box frame, boundary inclusive)."""
+    # channel_npz_export imports the backend package, which imports this.
+    from seam_studio.services.channel_npz_export import local_frame_matrix
+
+    rot = np.asarray(local_frame_matrix(target.orientation_deg), dtype=float)
+    center = np.asarray(target.center, dtype=float)
+    p0 = rot.T @ (np.asarray(a, dtype=float) - center)
+    d = rot.T @ (np.asarray(b, dtype=float) - np.asarray(a, dtype=float))
+    half = np.asarray(target.size_m, dtype=float) / 2.0 + inflate_m
+    t_lo, t_hi = 0.0, 1.0
+    for k in range(3):
+        if abs(d[k]) < 1e-15:
+            if abs(p0[k]) > half[k]:
+                return False
+            continue
+        t1 = (-half[k] - p0[k]) / d[k]
+        t2 = (half[k] - p0[k]) / d[k]
+        if t1 > t2:
+            t1, t2 = t2, t1
+        t_lo, t_hi = max(t_lo, t1), min(t_hi, t2)
+        if t_lo > t_hi:
+            return False
+    return True
+
+
+def _scaled_library(
+    library: RFMaterialLibrary,
+    material_scales: dict[str, tuple[float, float]],
+    warnings: list[str],
+) -> RFMaterialLibrary:
+    """``library`` with each named constant material's eps_r / sigma scaled
+    (eps_r clipped at 1, sigma at 0)."""
+    known = library.ids()
+    for name in material_scales:
+        if name not in known:
+            warnings.append(f"radio material {name!r} not in the library; not perturbed")
+    materials = []
+    for mat in library.materials:
+        scales = material_scales.get(mat.id)
+        if scales is None or mat.model != "constant":
+            materials.append(mat)
+            continue
+        update: dict = {}
+        if mat.relative_permittivity is not None:
+            update["relative_permittivity"] = max(1.0, mat.relative_permittivity * scales[0])
+        if mat.conductivity_s_per_m is not None:
+            update["conductivity_s_per_m"] = max(0.0, mat.conductivity_s_per_m * scales[1])
+        materials.append(mat.model_copy(update=update))
+    return RFMaterialLibrary(materials=materials)
+
+
 _MOCK_TR38901_WARNING = (
     "mock sensing: TR 38.901 targets use one scattering point at the target "
     "center with the spec's mean monostatic RCS (sigma_M); lobes and "
@@ -400,6 +455,60 @@ class MockBackend(RayTracingBackend):
             phase_rad=_phase_rad(total, config.frequency_hz),
             interactions=[interaction],
         )
+
+    def simulate_background(
+        self,
+        project_dir: Path,
+        scene: Scene,
+        library: RFMaterialLibrary,
+        config: SimulationConfig,
+        targets: list[ResolvedSensingTarget],
+        *,
+        hypothesis: str,
+        deterministic: bool = False,
+        actor_states: Optional[list] = None,
+        actor_velocities: Optional[dict[str, list[float]]] = None,
+        material_scales: Optional[dict[str, tuple[float, float]]] = None,
+        max_paths_per_link: Optional[int] = None,
+    ) -> PathResultSet:
+        """The plain mock paths (LoS, ground and wall bounce) of the sensing
+        links, constant materials scaled by ``material_scales``. H0: every
+        path (the mock traces no actor). H1: minus each path with a leg
+        through a target cuboid (the absorber). Doppler of every path from
+        the device velocities, (v_tx . k_dep - v_rx . k_arr) / lambda."""
+        warnings: list[str] = []
+        lib = (
+            _scaled_library(library, material_scales, warnings)
+            if material_scales
+            else library
+        )
+        result = self.simulate_paths(project_dir, scene, lib, config)
+        paths = list(result.paths)
+        if hypothesis == "h1" and targets:
+            paths = [
+                p for p in paths
+                if not any(
+                    segment_hits_box(a, b, t)
+                    for t in targets
+                    for a, b in zip(p.vertices[:-1], p.vertices[1:])
+                )
+            ]
+        lam = SPEED_OF_LIGHT / config.frequency_hz
+        by_id = {d.id: d for d in scene.devices}
+        doppler: list[float] = []
+        for p in paths:
+            tx, rx = by_id[p.tx_id], by_id[p.rx_id]
+            v_tx = [float(c) for c in tx.velocity_m_s] if tx.velocity_m_s else [0.0] * 3
+            v_rx = [float(c) for c in rx.velocity_m_s] if rx.velocity_m_s else [0.0] * 3
+            k_dep = _unit(p.vertices[0], p.vertices[1])
+            k_arr = _unit(p.vertices[-2], p.vertices[-1])
+            f_d = (_dot(v_tx, k_dep) - _dot(v_rx, k_arr)) / lam
+            p.doppler_hz = f_d
+            doppler.append(f_d)
+        result.paths = paths
+        result.warnings = list(result.warnings) + warnings
+        result.metadata["doppler_hz"] = doppler
+        return result
 
     # ------------------------------------------------------------ sensing
 

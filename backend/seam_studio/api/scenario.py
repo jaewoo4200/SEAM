@@ -50,6 +50,7 @@ def simulate_scenario(
     runs a sensing solve (per-link detection + multistatic fusion). Runs under
     the per-project solve guard: a sensing frame is two or three solves on the
     shared cached scene."""
+    from seam_studio.services.numerology import resolve_numerology
     from seam_studio.services.sensing import SensingRequestError, select_targets
     from seam_studio.services.sensing_track import resolve_sensing_rxs
 
@@ -83,10 +84,19 @@ def simulate_scenario(
                 ),
             )
         try:
-            targets = select_targets(scene, request.sensing.target_actor_ids)
+            targets = select_targets(
+                scene, request.sensing.target_actor_ids,
+                allow_empty=request.sensing.background_enabled(),
+            )
             sensing_rxs, _rule = resolve_sensing_rxs(
                 selected["tx"], selected["rx"], request.sensing.sensing_rx_ids
             )
+            if request.sensing.waveform is not None:
+                num = resolve_numerology(request.sensing.waveform, request.sensing.cpi_s)
+                if request.sensing.detection is not None and request.sensing.cfar_enabled():
+                    from seam_studio.services.sensing_detection import check_detection_map
+
+                    check_detection_map(num, request.sensing.detection)
         except SensingRequestError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
         detector = request.sensing.detector

@@ -2261,6 +2261,17 @@ export const useAppStore = create<AppState>()((set, get) => {
             ...resultsMode(),
           });
           stampResult("scenario");
+        } else if (ref.kind === "sensing_background_ensemble") {
+          // No viewer layer: it is the H0 source of a CFAR scenario run.
+          const ens = await api.getSensingBackgroundEnsembleResult(pid, ref.result_id, true);
+          const perturbed = ens.realizations.filter((r) => r.label === "perturbed").length;
+          set({
+            notice:
+              `H0 ensemble ${ref.label ?? ref.result_id}: ${ens.realizations.length} realization(s)` +
+              ` (${perturbed} perturbed) · ${ens.links.length} link(s) · ` +
+              `${ens.noise_frames_per_realization} noise frame(s) each`,
+          });
+          return;
         } else {
           set({ error: `Cannot activate result of kind ${ref.kind}` });
           return;

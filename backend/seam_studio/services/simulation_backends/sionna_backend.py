@@ -18,7 +18,7 @@ import re
 import sys
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Optional
+from typing import Literal, Optional
 
 from seam_studio.schemas.devices import Antenna, Device
 from seam_studio.schemas.materials import RFMaterialLibrary
@@ -751,6 +751,10 @@ class SionnaBackend(RayTracingBackend):
         actor_velocities: Optional[dict] = None,
         *,
         sensing_targets: Optional[list[ResolvedSensingTarget]] = None,
+        target_mode: Literal["absorber", "removed"] = "absorber",
+        deterministic: bool = False,
+        material_scales: Optional[dict[str, tuple[float, float]]] = None,
+        max_paths_per_link: Optional[int] = None,
     ) -> PathResultSet:
         try:
             # Alternate engine venvs (config.engine) run through the subprocess
@@ -772,6 +776,10 @@ class SionnaBackend(RayTracingBackend):
                 return self._simulate_paths_impl(
                     project_dir, scene, library, config, actor_states, actor_velocities,
                     sensing_targets=sensing_targets,
+                    target_mode=target_mode,
+                    deterministic=deterministic,
+                    material_scales=material_scales,
+                    max_paths_per_link=max_paths_per_link,
                 )
             finally:
                 _release_solver_memory()
@@ -816,6 +824,62 @@ class SionnaBackend(RayTracingBackend):
             actor_states=actor_states,
             actor_velocities=actor_velocities,
             sensing_targets=targets,
+        )
+
+    def simulate_background(
+        self,
+        project_dir: Path,
+        scene: Scene,
+        library: RFMaterialLibrary,
+        config: SimulationConfig,
+        targets: list[ResolvedSensingTarget],
+        *,
+        hypothesis: Literal["h0", "h1"],
+        deterministic: bool = False,
+        actor_states: Optional[list] = None,
+        actor_velocities: Optional[dict[str, list[float]]] = None,
+        material_scales: Optional[dict[str, tuple[float, float]]] = None,
+        max_paths_per_link: Optional[int] = None,
+    ) -> PathResultSet:
+        """PathSolver over the cached scene with every target actor mesh
+        hidden: H1 adds the targets as absorbers (as
+        simulate_paths_with_targets), H0 adds nothing. Builtin engine;
+        material_scales scales the loaded radio materials' eps_r / sigma for
+        this solve only. ``max_paths_per_link`` drops the weaker paths of
+        each link before they become RayPath rows (metadata
+        "background_dropped_paths"); a failed solve sets metadata
+        "solve_failed"."""
+        result = self.simulate_paths(
+            project_dir,
+            scene,
+            library,
+            config.model_copy(update={"engine": None}),
+            actor_states=actor_states,
+            actor_velocities=actor_velocities,
+            sensing_targets=targets,
+            target_mode="absorber" if hypothesis == "h1" else "removed",
+            deterministic=deterministic,
+            material_scales=material_scales,
+            max_paths_per_link=max_paths_per_link,
+        )
+        if not result.paths and any(
+            w.startswith("sionna backend failed") for w in result.warnings
+        ):
+            result.metadata["solve_failed"] = True
+        return result
+
+    def radio_material_names(
+        self, project_dir: Path, scene: Scene, library: RFMaterialLibrary
+    ) -> list[str]:
+        """Names of the loaded scene's radio materials (the keys of
+        material_scales), sensing-target absorbers excluded."""
+        warnings: list[str] = []
+        _ensure_sionna_variant(warnings)
+        xml_path = self._ensure_projection(project_dir, scene, library, warnings)
+        rt_scene = _load_scene_cached(xml_path, warnings)
+        return sorted(
+            name for name in rt_scene.radio_materials
+            if not name.startswith(SENSING_TARGET_PREFIX)
         )
 
     def _simulate_paths_engine(
@@ -951,6 +1015,10 @@ class SionnaBackend(RayTracingBackend):
         actor_velocities: Optional[dict] = None,
         *,
         sensing_targets: Optional[list[ResolvedSensingTarget]] = None,
+        target_mode: Literal["absorber", "removed"] = "absorber",
+        deterministic: bool = False,
+        material_scales: Optional[dict[str, tuple[float, float]]] = None,
+        max_paths_per_link: Optional[int] = None,
     ) -> PathResultSet:
         import numpy as np
 
@@ -1006,8 +1074,8 @@ class SionnaBackend(RayTracingBackend):
         if sensing_targets:
             from seam_studio.services.availability import sionna_rcs_available
 
-            add_targets = sionna_rcs_available()
-            if not add_targets:
+            add_targets = target_mode == "absorber" and sionna_rcs_available()
+            if target_mode == "absorber" and not add_targets:
                 warnings.append(
                     "sionna-rt < 2.2 has no sensing targets: the target actors' "
                     "meshes were removed, not replaced by absorbers"
@@ -1016,6 +1084,22 @@ class SionnaBackend(RayTracingBackend):
             self._install_sensing_targets(
                 rt_scene, sensing_targets, warnings, add_targets=add_targets
             )
+        # (material, eps_r, sigma) as loaded: put back after the solve so the
+        # cached scene never keeps a perturbation.
+        saved_materials: list[tuple[object, float, float]] = []
+        if material_scales:
+            for name, (eps_scale, sigma_scale) in material_scales.items():
+                rt_mat = rt_scene.radio_materials.get(name)
+                if rt_mat is None:
+                    warnings.append(
+                        f"radio material {name!r} not in the loaded scene; not perturbed"
+                    )
+                    continue
+                eps = float(np.asarray(rt_mat.relative_permittivity).reshape(-1)[0])
+                sigma = float(np.asarray(rt_mat.conductivity).reshape(-1)[0])
+                saved_materials.append((rt_mat, eps, sigma))
+                rt_mat.relative_permittivity = max(1.0, eps * float(eps_scale))
+                rt_mat.conductivity = max(0.0, sigma * float(sigma_scale))
 
         try:
             # Map Sionna's per-interaction object ids back to canonical prims.
@@ -1034,7 +1118,7 @@ class SionnaBackend(RayTracingBackend):
                 if prim.rf.material_id:
                     material_to_prims.setdefault(prim.rf.material_id, []).append(prim.id)
 
-            solver = PathSolver()
+            solver = PathSolver(deterministic=deterministic)
             # Full solver passthrough: every SimulationConfig interaction/
             # mechanics flag maps to the matching PathSolver kwarg (verified
             # against sionna-rt 2.0.1 PathSolver.__call__).
@@ -1057,13 +1141,18 @@ class SionnaBackend(RayTracingBackend):
             absorption_alpha, absorption_warning = atmosphere.absorption_db_per_km(config)
             if absorption_warning:
                 warnings.append(absorption_warning)
+            convert_stats: dict[str, int] = {}
             paths, doppler_hz = self._convert_paths(
                 solved, txs, rxs, objid_to_material, material_to_prims, warnings, np,
                 config.frequency_hz, absorption_alpha,
+                max_paths_per_link=max_paths_per_link, stats=convert_stats,
             )
         finally:
             if sensing_targets:
                 _reset_sensing_targets(rt_scene)
+            for rt_mat, eps, sigma in saved_materials:
+                rt_mat.relative_permittivity = eps
+                rt_mat.conductivity = sigma
         metadata = {
             "frequency_hz": config.frequency_hz,
             "num_tx": len(txs),
@@ -1075,6 +1164,8 @@ class SionnaBackend(RayTracingBackend):
         # in the link actually moves, so a static solve stays byte-identical.
         if any_velocity and doppler_hz is not None:
             metadata["doppler_hz"] = doppler_hz
+        if max_paths_per_link is not None:
+            metadata["background_dropped_paths"] = convert_stats.get("dropped", 0)
         return PathResultSet(
             result_id=UNSAVED_RESULT_ID,
             backend=self.name,
@@ -1921,12 +2012,19 @@ class SionnaBackend(RayTracingBackend):
         absorption_db_per_km: float = 0.0,
         *,
         sensing_actor_ids: Optional[list] = None,
+        max_paths_per_link: Optional[int] = None,
+        stats: Optional[dict] = None,
     ) -> tuple[list[RayPath], Optional[list[float]]]:
         """Normalize a sionna-rt 2.x Paths object into schema RayPath entries.
 
         ``sensing_actor_ids`` (RCSSolver output only) switches on the sensing
         fields: ids "sensing_NNNN", per-path ``doppler_hz`` and ``target_id``.
         Left None, the output is exactly the plain-paths conversion.
+
+        ``max_paths_per_link`` (background solves): per (rx, tx) only the
+        paths whose power is within 1e-9 dB of the k-th strongest or above
+        become RayPath rows (a superset of the k strongest: ties stay for the
+        caller's exact cut); ``stats["dropped"]`` counts the others.
 
         Verified tensor layout (synthetic 1x1 arrays, synthetic_array=True):
         - solved.a:            tuple(real, imag), each
@@ -2021,12 +2119,23 @@ class SionnaBackend(RayTracingBackend):
         num_tx = min(tau.shape[1], len(txs))
         max_paths = tau.shape[-1]
 
+        candidates = None
+        if max_paths_per_link is not None and a.ndim == 3 and tau.ndim == 3:
+            candidates, dropped = SionnaBackend._strongest_candidates(
+                a, tau, valid, max_paths_per_link, absorption_db_per_km, np
+            )
+            if stats is not None:
+                stats["dropped"] = dropped
+
         paths: list[RayPath] = []
         doppler_hz: list[float] = []
         counter = 0
         for r in range(num_rx):
             for t in range(num_tx):
-                for p in range(max_paths):
+                path_indices = (
+                    range(max_paths) if candidates is None else candidates[r][t]
+                )
+                for p in path_indices:
                     if valid is not None and valid.ndim == 3 and not bool(valid[r, t, p]):
                         continue
                     tau_s = float(tau[r, t, p])
@@ -2112,6 +2221,37 @@ class SionnaBackend(RayTracingBackend):
         # otherwise the alignment is unreliable and we drop it.
         aligned = doppler_hz if len(doppler_hz) == len(paths) else None
         return paths, aligned
+
+    @staticmethod
+    def _strongest_candidates(a, tau, valid, k: int, absorption_db_per_km: float, np):
+        """Per (rx, tx): indices (ascending) of the convertible paths whose
+        gain 20log10|a| - gas attenuation is >= the k-th largest minus 1e-9
+        dB, and how many convertible paths fell below."""
+        mag = np.abs(a)
+        ok = (tau >= 0) & (mag > 0)
+        if valid is not None and valid.ndim == 3:
+            ok &= valid.astype(bool)
+        with np.errstate(divide="ignore"):
+            gain = 20.0 * np.log10(np.maximum(mag, 1e-30))
+        if absorption_db_per_km > 0.0:
+            gain = gain - absorption_db_per_km * (np.maximum(tau, 0.0) * 299_792_458.0 / 1000.0)
+        gain = np.where(ok, gain, -np.inf)
+        out: list[list] = []
+        dropped = 0
+        for r in range(a.shape[0]):
+            row: list = []
+            for t in range(a.shape[1]):
+                g = gain[r, t]
+                n_ok = int(np.count_nonzero(ok[r, t]))
+                if n_ok > k:
+                    kth = float(np.partition(g, g.size - k)[g.size - k])
+                    keep = ok[r, t] & (g >= kth - 1e-9)
+                    dropped += n_ok - int(np.count_nonzero(keep))
+                else:
+                    keep = ok[r, t]
+                row.append(np.flatnonzero(keep).tolist())
+            out.append(row)
+        return out, dropped
 
     @staticmethod
     def _path_interactions(

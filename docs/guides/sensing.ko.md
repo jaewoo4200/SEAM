@@ -484,6 +484,159 @@ MTI를 끄려면 `mti_min_doppler_hz: 0`으로 두세요.
 프레임의 트랙)이 더해지고, 실행 전체에는 `median_track_position_error_m`과
 `tracking_model`이 더해집니다.
 
+### 파형 수비학 (#23)
+
+파형을 주지 않으면 `cpi_pulses`는 자유 변수이고 적분 이득은 `cpi_s`와 상관없이
+`10log10(cpi_pulses)`입니다(v0.1.15 동작이며 지금도 기본값). `sensing.waveform`을 주면 이
+자리를 OFDM 수비학이 대신합니다. 한 CPI의 파일럿 자원 요소(RE) 수가 이득을 정하고, 점유
+대역폭이 잡음 바닥과 분해능을 정합니다. 같은 객체를 ISAC 요청(`waveform`), 커버리지 요청과
+`/analysis/pd-curve`(`waveform`과 `cpi_s`, 기본 0.01 s), 채널 분석(`waveform`)도 받습니다.
+채널 분석에서는 RSRP/RSRQ 격자가 `scs_hz` 간격의 `n_active_sc`개 부반송파가 됩니다. 예를
+들어 20 MHz·30 kHz에서 `int(B / (12 scs))` = 55 RB 대신 51 PRB / 612 SC입니다.
+
+| 필드 | 기본값 | 의미 |
+|---|---|---|
+| `scs_hz` | 30e3 | 부반송파 간격 Δf [Hz] |
+| `n_fft` | 필수 | FFT 크기(`n_active_sc` 이상) |
+| `n_active_sc` | 612 | 활성 부반송파 수. B_occ = `n_active_sc` · Δf |
+| `cp` | `normal` | `normal` 또는 `extended` |
+| `symbol_duration_s` | `null` | CP를 포함한 평균 심볼 길이. `null`이면 NR 슬롯 시간(Δf = 15 · 2^μ kHz면 (1 ms / 2^μ) / 14, 확장 CP는 / 12), 그 밖에는 (1/Δf)(1 + 144/2048 또는 512/2048) |
+| `symbols_per_cpi` | `null` | `null`이면 floor(`cpi_s` / T_sym) |
+| `pilot.pattern` | `comb` | `comb` 또는 `block`(block은 `subcarrier_step` 1) |
+| `pilot.subcarrier_step`, `pilot.symbol_step` | 1, 1 | m번째 심볼마다, n번째 활성 부반송파마다 파일럿(둘 다 0번부터) |
+
+파일럿 격자와 거기서 나오는 값은 다음과 같습니다.
+
+```
+K = ceil(n_active_sc / subcarrier_step)      N = ceil(symbols / symbol_step)
+cpi_pulses = K N        적분 이득 = 10 log10(K N)
+B_occ = n_active_sc Δf  잡음 바닥 = -174 dBm/Hz + 10 log10(B_occ) + NF
+거리 합 셀 c / B_occ (모노스태틱 거리 c / 2 B_occ)
+지연 빈 1 / (K · subcarrier_step Δf)       도플러 셀 1 / (N · symbol_step T_sym)
+파일럿 축  f_k = (k · subcarrier_step - n_active_sc // 2) Δf,   t_j = j · symbol_step T_sym
+```
+
+진폭과 잡음 규약(트랙 B 기능 전부가 같이 씀): 경로의 채널 계수는 무차원
+`a = 10^(path_gain_db / 20) e^(j phase_rad)`입니다(`phase_rad`에는 이미 −2π f_c τ가
+들어 있음). 활성 부반송파마다 RE당 Es = P_tx / `n_active_sc`(CP 제외)를 싣고, RE당 잡음은
+N0 = −174 dBm/Hz + 10log10(Δf) + NF입니다. 그러면 경로의 RE당 SNR |a|² Es / N0는
+P_echo − N_floor(B_occ)이고, `snr_db = P_echo − N_floor(B_occ) + 10log10(K N)`은 파일럿
+RE K N개의 정합 필터 SNR입니다.
+
+| 프리셋, `cpi_s` | T_sym | 심볼 | K × N | 이득 | B_occ | c / B_occ | 도플러 셀 | 바닥(NF 7 dB) |
+|---|---|---|---|---|---|---|---|---|
+| NR 30 kHz 51 PRB, 10 ms | 0.5 ms / 14 | 280 | 612 × 280 = 171,360 | 52.34 dB | 18.36 MHz | 16.33 m | 100 Hz | −94.36 dBm |
+| NR 30 kHz 51 PRB, 50 ms | | 1400 | 612 × 1400 = 856,800 | 59.33 dB | | | 20 Hz | |
+| Grid S, 10 ms | 1/14400 s | 144 | 256 × 16 = 4096 | 36.12 dB | 20.0 MHz | 14.99 m | 100 Hz | −93.99 dBm |
+| Grid S, 50 ms | | 720 | 256 × 80 = 20,480 | 43.11 dB | | | 20 Hz | |
+
+NR 30 kHz 51 PRB는 `{"scs_hz": 30000, "n_fft": 1024, "n_active_sc": 612}`이고, Grid S(v0.1.15
+데모의 4096 펄스 기본값을 파일럿 격자로 읽은 것)는 `{"scs_hz": 15625, "n_fft": 2048,
+"n_active_sc": 1280, "symbol_duration_s": 0.0000694444444444, "pilot": {"subcarrier_step": 5,
+"symbol_step": 9}}`입니다(코드에서는 1/14400을 그대로 넘기세요). 파일럿 밀도가 같으면 CPI
+50 ms는 10 ms보다 10log10(5) = 6.99 dB 이득이 큽니다. 10 ms의 Grid S는 v0.1.15 수치(4096
+펄스, 20 MHz 바닥)를 그대로 냅니다.
+
+파형이 있으면 `metadata.sensing`(그리고 ISAC·커버리지·pd-curve 메타데이터)에 `cpi_pulses`
+(= K N), `b_occ_hz`, `n_re_per_cpi`, `symbols_per_cpi`, `symbol_duration_s`,
+`pilot_fraction`, `grid_k`, `grid_n`, `n0_dbm_per_re`와 `numerology` 사전 전체가 붙고,
+`noise_floor_dbm`, `integration_gain_db`, 분해능과 `velocity_resolution_m_s`가 파형을
+따릅니다. `bandwidth_hz`, `cpi_s`, MTI 키는 v0.1.15 의미 그대로입니다. 경고 두 개가 옛
+요청을 짚어 줍니다. 파형 없이 `cpi_pulses`를 주고 `cpi_s`가 0.01 s가 아니면 "integration
+gain does not follow cpi_s without sensing.waveform", `cpi_pulses`가 파형의 K N과 다르면
+"cpi_pulses 4096 overridden by the waveform numerology: 171360 pilot REs per CPI (612 x
+280)"입니다. 저장되는 요청에는 보낸 숫자가 그대로 남습니다. `cpi_s`가 심볼 하나보다 짧거나,
+`symbols_per_cpi`가 CPI에 들어가지 않거나, CPI당 파일럿 RE가 10⁸개를 넘으면 파형을 받는
+모든 경로(시나리오, ISAC, 센싱 커버리지, `/analysis/pd-curve`)가 아무것도 풀기 전에 400을
+돌려줍니다. 커버리지 요청은 파형 없이 `cpi_s`를 받으면 "cpi_s is unused without
+waveform"이라고 경고합니다. 채널 분석에는 `cpi_s`가 없습니다. 그 `metadata.numerology`는
+`symbols_per_cpi`가 있으면 그 심볼 수, 없으면 10 ms(최소 한 심볼)를 덮고, RSRP/RSRQ에는
+부반송파 수와 간격만 들어가므로 다른 경로가 받는 파형은 채널 분석도 받습니다.
+
+```json
+"sensing": {"enabled": true, "cpi_s": 0.05, "threshold_db": 13,
+            "waveform": {"scs_hz": 30000, "n_fft": 1024, "n_active_sc": 612}}
+```
+
+### 배경 경로 H0/H1 (#21)
+
+`include_comm_paths`는 타깃을 흡수체로 둔 통신 경로를 `echoes` 뒤에 붙입니다. 타깃이 있을
+때의 배경(H1)입니다. 오경보 보정에는 같은 프레임에서 푼, 타깃이 없을 때의 배경(H0)이
+필요하고, RCS 솔버는 확산 클러터를 추적하지 않습니다. `sensing.background`는 매 프레임
+TX → 센싱 RX 링크에서 PathSolver로 둘 다 풉니다.
+
+- **H1**(`h1_absorber`): 타깃 액터 메시를 모두 감추고 타깃을 흡수체로 넣음
+  (`include_comm_paths`와 같은 방식).
+- **H0**(`h0_removed`): 타깃 액터 메시를 모두 감추고 아무것도 넣지 않음.
+
+| 필드 | 기본값 | 의미 |
+|---|---|---|
+| `mode` | `off` | `off`, `h1_absorber`, `h0_removed`, `both` |
+| `diffuse_reflection` | `true` | 확산 클러터(재질의 산란 계수) |
+| `diffraction`, `edge_diffraction` | `false` | |
+| `max_depth`, `num_samples` | `null` | `null`이면 config 값 |
+| `deterministic` | `true` | `PathSolver(deterministic=True)`. 두 번 돌려도 경로가 같음 |
+| `max_paths_per_link` | 256 | 솔브마다 링크별로 가장 센 경로 n개만 남김. `null`이면 전부 남김. 나머지는 `dropped_paths`로 세고 실행 경고 하나가 합계를 알려 줌 |
+| `cache` | `static_nodes` | `static_nodes`: 키가 반복되는 동안 한 번만 풂, `per_frame`: 매 프레임 풂 |
+| `store` | `h0` | 결과에 남길 가설: `h0`(H1은 메모리에서 CFAR 맵에만 씀), `both`, `none`(맵만) |
+
+LoS, 정반사, 굴절은 config를 따릅니다. 프레임마다 `background_h0` / `background_h1`
+(`RayPath` 목록: `power_dbm`, `path_gain_db`, `phase_rad`, `delay_ns`, 항상 실수인
+`doppler_hz`, 종류·`prim_id`·`rf_material_id`가 있는 `interactions`, `target_id`는
+`null`)와 `background_meta`(`mode`, `mechanisms`, `max_depth`, `num_samples`, `seed`,
+`deterministic`, 가설별 `solved`, `cache_hit`, `source_frame`, `cache_key`, `solve_s`,
+`num_paths`, `dropped_paths`, 남긴 경로의 `"tx>rx"`별 10log10 Σ|a|²인 `total_power_db`,
+`stored`, 솔브가 실패했으면 `error`)를 저장합니다. 경로 순서는 정규화합니다(링크, 다음으로
+지연·상호작용·꼭짓점 순, `path_0001`…로 다시 번호 매김). GPU 솔버는 같은 경로 집합을
+실행마다 다른 순서로 돌려주기 때문입니다.
+
+`store`는 푼 가설 가운데 무엇을 결과에 남길지 정합니다. 기본값 `h0`이면 H1은 모드가
+요구할 때 풀어서 CFAR 맵에 쓰지만 `background_h1`은 프레임에 넣지 않습니다
+(`background_meta.h1.stored: false`). `both`는 H1도 남기고(§10에서 `background_h1`이나
+`total` 채널을 내보내려면 필요), `none`은 둘 다 남기지 않습니다. 맵은 셋 모두 같습니다.
+`max_paths_per_link`는 링크마다 전력이 가장 센 경로만 남깁니다. sionna 백엔드는 솔버
+경로를 행으로 바꾸기 전에 나머지를 버리고, 실행이 끝나면 "background: max_paths_per_link
+256 kept the strongest 256 paths per link: … of … solved background paths dropped over the
+run" 경고를 한 번 남깁니다. 버리는 경로는 약한 확산 꼬리라서 (남긴 경로의)
+`total_power_db`는 거의 바뀌지 않습니다. 전부 남기려면 `null`을 주세요.
+
+`static_nodes` 키는 RF 투영 지문, 솔버 옵션, 모든 TX와 센싱 RX의 위치·속도, 표적이 아닌
+액터 전부의 자세·속도, 그리고 H1이면 타깃 직육면체를 해시합니다(H0에는 어떤 액터를 뺐는지만
+들어감). 앞 프레임과 키가 같은 프레임은 경로를 저장하지 않고,
+`background_meta.h0.source_frame`이 경로를 가진 프레임을 가리킵니다
+(`services.sensing_background.resolve_background(frames, i, "h0")`가 따라가고, 저장하지
+않은 가설이면 `null`을 돌려줌). 노드와 씬이 정지해 있으면 H0는 실행마다 한 번만 풀고,
+TX/RX나 차량이 움직이면 매 프레임 다시 풉니다. 실행은 가설마다 최근에 푼 키 4개를 메모리에
+둡니다. 솔브가 실패하면(sionna 백엔드는 경로 없음과 경고로 물러남) 캐시에 넣지 않습니다.
+그 프레임의 메타에 `error`가 붙고, 맵은 H0(없으면 배경 없음)로 대신하며, 다음 프레임이
+다시 풉니다. `metadata.sensing.background`에는 실행 요약(`store`, `max_paths_per_link`,
+`solves_h0`, `cache_hits_h0`, `failed_solves_h0`, `solve_s_total`, `paths_stored`,
+`paths_dropped` 등)이, `metadata.sensing.sensing_tx_ids`에는 TX 목록이 붙습니다.
+
+배경을 켜면 타깃이 하나도 없는(바인딩된 액터가 없는) 실행도 됩니다. `links`와
+`estimates`는 비고 프레임에는 배경만 남습니다(보정용 배경 전용 H0 실행). 배경이 없으면
+타깃 없는 씬은 여전히 400 "no sensing targets"입니다. 배경은 프레임의 다른
+필드(`echoes`, `links`, `estimates`, `nodes`)를 바꾸지 않습니다.
+
+확산 클러터는 경로가 많습니다. 지면 판 하나와 건물 하나 위의 300 m 기선 시험 씬은 샘플
+400,000개에서 링크당 경로 16,776개를 냅니다(푼 가설 하나에 JSON 약 10 MB). 기본값이
+링크당 256개만 남기는 이유입니다. mock 백엔드의 배경은 링크마다 LoS, 지면 반사, 벽
+반사이고(H1은 다리가 타깃 직육면체를 지나는 경로를 뺌), TX/RX 운동의 도플러를 붙입니다.
+
+타깃이 움직이면 H1 키가 바뀌므로, 노드가 모두 정지해 있어도 H1은 프레임마다 다시 풉니다.
+`isac_drone_fr1` 데모(링크 16개, config `max_depth` 2, 샘플 200,000개)에서 배경 솔브 한
+번은 경로 64,356개(링크당 약 4,000개)를 냅니다. 8프레임(NR 612 × 280, `both` 모드, CFAR)을
+재 보면, 경로를 전부 남기고 H1도 저장하면 프레임당 11.1초(H1 솔브당 3.9초)에 결과 403 MB,
+기본값(링크당 256개, H1 저장 안 함)이면 프레임당 1.2초(H1 솔브당 0.28초, 경로 4,025개)에
+결과 4.6 MB이고, CFAR 맵은 `store`와 상관없이 같습니다. 상한을 행 변환 앞으로 옮기기 전에는
+상한을 건 H1 솔브도 약 2.6초 걸렸습니다. 정지 노드에서 `h0_removed`는 실행마다 한 번만
+풉니다(같은 데모에서 CFAR 포함 프레임당 0.6초).
+
+```json
+"sensing": {"enabled": true, "waveform": {"scs_hz": 30000, "n_fft": 1024, "n_active_sc": 612},
+            "background": {"mode": "both", "store": "both", "max_paths_per_link": 2000}}
+```
+
 ## 7. ISAC 트레이드오프: 빔과 슬롯 공유
 
 TRP 패널 하나가 UE와 드론을 동시에 겨눌 수는 없습니다. ISAC 트레이드오프는 TX마다
@@ -897,6 +1050,170 @@ curl -X POST http://127.0.0.1:8000/api/projects/sample_demo/analysis/pd-curve \
 `metadata.mc_method`가 어떤 방식으로 뽑았는지 알려 줍니다. 모르는 프로젝트는 **404**,
 시행 예산 초과를 포함한 잘못된 요청은 **422**입니다.
 
+### 신호 수준 검출: 지연–도플러 맵과 CFAR (#24)
+
+§6의 탐지는 가장 강한 에코의 참 SNR에 임계값을 대는 방식이라, 강한 에코를 놓치는 일도
+오경보도 없습니다. `sensing.detection.mode: "cfar"`로 바꾸면 프레임마다 TX → 센싱 RX
+링크별로 수신 파일럿 채널을 만들고, 지연–도플러 맵으로 바꾼 뒤 2차원 CFAR 검출기를
+돌립니다. 이때 검출은 임계값을 넘은 셀입니다. 열잡음, 클러터, 타깃 사이드로브도 임계값을
+넘을 수 있고, 그런 오경보는 세어서 보고합니다. 맵이 파형의 파일럿 격자 위에 만들어지므로
+CFAR 모드에는 `sensing.waveform`(§6의 *파형 수비학 (#23)*)이 있어야 합니다.
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/projects/sample_demo/simulate/scenario \
+  -H "Content-Type: application/json" \
+  -d '{"num_frames": 20, "dt_s": 0.5, "sensing": {"enabled": true,
+       "waveform": {"scs_hz": 15625, "n_fft": 2048, "n_active_sc": 1280,
+                    "symbol_duration_s": 6.944444444444444e-05,
+                    "pilot": {"subcarrier_step": 5, "symbol_step": 9}},
+       "background": {"mode": "both"},
+       "detection": {"mode": "cfar",
+                     "map": {"window": "hann", "clutter_removal": "mean_subtract"},
+                     "cfar": {"type": "ca", "guard": [1, 1], "train": [8, 4],
+                              "pfa_cell": 1e-4}}}}'
+```
+
+**신호 모델.** 프레임 i, 링크 (tx, rx)의 K × N 파일럿 격자(부반송파 f_k, 파일럿 심볼
+시각 t_n) 위에서
+
+    Y[n, k] = Σ_p a_p e^(−j2π f_k τ_p) e^(+j2π f_D,p t_n) + W[n, k]
+
+입니다. 합은 그 링크에 있는 모든 타깃의 에코(직접 에코와 다중 경로 에코)와 배경 경로에
+대해 잡습니다. 배경은 실행이 H1을 풀었으면 H1, 아니면 H0, 둘 다 없으면 넣지 않습니다
+(§6의 *배경 경로 H0/H1*). a_p = 10^(path_gain_db/20)·e^(j·phase_rad)는 무차원 경로
+이득입니다. `phase_rad`에 반송파 항 −2π f_c τ가 이미 들어 있으므로 f_k는 기저대역
+부반송파 주파수이고, 반송파 항을 다시 곱하지 않습니다. W는 RE당 분산이
+
+    σ_H² = N0 / Es = 10^((N0,RE − Es,RE)/10),  N0,RE = −174 + 10 log10(scs) + NF,  Es,RE = P_tx − 10 log10(n_active_sc)
+
+인 원형 가우시안으로, 최소제곱 파일럿 추정의 잡음입니다. σ_H²는 N_floor(B_occ) / P_tx와
+같으므로 경로의 RE당 SNR |a|²/σ_H²는 P_echo − N_floor(B_occ)입니다. (프레임 i, tx, rx)의
+잡음은 `SeedSequence(entropy=[noise_seed, 0x5EA024], spawn_key=(0, i, id32(tx), id32(rx)))`
+(PCG64, 실수부를 먼저 뽑고 허수부를 다음에 뽑음, id32는 sha256 앞 4바이트의 little-endian
+정수)로 뽑습니다. 그래서 `noise_seed`가 같은 두 실행은 같은 (프레임, tx, rx) 키에서 잡음이
+같고, 채널 내보내기(§10)는 그 잡음을 비트 단위로 그대로 다시 만듭니다. H0 보정 맵(아래)은
+따로 둔 스트림 0x5EA031에서 뽑으므로, 보정이 실행이 검사받는 잡음을 다시 쓰는 일은 없습니다.
+
+**맵.** `clutter_removal: "mean_subtract"`이면 먼저 부반송파마다 슬로타임 평균을 빼므로
+정지한 경로는 정확히 사라집니다. 다음으로 두 축에 창(주기 Hann
+w[i] = 0.5 − 0.5 cos(2πi/L), 또는 rect)을 곱하고, 부반송파 축(지연)에 K' = z·K점 IFFT,
+심볼 축(도플러)에 N' = z·N점 FFT를 합니다(z = `zero_pad`). 0 Hz가 N'/2행에 오도록
+도플러 축을 옮깁니다.
+
+    Z[v, u] = Σ_n Σ_k w_t[n] w_f[k] Y[n, k] e^(+j2π k u/K') e^(−j2π n v/N')
+    P[v, u] = |Z|² / (σ_H² Σw_f² Σw_t²)
+
+잡음 셀의 평균이 1이므로 P는 SNR입니다. (τ, f_D)인 경로는 u = τ K' Δf_p, v = f_D N' T_p
+(Δf_p는 파일럿 부반송파 간격, T_p는 파일럿 주기)에서 가장 크고, 그 셀의 거리합은
+c·u/(K'Δf_p), 도플러는 v/(N'T_p)입니다. 빈 중앙에 놓인 경로의 피크는
+10 log10 P = SNR_RE + 10 log10(K N) + L_t + L_f이고, 창 손실 L = 10 log10((Σw)²/(L Σw²))은
+축마다 rect 0, Hann −1.76 dB입니다. 빈 중앙에서 벗어나면 제로 패딩 없이 축당 약 3.9 dB까지
+걸침 손실이 생기며, `zero_pad` 4–8이면 대부분 되찾습니다. `zero_doppler_notch_bins: k`이면
+거친 도플러 빈 −k…k(|v| < (k + 0.5)·z인 행)는 검정 셀에서도, 훈련 셀에서도 빠집니다.
+`mean_subtract`는 0 Hz에 잡음을 남기지 않으므로 노치가 없으면 k = 0을 뜻하고, 잡음 분산을
+1 %보다 많이 줄이는 행도 훈련에서 뺍니다. 기준은 1 − |W_t(v)|² / (N Σw_t²) < 0.99이고, W_t는
+슬로타임 창의 N'점 DFT입니다. z = 1의 rect이면 0 Hz 행, Hann이면 −1…1행(±1행은 잡음의 5/6만
+남음)입니다. `metadata.sensing.detection.map`에 `notch_bins`, `notched_rows`,
+`non_training_rows`(부호 있는 v)가 나옵니다.
+
+**CFAR.** 검정 셀마다 그 셀을 둘러싼 ±(guard + train) 셀 상자에서 가드 상자를 뺀 부분이
+훈련 셀입니다. `guard`와 `train`은 [지연, 도플러] 반폭이고, 상자는 두 축 모두 끝에서
+반대쪽으로 이어집니다. 기본값은 guard [1, 1], train [8, 4]로 N_t = 17·9 − 3·3 = 200입니다.
+통계량 s가 임계값보다 크고(같으면 아님) 노치에 걸리지 않은 셀을 검출합니다.
+
+| `type` | 통계량 s | `pfa_cell`에서의 해석적 임계값 α |
+|---|---|---|
+| `ca` | P / 훈련 셀 평균 | α = N_t (P_fa^(−1/N_t) − 1), 즉 P_fa = (1 + α/N_t)^(−N_t) |
+| `os` | P / x₍k₎, 훈련 셀 중 k번째로 작은 값(`os_rank`, 기본 ⌈0.75 N_t⌉) | Π_{i<k} (N_t − i)/(N_t − i + α) = P_fa의 해 |
+
+훈련 상자 안에 훈련 행의 셀이 n_v < N_t개뿐인 검정 셀(노치 옆)은 그 셀들의 평균(CA)이나
+k_v = ⌈k·n_v/N_t⌉번째로 작은 값(OS)을 쓰고, 임계값 하나로 셀마다 P_fa가 지켜지도록 통계량을
+N_t 척도로 옮깁니다. CA는 s' = N_t((1 + s/n_v)^(n_v/N_t) − 1)로 어떤 임계값에서도 정확하고,
+OS는 s' = s·α(N_t, k)/α(n_v, k_v)로 `pfa_cell`에서 정확합니다. (비워진 0 Hz 행이 훈련에
+들어가던 때에는 rect + `mean_subtract`가 |v| = 1…5행에서 `pfa_cell`의 약 1.9배로
+오경보를 냈습니다.)
+
+이 P_fa는 셀이 서로 독립인 지수 분포일 때(rect 창, 패딩 없음) 성립합니다. Hann 창과 제로
+패딩은 이웃 셀을 상관시키므로 실제 달성률은 `pfa_cell`보다 높습니다. 주기 Hann 맵에서
+N_t = 40이면 10⁻³ 목표에 1.9·10⁻³이 나옵니다. 실제로 달성한 값은 아래 보고에 나옵니다.
+`threshold: "h0_calibrated"`이면 α 대신 저장된 결과(`h0_result_id`)의 H0 맵에서 구한
+경험적 임계값을 씁니다. 그 결과는 `sensing_background_ensemble`(§12, 실현 × 잡음 프레임 ×
+링크 전부)이거나 H0 배경 프레임을 저장한 시나리오 결과(프레임 전부, 캐시된 H0 목록을 함께
+쓰는 프레임은 한 번만 합성)이고, H0 맵은 이번 실행의 파형, 맵, CFAR, σ_H²로 만듭니다. 그
+잡음은 `SeedSequence(entropy=[seed, 0x5EA031], spawn_key=(r, m, id32(tx), id32(rx)))`에서
+뽑습니다(앙상블은 그 `seed`와 realization r, 시나리오 출처는 그 실행의 `noise_seed`와
+r = 0). 실행 중 잡음의 0x5EA024 스트림은 절대 쓰지 않으므로, 시드가 같아도 아래의 달성
+P_FA는 held-out 검사로 남습니다. 노치에 걸리지 않은 셀의 통계량이 n개, m = ⌊n·p⌋이면
+임계값은 `sorted(s)[n − m]`(0부터 셈)입니다. m은 20 이상이어야 하고, 평가하는 셀은 최대
+5·10⁸개입니다. `system_pfa`를 주면 통계량은 프레임마다 모든 링크와 셀에 걸친 최댓값이 되고,
+그 값들의 `system_pfa` 분위수가 임계값이 됩니다. 이때 H0 출처는 이번 실행의 TX → 센싱 RX
+링크를 모두 덮어야 합니다(아니면 400). 더 적은 링크에 걸친 최댓값은 임계값을 너무 낮게 잡기
+때문입니다(약 링크 수 / 보정 링크 수 × `system_pfa`). 셀 임계값이면 H0 맵이 없는 링크는
+다른 링크로 보정한 임계값을 쓰고 경고가 붙습니다(`source.uncalibrated_links`).
+
+**출력.** `SensingFrame.detections`는 링크 순서(TX 우선)대로, 링크 안에서는 통계량이 큰
+순서대로 모든 검출을 담습니다. 각 항목에는 `tx_id`, `rx_id`, `cell_tau`(u), `cell_nu`
+(부호 있는 v), `delay_ns`, `range_sum_m`, `doppler_hz`(축마다 이웃 셀의 10 log10 P에
+포물선을 맞춰 보간하고 ±0.5셀로 자른 값), `statistic`, `threshold`, `power_db`(10 log10 P),
+`snr_est_db`가 있습니다. `snr_est_db`는 비편향 잡음 평균(CA는 훈련 평균, OS는
+x₍k₎ / Σ_{i=N_t−k+1}^{N_t} 1/i)으로 구한 10 log10(P/잡음 − 1)입니다. 검출에는 참값이 없습니다.
+연관은 여전히 오라클입니다. 에코의 참 (거리합, 도플러)에 가장 가까운 맵 셀에서
+G = `oracle_gate_cells` 거친 셀(× `zero_pad`) 안에 검출이 있으면 그 링크 보고는
+`detected`가 됩니다(축 끝은 반대쪽과 이어짐). 축마다 2G + 1셀이고,
+`oracle_gate_cells: 0`이면 그 셀 하나입니다. 그런 검출 가운데 가장 강한 것이
+`measured_range_m`, `measured_doppler_hz`,
+`range_bin`, `doppler_bin`, `detection_index`(`detections` 안의 위치)를 정하고, 융합과
+EKF는 이 값을 씁니다. 게이트 안에 검출이 없으면 이유는 `cfar_miss`이고 측정 필드는 null입니다.
+`snr_db`, `bistatic_range_m`, `doppler_hz`, `path_id`는 오라클 값 그대로이고, §6의 MTI
+노치는 쓰지 않습니다. 맵이 이미 잡음을 더하므로 `measurement_noise`는 경고와 함께
+무시됩니다. 링크마다 강한 순서로 최대 `max_detections_per_link`(256)개를 저장하며, 게이트에
+든 검출은 이 상한과 상관없이 남습니다.
+
+**달성 P_FA.** `metadata.sensing.detection`에는 맵·CFAR·임계값 설정(α, 또는 n, m, 분위수
+규칙이 담긴 보정 출처), 잡음 시드, RE당 N0, TX별 σ_H², 그리고 `achieved`가 들어 있습니다.
+
+- `cell`: 검정한 셀(노치 밖이면서 어느 게이트에도 들지 않는 셀) 가운데 오경보 검출의 비율.
+- `link_frame`: 오경보가 하나라도 있는 맵의 비율.
+- `system`: 어느 링크에서든 오경보가 하나라도 있는 프레임의 비율.
+
+셋 다 95 % Clopper–Pearson 구간과 함께 나옵니다. 오경보는 자기 링크의 어느 게이트에도 들지
+않는 검출 전부입니다. 열잡음, 클러터 잔여, 다중 경로 고스트, 게이트 밖 타깃 사이드로브를
+가리지 않고 셉니다. `link_frame`과 `system`은 맵마다, 프레임마다 베르누이 시행 하나를 세므로
+정확한 이항 구간입니다. 셀은 서로 독립이 아닙니다. Hann 창과 제로 패딩이 이웃을 상관시켜
+오경보가 뭉치므로, `cell` 구간은 유효 표본 n/φ 가운데 k/φ의 Clopper–Pearson 구간입니다.
+φ = max(1, χ²/(M − 1))은 맵 M개의 맵별 오경보 수에 대한 Pearson 과산포
+(`cell.dispersion`)입니다(잡음에서 잰 값: Hann 1.3, Hann에 `zero_pad` 2이면 3, 패딩 없는
+rect 약 1). §9의 Pd 몬테카를로는 Wilson 구간을 그대로 씁니다.
+
+센 정지 경로는 0 Hz 근처의 약한 에코를 가립니다. 자유 공간에서 300 m 바이스태틱 기선,
+43 dBm, 0.052 m² 타깃(G1 기하)이면 직접파가 에코보다 68 dB 셉니다. Grid S 10 ms, Hann,
+클러터 제거 없음에서는 에코(적분 SNR 12 dB, 22 Hz)가 모든 프레임에서 `cfar_miss`였고,
+직접파 사이드로브 때문에 달성 셀 P_FA가 설계값 10⁻⁴ 대신 1.3·10⁻³(95 % 구간
+0.7–2.2·10⁻³, 과산포 3.9)이 됐습니다. CPI 50 ms, rect 창, `clutter_removal:
+"mean_subtract"`(노치 0이 따라옴)이면 바이스태틱과 모노스태틱 에코가 모든 프레임에서
+검출됐고 달성 셀 P_FA는 6.9·10⁻⁵(95 % 구간 3.1–13.3·10⁻⁵)였습니다. `isac_drone_fr1`
+데모(NR 612 × 280, H0 배경)에서는 평균 제거로 게이트 안 검출이 링크-프레임 128개 중
+36개에서 127개로 늘었습니다. 시나리오 폼의 "Clutter removal" 선택은 배경을 켜면 기본으로
+평균 제거입니다.
+
+| 필드 | 기본값 | 의미 |
+|---|---|---|
+| `detection.mode` | `"threshold"` | `"cfar"`이면 검출기를 켭니다(`waveform` 필요). |
+| `map.window`, `map.zero_pad` | `"hann"`, 1 | 두 축의 창, FFT 길이 배수(1–8). |
+| `map.clutter_removal` | `"none"` | `"mean_subtract"`이면 부반송파마다 슬로타임 평균을 뺍니다(노치 0이 따라오고, 비워진 행은 훈련하지 않음). |
+| `map.zero_doppler_notch_bins` | `null` | 검정도 훈련도 하지 않을 거친 도플러 빈 −k…k. |
+| `cfar.type`, `cfar.guard`, `cfar.train` | `"ca"`, [1, 1], [8, 4] | 검출기와 [지연, 도플러] 반폭. |
+| `cfar.os_rank`, `cfar.pfa_cell` | ⌈0.75 N_t⌉, 1e-4 | OS 순위, 셀당 설계 P_fa. |
+| `threshold`, `h0_result_id`, `system_pfa` | `"analytic"`, null, null | 보정 임계값의 출처와 프레임당 목표. |
+| `oracle_gate_cells`, `max_detections_per_link` | 1, 256 | 가장 가까운 셀 둘레의 연관 게이트, 링크당 저장할 검출 수. |
+
+다음은 아무것도 풀기 전에 400입니다. 맵보다 넓은 CFAR 창(`zero_pad`를 올리거나 `train`을
+줄이세요), 셀이 2²⁴ = 16,777,216개(z²·K·N)를 넘는 맵, 파일럿이 하나뿐인 축의 Hann 창, 모든
+도플러 행을 덮는 노치, 훈련 셀이 하나도 없는 검정 행. 모르거나, 종류가 다르거나, 저장된 H0
+프레임이 없거나, 이번 실행의 링크가 하나도 없거나, `system_pfa`인데 이번 실행의 링크가
+빠졌거나, 기대 초과 횟수가 20에 못 미치는 `h0_result_id`도 400입니다. `waveform` 없이
+CFAR를 켜면 422입니다.
+
 ## 10. 센싱 데이터셋 내보내기
 
 `POST /export/sensing-dataset`는 저장된 시나리오 결과의 프레임별 센싱(§6)을 학습이나
@@ -954,7 +1271,7 @@ NaN을 NaN 그대로 둡니다.
 | `aod_az_deg`, `aod_el_deg`, `aoa_az_deg`, `aoa_el_deg` | float64 | deg | feature | 보고된 에코(`frame.sensing.echoes`에서 `path_id`로 찾음) |
 | `pd`, `pd_mc` | float64 | | feature | 링크 보고(실행에 `pfa`가 없으면 NaN) |
 | `detected` | bool | | label | |
-| `reason` | str | | label | `detected` / `no_echo` / `below_threshold` / `mti_rejected` |
+| `reason` | str | | label | `detected` / `no_echo` / `below_threshold` / `mti_rejected` / `cfar_miss`(CFAR 실행, §9 참고) |
 | `position_true_x/y/z`, `velocity_true_x/y/z` | float64 | m, m/s | label | 그 타깃의 `estimates[]` 행 |
 | `est_status` | str | | estimate | `ok` / `insufficient_links` / `diverged` |
 | `n_links_detected`, `n_links_used` | int64 | | estimate | |
@@ -999,6 +1316,91 @@ estimate와 track 열은 타깃·프레임마다 값이 하나이고, 그 타깃
 파일로 행당 약 0.6 KB가 더 들어서, 500 000행 상한에서 내보내면 RAM을 최대 약 1.3 GB
 씁니다. 메모리가 작은 기기에서는 결과를 적게 골라 내보내세요.
 
+### 채널 텐서 (include_channel, #22)
+
+두 opt-in 플래그는 신호 수준 검출기에 필요한 것을 내보내기에 더합니다. 텐서는 저장된 경로
+행에서 합성하므로 이때도 솔브는 돌리지 않습니다.
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/projects/sample_demo/export/sensing-dataset \
+  -H "Content-Type: application/json" \
+  -d '{"include_echo_paths": true, "include_background_paths": true,
+       "include_channel": {"subcarriers": "pilot",
+                           "components": ["echo", "background_h0", "total"],
+                           "noise": {"enabled": true}}}'
+```
+
+| 필드 | 기본값 | 의미 |
+|---|---|---|
+| `include_background_paths` | `false` | `background.<fmt>`도 씁니다. 저장된 H0 / H1 배경 경로마다 한 행입니다(§6의 *배경 경로 H0/H1*). |
+| `include_channel` | `null` | `channel.npz`도 씁니다(아래 옵션). |
+| `include_channel.subcarriers` | `"pilot"` | `pilot`은 K × N 파일럿 격자, `active`는 CPI의 모든 심볼 × 모든 활성 부반송파. |
+| `include_channel.waveform` | `null` | 텐서의 격자. `null`이면 실행마다 그 실행의 `sensing.waveform`, 없으면 Grid S(15.625 kHz × 1280 SC, 1/14400 s 심볼 9개마다 comb-5 파일럿, 10 ms에 K 256 × N 16). |
+| `include_channel.components` | `["echo"]` | `echo`, `background_h0`, `background_h1`, `total` 중 아무것이나(중복 제거). |
+| `include_channel.noise.enabled` | `false` | 열잡음 실현값 `noise`도 씁니다. |
+| `include_channel.noise.n0_dbm_per_re` | `null` | RE당 N0 [dBm]. `null`이면 실행 설정의 −174 + 10 log10(scs) + NF. |
+| `include_channel.noise.seed` | `null` | `null`이면 실행마다 그 실행의 `sensing.noise_seed`. |
+| `include_channel.pilot_ls` | `false` | LS 파일럿 추정 `H_ls = H_total + noise`도 씁니다(잡음 필요). |
+| `include_channel.max_elements` | 50,000,000 | `channel.npz`의 complex64 원소 전체 상한(최대 2·10⁸). |
+
+두 플래그 중 하나라도 켜면 `echoes` 행에 `a_re`, `a_im`(무차원 이득
+10^(path_gain_db/20)·e^(j·phase_rad)의 실수부·허수부, 반송파 위상 포함)과
+`tx_power_dbm`이 붙고, 상호작용마다(`;`로 이음, LoS나 값이 없으면 `""`) `interaction_types`,
+`rf_material_ids`, `prim_ids`(센싱 상호작용이면 타깃 액터 id)가 붙습니다. 이때
+매니페스트의 `schema_version`은 2이고, 응답에는 `num_background_rows`, `num_channel_rows`,
+`channel_elements`가 붙습니다. 둘 다 끄면 모든 표와 매니페스트 키가 v0.1.15와
+같습니다(`created_at`, `seam_version` 제외).
+
+**background.\<fmt\>** 열은 `result_id`, `split`, `frame_index`, `time_s`, `hypothesis`
+(`h0` / `h1`), `path_id`, `tx_id`, `rx_id`, `path_type`, `delay_ns`, `bistatic_range_m`,
+`power_dbm`, `path_gain_db`, `phase_rad`, `doppler_hz`, 출발·도착 각도, `num_interactions`,
+그리고 위의 채널 열 여섯 개입니다. 가설을 실제로 풀어서 저장한 프레임에만 행이 있습니다. 캐시
+적중 프레임은 앞 프레임의 경로를 다시 쓰므로, 매니페스트의 `background_index`가 프레임마다
+`[frame_index, H0 출처 프레임, H1 출처 프레임]`(null이면 풀지 않았거나 저장하지 않았거나
+실패함)을 알려 줍니다. 기본값 `sensing.background.store: "h0"`인 실행에는 H1 행이 없습니다.
+이 표의 상한은 따로 500 000행입니다.
+
+**channel.npz**(zip 안에 압축 없이 저장)는 결과 × 센싱이 있는 프레임 × TX → 센싱 RX
+링크(TX 우선, 실행의 `sensing_tx_ids` × `sensing_rx_ids`)마다 한 행입니다.
+
+| 배열 | 모양, dtype | 의미 |
+|---|---|---|
+| `row`, `frame_index` | [R] int64 | 행 번호, 프레임 인덱스. |
+| `result_id`, `tx_id`, `rx_id` | [R] str | |
+| `time_s`, `sigma_h2`, `es_dbm_per_re` | [R] float64 | 프레임 시각, 그 행 TX의 σ_H² = N0/Es, RE당 Es [dBm]. |
+| `f_hz`, `t_s` | [K], [N] float64 | 기저대역 부반송파 주파수, 심볼 시각. |
+| `H_echo`, `H_background_h0`, `H_background_h1`, `H_total` | [R, N, K] complex64 | 요청한 성분, 잡음 없음. |
+| `noise`, `H_ls` | [R, N, K] complex64 | `noise.enabled` / `pilot_ls`일 때. |
+
+    H[n, k] = Σ_p a_p e^(−j2π f_k τ_p) e^(+j2π f_D,p t_n)
+
+f_k는 부반송파 k의 기저대역 주파수입니다. `phase_rad`에 −2π f_c τ가 이미 들어 있으므로 LoS
+경로 하나의 위상은 −2π(f_c + f_k)τ이고, 반송파는 한 번만 들어갑니다. 지연 정규화는 하지
+않으며, 다가오는 경로의 도플러가 양수입니다. `echo`는 그 링크의 타깃 에코만 합칩니다
+(`include_comm_paths`의 통신 경로는 빼고). `total`은 프레임에 H1이 있으면 에코 + H1, 없으면
+에코 + H0이고, CFAR 맵과 같은 규칙입니다. 배경이 없으면 0으로 채우고 경고합니다. H1을 풀었지만
+저장하지 않은 실행(기본값 `sensing.background.store: "h0"`)은 `background_h1`, `total`,
+`pilot_ls`(그 total은 실행의 맵과 달라짐)를 다시 만들 수 없어 400입니다. `store: "both"`로
+돌리거나 `echo` / `background_h0`만 내보내세요. `store: "none"`의 H0도 마찬가지입니다. 행의
+잡음은 위 CFAR 절의 키로 그 행의 σ_H²에서 뽑습니다. 그래서 실행 자신의 파형으로 파일럿
+격자를 내보내면, 내보낸 잡음이 그 실행의 맵에 들어간 잡음과 비트 단위로 같습니다. 매니페스트의
+`channel` 블록에는 격자(`waveform`, `numerology`), 성분, 결과별 잡음 시드와 N0, 잡음 키,
+진폭 규약, 합성식이 있습니다. 내보낸 결과 둘이 잡음 시드를 공유하면 경고가 붙습니다.
+
+```python
+import numpy as np
+ch = np.load("channel.npz", allow_pickle=False)
+H = ch["H_total"][0].astype(np.complex128)      # [심볼, 부반송파]
+Y = H + ch["noise"][0]                           # LS 파일럿 추정
+snr_re = np.abs(H) ** 2 / ch["sigma_h2"][0]      # 잡음 없는 채널의 RE당 SNR
+```
+
+한 번에 내보내는 결과는 모두 같은 격자(같은 주파수와 심볼 시각)여야 하고, 아니면 400입니다.
+따로 내보내거나 `include_channel.waveform`을 지정하세요. 원소 수(행 × N × K × 배열 수)가
+`max_elements`를 넘으면 아무것도 쓰기 전에 400입니다. 전력을 알 수 없는 TX(저장된 경로
+이득이 없고 씬에도 없음)는 경고와 함께 뺍니다. 텐서는 메모리에서 만들며 원소당 8바이트
+(기본 상한에서 400 MB)입니다.
+
 ## 11. 한계
 
 - 타깃은 강체 평행 이동만 합니다. 회전이나 마이크로 도플러는 없습니다.
@@ -1018,7 +1420,8 @@ estimate와 track 열은 타깃·프레임마다 값이 하나이고, 그 타깃
   돕니다. 그래서 입력이 같아도 강한 경로에서 약 1e-6 dB, 빔 널 근처에서 최대 약 0.1 dB까지
   달라질 수 있고, 실행마다 경로 순서와 `path_id`가 바뀔 수 있습니다. 결과는 `path_id`나
   정확한 dB 값이 아니라 기하나 경로 종류로 비교하세요. 같은 `noise_seed`는 측정 잡음을
-  정확히 재현합니다.
+  정확히 재현합니다. 배경 솔브(§6)는 기본으로 `PathSolver(deterministic=True)`
+  (`background.deterministic`)를 쓰고, RCS 에코 솔버는 여전히 결정적이지 않습니다.
 - 시간에 따른 센싱(§6)은 **오라클 연관**을 씁니다. 레이 트레이서가 에코마다 어느
   타깃인지, 직접 에코인지 다중 경로인지를 알려 줍니다. 실제 수신기라면 둘 다 추정해야
   합니다.
@@ -1027,8 +1430,15 @@ estimate와 track 열은 타깃·프레임마다 값이 하나이고, 그 타깃
   `position_true`는 직육면체 중심입니다. 그래서 `position_error_m`에 타깃 크기의 절반
   (자동차면 약 2.5 m)까지 편향이 섞일 수 있습니다. mock은 중심의 점 하나만 쓰므로 이
   편향이 없습니다.
-- 탐지는 에코 단위의 잡음 한계 판정입니다. CFAR, 거리–도플러 맵, 클러터나 자기 간섭
-  전력은 없습니다.
+- 임계값 탐지(기본 `sensing.detection.mode`)는 에코 단위의 잡음 한계 판정입니다. CFAR,
+  거리–도플러 맵, 클러터나 자기 간섭 전력은 없습니다. `mode: "cfar"`(§9)는 H0/H1 클러터와
+  열잡음으로 지연–도플러 맵을 만들고 CFAR를 돌립니다. 자기 간섭과 직접파 모델(#25)은 아직
+  없고, 연관은 오라클 그대로입니다.
+- 배경(§6): 형상이 액터 하나뿐인 씬에서는 Sionna 로더가 그 액터를 가리킬 수 없어서 H0가
+  액터를 감추지 못하고, 액터가 경고와 함께 H0에 남습니다. 다른 형상을 하나 더 넣으세요(멀리
+  둔 0.1 m 정육면체면 충분). TX와 정확히 같은 위치의 센싱 RX에는 TX → RX LoS 배경 경로가
+  없습니다(길이 0인 경로는 버려지므로 그 링크의 `total_power_db`는 null). 자기 간섭은
+  모델링하지 않습니다(#25).
 - 시간에 따른 센싱(§6)은 안테나를 단일 소자로 계산합니다(배열 이득 없음). 그래서 처리
   이득은 적분 이득뿐입니다.
 - `measurement_noise`는 경험칙(셀 / sqrt(2·SNR))이지 크라메르–라오 하한이 아닙니다.
@@ -1085,6 +1495,114 @@ estimate와 track 열은 타깃·프레임마다 값이 하나이고, 그 타깃
 - 탐지기 모델(§9): 몬테카를로는 닫힌 식이 기술하는 것과 같은 이상화된 모델(CPI 동안 일정한
   진폭, 백색 가우스 잡음, 이상적인 코히어런트 적분)을 뽑습니다. 계산을 검증하고 표본
   흩어짐을 보여 줄 뿐, 파형 수준의 시뮬레이션은 아닙니다.
+
+## 12. H0 보정 앙상블 (#30)
+
+`POST /simulate/sensing-background-ensemble`는 CFAR 임계값을 보정하고 디지털 트윈
+불일치를 비교하는 데 쓰는 표적 없는(H0) 프레임을 만듭니다. 저장된 시나리오 프레임 하나의
+H0 배경(§6 *배경 경로 H0/H1*: 표적 액터를 빼고 diffuse 반사를 켠 PathSolver)을 그
+프레임의 노드 위치에서 realization마다 다시 풉니다. realization 0은 공칭 트윈입니다. 그
+뒤의 realization은 `seed`에서 섭동을 뽑습니다. 무선 재질마다 ε_r·σ 배율, 노드 사이트마다
+위치 오프셋 하나, 바이스태틱 센싱 수신기마다 반송파 주파수 오프셋(CFO)입니다. 결과에는
+realization별 경로와 seed가 저장됩니다. 잡음 프레임은 저장하지 않고 seed로 비트 단위까지
+똑같이 다시 뽑습니다.
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/projects/sample_demo/simulate/sensing-background-ensemble \
+  -H "Content-Type: application/json" \
+  -d '{"source": {"result_id": "sionna_scenario_003", "frame_index": 0},
+       "n_realizations": 20, "noise_frames_per_realization": 500, "seed": 1,
+       "perturb": {"material": {"eps_r_pct": 10, "sigma_pct": 30},
+                   "node_pos_sigma_m": 0.1, "cfo_hz": 5}}'
+```
+
+| 필드 | 기본값 | 의미 |
+|---|---|---|
+| `source.result_id`, `source.frame_index` | 필수 | 앙상블이 노드 운동 상태, 액터 자세, 표적을 가져올 시나리오 결과와 프레임. 그 프레임에 센싱이 있어야 합니다. |
+| `n_realizations` | 필수(1–200) | realization 0은 공칭입니다. |
+| `noise_frames_per_realization` | 필수(1–100,000) | realization마다 정의되는 H0 잡음 프레임 m = 0 … n−1. 필요할 때 뽑습니다. |
+| `seed` | `0` | 섭동 추첨과 잡음의 seed. |
+| `perturb.material.eps_r_pct`, `perturb.material.sigma_pct` | `0`, `0` | 무선 재질마다 배율의 표준편차[%]: ε_r × (1 + d), σ × (1 + d′), d, d′ ~ N(0, (pct/100)²). 솔버가 ε_r은 1, σ는 0에서 자릅니다. |
+| `perturb.material.scope` | `"material"` | 솔버 무선 재질마다 한 번 뽑습니다. `"prim"`은 400입니다(재질 그룹이 합쳐진 메시라서). |
+| `perturb.node_pos_sigma_m` | `0` | 노드 사이트마다 N(0, σ² I₃) 오프셋[m]. 서로 1 m 안에 있는 TX와 센싱 RX는 한 사이트라 같이 움직입니다. |
+| `perturb.cfo_hz` | `0` | 바이스태틱 센싱 RX(모든 TX에서 1 m 넘게 떨어진 RX)마다 N(0, cfo²)[Hz]. 합성할 때 모든 경로의 도플러 오프셋으로 들어갑니다(양수 = 접근). 공동 위치 수신기는 TX와 발진기를 공유하므로 받지 않습니다. |
+| `background` | `null` | 배경 솔버 옵션(§6). `null`이면 원본 실행의 `sensing.background`를 모드 `h0_removed`로 쓰고, 그것도 없으면 기본값입니다. 지정하면 `mode`는 `"h0_removed"`여야 합니다(아니면 422). |
+
+**무엇을 푸는가.** 링크는 원본 실행의 모든 TX × 센싱 RX이고 TX 우선 순서입니다
+(`metadata.sensing.sensing_tx_ids`, 없으면 프레임 노드 중 센싱 수신기가 아닌 것). 노드는
+원본 프레임의 위치·속도(`frame.sensing.nodes`)에 오프셋을 더한 자리에, 액터는 프레임의
+`actor_states`에 놓이고, 표적은 그 자세로 풀어서 뺍니다. 앙상블은 원본 실행의 백엔드와
+시뮬레이션 설정(`config_snapshot`)을 쓰고 realization을 하나씩 차례로 풉니다. 재질·위치
+추첨이 없는 realization(공칭이거나 CFO만 있는 것)은 realization 0과 솔브 입력이 같으므로
+그 경로를 그대로 씁니다(`background_h0: null`, `source_realization: 0`). 다시 풀지
+않습니다.
+
+**추첨.** realization r ≥ 1은
+`numpy.random.default_rng(SeedSequence(entropy=[seed, 0x5EA030], spawn_key=(r,)))`에서 이
+순서로 뽑습니다.
+
+1. 무선 재질마다(이름순): `normal(0, eps_r_pct/100)`, 이어서 `normal(0, sigma_pct/100)`
+2. 노드 사이트마다(TX 먼저, 다음 센싱 수신기, 사이트 순서): `normal(0, node_pos_sigma_m, 3)`
+3. 바이스태틱 센싱 RX마다(id순): `normal(0, cfo_hz)`
+
+σ = 0이어도 추첨은 모두 하므로, 섭동 하나를 켜도 다른 섭동의 값은 바뀌지 않습니다. 0인
+추첨은 `material_draws`, `node_offsets_m`, `cfo_hz`에서 빠지고, 하나라도 남으면 `label`이
+`perturbed`입니다.
+
+**H0 프레임.** 링크 (tx, rx)에서 realization r의 잡음 프레임 m은 다음과 같습니다.
+
+Y[n, k] = H_r[n, k] + w[n, k],
+H_r[n, k] = Σ_p |a_p| e^{jφ_p} e^{−j2π f_k τ_p} e^{+j2π (f_D,p + cfo_rx) t_n}
+
+격자는 사용하는 쪽의 파일럿 격자입니다(§6 *파형 수비학*. f_k는 기저대역, t_n은 파일럿
+심볼 시각, φ_p는 반송파 항이 이미 들어 있는 저장된 `phase_rad`). w는
+E|w|² = σ_H²(RE당 N0 / RE당 Es)인 복소 가우스 잡음이고
+`SeedSequence(entropy=[seed, 0x5EA031], spawn_key=(r, m, id32(tx), id32(rx)))`에서 뽑습니다.
+`id32`는 id의 SHA-256 앞 4바이트(little endian)입니다. 0x5EA031은 H0 보정 스트림입니다.
+시나리오 실행은 실행 중 잡음을 0x5EA024에서 뽑으므로, 앙상블 `seed`가 어떤 실행의
+`noise_seed`와 같아도 그 실행의 잡음을 다시 만들지 않습니다. 잡음 크기는 사용하는 쪽이 정합니다.
+검출기는 자기 파형, 잡음 지수, TX 전력을 씁니다. 프레임, realization, 링크는 서로 독립인
+스트림에서 뽑습니다(이웃 프레임의 상관은 10⁵ RE에서 |ρ| < 0.01).
+
+**임계값 보정.** `sensing.detection.threshold: "h0_calibrated"`로 두고
+`h0_result_id`에 앙상블의 `result_id`를 넣습니다(§9 신호 수준 검출, #24). 검출기는 실행의
+수비학, 맵, CFAR 옵션으로 realization × 잡음 프레임 × 링크마다 맵을 만들고, 셀 통계량(또는
+`system_pfa`이면 모든 링크에 걸친 프레임별 최댓값)의 `sorted(values)[n − floor(n·p)]`를
+임계값으로 씁니다. P_FA 10⁻²에서 보정 프레임이 n = 10,000이면, held-out 10,000 프레임의
+오경보는 보정 95 %에서 74–129건입니다(베타-이항: 보정 자체의 흔들림이 이항 구간 81–120을
+넓힙니다). 10⁻³은 n ≥ 20,000이 필요하고 10⁵를 권장합니다.
+
+**결과.** `SensingBackgroundEnsembleResultSet`에는 `source`, `seed`,
+`noise_frames_per_realization`, `background`(쓴 옵션), `links`, 공칭 `nodes`, 그리고
+realization마다 `index`, `label`, `material_draws`(이름 → `eps_r_scale`, `sigma_scale`),
+`node_offsets_m`, `cfo_hz`, `background_h0`(RayPath 목록. 다시 쓰면 null),
+`source_realization`, `solve_s`, `num_paths`, `dropped_paths`, `total_power_db`("tx>rx" →
+10 log10 Σ|a|²), `warnings`가 있습니다. `metadata`에는 요청과 `request_hash`,
+`material_names`, `sites`, `bistatic_rx_ids`, `solves`, `total_solve_s`, `draw_key`,
+`noise_key`, provenance 해시가 들어갑니다. 다시 읽을 때는
+`GET /results/sensing-background-ensemble?result_id=…`를 씁니다(`result_id`가 없으면
+최신). `&summary=true`이면 realization마다 `background_h0` 경로를 뺀 결과를 돌려주고, UI는
+이것을 보여 줍니다. 레이블과 정리(prune)는 다른 결과 종류와 같습니다. 저장된 경로 하나는
+JSON으로 약 0.7–1 KB이고, 배경 옵션의 기본값은 링크당 경로 256개입니다.
+
+**오류.** 없는 프로젝트나 원본 결과, 또는 올바른 시나리오 결과가 아닌 원본 파일: **404**.
+범위를 벗어난 프레임 인덱스나 센싱이 없는 프레임, 장면에서 사라진 실행의 디바이스나 표적
+액터, `scope: "prim"`, 솔브하는 realization 전체에서 저장 경로 2,000,000개 초과
+(`background.max_paths_per_link`를 낮추세요), 배경 솔브가 실패한 realization(잡음만 있는
+H0를 저장하게 됨): **400**. 원본 실행의 백엔드를 쓸 수 없거나
+센싱이 없음: **409**. 범위 밖 값, 모르는 키, `h0_removed`가 아닌 배경 모드: **422**.
+
+**한계.**
+
+- 재질 배율은 솔브 한 번 동안 불러온 솔버 재질에 걸고 끝나면 되돌립니다. 저장된 프로젝트와
+  RF 프로젝션에는 쓰지 않습니다. mock은 상수 모델 라이브러리 재질만 섭동합니다(ITU 재질은
+  mock에서 손실이 그대로입니다).
+- diffuse 반사를 켜고 `background.deterministic: false`이면 realization끼리 몬테카를로
+  광선 재표본 차이도 납니다. 이것은 RT 표본 잡음이지 클러터 realization이 아니며, 앙상블이
+  경고합니다. 모든 realization은 설정의 솔버 seed를 씁니다.
+- 섭동은 정적입니다. CFO 말고는 클러터 내부 운동, 위상잡음, 타이밍 오차가 없습니다. 정지한
+  공칭 트윈의 배경은 정확히 0 Hz입니다.
+- prim별 추첨(`scope: "prim"`)은 지원하지 않습니다.
 
 ## 관련 문서
 

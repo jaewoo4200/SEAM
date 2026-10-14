@@ -1327,6 +1327,407 @@
         "title": "BackendCapabilities",
         "type": "object"
       },
+      "BackgroundEnsembleRequest": {
+        "additionalProperties": false,
+        "description": "Body for POST /projects/{id}/simulate/sensing-background-ensemble.",
+        "properties": {
+          "background": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BackgroundOptions"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "n_realizations": {
+            "maximum": 200.0,
+            "minimum": 1.0,
+            "title": "N Realizations",
+            "type": "integer"
+          },
+          "noise_frames_per_realization": {
+            "maximum": 100000.0,
+            "minimum": 1.0,
+            "title": "Noise Frames Per Realization",
+            "type": "integer"
+          },
+          "perturb": {
+            "$ref": "#/components/schemas/EnsemblePerturbation"
+          },
+          "seed": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Seed",
+            "type": "integer"
+          },
+          "source": {
+            "$ref": "#/components/schemas/EnsembleSource"
+          }
+        },
+        "required": [
+          "source",
+          "n_realizations",
+          "noise_frames_per_realization"
+        ],
+        "title": "BackgroundEnsembleRequest",
+        "type": "object"
+      },
+      "BackgroundHypothesisMeta": {
+        "additionalProperties": false,
+        "description": "One background hypothesis (H0 or H1) of one frame.",
+        "properties": {
+          "cache_hit": {
+            "default": false,
+            "title": "Cache Hit",
+            "type": "boolean"
+          },
+          "cache_key": {
+            "title": "Cache Key",
+            "type": "string"
+          },
+          "dropped_paths": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Dropped Paths",
+            "type": "integer"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "num_paths": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Num Paths",
+            "type": "integer"
+          },
+          "solve_s": {
+            "default": 0.0,
+            "title": "Solve S",
+            "type": "number"
+          },
+          "solved": {
+            "title": "Solved",
+            "type": "boolean"
+          },
+          "source_frame": {
+            "minimum": 0.0,
+            "title": "Source Frame",
+            "type": "integer"
+          },
+          "stored": {
+            "default": true,
+            "title": "Stored",
+            "type": "boolean"
+          },
+          "total_power_db": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Total Power Db",
+            "type": "object"
+          }
+        },
+        "required": [
+          "solved",
+          "source_frame",
+          "cache_key"
+        ],
+        "title": "BackgroundHypothesisMeta",
+        "type": "object"
+      },
+      "BackgroundMeta": {
+        "additionalProperties": false,
+        "description": "How SensingFrame.background_h0 / background_h1 were solved (#21).",
+        "properties": {
+          "deterministic": {
+            "title": "Deterministic",
+            "type": "boolean"
+          },
+          "h0": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BackgroundHypothesisMeta"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "h1": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BackgroundHypothesisMeta"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "max_depth": {
+            "minimum": 0.0,
+            "title": "Max Depth",
+            "type": "integer"
+          },
+          "mechanisms": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Mechanisms",
+            "type": "array"
+          },
+          "mode": {
+            "enum": [
+              "h1_absorber",
+              "h0_removed",
+              "both"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "num_samples": {
+            "minimum": 1.0,
+            "title": "Num Samples",
+            "type": "integer"
+          },
+          "seed": {
+            "title": "Seed",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "mode",
+          "max_depth",
+          "num_samples",
+          "seed",
+          "deterministic"
+        ],
+        "title": "BackgroundMeta",
+        "type": "object"
+      },
+      "BackgroundOptions": {
+        "additionalProperties": false,
+        "description": "TX -> sensing-RX background (clutter) solve per frame (#21): H1 = the\ntargets as absorbers with their actor meshes hidden, H0 = the target\nactors removed. PathSolver with config's los / reflection / refraction\nand the mechanisms below; SensingFrame.background_h1 / background_h0.",
+        "properties": {
+          "cache": {
+            "default": "static_nodes",
+            "enum": [
+              "per_frame",
+              "static_nodes"
+            ],
+            "title": "Cache",
+            "type": "string"
+          },
+          "deterministic": {
+            "default": true,
+            "title": "Deterministic",
+            "type": "boolean"
+          },
+          "diffraction": {
+            "default": false,
+            "title": "Diffraction",
+            "type": "boolean"
+          },
+          "diffuse_reflection": {
+            "default": true,
+            "title": "Diffuse Reflection",
+            "type": "boolean"
+          },
+          "edge_diffraction": {
+            "default": false,
+            "title": "Edge Diffraction",
+            "type": "boolean"
+          },
+          "max_depth": {
+            "anyOf": [
+              {
+                "maximum": 12.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Depth"
+          },
+          "max_paths_per_link": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 256,
+            "title": "Max Paths Per Link"
+          },
+          "mode": {
+            "default": "off",
+            "enum": [
+              "off",
+              "h1_absorber",
+              "h0_removed",
+              "both"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "num_samples": {
+            "anyOf": [
+              {
+                "maximum": 100000000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Num Samples"
+          },
+          "store": {
+            "default": "h0",
+            "enum": [
+              "h0",
+              "both",
+              "none"
+            ],
+            "title": "Store",
+            "type": "string"
+          }
+        },
+        "title": "BackgroundOptions",
+        "type": "object"
+      },
+      "BackgroundRealization": {
+        "additionalProperties": false,
+        "description": "One H0 background realization of a sensing_background_ensemble (#30).\nIts H0 noise frame m of link (tx, rx) is the noise of\nservices/channel_synthesis.noise_frame(seed, realization=index, frame=m,\nstream=H0_NOISE_STREAM = 0x5EA031).",
+        "properties": {
+          "background_h0": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/RayPath"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Background H0"
+          },
+          "cfo_hz": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Cfo Hz",
+            "type": "object"
+          },
+          "dropped_paths": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Dropped Paths",
+            "type": "integer"
+          },
+          "index": {
+            "minimum": 0.0,
+            "title": "Index",
+            "type": "integer"
+          },
+          "label": {
+            "enum": [
+              "nominal",
+              "perturbed"
+            ],
+            "title": "Label",
+            "type": "string"
+          },
+          "material_draws": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/EnsembleMaterialDraw"
+            },
+            "title": "Material Draws",
+            "type": "object"
+          },
+          "node_offsets_m": {
+            "additionalProperties": {
+              "items": {
+                "type": "number"
+              },
+              "maxItems": 3,
+              "minItems": 3,
+              "type": "array"
+            },
+            "title": "Node Offsets M",
+            "type": "object"
+          },
+          "num_paths": {
+            "default": 0,
+            "minimum": 0.0,
+            "title": "Num Paths",
+            "type": "integer"
+          },
+          "solve_s": {
+            "default": 0.0,
+            "title": "Solve S",
+            "type": "number"
+          },
+          "source_realization": {
+            "minimum": 0.0,
+            "title": "Source Realization",
+            "type": "integer"
+          },
+          "total_power_db": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Total Power Db",
+            "type": "object"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "index",
+          "label",
+          "source_realization"
+        ],
+        "title": "BackgroundRealization",
+        "type": "object"
+      },
       "BatchAssignRequest": {
         "additionalProperties": false,
         "properties": {
@@ -1933,6 +2334,64 @@
         "title": "CalibrationStats",
         "type": "object"
       },
+      "CfarOptions": {
+        "additionalProperties": false,
+        "description": "2-D CFAR on the map's square-law cells (circular in both axes).\nguard / train are [delay, Doppler] half-widths in map cells.",
+        "properties": {
+          "guard": {
+            "items": {
+              "maximum": 64.0,
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "title": "Guard",
+            "type": "array"
+          },
+          "os_rank": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Os Rank"
+          },
+          "pfa_cell": {
+            "default": 0.0001,
+            "exclusiveMaximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Pfa Cell",
+            "type": "number"
+          },
+          "train": {
+            "items": {
+              "maximum": 256.0,
+              "minimum": 1.0,
+              "type": "integer"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "title": "Train",
+            "type": "array"
+          },
+          "type": {
+            "default": "ca",
+            "enum": [
+              "ca",
+              "os"
+            ],
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "CfarOptions",
+        "type": "object"
+      },
       "ChannelAnalysisRequest": {
         "additionalProperties": false,
         "properties": {
@@ -2015,6 +2474,16 @@
               }
             ],
             "title": "Tx Id"
+          },
+          "waveform": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WaveformOptions"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "title": "ChannelAnalysisRequest",
@@ -2340,6 +2809,107 @@
           "distance_3d_m"
         ],
         "title": "ChannelAnalysisResult",
+        "type": "object"
+      },
+      "ChannelExportOptions": {
+        "additionalProperties": false,
+        "description": "Slow-time channel tensors per (frame, sensing link) in channel.npz\n(#22): H[row, symbol, subcarrier], complex64, one array per component.",
+        "properties": {
+          "components": {
+            "items": {
+              "enum": [
+                "echo",
+                "background_h0",
+                "background_h1",
+                "total"
+              ],
+              "type": "string"
+            },
+            "maxItems": 4,
+            "minItems": 1,
+            "title": "Components",
+            "type": "array"
+          },
+          "kind": {
+            "const": "cfr",
+            "default": "cfr",
+            "title": "Kind",
+            "type": "string"
+          },
+          "max_elements": {
+            "default": 50000000,
+            "maximum": 200000000.0,
+            "minimum": 1.0,
+            "title": "Max Elements",
+            "type": "integer"
+          },
+          "noise": {
+            "$ref": "#/components/schemas/ChannelNoiseOptions"
+          },
+          "pilot_ls": {
+            "default": false,
+            "title": "Pilot Ls",
+            "type": "boolean"
+          },
+          "subcarriers": {
+            "default": "pilot",
+            "enum": [
+              "active",
+              "pilot"
+            ],
+            "title": "Subcarriers",
+            "type": "string"
+          },
+          "waveform": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WaveformOptions"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "ChannelExportOptions",
+        "type": "object"
+      },
+      "ChannelNoiseOptions": {
+        "additionalProperties": false,
+        "description": "Thermal noise per resource element of the channel export (#22).",
+        "properties": {
+          "enabled": {
+            "default": false,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "n0_dbm_per_re": {
+            "anyOf": [
+              {
+                "maximum": 50.0,
+                "minimum": -250.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "N0 Dbm Per Re"
+          },
+          "seed": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Seed"
+          }
+        },
+        "title": "ChannelNoiseOptions",
         "type": "object"
       },
       "ChannelNpzExportRequest": {
@@ -2752,6 +3322,16 @@
               }
             ],
             "title": "Tx Id"
+          },
+          "waveform": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WaveformOptions"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -3296,6 +3876,122 @@
         "title": "DatasetSampling",
         "type": "object"
       },
+      "DetectionMapOptions": {
+        "additionalProperties": false,
+        "description": "Delay-Doppler map of one link's pilot channel H[n, k] (#24).",
+        "properties": {
+          "clutter_removal": {
+            "default": "none",
+            "enum": [
+              "none",
+              "mean_subtract"
+            ],
+            "title": "Clutter Removal",
+            "type": "string"
+          },
+          "window": {
+            "default": "hann",
+            "enum": [
+              "hann",
+              "rect"
+            ],
+            "title": "Window",
+            "type": "string"
+          },
+          "zero_doppler_notch_bins": {
+            "anyOf": [
+              {
+                "maximum": 64.0,
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Zero Doppler Notch Bins"
+          },
+          "zero_pad": {
+            "default": 1,
+            "maximum": 8.0,
+            "minimum": 1.0,
+            "title": "Zero Pad",
+            "type": "integer"
+          }
+        },
+        "title": "DetectionMapOptions",
+        "type": "object"
+      },
+      "DetectionOptions": {
+        "additionalProperties": false,
+        "description": "Link detection (#24). threshold: snr_db >= threshold_db plus the MTI\nnotch (v0.1.15). cfar: CA/OS-CFAR on each link's delay-Doppler map built\nfrom echo + background + thermal noise (needs sensing.waveform).",
+        "properties": {
+          "cfar": {
+            "$ref": "#/components/schemas/CfarOptions"
+          },
+          "h0_result_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "H0 Result Id"
+          },
+          "map": {
+            "$ref": "#/components/schemas/DetectionMapOptions"
+          },
+          "max_detections_per_link": {
+            "default": 256,
+            "maximum": 100000.0,
+            "minimum": 1.0,
+            "title": "Max Detections Per Link",
+            "type": "integer"
+          },
+          "mode": {
+            "default": "threshold",
+            "enum": [
+              "threshold",
+              "cfar"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "oracle_gate_cells": {
+            "default": 1,
+            "maximum": 16.0,
+            "minimum": 0.0,
+            "title": "Oracle Gate Cells",
+            "type": "integer"
+          },
+          "system_pfa": {
+            "anyOf": [
+              {
+                "exclusiveMaximum": 1.0,
+                "exclusiveMinimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "System Pfa"
+          },
+          "threshold": {
+            "default": "analytic",
+            "enum": [
+              "analytic",
+              "h0_calibrated"
+            ],
+            "title": "Threshold",
+            "type": "string"
+          }
+        },
+        "title": "DetectionOptions",
+        "type": "object"
+      },
       "DetectorOptions": {
         "additionalProperties": false,
         "description": "Square-law detector on the coherently integrated sample. ``model`` is\nthe target fluctuation (Swerling 0 = steady, 1 = Rayleigh scan-to-scan,\n3 = one dominant scatterer); swerling1 reproduces the v0.1.12 numbers.",
@@ -3733,6 +4429,89 @@
           }
         },
         "title": "EngineListResponse",
+        "type": "object"
+      },
+      "EnsembleLink": {
+        "additionalProperties": false,
+        "properties": {
+          "rx_id": {
+            "title": "Rx Id",
+            "type": "string"
+          },
+          "tx_id": {
+            "title": "Tx Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tx_id",
+          "rx_id"
+        ],
+        "title": "EnsembleLink",
+        "type": "object"
+      },
+      "EnsembleMaterialDraw": {
+        "additionalProperties": false,
+        "properties": {
+          "eps_r_scale": {
+            "title": "Eps R Scale",
+            "type": "number"
+          },
+          "sigma_scale": {
+            "title": "Sigma Scale",
+            "type": "number"
+          }
+        },
+        "required": [
+          "eps_r_scale",
+          "sigma_scale"
+        ],
+        "title": "EnsembleMaterialDraw",
+        "type": "object"
+      },
+      "EnsemblePerturbation": {
+        "additionalProperties": false,
+        "properties": {
+          "cfo_hz": {
+            "default": 0.0,
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Cfo Hz",
+            "type": "number"
+          },
+          "material": {
+            "$ref": "#/components/schemas/MaterialPerturbation"
+          },
+          "node_pos_sigma_m": {
+            "default": 0.0,
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Node Pos Sigma M",
+            "type": "number"
+          }
+        },
+        "title": "EnsemblePerturbation",
+        "type": "object"
+      },
+      "EnsembleSource": {
+        "additionalProperties": false,
+        "description": "The scenario frame whose node poses the ensemble re-solves.",
+        "properties": {
+          "frame_index": {
+            "minimum": 0.0,
+            "title": "Frame Index",
+            "type": "integer"
+          },
+          "result_id": {
+            "title": "Result Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "result_id",
+          "frame_index"
+        ],
+        "title": "EnsembleSource",
         "type": "object"
       },
       "EvidenceImage": {
@@ -4506,6 +5285,16 @@
             "default": true,
             "title": "Use Device Orientation",
             "type": "boolean"
+          },
+          "waveform": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WaveformOptions"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "title": "ISACRequest",
@@ -5876,6 +6665,37 @@
         "title": "MaterialImportResponse",
         "type": "object"
       },
+      "MaterialPerturbation": {
+        "additionalProperties": false,
+        "description": "Per realization, every radio material's eps_r and sigma scale by\n(1 + d), d ~ N(0, (pct / 100)^2), eps_r clipped at 1 and sigma at 0.",
+        "properties": {
+          "eps_r_pct": {
+            "default": 0.0,
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Eps R Pct",
+            "type": "number"
+          },
+          "scope": {
+            "default": "material",
+            "enum": [
+              "material",
+              "prim"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "sigma_pct": {
+            "default": 0.0,
+            "maximum": 1000.0,
+            "minimum": 0.0,
+            "title": "Sigma Pct",
+            "type": "number"
+          }
+        },
+        "title": "MaterialPerturbation",
+        "type": "object"
+      },
       "MaterialSuggestion": {
         "additionalProperties": false,
         "properties": {
@@ -6623,6 +7443,13 @@
             "title": "Cpi Pulses",
             "type": "integer"
           },
+          "cpi_s": {
+            "default": 0.01,
+            "exclusiveMinimum": 0.0,
+            "maximum": 10.0,
+            "title": "Cpi S",
+            "type": "number"
+          },
           "empirical_threshold": {
             "default": false,
             "title": "Empirical Threshold",
@@ -6688,6 +7515,16 @@
             "exclusiveMinimum": 0.0,
             "title": "Step Db",
             "type": "number"
+          },
+          "waveform": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WaveformOptions"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "title": "PdCurveRequest",
@@ -6840,6 +7677,37 @@
           "ci_high"
         ],
         "title": "PdMcSpotCheck",
+        "type": "object"
+      },
+      "PilotOptions": {
+        "additionalProperties": false,
+        "description": "Pilot lattice of the sensing waveform: pilots on every\n``subcarrier_step``-th active subcarrier of every ``symbol_step``-th\nsymbol, both from index 0 (\"block\": every subcarrier of the pilot\nsymbols). K x N pilot REs per CPI are the coherent integration.",
+        "properties": {
+          "pattern": {
+            "default": "comb",
+            "enum": [
+              "comb",
+              "block"
+            ],
+            "title": "Pattern",
+            "type": "string"
+          },
+          "subcarrier_step": {
+            "default": 1,
+            "maximum": 64.0,
+            "minimum": 1.0,
+            "title": "Subcarrier Step",
+            "type": "integer"
+          },
+          "symbol_step": {
+            "default": 1,
+            "maximum": 1024.0,
+            "minimum": 1.0,
+            "title": "Symbol Step",
+            "type": "integer"
+          }
+        },
+        "title": "PilotOptions",
         "type": "object"
       },
       "PlaybackBuildRequest": {
@@ -8405,7 +9273,8 @@
               "playback",
               "sensing",
               "isac",
-              "sensing_coverage"
+              "sensing_coverage",
+              "sensing_background_ensemble"
             ],
             "title": "Kind",
             "type": "string"
@@ -8479,7 +9348,8 @@
                     "playback",
                     "sensing",
                     "isac",
-                    "sensing_coverage"
+                    "sensing_coverage",
+                    "sensing_background_ensemble"
                   ],
                   "type": "string"
                 },
@@ -9258,6 +10128,101 @@
         "title": "SegmentationUndoResponse",
         "type": "object"
       },
+      "SensingBackgroundEnsembleResultSet": {
+        "additionalProperties": false,
+        "description": "POST /simulate/sensing-background-ensemble (#30): H0 background paths\nper realization at one scenario frame's node poses, plus the seed that\ndefines every realization's noise frames (drawn on demand, never stored).",
+        "properties": {
+          "backend": {
+            "title": "Backend",
+            "type": "string"
+          },
+          "background": {
+            "$ref": "#/components/schemas/BackgroundOptions"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "kind": {
+            "const": "sensing_background_ensemble",
+            "default": "sensing_background_ensemble",
+            "title": "Kind",
+            "type": "string"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/EnsembleLink"
+            },
+            "title": "Links",
+            "type": "array"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/SensingNodeState"
+            },
+            "title": "Nodes",
+            "type": "array"
+          },
+          "noise_frames_per_realization": {
+            "minimum": 1.0,
+            "title": "Noise Frames Per Realization",
+            "type": "integer"
+          },
+          "realizations": {
+            "items": {
+              "$ref": "#/components/schemas/BackgroundRealization"
+            },
+            "title": "Realizations",
+            "type": "array"
+          },
+          "result_id": {
+            "title": "Result Id",
+            "type": "string"
+          },
+          "seed": {
+            "minimum": 0.0,
+            "title": "Seed",
+            "type": "integer"
+          },
+          "simulation_config_id": {
+            "title": "Simulation Config Id",
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/EnsembleSource"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "result_id",
+          "backend",
+          "simulation_config_id",
+          "source",
+          "seed",
+          "noise_frames_per_realization",
+          "background"
+        ],
+        "title": "SensingBackgroundEnsembleResultSet",
+        "type": "object"
+      },
       "SensingCoverageLink": {
         "additionalProperties": false,
         "properties": {
@@ -9362,6 +10327,13 @@
             "minimum": 1.0,
             "title": "Cpi Pulses",
             "type": "integer"
+          },
+          "cpi_s": {
+            "default": 0.01,
+            "exclusiveMinimum": 0.0,
+            "maximum": 10.0,
+            "title": "Cpi S",
+            "type": "number"
           },
           "detector": {
             "$ref": "#/components/schemas/DetectorOptions"
@@ -9513,6 +10485,16 @@
             "minimum": 1.0,
             "title": "Tx Rows",
             "type": "integer"
+          },
+          "waveform": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WaveformOptions"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "title": "SensingCoverageRequest",
@@ -9726,6 +10708,21 @@
             "title": "Formats",
             "type": "array"
           },
+          "include_background_paths": {
+            "default": false,
+            "title": "Include Background Paths",
+            "type": "boolean"
+          },
+          "include_channel": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChannelExportOptions"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "include_echo_paths": {
             "default": false,
             "title": "Include Echo Paths",
@@ -9769,6 +10766,11 @@
         "additionalProperties": false,
         "description": "POST /export/sensing-dataset response.",
         "properties": {
+          "channel_elements": {
+            "default": 0,
+            "title": "Channel Elements",
+            "type": "integer"
+          },
           "detected_fraction": {
             "anyOf": [
               {
@@ -9799,6 +10801,16 @@
             },
             "title": "Files",
             "type": "array"
+          },
+          "num_background_rows": {
+            "default": 0,
+            "title": "Num Background Rows",
+            "type": "integer"
+          },
+          "num_channel_rows": {
+            "default": 0,
+            "title": "Num Channel Rows",
+            "type": "integer"
           },
           "num_echo_rows": {
             "default": 0,
@@ -9891,9 +10903,132 @@
         "title": "SensingDatasetSplit",
         "type": "object"
       },
+      "SensingDetection": {
+        "additionalProperties": false,
+        "description": "One CFAR detection on one TX -> RX delay-Doppler map (#24). No truth\nfields: the oracle match is SensingLinkReport.detection_index.",
+        "properties": {
+          "cell_nu": {
+            "title": "Cell Nu",
+            "type": "integer"
+          },
+          "cell_tau": {
+            "title": "Cell Tau",
+            "type": "integer"
+          },
+          "delay_ns": {
+            "title": "Delay Ns",
+            "type": "number"
+          },
+          "doppler_hz": {
+            "title": "Doppler Hz",
+            "type": "number"
+          },
+          "power_db": {
+            "title": "Power Db",
+            "type": "number"
+          },
+          "range_sum_m": {
+            "title": "Range Sum M",
+            "type": "number"
+          },
+          "rx_id": {
+            "title": "Rx Id",
+            "type": "string"
+          },
+          "snr_est_db": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snr Est Db"
+          },
+          "statistic": {
+            "title": "Statistic",
+            "type": "number"
+          },
+          "threshold": {
+            "title": "Threshold",
+            "type": "number"
+          },
+          "tx_id": {
+            "title": "Tx Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tx_id",
+          "rx_id",
+          "cell_tau",
+          "cell_nu",
+          "delay_ns",
+          "range_sum_m",
+          "doppler_hz",
+          "statistic",
+          "threshold",
+          "power_db"
+        ],
+        "title": "SensingDetection",
+        "type": "object"
+      },
       "SensingFrame": {
         "additionalProperties": false,
         "properties": {
+          "background_h0": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/RayPath"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Background H0"
+          },
+          "background_h1": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/RayPath"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Background H1"
+          },
+          "background_meta": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BackgroundMeta"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "detections": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SensingDetection"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detections"
+          },
           "echoes": {
             "items": {
               "$ref": "#/components/schemas/RayPath"
@@ -9952,6 +11087,18 @@
             "default": false,
             "title": "Detected",
             "type": "boolean"
+          },
+          "detection_index": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detection Index"
           },
           "doppler_bin": {
             "anyOf": [
@@ -10069,7 +11216,8 @@
               "detected",
               "no_echo",
               "below_threshold",
-              "mti_rejected"
+              "mti_rejected",
+              "cfar_miss"
             ],
             "title": "Reason",
             "type": "string"
@@ -10544,6 +11692,16 @@
         "additionalProperties": false,
         "description": "Sensing over time: run a sensing solve in every scenario frame and turn\nthe echoes into per-link detections and a fused target estimate.",
         "properties": {
+          "background": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BackgroundOptions"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "cpi_pulses": {
             "default": 1,
             "maximum": 100000000.0,
@@ -10557,6 +11715,16 @@
             "maximum": 10.0,
             "title": "Cpi S",
             "type": "number"
+          },
+          "detection": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DetectionOptions"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "detector": {
             "$ref": "#/components/schemas/DetectorOptions"
@@ -10668,6 +11836,16 @@
             "anyOf": [
               {
                 "$ref": "#/components/schemas/TrackingOptions"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "waveform": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WaveformOptions"
               },
               {
                 "type": "null"
@@ -12779,13 +13957,82 @@
         },
         "title": "VisualBinding",
         "type": "object"
+      },
+      "WaveformOptions": {
+        "additionalProperties": false,
+        "description": "OFDM numerology of the sensing waveform (#23): derives cpi_pulses\n(pilot REs per CPI), the occupied bandwidth B_occ = n_active_sc * scs_hz,\nthe noise floor over B_occ and the delay / Doppler resolution\n(services/numerology.py).",
+        "properties": {
+          "cp": {
+            "default": "normal",
+            "enum": [
+              "normal",
+              "extended"
+            ],
+            "title": "Cp",
+            "type": "string"
+          },
+          "n_active_sc": {
+            "default": 612,
+            "maximum": 65536.0,
+            "minimum": 1.0,
+            "title": "N Active Sc",
+            "type": "integer"
+          },
+          "n_fft": {
+            "maximum": 65536.0,
+            "minimum": 16.0,
+            "title": "N Fft",
+            "type": "integer"
+          },
+          "pilot": {
+            "$ref": "#/components/schemas/PilotOptions"
+          },
+          "scs_hz": {
+            "default": 30000.0,
+            "exclusiveMinimum": 0.0,
+            "maximum": 4000000.0,
+            "title": "Scs Hz",
+            "type": "number"
+          },
+          "symbol_duration_s": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 1.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Symbol Duration S"
+          },
+          "symbols_per_cpi": {
+            "anyOf": [
+              {
+                "maximum": 1000000.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Symbols Per Cpi"
+          }
+        },
+        "required": [
+          "n_fft"
+        ],
+        "title": "WaveformOptions",
+        "type": "object"
       }
     }
   },
   "info": {
     "description": "Unified RF-visual scene authoring, RF material assignment, Sionna RT projection compilation, and simulation result APIs.",
     "title": "SEAM Studio",
-    "version": "0.1.15"
+    "version": "0.1.16"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -15743,6 +16990,75 @@
         ]
       }
     },
+    "/api/projects/{project_id}/results/sensing-background-ensemble": {
+      "get": {
+        "description": "summary=true: every realization without its background_h0 paths (the\ncounts, draws and powers only; a large ensemble is GB of JSON).",
+        "operationId": "get_sensing_background_ensemble_result_api_projects__project_id__results_sensing_background_ensemble_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "result_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Result Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "summary",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Summary",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SensingBackgroundEnsembleResultSet"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Sensing Background Ensemble Result",
+        "tags": [
+          "simulate"
+        ]
+      }
+    },
     "/api/projects/{project_id}/results/sensing-coverage": {
       "get": {
         "operationId": "get_sensing_coverage_result_api_projects__project_id__results_sensing_coverage_get",
@@ -17587,6 +18903,59 @@
           }
         },
         "summary": "Simulate Sensing",
+        "tags": [
+          "simulate"
+        ]
+      }
+    },
+    "/api/projects/{project_id}/simulate/sensing-background-ensemble": {
+      "post": {
+        "description": "H0 calibration ensemble (#30): the target-free background of one stored\nscenario frame, re-solved at that frame's node poses per realization\n(realization 0 nominal, later ones with seeded material / node-position /\nCFO perturbations), with the seed that defines every realization's noise\nframes. Solves serially with the source run's backend.",
+        "operationId": "simulate_sensing_background_ensemble_api_projects__project_id__simulate_sensing_background_ensemble_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BackgroundEnsembleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SensingBackgroundEnsembleResultSet"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Simulate Sensing Background Ensemble",
         "tags": [
           "simulate"
         ]

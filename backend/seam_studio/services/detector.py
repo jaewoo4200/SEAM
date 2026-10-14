@@ -440,7 +440,19 @@ def detector_metadata(
 def pd_curve(request: PdCurveRequest) -> PdCurveResult:
     """Analytic Pd vs SNR per model, with a Monte Carlo per point when
     monte_carlo_trials > 0 (streams [seed, model index, snr index]; the
-    threshold and measured Pfa from one noise pair noise_seed(seed))."""
+    threshold and measured Pfa from one noise pair noise_seed(seed)). With
+    ``request.waveform`` cpi_pulses is its pilot RE count at cpi_s (#23)."""
+    from seam_studio.services.numerology import NumerologyError, effective_cpi_pulses
+
+    try:
+        cpi_pulses, numerology_warnings, num = effective_cpi_pulses(
+            request.waveform, request.cpi_s, request.cpi_pulses,
+            "cpi_pulses" in request.model_fields_set, "pd-curve",
+        )
+    except NumerologyError as exc:
+        raise DetectorError(str(exc)) from exc
+    if cpi_pulses != request.cpi_pulses:
+        request = request.model_copy(update={"cpi_pulses": cpi_pulses})
     pfa = request.pfa
     trials = request.monte_carlo_trials
     snr = request.snr_axis_db()
@@ -476,7 +488,7 @@ def pd_curve(request: PdCurveRequest) -> PdCurveResult:
                 r.ci_low <= p <= r.ci_high for r, p in zip(runs, analytic)
             ) / len(runs)
         models.append(entry)
-    warnings: list[str] = []
+    warnings: list[str] = list(numerology_warnings)
     if ref is not None and request.empirical_threshold:
         warnings.append(
             "empirical threshold: the Monte Carlo points use the measured "
@@ -502,5 +514,14 @@ def pd_curve(request: PdCurveRequest) -> PdCurveResult:
                 else "none (analytic only)"
             ),
             "pd_model": PD_MODEL,
+            **(
+                {
+                    "n_re_per_cpi": num.n_re_per_cpi,
+                    "b_occ_hz": num.b_occ_hz,
+                    "numerology": num.as_dict(),
+                }
+                if num is not None
+                else {}
+            ),
         },
     )

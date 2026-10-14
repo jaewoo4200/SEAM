@@ -265,6 +265,7 @@ function solveProgressLabel(kind: string): string {
     sensing: "Running sensing solve",
     isac: "Running ISAC trade-off",
     sensing_coverage: "Running sensing coverage",
+    sensing_background_ensemble: "Running H0 background ensemble",
   };
   return map[kind] ?? "Solving";
 }

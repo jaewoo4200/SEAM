@@ -20,6 +20,8 @@ import { meshRadioMapRange } from "./MeshRadioMapOverlay";
 import { UE_COLORS, samplesForUe, trajectorySteps, trajectoryUeIds } from "../trajectoryUtils";
 import type { AbBaseline, ColorBy } from "../store/appStore";
 import type {
+  AchievedPfa,
+  BackgroundMode,
   BeamformingResult,
   ChannelAnalysisResult,
   DatasetInfo,
@@ -35,6 +37,7 @@ import type {
   RFMaterialLibrary,
   ScenarioResultSet,
   ScenarioSensingSummary,
+  SensingDetection,
   SensingFrame,
   SensingLinkReport,
   SensingResultSet,
@@ -46,6 +49,7 @@ import type {
 } from "../types/api";
 import { dopplerColor, sensingDopplerRange } from "../utils/dopplerColor";
 import { formatSensingChip, scenarioSensingSummary } from "../utils/scenarioSensing";
+import { WAVEFORM_PRESETS, previewNumerology, type WaveformPresetId } from "../sensingDefaults";
 
 const SELECTED_COLOR = SELECTED_PATH_COLOR;
 
@@ -1149,6 +1153,7 @@ const LINK_RESULT_LABEL: Record<SensingLinkReport["reason"], string> = {
   mti_rejected: "MTI",
   below_threshold: "<thr",
   no_echo: "no echo",
+  cfar_miss: "CFAR miss",
 };
 
 /** Sensing part of the scenario playback panel: layer toggle, run summary
@@ -1202,48 +1207,53 @@ function ScenarioSensingSummaryTable({ summary }: { summary: ScenarioSensingSumm
   );
   return (
     <>
-      <div className="table-scroll">
-        <table className="results-table">
-          <thead>
-            <tr>
-              <th>target</th>
-              <th title="Frames with at least one detected link">det</th>
-              <th title="Frames with ≥3 geometrically distinct direct-echo links fused">≥3 links</th>
-              <th title="Median position error over frames with an ok estimate">med err</th>
-              <th title="90th-percentile position error over ok frames">p90 err</th>
-              <th title="Median velocity error over ok frames">med v err</th>
-              <th title="Median GDOP: position error per metre of range error">GDOP</th>
-            </tr>
-          </thead>
-          <tbody>
-            {summary.target_ids.map((id) => {
-              const t = summary.targets[id];
-              if (!t) return null;
-              return (
-                <tr key={id}>
-                  <td className="mono">{id}</td>
-                  <td
-                    className="mono"
-                    title={`${t.detected_frames}/${t.frames} frames · per-link detection ${fmtPct(t.link_detection_rate)}`}
-                  >
-                    {fmtPct(t.detection_rate)}
-                  </td>
-                  <td
-                    className="mono"
-                    title={`${t.frames_ge3_links}/${t.frames} frames · ${t.ok_frames} ok estimate(s)`}
-                  >
-                    {fmtPct(t.frames_ge3_links_rate)}
-                  </td>
-                  <td className="mono">{fmtOr(t.median_position_error_m, 2, " m")}</td>
-                  <td className="mono">{fmtOr(t.p90_position_error_m, 2, " m")}</td>
-                  <td className="mono">{fmtOr(t.median_velocity_error_m_s, 2, " m/s")}</td>
-                  <td className="mono">{fmtOr(t.median_gdop, 2)}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+      {summary.target_ids.length === 0 && (
+        <p className="hint">No sensing targets: background-only run.</p>
+      )}
+      {summary.target_ids.length > 0 && (
+        <div className="table-scroll">
+          <table className="results-table">
+            <thead>
+              <tr>
+                <th>target</th>
+                <th title="Frames with at least one detected link">det</th>
+                <th title="Frames with ≥3 geometrically distinct direct-echo links fused">≥3 links</th>
+                <th title="Median position error over frames with an ok estimate">med err</th>
+                <th title="90th-percentile position error over ok frames">p90 err</th>
+                <th title="Median velocity error over ok frames">med v err</th>
+                <th title="Median GDOP: position error per metre of range error">GDOP</th>
+              </tr>
+            </thead>
+            <tbody>
+              {summary.target_ids.map((id) => {
+                const t = summary.targets[id];
+                if (!t) return null;
+                return (
+                  <tr key={id}>
+                    <td className="mono">{id}</td>
+                    <td
+                      className="mono"
+                      title={`${t.detected_frames}/${t.frames} frames · per-link detection ${fmtPct(t.link_detection_rate)}`}
+                    >
+                      {fmtPct(t.detection_rate)}
+                    </td>
+                    <td
+                      className="mono"
+                      title={`${t.frames_ge3_links}/${t.frames} frames · ${t.ok_frames} ok estimate(s)`}
+                    >
+                      {fmtPct(t.frames_ge3_links_rate)}
+                    </td>
+                    <td className="mono">{fmtOr(t.median_position_error_m, 2, " m")}</td>
+                    <td className="mono">{fmtOr(t.p90_position_error_m, 2, " m")}</td>
+                    <td className="mono">{fmtOr(t.median_velocity_error_m_s, 2, " m/s")}</td>
+                    <td className="mono">{fmtOr(t.median_gdop, 2)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
       {tracked && (
         <div className="table-scroll">
           <table className="results-table track-summary" title={summary.tracking_model ?? undefined}>
@@ -1324,6 +1334,119 @@ function ScenarioSensingSummaryTable({ summary }: { summary: ScenarioSensingSumm
           {fmtOr(summary.wavelength_m != null ? summary.wavelength_m * 1000 : null, 1, " mm")}
         </span>
       </div>
+      <SignalLevelSummary summary={summary} />
+    </>
+  );
+}
+
+/** "1.2e-4" style for small rates; "0" stays "0". */
+function fmtRate(v: number | null | undefined): string {
+  if (v == null || !Number.isFinite(v)) return "—";
+  if (v === 0) return "0";
+  return v >= 0.01 ? v.toFixed(3) : v.toExponential(1);
+}
+
+function AchievedPfaCell({ label, a, title }: { label: string; a?: AchievedPfa; title: string }) {
+  if (!a) return null;
+  const ci = a.ci95 ? ` [${fmtRate(a.ci95[0])}, ${fmtRate(a.ci95[1])}]` : "";
+  return (
+    <span title={`${title}: ${a.false_alarms} false alarm(s) in ${a.trials} trial(s), Clopper–Pearson 95 %${ci}`}>
+      {label} <span className="mono">{fmtRate(a.pfa)}</span>
+      <span className="hint">{ci}</span>
+    </span>
+  );
+}
+
+/** Track B run constants (v0.1.16): waveform numerology, background solve and
+ *  the CFAR detector with its achieved false-alarm rates. Renders nothing for
+ *  runs without those options. */
+function SignalLevelSummary({ summary }: { summary: ScenarioSensingSummary }) {
+  const num = summary.numerology;
+  const bg = summary.background;
+  const det = summary.detection;
+  if (!num && !bg && !det) return null;
+  const achieved = det?.achieved;
+  return (
+    <>
+      {num && (
+        <div
+          className="results-meta"
+          title={
+            `${num.scs_hz / 1e3} kHz × ${num.n_active_sc} SC, ${num.symbols_per_cpi} symbols ` +
+            `(${(num.cpi_eff_s * 1e3).toFixed(2)} ms) · pilots every ${num.subcarrier_step} SC / ` +
+            `${num.symbol_step} symbol(s) · unambiguous ${(num.unambiguous_delay_s * 1e6).toFixed(2)} µs, ` +
+            `±${(num.unambiguous_doppler_hz / 2).toFixed(0)} Hz`
+          }
+        >
+          waveform <span className="mono">{num.grid_k}×{num.grid_n}</span> ={" "}
+          <span className="mono">{num.n_re_per_cpi}</span> pilot REs · B_occ{" "}
+          <span className="mono">{(num.b_occ_hz / 1e6).toFixed(2)} MHz</span> · range-sum cell{" "}
+          <span className="mono">{fmtOr(num.bistatic_range_resolution_m, 2, " m")}</span>
+        </div>
+      )}
+      {bg && (
+        <div
+          className="results-meta"
+          title={
+            `mechanisms: ${(bg.mechanisms ?? []).join(", ") || "—"} · depth ${bg.max_depth ?? "—"} · ` +
+            `${bg.num_samples ?? "—"} samples · seed ${bg.seed ?? "—"} · cache ${bg.cache ?? "—"} · ` +
+            `${bg.paths_stored ?? 0} path(s) stored (store ${bg.store ?? "both"}) · ` +
+            `${bg.paths_dropped ?? 0} dropped (max ${bg.max_paths_per_link ?? "all"} per link)` +
+            ((bg.failed_solves_h0 ?? 0) + (bg.failed_solves_h1 ?? 0) > 0
+              ? ` · ${(bg.failed_solves_h0 ?? 0) + (bg.failed_solves_h1 ?? 0)} failed solve(s)`
+              : "")
+          }
+        >
+          background <span className="mono">{BACKGROUND_MODE_LABEL[bg.mode] ?? bg.mode}</span> ·
+          solves H0 <span className="mono">{bg.solves_h0 ?? 0}</span> / H1{" "}
+          <span className="mono">{bg.solves_h1 ?? 0}</span> · cache hits{" "}
+          <span className="mono">{(bg.cache_hits_h0 ?? 0) + (bg.cache_hits_h1 ?? 0)}</span> ·{" "}
+          <span className="mono">{fmtOr(bg.solve_s_total, 1, " s")}</span>
+        </div>
+      )}
+      {det && (
+        <div
+          className="results-meta"
+          title={
+            `${det.detections_total ?? 0} detection(s), ${det.detections_stored ?? 0} stored · ` +
+            `map ${det.map?.shape ? det.map.shape.join("×") : "—"} (${det.map?.window ?? "—"}, ` +
+            `zero-pad ${det.map?.zero_pad ?? 1}) · false alarms include clutter and multipath ghosts`
+          }
+        >
+          CFAR <span className="mono">{(det.cfar?.type ?? "ca").toUpperCase()}</span> ·{" "}
+          {det.threshold?.kind === "h0_calibrated" ? "H0-calibrated" : "analytic"} thr{" "}
+          <span className="mono">{fmtOr(det.threshold?.value, 2)}</span> · P_FA cell{" "}
+          <span className="mono">{fmtRate(det.threshold?.pfa_cell)}</span>
+          {det.threshold?.system_pfa != null && (
+            <>
+              {" "}
+              · system <span className="mono">{fmtRate(det.threshold.system_pfa)}</span>
+            </>
+          )}
+        </div>
+      )}
+      {achieved && (
+        <div className="results-meta achieved-pfa">
+          achieved P_FA{" "}
+          <AchievedPfaCell label="cell" a={achieved.cell} title="Per tested map cell" />
+          {achieved.link_frame && (
+            <>
+              {" · "}
+              <AchievedPfaCell
+                label="link·frame"
+                a={achieved.link_frame}
+                title="Maps (link × frame) with ≥1 false alarm"
+              />
+            </>
+          )}
+          {achieved.system && (
+            <>
+              {" · "}
+              <AchievedPfaCell label="frame" a={achieved.system} title="Frames with ≥1 false alarm on any link" />
+            </>
+          )}
+        </div>
+      )}
     </>
   );
 }
@@ -1352,7 +1475,96 @@ function ScenarioSensingReadout({ sensing }: { sensing: SensingFrame }) {
       <Collapsible title={`Link detections (${sensing.links.length})`}>
         <SensingLinkTable links={sensing.links} showTarget={multiTarget} />
       </Collapsible>
+      {sensing.background_meta && <BackgroundFrameLine sensing={sensing} />}
+      {sensing.detections != null && (
+        <Collapsible title={`CFAR detections (${sensing.detections.length})`}>
+          <CfarDetectionTable detections={sensing.detections} links={sensing.links} />
+        </Collapsible>
+      )}
     </>
+  );
+}
+
+/** This frame's background solve: path counts and where the paths live
+ *  (a static_nodes cache hit reuses an earlier frame's lists). */
+function BackgroundFrameLine({ sensing }: { sensing: SensingFrame }) {
+  const meta = sensing.background_meta!;
+  const part = (name: string, h: typeof meta.h0) => {
+    if (!h) return null;
+    const powers = Object.entries(h.total_power_db ?? {})
+      .map(([k, v]) => `${k} ${fmtOr(v, 1, " dB")}`)
+      .join("\n");
+    return (
+      <span title={powers || undefined}>
+        {name} <span className="mono">{h.num_paths ?? 0}</span> path(s)
+        {h.cache_hit ? ` (frame ${h.source_frame})` : h.solved ? ` (${fmtOr(h.solve_s, 2, " s")})` : ""}
+      </span>
+    );
+  };
+  return (
+    <div
+      className="results-meta"
+      title={`${(meta.mechanisms ?? []).join(", ")} · depth ${meta.max_depth} · ${meta.num_samples} samples`}
+    >
+      background {part("H0", meta.h0)}
+      {meta.h0 && meta.h1 && " · "}
+      {part("H1", meta.h1)}
+    </div>
+  );
+}
+
+/** One frame's CFAR detections (strongest first per link); "target" marks the
+ *  detection a link report matched inside its oracle gate. */
+function CfarDetectionTable({
+  detections,
+  links,
+}: {
+  detections: SensingDetection[];
+  links: SensingLinkReport[];
+}) {
+  if (detections.length === 0) return <p className="hint">No CFAR detections this frame.</p>;
+  const matched = new Map<number, string>();
+  for (const l of links) {
+    if (l.detection_index != null) matched.set(l.detection_index, l.target_id);
+  }
+  return (
+    <div className="table-scroll">
+      <table className="results-table">
+        <thead>
+          <tr>
+            <th>tx</th>
+            <th>rx</th>
+            <th title="Interpolated bistatic range sum c·τ">R m</th>
+            <th title="Interpolated Doppler, + = closing">f_D Hz</th>
+            <th title="CFAR statistic over its threshold">stat/thr dB</th>
+            <th title="Estimated cell SNR (unbiased noise mean)">SNR dB</th>
+            <th title="Target whose oracle gate matched this detection; blank = false alarm or ghost">match</th>
+          </tr>
+        </thead>
+        <tbody>
+          {detections.map((d, i) => (
+            <tr key={`${d.tx_id}_${d.rx_id}_${d.cell_tau}_${d.cell_nu}_${i}`}>
+              <td className="mono">{d.tx_id}</td>
+              <td className="mono">{d.rx_id}</td>
+              <td className="mono" title={`cell τ ${d.cell_tau} · ${fmtOr(d.delay_ns, 1, " ns")}`}>
+                {fmtOr(d.range_sum_m, 2)}
+              </td>
+              <td className="mono" title={`cell ν ${d.cell_nu}`}>
+                {d.doppler_hz > 0 ? "+" : ""}
+                {fmtOr(d.doppler_hz, 1)}
+              </td>
+              <td className="mono">
+                {fmtOr(d.threshold > 0 ? 10 * Math.log10(d.statistic / d.threshold) : null, 1)}
+              </td>
+              <td className="mono">{fmtOr(d.snr_est_db, 1)}</td>
+              <td className={"mono " + (matched.has(i) ? "sensing-ok" : "")}>
+                {matched.get(i) ?? ""}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -1411,7 +1623,7 @@ function SensingLinkTable({
               </th>
             )}
             {hasPdMc && <th title="Monte Carlo estimate of Pd">Pd MC</th>}
-            <th title="✓ detected · MTI rejected by the MTI notch · <thr below threshold · mp = multipath echo (not fused)">
+            <th title="✓ detected · MTI rejected by the MTI notch · <thr below threshold · CFAR miss: no CFAR detection inside the oracle gate · mp = multipath echo (not fused)">
               result
             </th>
           </tr>
@@ -1520,6 +1732,31 @@ function ScenarioOverlayToggle() {
 const SENSING_TRACK_HINT =
   "MTI rejects |f_D| < 1/CPI; needs ≥1 actor bound as sensing target";
 
+const SENSING_TARGETLESS_HINT =
+  "No actor is bound as a sensing target: this runs the background (clutter) solve only";
+
+const BACKGROUND_MODE_LABEL: Record<BackgroundMode, string> = {
+  off: "Off",
+  h0_removed: "H0 (removed)",
+  h1_absorber: "H1 (absorber)",
+  both: "H0 + H1",
+};
+
+const BACKGROUND_HINT =
+  "TX → sensing-RX clutter paths per frame (PathSolver, diffuse on). H0 removes the " +
+  "target actors, H1 keeps them as absorbers; static nodes solve once and reuse it. " +
+  "The CFAR map adds H1 (else H0) to the echoes.";
+
+const CFAR_HINT =
+  "CA-CFAR (guard 1×1, train 8×4) on each link's Hann-windowed delay-Doppler map " +
+  "(echo + background + thermal noise per RE); needs a waveform preset. With a " +
+  "background the static clutter and direct path sit at 0 Hz and mask nearby echoes: " +
+  "clutter removal (mean subtract) takes them out";
+
+const CLUTTER_HINT =
+  "Mean subtract removes each subcarrier's slow-time mean (everything static, 0 Hz) " +
+  "before the Doppler FFT; 0 Hz is then not tested. Auto: on when Background is on";
+
 const SENSING_RX_HINT =
   "Auto: RX within 1 m of a TX (monostatic/TRP receivers); if none, every RX. " +
   "Other RX keep their comm links.";
@@ -1568,7 +1805,42 @@ export function ScenarioSection() {
   const [maxStd, setMaxStd] = useState(25);
   // Explicit radar receivers; empty = Auto (the key is not sent).
   const [sensingRxIds, setSensingRxIds] = useState<string[]>([]);
-  const sensingActive = sensingOn && sensingAvailable;
+  // Track B (v0.1.16): waveform numerology, background solve, CFAR detection.
+  const [waveformPreset, setWaveformPreset] = useState<WaveformPresetId>("none");
+  const [backgroundMode, setBackgroundMode] = useState<BackgroundMode>("off");
+  const [detectionMode, setDetectionMode] = useState<"threshold" | "cfar">("threshold");
+  const [pfaCell, setPfaCell] = useState(1e-4);
+  // auto: mean_subtract when a background is solved (direct-path masking).
+  const [clutterRemoval, setClutterRemoval] = useState<"auto" | "none" | "mean_subtract">(
+    "auto",
+  );
+  // "" = analytic threshold from pfaCell; else a stored H0 ensemble or
+  // background-only scenario result id.
+  const [h0ResultId, setH0ResultId] = useState("");
+  // Without a sensing target only a background-only run is possible, so the
+  // background cannot be off then.
+  const effectiveBackground: BackgroundMode =
+    !sensingAvailable && backgroundMode === "off" ? "h0_removed" : backgroundMode;
+  const sensingActive = sensingOn;
+  const preset = waveformPreset === "none" ? null : WAVEFORM_PRESETS[waveformPreset];
+  const cfarActive = preset !== null && detectionMode === "cfar";
+  const cpiS = clampNum(cpiMs, 0.1, 10000, 10) / 1000;
+  const numerology = useMemo(
+    () => (preset ? previewNumerology(preset.waveform, cpiS) : null),
+    [preset, cpiS],
+  );
+  const effectiveClutter =
+    clutterRemoval === "auto"
+      ? effectiveBackground !== "off"
+        ? "mean_subtract"
+        : "none"
+      : clutterRemoval;
+  // A scenario run qualifies when it stored H0 frames; the backend answers
+  // 400 ("no H0 background frames") for one that did not.
+  const h0Sources = (scene?.result_sets ?? []).filter(
+    (r) => r.kind === "sensing_background_ensemble" || r.kind === "scenario",
+  );
+  const h0Source = h0Sources.some((r) => r.result_id === h0ResultId) ? h0ResultId : "";
 
   // The solve's selected devices (config tx_ids / rx_ids; null = all), as the
   // backend resolves them: only these rx may be named in sensing_rx_ids.
@@ -1606,11 +1878,31 @@ export function ScenarioSection() {
         ? {
             enabled: true,
             threshold_db: clampNum(thresholdDb, -30, 60, 13),
-            cpi_s: clampNum(cpiMs, 0.1, 10000, 10) / 1000,
-            cpi_pulses: Math.round(clampNum(cpiPulses, 1, 1e8, 4096)),
-            measurement_noise: measurementNoise,
+            cpi_s: cpiS,
+            // With a waveform the backend derives it (K x N pilot REs); an
+            // explicit value would only be overridden with a warning.
+            ...(preset ? {} : { cpi_pulses: Math.round(clampNum(cpiPulses, 1, 1e8, 4096)) }),
+            // The CFAR map supplies the measurement noise (the flag is ignored there).
+            measurement_noise: cfarActive ? false : measurementNoise,
             // Omitted on Auto: a pre-v0.1.14 backend rejects unknown keys.
             ...(pickedRxIds.length > 0 ? { sensing_rx_ids: pickedRxIds } : {}),
+            // Omitted at their defaults: a pre-v0.1.16 backend rejects unknown keys.
+            ...(preset ? { waveform: preset.waveform } : {}),
+            ...(effectiveBackground !== "off" ? { background: { mode: effectiveBackground } } : {}),
+            ...(cfarActive
+              ? {
+                  detection: {
+                    mode: "cfar" as const,
+                    ...(effectiveClutter !== "none"
+                      ? { map: { clutter_removal: effectiveClutter } }
+                      : {}),
+                    cfar: { pfa_cell: clampNum(pfaCell, 1e-12, 0.5, 1e-4) },
+                    ...(h0Source !== ""
+                      ? { threshold: "h0_calibrated" as const, h0_result_id: h0Source }
+                      : {}),
+                  },
+                }
+              : {}),
             // Key omitted when off: a pre-v0.1.13 backend rejects unknown keys.
             ...(trackingOn
               ? {
@@ -1672,21 +1964,21 @@ export function ScenarioSection() {
         Include paths (per frame)
       </label>
       <label
-        className={"solver-check" + (sensingAvailable ? "" : " disabled")}
+        className="solver-check"
         title={
           sensingAvailable
             ? "Run a sensing solve in every frame: per-link SNR + MTI detection and a multistatic position/velocity estimate"
-            : SENSING_TRACK_HINT
+            : `${SENSING_TRACK_HINT}. ${SENSING_TARGETLESS_HINT}.`
         }
       >
         <input
           type="checkbox"
           checked={sensingActive}
-          disabled={disabled || !sensingAvailable}
+          disabled={disabled}
           onChange={(e) => setSensingOn(e.target.checked)}
         />
         Sensing (ISAC)
-        {!sensingAvailable && <span className="solver-unit">needs a sensing target</span>}
+        {!sensingAvailable && <span className="solver-unit">no target: background only</span>}
       </label>
       {sensingActive && (
         <>
@@ -1736,21 +2028,129 @@ export function ScenarioSection() {
             )}
             <p className="hint">{SENSING_RX_HINT}</p>
           </div>
-          <label className="solver-field">
-            <span className="solver-field-label">Threshold</span>
+          <label
+            className="solver-field"
+            title={
+              preset
+                ? `${preset.title}. The integrated REs, noise floor (over B_occ) and resolutions follow it and the CPI.`
+                : "None: integrated pulses are free and the noise floor uses the config bandwidth (v0.1.15)"
+            }
+          >
+            <span className="solver-field-label">Waveform</span>
             <span className="solver-field-input">
-              <NumericInput
-                min={-30}
-                max={60}
-                step={1}
-                value={thresholdDb}
+              <select
+                value={waveformPreset}
                 disabled={disabled}
-                onChange={setThresholdDb}
-                clamp={(v) => clampNum(v, -30, 60, 13)}
-              />
-              <span className="solver-unit">dB</span>
+                onChange={(e) => setWaveformPreset(e.target.value as WaveformPresetId)}
+              >
+                <option value="none">None (v0.1.15)</option>
+                {(Object.keys(WAVEFORM_PRESETS) as (keyof typeof WAVEFORM_PRESETS)[]).map((id) => (
+                  <option key={id} value={id} title={WAVEFORM_PRESETS[id].title}>
+                    {WAVEFORM_PRESETS[id].label}
+                  </option>
+                ))}
+              </select>
             </span>
           </label>
+          <label
+            className="solver-field"
+            title={
+              "Threshold: post-integration SNR ≥ threshold + MTI notch (v0.1.15). " +
+              `CFAR: ${CFAR_HINT}.`
+            }
+          >
+            <span className="solver-field-label">Detection</span>
+            <span className="solver-field-input">
+              <select
+                value={cfarActive ? "cfar" : "threshold"}
+                disabled={disabled}
+                onChange={(e) => setDetectionMode(e.target.value as "threshold" | "cfar")}
+              >
+                <option value="threshold">Threshold</option>
+                <option value="cfar" disabled={preset === null}>
+                  CFAR{preset === null ? " (waveform)" : ""}
+                </option>
+              </select>
+            </span>
+          </label>
+          {cfarActive ? (
+            <>
+              <label
+                className="solver-field"
+                title="Cell false-alarm probability: sets the analytic CA-CFAR α, or the H0 quantile when calibrated"
+              >
+                <span className="solver-field-label">P_FA per cell</span>
+                <span className="solver-field-input">
+                  <NumericInput
+                    step="any"
+                    value={pfaCell}
+                    disabled={disabled}
+                    onChange={setPfaCell}
+                    clamp={(v) => clampNum(v, 1e-12, 0.5, 1e-4)}
+                  />
+                </span>
+              </label>
+              <label className="solver-field" title={CLUTTER_HINT}>
+                <span className="solver-field-label">Clutter removal</span>
+                <span className="solver-field-input">
+                  <select
+                    value={clutterRemoval}
+                    disabled={disabled}
+                    onChange={(e) =>
+                      setClutterRemoval(e.target.value as "auto" | "none" | "mean_subtract")
+                    }
+                  >
+                    <option value="auto">
+                      Auto ({effectiveBackground !== "off" ? "mean subtract" : "none"})
+                    </option>
+                    <option value="none">None</option>
+                    <option value="mean_subtract">Mean subtract</option>
+                  </select>
+                </span>
+              </label>
+              <label
+                className="solver-field"
+                title={
+                  "Analytic: α from P_FA per cell. An H0 ensemble or a background-only (H0) " +
+                  "run: the threshold is the P_FA quantile of the CFAR statistic over its H0 " +
+                  "frames (runs without stored H0 frames answer 400)"
+                }
+              >
+                <span className="solver-field-label">CFAR threshold</span>
+                <span className="solver-field-input">
+                  <select
+                    value={h0Source}
+                    disabled={disabled || h0Sources.length === 0}
+                    onChange={(e) => setH0ResultId(e.target.value)}
+                  >
+                    <option value="">Analytic</option>
+                    {h0Sources.map((r) => (
+                      <option key={r.result_id} value={r.result_id} title={r.result_id}>
+                        {r.kind === "scenario" ? "H0 run" : "H0 ensemble"}:{" "}
+                        {r.label ?? r.result_id}
+                      </option>
+                    ))}
+                  </select>
+                </span>
+              </label>
+            </>
+          ) : (
+            <label className="solver-field">
+              <span className="solver-field-label">Threshold</span>
+              <span className="solver-field-input">
+                <NumericInput
+                  min={-30}
+                  max={60}
+                  step={1}
+                  value={thresholdDb}
+                  disabled={disabled}
+                  onChange={setThresholdDb}
+                  clamp={(v) => clampNum(v, -30, 60, 13)}
+                />
+                <span className="solver-unit">dB</span>
+              </span>
+            </label>
+          )}
           <label className="solver-field">
             <span className="solver-field-label">CPI</span>
             <span className="solver-field-input">
@@ -1766,28 +2166,71 @@ export function ScenarioSection() {
               <span className="solver-unit">ms</span>
             </span>
           </label>
-          <label className="solver-field" title="Coherent integration gain = 10·log10(pulses)">
-            <span className="solver-field-label">Integrated pulses</span>
+          {preset ? (
+            <div
+              className="solver-field"
+              title={
+                numerology
+                  ? `${numerology.gridK} subcarriers × ${numerology.gridN} symbols of pilots ` +
+                    `(${numerology.symbols} symbols per CPI) · B_occ ` +
+                    `${(numerology.bOccHz / 1e6).toFixed(2)} MHz · range-sum cell ` +
+                    `${numerology.rangeSumCellM.toFixed(2)} m · Doppler cell ` +
+                    `${numerology.dopplerResolutionHz.toFixed(1)} Hz`
+                  : "The backend rejects a CPI shorter than one OFDM symbol"
+              }
+            >
+              <span className="solver-field-label">Integrated REs</span>
+              <span className={"solver-field-input mono" + (numerology ? "" : " sensing-miss")}>
+                {numerology
+                  ? `${numerology.nRe} · +${numerology.gainDb.toFixed(1)} dB`
+                  : "CPI < 1 symbol"}
+              </span>
+            </div>
+          ) : (
+            <label className="solver-field" title="Coherent integration gain = 10·log10(pulses)">
+              <span className="solver-field-label">Integrated pulses</span>
+              <span className="solver-field-input">
+                <NumericInput
+                  min={1}
+                  max={100000000}
+                  step={1}
+                  value={cpiPulses}
+                  disabled={disabled}
+                  onChange={setCpiPulses}
+                  clamp={(v) => Math.round(clampNum(v, 1, 1e8, 4096))}
+                />
+              </span>
+            </label>
+          )}
+          <label className="solver-field" title={BACKGROUND_HINT}>
+            <span className="solver-field-label">Background</span>
             <span className="solver-field-input">
-              <NumericInput
-                min={1}
-                max={100000000}
-                step={1}
-                value={cpiPulses}
+              <select
+                value={effectiveBackground}
                 disabled={disabled}
-                onChange={setCpiPulses}
-                clamp={(v) => Math.round(clampNum(v, 1, 1e8, 4096))}
-              />
+                onChange={(e) => setBackgroundMode(e.target.value as BackgroundMode)}
+              >
+                {(Object.keys(BACKGROUND_MODE_LABEL) as BackgroundMode[]).map((m) => (
+                  <option key={m} value={m} disabled={m === "off" && !sensingAvailable}>
+                    {BACKGROUND_MODE_LABEL[m]}
+                  </option>
+                ))}
+              </select>
             </span>
           </label>
+          {!sensingAvailable && <p className="hint">{SENSING_TARGETLESS_HINT}.</p>}
           <label
-            className="solver-check"
-            title="Seeded Gaussian noise (σ = resolution cell / √(2·SNR)) on the range / Doppler fed to fusion"
+            className={"solver-check" + (cfarActive ? " disabled" : "")}
+            title={
+              cfarActive
+                ? "CFAR: the delay-Doppler map supplies the measurement (with its thermal noise)"
+                : "Seeded Gaussian noise (σ = resolution cell / √(2·SNR)) on the range / Doppler fed to fusion"
+            }
           >
             <input
               type="checkbox"
-              checked={measurementNoise}
-              disabled={disabled}
+              checked={cfarActive ? false : measurementNoise}
+              disabled={disabled || cfarActive}
               onChange={(e) => setMeasurementNoise(e.target.checked)}
             />
             Measurement noise
@@ -1857,7 +2300,7 @@ export function ScenarioSection() {
           )}
         </>
       )}
-      {sensingActive && <p className="hint">{SENSING_TRACK_HINT}</p>}
+      {sensingActive && sensingAvailable && <p className="hint">{SENSING_TRACK_HINT}</p>}
       <div className="panel-actions">
         <button className="primary" disabled={!projectId || disabled} onClick={simulate}>
           Simulate scenario
@@ -3867,6 +4310,7 @@ const RUN_HISTORY_KINDS: ResultSetRef["kind"][] = [
   "sensing",
   "isac",
   "sensing_coverage",
+  "sensing_background_ensemble",
 ];
 
 /** Group headings that read better than the raw kind string. Kinds missing
@@ -3876,6 +4320,7 @@ const RUN_HISTORY_LABELS: Partial<Record<ResultSetRef["kind"], string>> = {
   sensing: "sensing (RCS)",
   isac: "ISAC trade-off",
   sensing_coverage: "sensing coverage",
+  sensing_background_ensemble: "H0 background ensemble",
 };
 
 /** One run row with an inline-editable label. Committing (blur/Enter) PATCHes
@@ -3938,7 +4383,11 @@ function RunHistoryRow({
       <td>
         <button
           disabled={disabled}
-          title="Load this stored run into its overlay and jump to Results"
+          title={
+            refItem.kind === "sensing_background_ensemble"
+              ? "No viewer layer: summarize it here; use it as the CFAR threshold source in Scenario ▸ Sensing"
+              : "Load this stored run into its overlay and jump to Results"
+          }
           onClick={() => onLoad(refItem)}
         >
           Load

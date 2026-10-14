@@ -63,6 +63,7 @@ from seam_studio.services.detector import (
     snr_for_pd,
 )
 from seam_studio.services.sensing import COLOCATED_SENSING_RX_M, ResolvedSensingTarget
+from seam_studio.services.numerology import effective_cpi_pulses
 from seam_studio.services.sensing_track import detection_constants
 from seam_studio.services.simulation_backends.base import (
     UNSAVED_RESULT_ID,
@@ -962,6 +963,15 @@ def run_isac(
     extra_warnings: tuple[str, ...] | list[str] = (),
 ) -> ISACResultSet:
     """Echo solve + comm solve + synthesis; never persists."""
+    # Numerology (#23): compute with the waveform's pilot RE count; the
+    # metadata keeps the request as sent (its request_hash stays put).
+    original = request
+    cpi_pulses, numerology_warnings, num = effective_cpi_pulses(
+        request.waveform, request.cpi_s, request.cpi_pulses,
+        "cpi_pulses" in request.model_fields_set, "isac",
+    )
+    if cpi_pulses != request.cpi_pulses:
+        request = request.model_copy(update={"cpi_pulses": cpi_pulses})
     if tick is not None:
         tick(0, 2)
     tx_ids = [t.id for t in plan.txs]
@@ -1003,7 +1013,9 @@ def run_isac(
         ]
         comm_warnings = [f"comm paths: {w}" for w in comm.warnings]
 
-    warnings = list(extra_warnings) + list(echo.warnings) + comm_warnings
+    warnings = (
+        list(extra_warnings) + numerology_warnings + list(echo.warnings) + comm_warnings
+    )
     if any(
         d.id in involved and d.antenna.polarization in ("VH", "cross")
         for d in scene.devices
@@ -1023,7 +1035,9 @@ def run_isac(
     for p in usable_echoes:
         echoes_by_link.setdefault((p.tx_id, p.rx_id, p.target_id or ""), []).append(p)
 
-    noise_dbm = noise_floor_dbm(config)
+    noise_dbm = (
+        num.noise_floor_dbm(config.noise_figure_db) if num is not None else noise_floor_dbm(config)
+    )
     codebook = request_codebook(request)
     ratios = sorted(set(float(r) for r in request.slot_ratios))
     channels = [
@@ -1117,13 +1131,16 @@ def run_isac(
         SensingTrackOptions(
             threshold_db=request.threshold_db,
             cpi_s=request.cpi_s,
-            cpi_pulses=request.cpi_pulses,
+            # The request's own (bounded) value: with a waveform the
+            # numerology replaces it anyway.
+            cpi_pulses=original.cpi_pulses,
+            waveform=request.waveform,
         ),
     )
     for key in ("mti_min_doppler_hz", "mti_blind_speed_m_s"):
         consts.pop(key, None)
     metadata = {
-        "request": metadata_dump(request, exclude=("config",)),
+        "request": metadata_dump(original, exclude=("config",)),
         **consts,
         "codebook_size": len(codebook),
         "echo_path_count": len(echo_paths),

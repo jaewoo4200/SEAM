@@ -5,12 +5,16 @@ POST /projects/{project_id}/simulate/radio-map  -> RadioMapResultSet
 POST /projects/{project_id}/simulate/sensing    -> SensingResultSet
 POST /projects/{project_id}/simulate/isac       -> ISACResultSet
 POST /projects/{project_id}/simulate/sensing-coverage -> SensingCoverageResultSet
+POST /projects/{project_id}/simulate/sensing-background-ensemble
+                                                -> SensingBackgroundEnsembleResultSet
 POST /projects/{project_id}/analysis/pd-curve   -> PdCurveResult (not stored)
 GET  /projects/{project_id}/results/paths       -> stored PathResultSet
 GET  /projects/{project_id}/results/radio-map   -> stored RadioMapResultSet
 GET  /projects/{project_id}/results/sensing     -> stored SensingResultSet
 GET  /projects/{project_id}/results/isac        -> stored ISACResultSet
 GET  /projects/{project_id}/results/sensing-coverage -> stored SensingCoverageResultSet
+GET  /projects/{project_id}/results/sensing-background-ensemble
+                                                -> stored SensingBackgroundEnsembleResultSet
 
 Storage convention: results/<result_id>.json inside the project folder, with
 result_id = "<backend>_<kind>_<nnn>" (nnn = highest existing suffix + 1,
@@ -44,6 +48,7 @@ from seam_studio.schemas.results import (
     PdCurveResult,
     PlaybackResultSet,
     RadioMapResultSet,
+    SensingBackgroundEnsembleResultSet,
     SensingCoverageResultSet,
     SensingResultSet,
     TrajectoryResultSet,
@@ -51,6 +56,7 @@ from seam_studio.schemas.results import (
 from seam_studio.schemas.scene import ResultSetRef, Scene
 from seam_studio.schemas.sensing import (
     MAX_MC_TOTAL_TRIALS,
+    BackgroundEnsembleRequest,
     ISACRequest,
     PdCurveRequest,
     SensingCoverageRequest,
@@ -144,6 +150,7 @@ def _readout_guard(project_id: str, kind: str, backend_name: str) -> Iterator[No
 ResultKind = Literal[
     "paths", "radio_map", "mesh_radio_map", "trajectory", "scenario",
     "channel", "playback", "sensing", "isac", "sensing_coverage",
+    "sensing_background_ensemble",
 ]
 RESULT_KINDS: tuple[str, ...] = (
     "paths",
@@ -156,6 +163,7 @@ RESULT_KINDS: tuple[str, ...] = (
     "sensing",
     "isac",
     "sensing_coverage",
+    "sensing_background_ensemble",
 )
 AnyResult = Union[
     PathResultSet,
@@ -168,6 +176,7 @@ AnyResult = Union[
     SensingResultSet,
     ISACResultSet,
     SensingCoverageResultSet,
+    SensingBackgroundEnsembleResultSet,
 ]
 
 
@@ -266,7 +275,10 @@ def _persist_result(
     # codebook, slot ratios, grid) live in the request, not the config:
     # without this two different runs would share every hash.
     req = result.metadata.get("sensing_request" if kind == "sensing" else "request")
-    if kind in ("sensing", "isac", "sensing_coverage") and req is not None:
+    if (
+        kind in ("sensing", "isac", "sensing_coverage", "sensing_background_ensemble")
+        and req is not None
+    ):
         result.metadata["request_hash"] = _sha256(req)
     if config is not None:
         result.metadata.setdefault("config_snapshot", config.model_dump(mode="json"))
@@ -817,6 +829,7 @@ def simulate_isac(
         plan_isac_roles,
         run_isac,
     )
+    from seam_studio.services.numerology import resolve_numerology
     from seam_studio.services.sensing import SensingRequestError, select_targets
 
     request = request or ISACRequest()
@@ -840,6 +853,8 @@ def simulate_isac(
             scene, request.tx_ids, request.ue_rx_ids, request.sensing_rx_ids
         )
         targets = select_targets(scene, request.target_actor_ids)
+        if request.waveform is not None:
+            resolve_numerology(request.waveform, request.cpi_s)
     except (ISACRequestError, SensingRequestError) as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     trials = request.detector.monte_carlo_trials
@@ -942,6 +957,93 @@ def get_sensing_coverage_result(
     return SensingCoverageResultSet.model_validate(
         _load_result(project_id, "sensing_coverage", result_id)
     )
+
+
+@router.post(
+    "/projects/{project_id}/simulate/sensing-background-ensemble",
+    response_model=SensingBackgroundEnsembleResultSet,
+)
+def simulate_sensing_background_ensemble(
+    project_id: str, request: BackgroundEnsembleRequest
+) -> SensingBackgroundEnsembleResultSet:
+    """H0 calibration ensemble (#30): the target-free background of one stored
+    scenario frame, re-solved at that frame's node poses per realization
+    (realization 0 nominal, later ones with seeded material / node-position /
+    CFO perturbations), with the seed that defines every realization's noise
+    frames. Solves serially with the source run's backend."""
+    from seam_studio.services.sensing_ensemble import (
+        EnsembleError,
+        prepare_ensemble,
+        run_background_ensemble,
+    )
+
+    store = get_store()
+    scene = load_scene_or_404(store, project_id)
+    library = store.load_materials(project_id)
+    raw = _load_result(project_id, "scenario", request.source.result_id)
+    try:
+        source = ScenarioResultSet.model_validate(raw)
+    except ValueError:
+        raise HTTPException(
+            status_code=404,
+            detail=f"not a valid scenario result: {request.source.result_id}",
+        )
+    # Validation stays outside the guard so a 4xx never announces a solve.
+    try:
+        setup = prepare_ensemble(
+            scene, request, source,
+            scene_hash=_provenance_hashes(scene, None)["scene_hash"],
+        )
+    except EnsembleError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    try:
+        backend = get_backend(source.backend)
+        if not backend.is_available():
+            raise BackendUnavailableError(
+                f"backend {backend.name!r} of {source.result_id} is not available on this machine"
+            )
+    except (ValueError, BackendUnavailableError) as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    if not backend.capabilities().get("sensing", False):
+        raise HTTPException(
+            status_code=409,
+            detail=f"the background ensemble needs a backend with sensing; {backend.name} has none",
+        )
+    project_dir = store.resolve(project_id)
+
+    with _solve_guard(project_id, "sensing_background_ensemble"):
+        try:
+            result = run_background_ensemble(
+                backend, project_dir, scene, library, request, source,
+                tick=solve_ctx.tick, setup=setup,
+            )
+        except EnsembleError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+        except BackendUnavailableError as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+        return _persist_result(
+            project_id, scene, project_dir, "sensing_background_ensemble", backend.name,
+            setup.config.id, result, config=setup.config,
+        )
+
+
+@router.get(
+    "/projects/{project_id}/results/sensing-background-ensemble",
+    response_model=SensingBackgroundEnsembleResultSet,
+)
+def get_sensing_background_ensemble_result(
+    project_id: str,
+    result_id: Optional[str] = Query(default=None),
+    summary: bool = Query(default=False),
+) -> SensingBackgroundEnsembleResultSet:
+    """summary=true: every realization without its background_h0 paths (the
+    counts, draws and powers only; a large ensemble is GB of JSON)."""
+    raw = _load_result(project_id, "sensing_background_ensemble", result_id)
+    if summary:
+        for realization in raw.get("realizations") or []:
+            if isinstance(realization, dict):
+                realization["background_h0"] = None
+    return SensingBackgroundEnsembleResultSet.model_validate(raw)
 
 
 @router.post("/projects/{project_id}/analysis/pd-curve", response_model=PdCurveResult)

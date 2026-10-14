@@ -33,6 +33,7 @@ from seam_studio.schemas.devices import Device
 from seam_studio.schemas.materials import RFMaterialLibrary
 from seam_studio.schemas.results import RayPath
 from seam_studio.schemas.scene import Scene
+from seam_studio.schemas.sensing import WaveformOptions
 from seam_studio.schemas.simulation import SimulationConfig
 from seam_studio.services import availability
 from seam_studio.services.simulation_backends import resolve_backend
@@ -612,6 +613,28 @@ def _pick_link(
     return tx, rx
 
 
+def _waveform_numerology(waveform: Optional[WaveformOptions]) -> Optional[dict]:
+    """Numerology metadata of a channel-analysis waveform. The request has no
+    CPI: it is symbols_per_cpi symbols when set, else 10 ms (at least one
+    symbol); only the CPI-independent fields (scs, B_occ, pilot lattice)
+    feed the RSRP block."""
+    if waveform is None:
+        return None
+    from seam_studio.services.numerology import (
+        DEFAULT_CPI_S,
+        resolve_numerology,
+        symbol_duration_s,
+    )
+
+    t_sym = symbol_duration_s(waveform)
+    cpi_s = (
+        waveform.symbols_per_cpi * t_sym
+        if waveform.symbols_per_cpi is not None
+        else max(DEFAULT_CPI_S, t_sym)
+    )
+    return resolve_numerology(waveform, cpi_s).as_dict()
+
+
 def analyze_channel(
     project_dir: Path,
     scene: Scene,
@@ -626,6 +649,8 @@ def analyze_channel(
     config = _resolve_config(scene, request)
     tx, rx = _pick_link(scene, request.tx_id, request.rx_id)
     txs = [d for d in scene.devices if d.kind == "tx"]
+    # Before the solve: a waveform the numerology rejects answers 400 at once.
+    numerology = _waveform_numerology(request.waveform)
 
     warnings: list[str] = []
     backend = resolve_backend(config)
@@ -707,9 +732,16 @@ def analyze_channel(
     # the requested subcarrier spacing. RSRP is the per-resource-element power
     # (wideband RSS spread evenly across occupied subcarriers), RSSI includes
     # co-channel interference + thermal noise, RSRQ = N_RB * RSRP / RSSI.
-    scs_khz = request.subcarrier_spacing_khz
-    n_rb = max(1, int(config.bandwidth_hz / (12.0 * scs_khz * 1e3)))
-    n_sc = n_rb * 12
+    if request.waveform is not None:
+        # The waveform's active subcarriers (#23), e.g. 51 PRB / 612 SC at
+        # 30 kHz in 20 MHz, instead of int(B / (12 scs)) resource blocks.
+        scs_khz = request.waveform.scs_hz / 1e3
+        n_sc = request.waveform.n_active_sc
+        n_rb = max(1, n_sc // 12)
+    else:
+        scs_khz = request.subcarrier_spacing_khz
+        n_rb = max(1, int(config.bandwidth_hz / (12.0 * scs_khz * 1e3)))
+        n_sc = n_rb * 12
     rsrp_dbm: Optional[float] = None
     rssi_dbm: Optional[float] = None
     rsrq_db: Optional[float] = None
@@ -806,6 +838,7 @@ def analyze_channel(
             "tx_position_m": list(tx.position),
             "rx_position_m": list(rx.position),
             "engine": result.metadata.get("engine"),
+            **({"numerology": numerology} if numerology is not None else {}),
         },
     )
 

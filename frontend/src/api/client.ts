@@ -85,6 +85,8 @@ import type {
   SceneImportResult,
   ISACRequest,
   ISACResultSet,
+  BackgroundEnsembleRequest,
+  SensingBackgroundEnsembleResultSet,
   SensingCoverageRequest,
   SensingCoverageResultSet,
   SensingDatasetExportRequest,
@@ -528,6 +530,25 @@ export const api = {
       "GET",
       `/projects/${pid}/results/sensing-coverage${resultId ? `?result_id=${encodeURIComponent(resultId)}` : ""}`,
     ),
+  // H0 calibration ensemble (#30): background-only re-solves of one scenario
+  // frame (perturbed materials / node poses / CFO); the CFAR h0_calibrated source.
+  simulateSensingBackgroundEnsemble: (pid: string, req: BackgroundEnsembleRequest) =>
+    request<SensingBackgroundEnsembleResultSet>(
+      "POST",
+      `/projects/${pid}/simulate/sensing-background-ensemble`,
+      req,
+    ),
+  // summary: realizations without their background_h0 paths (GB for a big ensemble).
+  getSensingBackgroundEnsembleResult: (pid: string, resultId?: string, summary = false) => {
+    const q = new URLSearchParams();
+    if (resultId) q.set("result_id", resultId);
+    if (summary) q.set("summary", "true");
+    const qs = q.toString();
+    return request<SensingBackgroundEnsembleResultSet>(
+      "GET",
+      `/projects/${pid}/results/sensing-background-ensemble${qs ? `?${qs}` : ""}`,
+    );
+  },
 
   // Pd vs SNR per detector model (+ Monte Carlo check); pure, not persisted.
   pdCurve: (pid: string, req: PdCurveRequest = {}) =>

@@ -1131,6 +1131,27 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{project_id}/results/sensing-background-ensemble": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Sensing Background Ensemble Result
+         * @description summary=true: every realization without its background_h0 paths (the
+         *     counts, draws and powers only; a large ensemble is GB of JSON).
+         */
+        get: operations["get_sensing_background_ensemble_result_api_projects__project_id__results_sensing_background_ensemble_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{project_id}/results/sensing-coverage": {
         parameters: {
             query?: never;
@@ -1802,6 +1823,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{project_id}/simulate/sensing-background-ensemble": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Simulate Sensing Background Ensemble
+         * @description H0 calibration ensemble (#30): the target-free background of one stored
+         *     scenario frame, re-solved at that frame's node poses per realization
+         *     (realization 0 nominal, later ones with seeded material / node-position /
+         *     CFO perturbations), with the seed that defines every realization's noise
+         *     frames. Solves serially with the source run's backend.
+         */
+        post: operations["simulate_sensing_background_ensemble_api_projects__project_id__simulate_sensing_background_ensemble_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{project_id}/simulate/sensing-coverage": {
         parameters: {
             query?: never;
@@ -2420,6 +2465,199 @@ export interface components {
             /** Name */
             name: string;
         };
+        /**
+         * BackgroundEnsembleRequest
+         * @description Body for POST /projects/{id}/simulate/sensing-background-ensemble.
+         */
+        BackgroundEnsembleRequest: {
+            background?: components["schemas"]["BackgroundOptions"] | null;
+            /** N Realizations */
+            n_realizations: number;
+            /** Noise Frames Per Realization */
+            noise_frames_per_realization: number;
+            perturb?: components["schemas"]["EnsemblePerturbation"];
+            /**
+             * Seed
+             * @default 0
+             */
+            seed: number;
+            source: components["schemas"]["EnsembleSource"];
+        };
+        /**
+         * BackgroundHypothesisMeta
+         * @description One background hypothesis (H0 or H1) of one frame.
+         */
+        BackgroundHypothesisMeta: {
+            /**
+             * Cache Hit
+             * @default false
+             */
+            cache_hit: boolean;
+            /** Cache Key */
+            cache_key: string;
+            /**
+             * Dropped Paths
+             * @default 0
+             */
+            dropped_paths: number;
+            /** Error */
+            error?: string | null;
+            /**
+             * Num Paths
+             * @default 0
+             */
+            num_paths: number;
+            /**
+             * Solve S
+             * @default 0
+             */
+            solve_s: number;
+            /** Solved */
+            solved: boolean;
+            /** Source Frame */
+            source_frame: number;
+            /**
+             * Stored
+             * @default true
+             */
+            stored: boolean;
+            /** Total Power Db */
+            total_power_db?: {
+                [key: string]: number | null;
+            };
+        };
+        /**
+         * BackgroundMeta
+         * @description How SensingFrame.background_h0 / background_h1 were solved (#21).
+         */
+        BackgroundMeta: {
+            /** Deterministic */
+            deterministic: boolean;
+            h0?: components["schemas"]["BackgroundHypothesisMeta"] | null;
+            h1?: components["schemas"]["BackgroundHypothesisMeta"] | null;
+            /** Max Depth */
+            max_depth: number;
+            /** Mechanisms */
+            mechanisms?: string[];
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "h1_absorber" | "h0_removed" | "both";
+            /** Num Samples */
+            num_samples: number;
+            /** Seed */
+            seed: number;
+        };
+        /**
+         * BackgroundOptions
+         * @description TX -> sensing-RX background (clutter) solve per frame (#21): H1 = the
+         *     targets as absorbers with their actor meshes hidden, H0 = the target
+         *     actors removed. PathSolver with config's los / reflection / refraction
+         *     and the mechanisms below; SensingFrame.background_h1 / background_h0.
+         */
+        BackgroundOptions: {
+            /**
+             * Cache
+             * @default static_nodes
+             * @enum {string}
+             */
+            cache: "per_frame" | "static_nodes";
+            /**
+             * Deterministic
+             * @default true
+             */
+            deterministic: boolean;
+            /**
+             * Diffraction
+             * @default false
+             */
+            diffraction: boolean;
+            /**
+             * Diffuse Reflection
+             * @default true
+             */
+            diffuse_reflection: boolean;
+            /**
+             * Edge Diffraction
+             * @default false
+             */
+            edge_diffraction: boolean;
+            /** Max Depth */
+            max_depth?: number | null;
+            /**
+             * Max Paths Per Link
+             * @default 256
+             */
+            max_paths_per_link: number | null;
+            /**
+             * Mode
+             * @default off
+             * @enum {string}
+             */
+            mode: "off" | "h1_absorber" | "h0_removed" | "both";
+            /** Num Samples */
+            num_samples?: number | null;
+            /**
+             * Store
+             * @default h0
+             * @enum {string}
+             */
+            store: "h0" | "both" | "none";
+        };
+        /**
+         * BackgroundRealization
+         * @description One H0 background realization of a sensing_background_ensemble (#30).
+         *     Its H0 noise frame m of link (tx, rx) is the noise of
+         *     services/channel_synthesis.noise_frame(seed, realization=index, frame=m,
+         *     stream=H0_NOISE_STREAM = 0x5EA031).
+         */
+        BackgroundRealization: {
+            /** Background H0 */
+            background_h0?: components["schemas"]["RayPath"][] | null;
+            /** Cfo Hz */
+            cfo_hz?: {
+                [key: string]: number;
+            };
+            /**
+             * Dropped Paths
+             * @default 0
+             */
+            dropped_paths: number;
+            /** Index */
+            index: number;
+            /**
+             * Label
+             * @enum {string}
+             */
+            label: "nominal" | "perturbed";
+            /** Material Draws */
+            material_draws?: {
+                [key: string]: components["schemas"]["EnsembleMaterialDraw"];
+            };
+            /** Node Offsets M */
+            node_offsets_m?: {
+                [key: string]: number[];
+            };
+            /**
+             * Num Paths
+             * @default 0
+             */
+            num_paths: number;
+            /**
+             * Solve S
+             * @default 0
+             */
+            solve_s: number;
+            /** Source Realization */
+            source_realization: number;
+            /** Total Power Db */
+            total_power_db?: {
+                [key: string]: number | null;
+            };
+            /** Warnings */
+            warnings?: string[];
+        };
         /** BatchAssignRequest */
         BatchAssignRequest: {
             /** Assignments */
@@ -2671,6 +2909,30 @@ export interface components {
             /** Rmse Db */
             rmse_db: number;
         };
+        /**
+         * CfarOptions
+         * @description 2-D CFAR on the map's square-law cells (circular in both axes).
+         *     guard / train are [delay, Doppler] half-widths in map cells.
+         */
+        CfarOptions: {
+            /** Guard */
+            guard?: number[];
+            /** Os Rank */
+            os_rank?: number | null;
+            /**
+             * Pfa Cell
+             * @default 0.0001
+             */
+            pfa_cell: number;
+            /** Train */
+            train?: number[];
+            /**
+             * Type
+             * @default ca
+             * @enum {string}
+             */
+            type: "ca" | "os";
+        };
         /** ChannelAnalysisRequest */
         ChannelAnalysisRequest: {
             config?: components["schemas"]["SimulationConfig"] | null;
@@ -2702,6 +2964,7 @@ export interface components {
             subcarrier_spacing_khz: number;
             /** Tx Id */
             tx_id?: string | null;
+            waveform?: components["schemas"]["WaveformOptions"] | null;
         };
         /** ChannelAnalysisResult */
         ChannelAnalysisResult: {
@@ -2793,6 +3056,54 @@ export interface components {
             tx_id: string;
             /** Warnings */
             warnings?: string[];
+        };
+        /**
+         * ChannelExportOptions
+         * @description Slow-time channel tensors per (frame, sensing link) in channel.npz
+         *     (#22): H[row, symbol, subcarrier], complex64, one array per component.
+         */
+        ChannelExportOptions: {
+            /** Components */
+            components?: ("echo" | "background_h0" | "background_h1" | "total")[];
+            /**
+             * Kind
+             * @default cfr
+             * @constant
+             */
+            kind: "cfr";
+            /**
+             * Max Elements
+             * @default 50000000
+             */
+            max_elements: number;
+            noise?: components["schemas"]["ChannelNoiseOptions"];
+            /**
+             * Pilot Ls
+             * @default false
+             */
+            pilot_ls: boolean;
+            /**
+             * Subcarriers
+             * @default pilot
+             * @enum {string}
+             */
+            subcarriers: "active" | "pilot";
+            waveform?: components["schemas"]["WaveformOptions"] | null;
+        };
+        /**
+         * ChannelNoiseOptions
+         * @description Thermal noise per resource element of the channel export (#22).
+         */
+        ChannelNoiseOptions: {
+            /**
+             * Enabled
+             * @default false
+             */
+            enabled: boolean;
+            /** N0 Dbm Per Re */
+            n0_dbm_per_re?: number | null;
+            /** Seed */
+            seed?: number | null;
         };
         /**
          * ChannelNpzExportRequest
@@ -2975,6 +3286,7 @@ export interface components {
             sweep_values: number[];
             /** Tx Id */
             tx_id?: string | null;
+            waveform?: components["schemas"]["WaveformOptions"] | null;
         };
         /** ChannelSweepResult */
         ChannelSweepResult: {
@@ -3170,6 +3482,67 @@ export interface components {
             waypoints?: number[][] | null;
         };
         /**
+         * DetectionMapOptions
+         * @description Delay-Doppler map of one link's pilot channel H[n, k] (#24).
+         */
+        DetectionMapOptions: {
+            /**
+             * Clutter Removal
+             * @default none
+             * @enum {string}
+             */
+            clutter_removal: "none" | "mean_subtract";
+            /**
+             * Window
+             * @default hann
+             * @enum {string}
+             */
+            window: "hann" | "rect";
+            /** Zero Doppler Notch Bins */
+            zero_doppler_notch_bins?: number | null;
+            /**
+             * Zero Pad
+             * @default 1
+             */
+            zero_pad: number;
+        };
+        /**
+         * DetectionOptions
+         * @description Link detection (#24). threshold: snr_db >= threshold_db plus the MTI
+         *     notch (v0.1.15). cfar: CA/OS-CFAR on each link's delay-Doppler map built
+         *     from echo + background + thermal noise (needs sensing.waveform).
+         */
+        DetectionOptions: {
+            cfar?: components["schemas"]["CfarOptions"];
+            /** H0 Result Id */
+            h0_result_id?: string | null;
+            map?: components["schemas"]["DetectionMapOptions"];
+            /**
+             * Max Detections Per Link
+             * @default 256
+             */
+            max_detections_per_link: number;
+            /**
+             * Mode
+             * @default threshold
+             * @enum {string}
+             */
+            mode: "threshold" | "cfar";
+            /**
+             * Oracle Gate Cells
+             * @default 1
+             */
+            oracle_gate_cells: number;
+            /** System Pfa */
+            system_pfa?: number | null;
+            /**
+             * Threshold
+             * @default analytic
+             * @enum {string}
+             */
+            threshold: "analytic" | "h0_calibrated";
+        };
+        /**
          * DetectorOptions
          * @description Square-law detector on the coherently integrated sample. ``model`` is
          *     the target fluctuation (Swerling 0 = steady, 1 = Rayleigh scan-to-scan,
@@ -3341,6 +3714,44 @@ export interface components {
         EngineListResponse: {
             /** Engines */
             engines?: components["schemas"]["EngineInfo"][];
+        };
+        /** EnsembleLink */
+        EnsembleLink: {
+            /** Rx Id */
+            rx_id: string;
+            /** Tx Id */
+            tx_id: string;
+        };
+        /** EnsembleMaterialDraw */
+        EnsembleMaterialDraw: {
+            /** Eps R Scale */
+            eps_r_scale: number;
+            /** Sigma Scale */
+            sigma_scale: number;
+        };
+        /** EnsemblePerturbation */
+        EnsemblePerturbation: {
+            /**
+             * Cfo Hz
+             * @default 0
+             */
+            cfo_hz: number;
+            material?: components["schemas"]["MaterialPerturbation"];
+            /**
+             * Node Pos Sigma M
+             * @default 0
+             */
+            node_pos_sigma_m: number;
+        };
+        /**
+         * EnsembleSource
+         * @description The scenario frame whose node poses the ensemble re-solves.
+         */
+        EnsembleSource: {
+            /** Frame Index */
+            frame_index: number;
+            /** Result Id */
+            result_id: string;
         };
         /**
          * EvidenceImage
@@ -3640,6 +4051,7 @@ export interface components {
              * @default true
              */
             use_device_orientation: boolean;
+            waveform?: components["schemas"]["WaveformOptions"] | null;
         };
         /** ISACResultSet */
         ISACResultSet: {
@@ -4090,6 +4502,29 @@ export interface components {
             /** Skipped */
             skipped?: string[];
         };
+        /**
+         * MaterialPerturbation
+         * @description Per realization, every radio material's eps_r and sigma scale by
+         *     (1 + d), d ~ N(0, (pct / 100)^2), eps_r clipped at 1 and sigma at 0.
+         */
+        MaterialPerturbation: {
+            /**
+             * Eps R Pct
+             * @default 0
+             */
+            eps_r_pct: number;
+            /**
+             * Scope
+             * @default material
+             * @enum {string}
+             */
+            scope: "material" | "prim";
+            /**
+             * Sigma Pct
+             * @default 0
+             */
+            sigma_pct: number;
+        };
         /** MaterialSuggestion */
         MaterialSuggestion: {
             /** Alternatives */
@@ -4366,6 +4801,11 @@ export interface components {
              */
             cpi_pulses: number;
             /**
+             * Cpi S
+             * @default 0.01
+             */
+            cpi_s: number;
+            /**
              * Empirical Threshold
              * @default false
              */
@@ -4407,6 +4847,7 @@ export interface components {
              * @default 0.5
              */
             step_db: number;
+            waveform?: components["schemas"]["WaveformOptions"] | null;
         };
         /**
          * PdCurveResult
@@ -4459,6 +4900,31 @@ export interface components {
             pd_mc: number;
             /** Snr Db */
             snr_db: number;
+        };
+        /**
+         * PilotOptions
+         * @description Pilot lattice of the sensing waveform: pilots on every
+         *     ``subcarrier_step``-th active subcarrier of every ``symbol_step``-th
+         *     symbol, both from index 0 ("block": every subcarrier of the pilot
+         *     symbols). K x N pilot REs per CPI are the coherent integration.
+         */
+        PilotOptions: {
+            /**
+             * Pattern
+             * @default comb
+             * @enum {string}
+             */
+            pattern: "comb" | "block";
+            /**
+             * Subcarrier Step
+             * @default 1
+             */
+            subcarrier_step: number;
+            /**
+             * Symbol Step
+             * @default 1
+             */
+            symbol_step: number;
         };
         /**
          * PlaybackBuildRequest
@@ -5045,7 +5511,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "paths" | "radio_map" | "mesh_radio_map" | "trajectory" | "scenario" | "channel" | "playback" | "sensing" | "isac" | "sensing_coverage";
+            kind: "paths" | "radio_map" | "mesh_radio_map" | "trajectory" | "scenario" | "channel" | "playback" | "sensing" | "isac" | "sensing_coverage" | "sensing_background_ensemble";
             /** Label */
             label?: string | null;
             /** Result Id */
@@ -5072,7 +5538,7 @@ export interface components {
              */
             keep_latest: number;
             /** Kinds */
-            kinds?: ("paths" | "radio_map" | "mesh_radio_map" | "trajectory" | "scenario" | "channel" | "playback" | "sensing" | "isac" | "sensing_coverage")[] | null;
+            kinds?: ("paths" | "radio_map" | "mesh_radio_map" | "trajectory" | "scenario" | "channel" | "playback" | "sensing" | "isac" | "sensing_coverage" | "sensing_background_ensemble")[] | null;
         };
         /** RuleGenerationRequest */
         RuleGenerationRequest: {
@@ -5364,6 +5830,46 @@ export interface components {
             /** Restored Prim Id */
             restored_prim_id: string;
         };
+        /**
+         * SensingBackgroundEnsembleResultSet
+         * @description POST /simulate/sensing-background-ensemble (#30): H0 background paths
+         *     per realization at one scenario frame's node poses, plus the seed that
+         *     defines every realization's noise frames (drawn on demand, never stored).
+         */
+        SensingBackgroundEnsembleResultSet: {
+            /** Backend */
+            backend: string;
+            background: components["schemas"]["BackgroundOptions"];
+            /** Created At */
+            created_at?: string | null;
+            /**
+             * Kind
+             * @default sensing_background_ensemble
+             * @constant
+             */
+            kind: "sensing_background_ensemble";
+            /** Links */
+            links?: components["schemas"]["EnsembleLink"][];
+            /** Metadata */
+            metadata?: {
+                [key: string]: unknown;
+            };
+            /** Nodes */
+            nodes?: components["schemas"]["SensingNodeState"][];
+            /** Noise Frames Per Realization */
+            noise_frames_per_realization: number;
+            /** Realizations */
+            realizations?: components["schemas"]["BackgroundRealization"][];
+            /** Result Id */
+            result_id: string;
+            /** Seed */
+            seed: number;
+            /** Simulation Config Id */
+            simulation_config_id: string;
+            source: components["schemas"]["EnsembleSource"];
+            /** Warnings */
+            warnings?: string[];
+        };
         /** SensingCoverageLink */
         SensingCoverageLink: {
             /** Baseline M */
@@ -5405,6 +5911,11 @@ export interface components {
              * @default 4096
              */
             cpi_pulses: number;
+            /**
+             * Cpi S
+             * @default 0.01
+             */
+            cpi_s: number;
             detector?: components["schemas"]["DetectorOptions"];
             /**
              * Height M
@@ -5450,6 +5961,7 @@ export interface components {
              * @default 4
              */
             tx_rows: number;
+            waveform?: components["schemas"]["WaveformOptions"] | null;
         };
         /** SensingCoverageResultSet */
         SensingCoverageResultSet: {
@@ -5519,6 +6031,12 @@ export interface components {
             /** Formats */
             formats?: ("npz" | "csv" | "parquet")[];
             /**
+             * Include Background Paths
+             * @default false
+             */
+            include_background_paths: boolean;
+            include_channel?: components["schemas"]["ChannelExportOptions"] | null;
+            /**
              * Include Echo Paths
              * @default false
              */
@@ -5537,6 +6055,11 @@ export interface components {
          * @description POST /export/sensing-dataset response.
          */
         SensingDatasetExportResult: {
+            /**
+             * Channel Elements
+             * @default 0
+             */
+            channel_elements: number;
             /** Detected Fraction */
             detected_fraction?: number | null;
             /** Download Url */
@@ -5550,6 +6073,16 @@ export interface components {
             export_dir: string;
             /** Files */
             files?: string[];
+            /**
+             * Num Background Rows
+             * @default 0
+             */
+            num_background_rows: number;
+            /**
+             * Num Channel Rows
+             * @default 0
+             */
+            num_channel_rows: number;
             /**
              * Num Echo Rows
              * @default 0
@@ -5607,8 +6140,44 @@ export interface components {
              */
             val: number;
         };
+        /**
+         * SensingDetection
+         * @description One CFAR detection on one TX -> RX delay-Doppler map (#24). No truth
+         *     fields: the oracle match is SensingLinkReport.detection_index.
+         */
+        SensingDetection: {
+            /** Cell Nu */
+            cell_nu: number;
+            /** Cell Tau */
+            cell_tau: number;
+            /** Delay Ns */
+            delay_ns: number;
+            /** Doppler Hz */
+            doppler_hz: number;
+            /** Power Db */
+            power_db: number;
+            /** Range Sum M */
+            range_sum_m: number;
+            /** Rx Id */
+            rx_id: string;
+            /** Snr Est Db */
+            snr_est_db?: number | null;
+            /** Statistic */
+            statistic: number;
+            /** Threshold */
+            threshold: number;
+            /** Tx Id */
+            tx_id: string;
+        };
         /** SensingFrame */
         SensingFrame: {
+            /** Background H0 */
+            background_h0?: components["schemas"]["RayPath"][] | null;
+            /** Background H1 */
+            background_h1?: components["schemas"]["RayPath"][] | null;
+            background_meta?: components["schemas"]["BackgroundMeta"] | null;
+            /** Detections */
+            detections?: components["schemas"]["SensingDetection"][] | null;
             /** Echoes */
             echoes?: components["schemas"]["RayPath"][];
             /** Estimates */
@@ -5630,6 +6199,8 @@ export interface components {
              * @default false
              */
             detected: boolean;
+            /** Detection Index */
+            detection_index?: number | null;
             /** Doppler Bin */
             doppler_bin?: number | null;
             /** Doppler Hz */
@@ -5663,7 +6234,7 @@ export interface components {
              * @default no_echo
              * @enum {string}
              */
-            reason: "detected" | "no_echo" | "below_threshold" | "mti_rejected";
+            reason: "detected" | "no_echo" | "below_threshold" | "mti_rejected" | "cfar_miss";
             /** Rx Id */
             rx_id: string;
             /** Snr Db */
@@ -5815,6 +6386,7 @@ export interface components {
          *     the echoes into per-link detections and a fused target estimate.
          */
         SensingTrackOptions: {
+            background?: components["schemas"]["BackgroundOptions"] | null;
             /**
              * Cpi Pulses
              * @default 1
@@ -5825,6 +6397,7 @@ export interface components {
              * @default 0.01
              */
             cpi_s: number;
+            detection?: components["schemas"]["DetectionOptions"] | null;
             detector?: components["schemas"]["DetectorOptions"];
             /**
              * Enabled
@@ -5867,6 +6440,7 @@ export interface components {
              */
             threshold_db: number;
             tracking?: components["schemas"]["TrackingOptions"] | null;
+            waveform?: components["schemas"]["WaveformOptions"] | null;
         };
         /**
          * SensorChannel
@@ -6644,6 +7218,38 @@ export interface components {
             material_id?: string | null;
             /** Material Name */
             material_name?: string | null;
+        };
+        /**
+         * WaveformOptions
+         * @description OFDM numerology of the sensing waveform (#23): derives cpi_pulses
+         *     (pilot REs per CPI), the occupied bandwidth B_occ = n_active_sc * scs_hz,
+         *     the noise floor over B_occ and the delay / Doppler resolution
+         *     (services/numerology.py).
+         */
+        WaveformOptions: {
+            /**
+             * Cp
+             * @default normal
+             * @enum {string}
+             */
+            cp: "normal" | "extended";
+            /**
+             * N Active Sc
+             * @default 612
+             */
+            n_active_sc: number;
+            /** N Fft */
+            n_fft: number;
+            pilot?: components["schemas"]["PilotOptions"];
+            /**
+             * Scs Hz
+             * @default 30000
+             */
+            scs_hz: number;
+            /** Symbol Duration S */
+            symbol_duration_s?: number | null;
+            /** Symbols Per Cpi */
+            symbols_per_cpi?: number | null;
         };
     };
     responses: never;
@@ -8588,6 +9194,40 @@ export interface operations {
             };
         };
     };
+    get_sensing_background_ensemble_result_api_projects__project_id__results_sensing_background_ensemble_get: {
+        parameters: {
+            query?: {
+                result_id?: string | null;
+                summary?: boolean;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SensingBackgroundEnsembleResultSet"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_sensing_coverage_result_api_projects__project_id__results_sensing_coverage_get: {
         parameters: {
             query?: {
@@ -9764,6 +10404,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SensingResultSet"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    simulate_sensing_background_ensemble_api_projects__project_id__simulate_sensing_background_ensemble_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BackgroundEnsembleRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SensingBackgroundEnsembleResultSet"];
                 };
             };
             /** @description Validation Error */

@@ -7,6 +7,7 @@ from typing import Literal, Optional
 from pydantic import Field
 
 from .common import StrictModel
+from .sensing import WaveformOptions
 from .simulation import SimulationConfig
 
 PathLossModelName = Literal[
@@ -67,6 +68,9 @@ class ChannelAnalysisRequest(StrictModel):
     # OFDM subcarrier spacing [kHz] for the 3GPP measurement quantities
     # (RSRP/RSSI/RSRQ resource grid). 30 kHz = 5G NR FR1 default; 15 = LTE.
     subcarrier_spacing_khz: float = Field(default=30.0, gt=0.0)
+    # Set (v0.1.16): the RSRP/RSRQ grid is waveform.n_active_sc subcarriers at
+    # waveform.scs_hz instead of int(B / (12 scs)) resource blocks.
+    waveform: Optional[WaveformOptions] = None
     # Persist this analysis as a stored result (kind "channel") so the Metrics
     # dashboard survives a reload and the run appears in the history browser.
     # Default off: auto-rerun analyses are interactive readouts and would

@@ -10,7 +10,7 @@ and the caller can stamp storage metadata afterwards.
 import abc
 import math
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Literal, Optional
 
 from seam_studio.schemas.compile import CompileResult
 from seam_studio.schemas.materials import RFMaterialLibrary
@@ -178,6 +178,53 @@ class RayTracingBackend(abc.ABC):
         actor pose/velocity (absent = at rest) and has already moved the
         devices in ``scene``; None = the t = 0 snapshot."""
         return self.simulate_paths(project_dir, scene, library, config)
+
+    def simulate_background(
+        self,
+        project_dir: Path,
+        scene: Scene,
+        library: RFMaterialLibrary,
+        config: SimulationConfig,
+        targets: list["ResolvedSensingTarget"],
+        *,
+        hypothesis: Literal["h0", "h1"],
+        deterministic: bool = False,
+        actor_states: Optional[list] = None,
+        actor_velocities: Optional[dict[str, list[float]]] = None,
+        material_scales: Optional[dict[str, tuple[float, float]]] = None,
+        max_paths_per_link: Optional[int] = None,
+    ) -> PathResultSet:
+        """Sensing background solve (services/sensing_background.py): "h1"
+        with the targets as absorbers (``simulate_paths_with_targets``), "h0"
+        with the target actors removed. ``material_scales`` maps a radio
+        material to (eps_r scale, sigma scale) for this solve only.
+        ``max_paths_per_link`` lets a backend drop weak paths early (metadata
+        "background_dropped_paths"); the caller applies the exact cap.
+        metadata "solve_failed" = True marks a solve that produced nothing
+        because it failed. Default: h1 / plain solve, no material
+        perturbation, no early cap."""
+        if hypothesis == "h1":
+            result = self.simulate_paths_with_targets(
+                project_dir, scene, library, config, targets,
+                actor_states=actor_states, actor_velocities=actor_velocities,
+            )
+        else:
+            result = self.simulate_paths(project_dir, scene, library, config)
+        if material_scales:
+            result.warnings = list(result.warnings) + [
+                f"the {self.name} backend cannot perturb radio materials; "
+                "material_scales ignored"
+            ]
+        return result
+
+    def radio_material_names(
+        self, project_dir: Path, scene: Scene, library: RFMaterialLibrary
+    ) -> list[str]:
+        """Radio materials a background solve can perturb (``material_scales``
+        keys): the RF materials bound to prims and actors."""
+        names = {p.rf.material_id for p in scene.prims if p.rf.material_id}
+        names |= {a.rf_material_id for a in scene.actors if a.rf_material_id}
+        return sorted(names)
 
     def simulate_sensing(
         self,

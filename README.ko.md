@@ -202,6 +202,10 @@ bash scripts/start.sh     # 2. 백엔드+프론트 실행
   시나리오 프레임에 걸친 EKF 추적과 학습용 센싱 데이터셋 내보내기(npz/csv/parquet.
   parquet은 `pip install "seam-studio[parquet]"` 필요)도 있습니다.
   [docs/guides/sensing.md](docs/guides/sensing.ko.md) 참조.
+- **신호 수준 센싱(트랙 B)** — OFDM 수비학(적분 이득이 파일럿 격자와 CPI를 따름),
+  H0/H1 배경 경로, 슬로타임 채널 내보내기, 달성 P_FA를 보고하는 지연–도플러 CFAR,
+  재질·위치·CFO 섭동을 seed로 정하는 H0 보정 앙상블을 제공합니다. 모두 기본은 꺼짐입니다.
+  [docs/guides/sensing.md](docs/guides/sensing.ko.md) 참조.
 - **AI 모델 픽커** — LM Studio/Ollama에 로드된 모델을 자동 발견해 제안·에이전트에
   쓸 모델을 UI에서 바꿉니다. 어떤 모델이 답했는지 provenance에 기록됩니다.
 
@@ -268,7 +272,7 @@ curl/스크립트로 프로그래매틱하게** 호출한다(백엔드는 기본
 | [docs/guides/simulation.md](docs/guides/simulation.ko.md) | 그림 가이드: 경로, 라디오맵, 빔포밍, 채널 분석 |
 | [docs/guides/trajectory_uav.md](docs/guides/trajectory_uav.ko.md) | 그림 가이드: 궤적, UAV 액터, 재생, POV 뷰 |
 | [docs/guides/datasets_export.md](docs/guides/datasets_export.ko.md) | 그림 가이드: ML 데이터셋과 내보내기 |
-| [docs/guides/sensing.md](docs/guides/sensing.ko.md) | 가이드: 레이더 센싱, 시간에 따른 ISAC + EKF 추적, 빔 트레이드오프, 커버리지, 탐지기, 센싱 데이터셋 내보내기(1–11절) |
+| [docs/guides/sensing.md](docs/guides/sensing.ko.md) | 가이드: 레이더 센싱, 시간에 따른 ISAC + EKF 추적, 빔 트레이드오프, 커버리지, 탐지기, 센싱 데이터셋 내보내기, 신호 수준 검출(1–12절) |
 | [docs/guides/playback_dashboard.md](docs/guides/playback_dashboard.ko.md) | 가이드: 실측 주행·비행(카메라, LiDAR, 빔 파워)을 트윈과 맞대어 재생 |
 | [docs/architecture.md](docs/architecture.ko.md) | 통합 씬 그래프와 이중 프로젝션 아키텍처 |
 | [docs/scene_format.md](docs/scene_format.ko.md) | 씬·프로젝트 폴더 포맷과 스키마 |
@@ -343,7 +347,7 @@ cd frontend && npm run build                          # 타입체크 + 빌드
              Mapping for Wireless Digital Twins},
   url     = {https://github.com/jaewoo4200/SEAM},
   doi     = {10.5281/zenodo.23207109},
-  version = {0.1.15},
+  version = {0.1.16},
   year    = {2026}
 }
 ```

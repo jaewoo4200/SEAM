@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 # The pip-installable app: `pip install seam-studio` → `seam-studio` serves
 # the backend + the bundled frontend. ("seam" itself is taken on PyPI.)
 name = "seam-studio"
-version = "0.1.15"
+version = "0.1.16"
 description = "SEAM Studio - unified RF-visual scene authoring, RF material assignment, and Sionna RT digital-twin simulation workbench"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -31,7 +31,10 @@ dependencies = [
     "fastapi>=0.111",
     "python-multipart>=0.0.9",
     "uvicorn[standard]>=0.30",
-    "pydantic>=2.7",
+    # 2.12: Field(exclude_if=...) keeps the v0.1.16 result fields out of
+    # the JSON while None (v0.1.15-identical stored results); 2.11 silently
+    # ignores the keyword and breaks /openapi.json.
+    "pydantic>=2.12",
     "numpy>=1.26",
     "trimesh>=4.4",
     # Scene import (Mitsuba XML -> GLB) uses trimesh geometry ops that

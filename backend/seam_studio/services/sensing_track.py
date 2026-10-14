@@ -60,6 +60,11 @@ from seam_studio.schemas.sensing import (
 )
 from seam_studio.schemas.simulation import SimulationConfig
 from seam_studio.services.detector import monte_carlo_pd, pd_swerling
+from seam_studio.services.numerology import (
+    Numerology,
+    effective_cpi_pulses,
+    resolve_numerology,
+)
 from seam_studio.services.scenario import _frame_scene
 from seam_studio.services.sensing import (
     COLOCATED_SENSING_RX_M,
@@ -68,6 +73,7 @@ from seam_studio.services.sensing import (
     geometry_groups,
     resolve_target_state,
 )
+from seam_studio.services.sensing_background import BackgroundRunner
 from seam_studio.services.simulation_backends.base import RayTracingBackend
 from seam_studio.services.simulation_backends.sionna_backend import noise_floor_dbm
 
@@ -113,11 +119,14 @@ def is_direct_echo(path: RayPath) -> bool:
 
 
 def detection_constants(config: SimulationConfig, options: SensingTrackOptions) -> dict:
-    """Run-wide detection constants (also the head of metadata["sensing"])."""
+    """Run-wide detection constants (also the head of metadata["sensing"]).
+    With ``options.waveform`` the noise floor, integration gain and
+    resolutions come from its numerology (services/numerology.py) and the
+    numerology keys follow; without it the v0.1.15 dict, unchanged."""
     bandwidth = float(config.bandwidth_hz)
     wavelength = SPEED_OF_LIGHT / float(config.frequency_hz)
     f_min = float(options.resolved_mti_min_doppler_hz())
-    return {
+    consts = {
         "frequency_hz": float(config.frequency_hz),
         "wavelength_m": wavelength,
         "bandwidth_hz": bandwidth,
@@ -133,6 +142,31 @@ def detection_constants(config: SimulationConfig, options: SensingTrackOptions) 
         "velocity_resolution_m_s": wavelength / (2.0 * options.cpi_s),
         "mti_blind_speed_m_s": wavelength * f_min / 2.0,
     }
+    if options.waveform is None:
+        return consts
+    num = resolve_numerology(options.waveform, options.cpi_s)
+    nf = float(config.noise_figure_db)
+    consts.update(
+        noise_floor_dbm=num.noise_floor_dbm(nf),
+        integration_gain_db=num.integration_gain_db,
+        range_resolution_m=num.range_resolution_m,
+        bistatic_range_resolution_m=num.bistatic_range_resolution_m,
+        doppler_resolution_hz=num.doppler_resolution_hz,
+        velocity_resolution_m_s=wavelength * num.doppler_resolution_hz / 2.0,
+    )
+    consts.update(
+        cpi_pulses=num.n_re_per_cpi,
+        b_occ_hz=num.b_occ_hz,
+        n_re_per_cpi=num.n_re_per_cpi,
+        symbols_per_cpi=num.symbols_per_cpi,
+        symbol_duration_s=num.symbol_duration_s,
+        pilot_fraction=num.pilot_fraction,
+        grid_k=num.grid_k,
+        grid_n=num.grid_n,
+        n0_dbm_per_re=num.n0_dbm_per_re(nf),
+        numerology=num.as_dict(),
+    )
+    return consts
 
 
 def swerling1_pd(snr_db: Optional[float], pfa: float) -> float:
@@ -871,10 +905,40 @@ class SensingTracker:
             if sensing_ids == selected
             else config.model_copy(update={"rx_ids": sensing_ids})
         )
+        # Numerology (#23): the effective cpi_pulses also drives the link Pd
+        # Monte Carlo; metadata keeps the request's options as given.
+        self.numerology: Optional[Numerology]
+        cpi_pulses, self.warnings, self.numerology = effective_cpi_pulses(
+            options.waveform, options.cpi_s, options.cpi_pulses,
+            "cpi_pulses" in options.model_fields_set, "sensing",
+        )
+        self._pd_options = (
+            options
+            if cpi_pulses == options.cpi_pulses
+            else options.model_copy(update={"cpi_pulses": cpi_pulses})
+        )
         self.consts = detection_constants(config, options)
+        self._background: Optional[BackgroundRunner] = (
+            BackgroundRunner(
+                backend, project_dir, scene, library, self._sensing_config,
+                options.background, target_ids,
+            )
+            if options.background is not None and options.background_enabled()
+            else None
+        )
+        self._detector = None
+        if options.cfar_enabled():
+            from seam_studio.services.sensing_detection import SignalDetector
+
+            self._detector = SignalDetector(
+                options=options, consts=self.consts, numerology=self.numerology,
+                config=config, txs=txs, rxs=rxs, project_dir=project_dir, scene=scene,
+            )
+            self.warnings += [f"sensing: {w}" for w in self._detector.warnings]
         self._actor_by_id = {a.id: a for a in scene.actors}
         self._request = SensingSimulateRequest(
-            target_actor_ids=target_ids,
+            # None for a background-only run (no echo solve is made).
+            target_actor_ids=target_ids or None,
             include_comm_paths=False,
             samples_per_sp=options.samples_per_sp,
             max_depth=options.max_depth,
@@ -925,11 +989,17 @@ class SensingTracker:
             )
             for aid in self.target_ids
         ]
-        result = self.backend.simulate_sensing(
-            self.project_dir, frame_scene, self.library, self._sensing_config, self._request,
-            targets, actor_states=actor_states, actor_velocities=actor_velocities,
-        )
-        warnings = list(result.warnings)
+        echo_paths: list[RayPath] = []
+        warnings: list[str] = []
+        # A background-only run (no target) has no echo to solve.
+        if targets:
+            result = self.backend.simulate_sensing(
+                self.project_dir, frame_scene, self.library, self._sensing_config,
+                self._request, targets,
+                actor_states=actor_states, actor_velocities=actor_velocities,
+            )
+            warnings += result.warnings
+            echo_paths = [p for p in result.paths if p.target_id is not None]
         comm_paths: list[RayPath] = []
         if self.options.include_comm_paths:
             comm = self.backend.simulate_paths_with_targets(
@@ -943,9 +1013,15 @@ class SensingTracker:
                 for i, p in enumerate(comm.paths)
             ]
             warnings += [f"comm paths: {w}" for w in comm.warnings]
-        echoes = [p for p in result.paths if p.target_id is not None] + comm_paths
-
         nodes = self._nodes(device_positions, device_velocities)
+        bg = None
+        if self._background is not None:
+            bg = self._background.frame(
+                frame_index, frame_scene, targets, actor_states, actor_velocities, nodes
+            )
+            warnings += [f"background: {w}" for w in bg.warnings]
+        echoes = echo_paths + comm_paths
+
         links = [
             link_report(
                 tx.id, rx.id, aid, echoes, self.consts, self.options, frame_index, nodes
@@ -954,9 +1030,15 @@ class SensingTracker:
             for rx in self.rxs
             for aid in self.target_ids
         ]
+        detections = None
+        if self._detector is not None:
+            map_bg = bg.h1 if bg is not None and bg.h1 is not None else (
+                bg.h0 if bg is not None else None
+            )
+            detections, links = self._detector.frame(frame_index, echo_paths, map_bg, links)
         if self.options.pfa is not None:
             links = [
-                with_link_pd(r, self.options, frame_index, k) for k, r in enumerate(links)
+                with_link_pd(r, self._pd_options, frame_index, k) for k, r in enumerate(links)
             ]
         estimates: list[TargetEstimate] = []
         for target in targets:
@@ -974,7 +1056,7 @@ class SensingTracker:
                     prior = ([float(c) for c in predicted[0][:3]], None, time_s)
             est = estimate_target(
                 target, links, nodes, self.consts, prior, time_s,
-                measurement_noise=self.options.measurement_noise,
+                measurement_noise=self.options.measurement_noise or self._detector is not None,
                 ground_target=self._actor_by_id[aid].kind in GROUND_KINDS,
             )
             if est.status == "ok" and est.position_est is not None:
@@ -986,7 +1068,16 @@ class SensingTracker:
             SensingNodeState(id=dev_id, position=pos, velocity=vel)
             for dev_id, (pos, vel) in nodes.items()
         ]
-        frame = SensingFrame(echoes=echoes, links=links, estimates=estimates, nodes=node_states)
+        frame = SensingFrame(
+            echoes=echoes,
+            links=links,
+            estimates=estimates,
+            nodes=node_states,
+            background_h0=bg.stored_h0 if bg is not None else None,
+            background_h1=bg.stored_h1 if bg is not None else None,
+            background_meta=bg.meta if bg is not None else None,
+            detections=detections,
+        )
         return frame, warnings
 
     def _track_step(
@@ -1064,6 +1155,12 @@ class SensingTracker:
             )
         return est.model_copy(update=fields)
 
+    def run_warnings(self) -> list[str]:
+        """Run-wide "sensing: ..." notes known after the last frame."""
+        if self._background is None:
+            return []
+        return [f"sensing: {w}" for w in self._background.run_warnings()]
+
     def summary(self, frames: list[ScenarioFrame]) -> dict:
         """Run summary for metadata["sensing"]: constants, options, and per
         target detection / fusion statistics (plain floats, JSON-ready)."""
@@ -1137,6 +1234,18 @@ class SensingTracker:
             if self._tracking is not None
             else {}
         )
+        # v0.1.16 keys; none for a v0.1.15 request.
+        trackb_keys: dict = {}
+        if (
+            options.waveform is not None
+            or self._background is not None
+            or self._detector is not None
+        ):
+            trackb_keys["sensing_tx_ids"] = [t.id for t in self.txs]
+            if self._background is not None:
+                trackb_keys["background"] = self._background.summary()
+            if self._detector is not None:
+                trackb_keys["detection"] = self._detector.summary()
         return {
             "options": metadata_dump(options),
             **self.consts,
@@ -1156,6 +1265,7 @@ class SensingTracker:
             "median_position_error_m": _median(all_pos),
             "median_velocity_error_m_s": _median(all_vel),
             **tracking_keys,
+            **trackb_keys,
         }
 
     @staticmethod
