@@ -277,6 +277,14 @@ def run(job: dict) -> dict:
         valid = valid[:, 0, :, 0, :]
     objects = to_np(solved.objects) if hasattr(solved, "objects") else None
     itypes = to_np(solved.interactions) if hasattr(solved, "interactions") else None
+    # Non-synthetic geometry includes RX and TX antenna axes after their
+    # respective device axes. Match the reference ports used for tau and a.
+    if vertices is not None and vertices.ndim == 7:
+        vertices = vertices[:, :, 0, :, 0, :, :]
+    if objects is not None and objects.ndim == 6:
+        objects = objects[:, :, 0, :, 0, :]
+    if itypes is not None and itypes.ndim == 6:
+        itypes = itypes[:, :, 0, :, 0, :]
 
     num_rx = min(tau.shape[0], len(rxs))
     num_tx = min(tau.shape[1], len(txs))

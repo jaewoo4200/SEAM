@@ -25,20 +25,22 @@ SensingTracker carries from frame to frame (frames run in time order).
 """
 
 import math
+from bisect import bisect_right
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
 from seam_studio.services import solve_ctx
 from seam_studio.schemas.actors import (
     ActorState,
-    DeviceState,
+    ScenarioDeviceState,
     LinkMetrics,
     ScenarioFrame,
     ScenarioResultSet,
     ScenarioSimulateRequest,
 )
 from seam_studio.schemas.materials import RFMaterialLibrary
-from seam_studio.schemas.results import RayPath
+from seam_studio.schemas.results import RayPath, TrajectoryResultSet, TrajectorySample
 from seam_studio.schemas.scene import Actor, Scene
 from seam_studio.schemas.simulation import SimulationConfig
 from seam_studio.services.simulation_backends.base import RayTracingBackend
@@ -214,13 +216,13 @@ def _actor_states_at(scene: Scene, time_s: float) -> list[ActorState]:
 
 def _device_states_at(
     scene: Scene, actor_states: list[ActorState]
-) -> tuple[list[DeviceState], dict[str, list[float]]]:
+) -> tuple[list[ScenarioDeviceState], dict[str, list[float]]]:
     """Positions of devices attached to actors, translated by the actor's delta
     from its authored position. Returns the DeviceState list plus an id->pos map
     the mock path can splice into its scene copy."""
     state_by_actor = {s.id: s for s in actor_states}
     device_positions: dict[str, list[float]] = {}
-    states: list[DeviceState] = []
+    states: list[ScenarioDeviceState] = []
     for actor in scene.actors:
         if not actor.attached_device_ids:
             continue
@@ -234,7 +236,7 @@ def _device_states_at(
                 continue
             moved = [float(dev.position[i]) + delta[i] for i in range(3)]
             device_positions[dev_id] = moved
-            states.append(DeviceState(id=dev_id, position=moved))
+            states.append(ScenarioDeviceState(id=dev_id, position=moved))
     return states, device_positions
 
 
@@ -322,6 +324,56 @@ def _pair_metrics(
     )
 
 
+@dataclass
+class ReceiverTrack:
+    samples: list[TrajectorySample]
+    times: list[float]
+
+    def at(self, time_s: float) -> ScenarioDeviceState:
+        index = max(0, bisect_right(self.times, time_s) - 1)
+        if len(self.samples) == 1 or time_s < self.times[0] or time_s > self.times[-1]:
+            sample = self.samples[index]
+            return ScenarioDeviceState(
+                id=sample.ue_id, position=sample.position,
+                orientation_deg=sample.orientation_deg, velocity_m_s=[0.0, 0.0, 0.0],
+            )
+        # At the final recorded sample the original trajectory solver uses
+        # the backward difference; at other knots it uses the forward leg.
+        i = min(index, len(self.samples) - 2)
+        a, b = self.samples[i:i + 2]
+        dt = b.time_s - a.time_s
+        frac = (time_s - a.time_s) / dt
+        delta = [end - start for start, end in zip(a.position, b.position)]
+        position = b.position if frac == 1.0 else [
+            start + frac * diff for start, diff in zip(a.position, delta)
+        ]
+        return ScenarioDeviceState(
+            id=a.ue_id, position=position, velocity_m_s=[diff / dt for diff in delta],
+            orientation_deg=(a if frac < 0.5 else b).orientation_deg,
+        )
+
+
+def receiver_tracks(scene: Scene, trajectory: TrajectoryResultSet) -> dict[str, ReceiverTrack]:
+    static = set(trajectory.metadata.get("static_rx_ids", []))
+    by_rx: dict[str, list[TrajectorySample]] = {}
+    for sample in trajectory.samples:
+        if sample.ue_id not in static:
+            by_rx.setdefault(sample.ue_id, []).append(sample)
+    if not by_rx:
+        raise ValueError("The selected trajectory contains no routed receiver samples.")
+    tracks = {}
+    for uid, samples in by_rx.items():
+        device = scene.device_by_id(uid)
+        if device is None or device.kind != "rx":
+            raise ValueError(f"The selected trajectory's receiver {uid!r} is missing from the scene.")
+        samples.sort(key=lambda sample: sample.time_s)
+        times = [sample.time_s for sample in samples]
+        if len(set(times)) != len(times) or not all(map(math.isfinite, times)):
+            raise ValueError(f"Invalid or duplicate sample times for receiver {uid!r}.")
+        tracks[uid] = ReceiverTrack(samples, times)
+    return tracks
+
+
 def _frame_scene(
     scene: Scene,
     actor_states: list[ActorState],
@@ -329,12 +381,13 @@ def _frame_scene(
     device_velocities: dict[str, list[float]],
     *,
     move_actors: bool,
+    device_orientations: Optional[dict[str, list[float]]] = None,
 ) -> Scene:
     """The scene as one frame sees it: attached devices at their frame
     position/velocity and, with ``move_actors`` (backends without a cached
     scene), actors at their frame pose in a deep copy. Without it (Sionna:
     actors move as SceneObjects) the scene is only copied when a device moves."""
-    if not move_actors and not (device_positions or device_velocities):
+    if not move_actors and not (device_positions or device_velocities or device_orientations):
         return scene
     frame_scene = scene.model_copy(deep=True)
     if move_actors:
@@ -349,6 +402,8 @@ def _frame_scene(
             dev.position = [float(c) for c in device_positions[dev.id]]
         if dev.id in device_velocities:
             dev.velocity_m_s = [float(c) for c in device_velocities[dev.id]]
+        if device_orientations and dev.id in device_orientations:
+            dev.orientation_deg = device_orientations[dev.id]
     return frame_scene
 
 
@@ -362,6 +417,7 @@ def _solve_frame_paths(
     device_positions: dict[str, list[float]],
     actor_velocities: dict[str, list[float]],
     device_velocities: dict[str, list[float]],
+    device_orientations: Optional[dict[str, list[float]]] = None,
 ):
     """Solve one frame's paths. Sionna moves the cached scene's actor objects;
     every other backend gets a deep-copied scene with actor (and attached
@@ -373,7 +429,8 @@ def _solve_frame_paths(
         # receivers are placed correctly, while actors move via SceneObjects.
         # Attached-device velocity rides on the same copy (RadioDevice.velocity).
         frame_scene = _frame_scene(
-            scene, actor_states, device_positions, device_velocities, move_actors=False
+            scene, actor_states, device_positions, device_velocities, move_actors=False,
+            device_orientations=device_orientations,
         )
         return backend.simulate_paths(
             project_dir, frame_scene, library, config,
@@ -381,7 +438,8 @@ def _solve_frame_paths(
         )
     # Mock / other backends: move actor authored positions in a scene copy.
     frame_scene = _frame_scene(
-        scene, actor_states, device_positions, device_velocities, move_actors=True
+        scene, actor_states, device_positions, device_velocities, move_actors=True,
+        device_orientations=device_orientations,
     )
     return backend.simulate_paths(project_dir, frame_scene, library, config)
 
@@ -407,7 +465,11 @@ def run_scenario(
     library: RFMaterialLibrary,
     config: SimulationConfig,
     request: ScenarioSimulateRequest,
+    *,
+    rx_tracks: Optional[dict[str, ReceiverTrack]] = None,
 ) -> ScenarioResultSet:
+    if request.trajectory_result_id and not rx_tracks:
+        raise ValueError("The requested receiver trajectory must be loaded before solving.")
     # Honor the config's device filters so the frame link tables cover exactly
     # the solved tx->rx pairs (the backend already filters by tx_ids/rx_ids).
     txs = [
@@ -457,7 +519,7 @@ def run_scenario(
         # Run-wide sensing notes (numerology, detector), already "sensing: ...".
         warnings.extend(tracker.warnings)
 
-    if not scene.actors:
+    if not scene.actors and not rx_tracks:
         warnings.append("scene has no actors; scenario frames are static")
 
     frames: list[ScenarioFrame] = []
@@ -469,11 +531,24 @@ def run_scenario(
         actor_states = _actor_states_at(scene, t)
         device_states, device_positions = _device_states_at(scene, actor_states)
         actor_velocities, device_velocities = _velocities_at(scene, t)
+        device_orientations = {}
+        if rx_tracks:
+            # An explicitly routed receiver has one pose even when the actor
+            # also names it as a rider. Other attached devices follow the actor.
+            states = {state.id: state for state in device_states}
+            for uid, track in rx_tracks.items():
+                state = track.at(t)
+                states[uid] = state
+                device_positions[uid] = state.position
+                device_velocities[uid] = state.velocity_m_s
+                if state.orientation_deg is not None:
+                    device_orientations[uid] = state.orientation_deg
+            device_states = list(states.values())
 
         result = _solve_frame_paths(
             backend, project_dir, scene, library, config,
             actor_states, device_positions,
-            actor_velocities, device_velocities,
+            actor_velocities, device_velocities, device_orientations,
         )
         if i == 0:
             warnings.extend(result.warnings)
@@ -498,7 +573,8 @@ def run_scenario(
         frame_sensing = None
         if tracker is not None:
             frame_sensing, sensing_warnings = tracker.frame(
-                i, t, actor_states, actor_velocities, device_positions, device_velocities
+                i, t, actor_states, actor_velocities, device_positions, device_velocities,
+                device_orientations=device_orientations,
             )
             _merge_sensing_warnings(warnings, sensing_warnings, i, seen_sensing_warnings)
         frames.append(
@@ -507,7 +583,10 @@ def run_scenario(
                 actor_states=actor_states,
                 device_states=device_states,
                 links=links,
-                paths=list(result.paths) if request.include_paths else None,
+                paths=(
+                    result.frame_rays(config.max_returned_paths_per_tx)
+                    if request.include_paths else None
+                ),
                 sensing=frame_sensing,
             )
         )
@@ -517,6 +596,7 @@ def run_scenario(
         "num_frames": request.num_frames,
         "dt_s": request.dt_s,
         "num_actors": len(scene.actors),
+        **({"trajectory_result_id": request.trajectory_result_id} if rx_tracks else {}),
         "engine": backend.name,
         # Per-frame Doppler spread [Hz] aligned to ``frames``. Omitted when
         # no frame produced a Doppler value (mock output stays unchanged).

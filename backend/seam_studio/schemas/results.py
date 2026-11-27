@@ -83,6 +83,40 @@ class PathResultSet(StrictModel):
     # Free-form backend metadata (frequency, sample count, timing, ...).
     metadata: dict = Field(default_factory=dict)
 
+    def limited_per_tx(self, limit: Optional[int]) -> "PathResultSet":
+        """Select strongest completed rays across receivers, retaining solver order."""
+        if limit is None or len(self.paths) <= limit:
+            return self
+        by_tx: dict[str, list[int]] = {}
+        for index, path in enumerate(self.paths):
+            by_tx.setdefault(path.tx_id, []).append(index)
+        dropped: set[int] = set()
+        for indices in by_tx.values():
+            if len(indices) > limit:
+                indices.sort(key=lambda i: self.paths[i].power_dbm, reverse=True)
+                dropped.update(indices[limit:])
+        if not dropped:
+            return self
+        kept = [i for i in range(len(self.paths)) if i not in dropped]
+        metadata = dict(self.metadata)
+        doppler = metadata.get("doppler_hz")
+        if isinstance(doppler, list) and len(doppler) == len(self.paths):
+            metadata["doppler_hz"] = [doppler[i] for i in kept]
+        return self.model_copy(
+            update={"paths": [self.paths[i] for i in kept], "metadata": metadata}
+        )
+
+    def frame_rays(self, limit: Optional[int]) -> list[RayPath]:
+        """Carry aligned path Dopplers into frames that have no PathResultSet metadata."""
+        selected = self.limited_per_tx(limit)
+        doppler = selected.metadata.get("doppler_hz")
+        if isinstance(doppler, list) and len(doppler) == len(selected.paths):
+            return [
+                path.model_copy(update={"doppler_hz": shift})
+                for path, shift in zip(selected.paths, doppler)
+            ]
+        return selected.paths
+
 
 class SensingTargetSummary(StrictModel):
     actor_id: str
@@ -648,6 +682,8 @@ class TrajectorySample(StrictModel):
     time_s: float
     ue_id: str
     position: Vec3
+    # Captured when the route authors a per-waypoint antenna orientation.
+    orientation_deg: Optional[Vec3] = Field(default=None, exclude_if=lambda v: v is None)
     rss_dbm: Optional[float] = None
     path_gain_db: Optional[float] = None
     # Narrowband COHERENT received power |sum a_l e^{j phi_l}|^2 — what a

@@ -12,7 +12,7 @@ from typing import Optional
 
 from seam_studio.services import solve_ctx
 from seam_studio.schemas.materials import RFMaterialLibrary
-from seam_studio.schemas.results import TrajectoryResultSet, TrajectorySample
+from seam_studio.schemas.results import PathResultSet, RayPath, TrajectoryResultSet, TrajectorySample
 from seam_studio.schemas.scene import Scene
 from seam_studio.schemas.simulation import SimulationConfig, TrajectorySimulateRequest
 from seam_studio.services.simulation_backends.base import UNSAVED_RESULT_ID, RayTracingBackend
@@ -172,6 +172,22 @@ def _doppler_spread_hz(powers_dbm: list[float], doppler_hz: list[float]):
     return math.sqrt(max(var, 0.0))
 
 
+def _frame_rays_by_rx(
+    result: PathResultSet, request: TrajectorySimulateRequest, config: SimulationConfig
+) -> Optional[dict[str, list[RayPath]]]:
+    if not request.include_paths:
+        return None
+    by_rx: dict[str, list[RayPath]] = {}
+    for path in result.frame_rays(config.max_returned_paths_per_tx):
+        by_rx.setdefault(path.rx_id, []).append(path)
+    for rays in by_rx.values():
+        rays.sort(key=lambda p: p.power_dbm, reverse=True)
+        if config.max_returned_paths_per_tx is None:
+            # Preserve the original playback payload bound for older callers.
+            del rays[100:]
+    return by_rx
+
+
 def _sample_from_result(
     result,
     *,
@@ -182,7 +198,7 @@ def _sample_from_result(
     serving_tx,
     tx_power: float,
     noise_floor: float,
-    include_paths: bool,
+    frame_rays: Optional[dict[str, list[RayPath]]],
 ) -> tuple[TrajectorySample, Optional[float]]:
     """Build one TrajectorySample (and its Doppler spread) for ``ue_id`` from a
     solved PathResultSet. When ``rx_id`` is given the paths are first filtered
@@ -206,24 +222,18 @@ def _sample_from_result(
     phases = [p.phase_rad for p in serving_paths]
     rss, gain, rms, strongest, rss_coh = _aggregate(powers, delays, tx_power, phases)
     # Per-waypoint Doppler spread (power-weighted std of per-path Doppler), from
-    # the backend's per-path doppler_hz (aligned to result.paths). Only defined
-    # for the single-UE path where result.paths carries exactly this UE.
+    # the backend's per-path doppler_hz (aligned to the complete solve).
     spread: Optional[float] = None
-    if rx_id is None:
-        raw_doppler = result.metadata.get("doppler_hz")
-        spread = (
-            _doppler_spread_hz([p.power_dbm for p in result.paths], raw_doppler)
-            if isinstance(raw_doppler, list)
-            else None
-        )
+    raw_doppler = result.metadata.get("doppler_hz")
+    if isinstance(raw_doppler, list) and len(raw_doppler) == len(result.paths):
+        shifts = [
+            shift for p, shift in zip(result.paths, raw_doppler)
+            if rx_id is None or p.rx_id == rx_id
+        ]
+        spread = _doppler_spread_hz([p.power_dbm for p in ue_paths], shifts)
     # SINR over interference + noise; equals SNR when nothing interferes.
     intf_plus_noise = 10.0 ** (noise_floor / 10.0) + intf_lin
     sinr = rss - 10.0 * math.log10(intf_plus_noise) if rss is not None else None
-    frame_paths = None
-    if include_paths:
-        # Strongest-first, capped so playback payloads stay bounded even on long
-        # trajectories (the viewer filters further client-side).
-        frame_paths = sorted(ue_paths, key=lambda p: p.power_dbm, reverse=True)[:100]
     sample = TrajectorySample(
         time_s=time_s,
         ue_id=ue_id,
@@ -238,7 +248,7 @@ def _sample_from_result(
         # frame_paths, which keeps every TX's rays for playback).
         path_count=len(serving_paths),
         strongest_delay_ns=strongest,
-        paths=frame_paths,
+        paths=frame_rays.get(ue_id, []) if frame_rays is not None else None,
     )
     return sample, spread
 
@@ -483,6 +493,7 @@ def _run_trajectory_routes(
         result = backend.simulate_paths(project_dir, step_scene, library, step_cfg)
         if step == 0:
             warnings.extend(result.warnings)
+        frame_rays = _frame_rays_by_rx(result, request, config)
         for u in range(len(routes)):
             uid = ue_ids[u]
             step_serving = serving_tx
@@ -503,9 +514,11 @@ def _run_trajectory_routes(
                 serving_tx=step_serving,
                 tx_power=step_serving.power_dbm if step_serving else 0.0,
                 noise_floor=noise_floor,
-                include_paths=request.include_paths,
+                frame_rays=frame_rays,
             )
             sample.serving_tx_id = step_serving.id if step_serving else None
+            if orientations[u][step] is not None:
+                sample.orientation_deg = orientations[u][step]
             samples.append(sample)
             doppler_spreads.append(spread)
         # Static RXs: same sample schema, keyed by their own rx id, at their
@@ -522,7 +535,7 @@ def _run_trajectory_routes(
                 serving_tx=serving_tx,
                 tx_power=tx_power,
                 noise_floor=noise_floor,
-                include_paths=request.include_paths,
+                frame_rays=frame_rays,
             )
             sample.serving_tx_id = serving_tx.id if serving_tx else None
             samples.append(sample)
@@ -682,7 +695,7 @@ def run_trajectory(
             serving_tx=step_serving,
             tx_power=step_serving.power_dbm if step_serving else 0.0,
             noise_floor=noise_floor,
-            include_paths=request.include_paths,
+            frame_rays=_frame_rays_by_rx(result, request, config),
         )
         sample.serving_tx_id = step_serving.id if step_serving else None
         doppler_spreads.append(spread)

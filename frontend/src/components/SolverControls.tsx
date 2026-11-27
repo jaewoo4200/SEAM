@@ -637,9 +637,9 @@ function PathsSection() {
         label="Max paths / TX"
         step={1}
         min={1}
-        value={config.max_num_paths_per_src}
+        value={config.max_returned_paths_per_tx ?? config.max_num_paths_per_src}
         disabled={disabled}
-        onChange={(v) => patch({ max_num_paths_per_src: v })}
+        onChange={(v) => patch({ max_returned_paths_per_tx: v })}
         clamp={(v) => Math.max(1, Math.round(v))}
       />
       <Check

@@ -23,6 +23,7 @@ from seam_studio.api import (
     engines,
     events,
     export,
+    frame_rays,
     health,
     import_osm,
     import_results,
@@ -97,7 +98,7 @@ def create_app() -> FastAPI:
         health, projects, import_scene, import_osm, scene, materials, ai,
         compile_api, simulate, export, calibrate, channel, scenario, engines,
         datasets, render, import_results, segmentation, agent, point_import,
-        settings_api, sensors,
+        settings_api, sensors, frame_rays,
     ):
         app.include_router(module.router, prefix="/api")
     # WebSocket event stream is mounted WITHOUT the /api prefix so the path is

@@ -55,6 +55,8 @@ import type {
   OsmImportRequest,
   OsmImportResponse,
   PathResultSet,
+  PathSimulateRequest,
+  FrameRayGeometry,
   PdCurveRequest,
   PdCurveResult,
   PlaybackBuildRequest,
@@ -351,8 +353,14 @@ export const api = {
   compileSionna: (pid: string) => request<CompileResult>("POST", `/projects/${pid}/compile/sionna`),
 
   // simulation + results
-  simulatePaths: (pid: string, req: SimulateRequest = {}) =>
+  simulatePaths: (pid: string, req: PathSimulateRequest = {}) =>
     request<PathResultSet>("POST", `/projects/${pid}/simulate/paths`, req),
+  frameRays: (pid: string, source: "trajectory" | "scenario", resultId: string, limit: number) =>
+    request<FrameRayGeometry>(
+      "POST",
+      `/projects/${encodeURIComponent(pid)}/results/${source}/${encodeURIComponent(resultId)}/frame-rays`,
+      { max_returned_paths_per_tx: limit },
+    ),
   simulateRadioMap: (pid: string, req: SimulateRequest = {}) =>
     request<RadioMapResultSet>("POST", `/projects/${pid}/simulate/radio-map`, req),
   // Altitude sweep: one planar radio map per height, auto-labeled + persisted;

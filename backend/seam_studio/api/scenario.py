@@ -31,9 +31,10 @@ from seam_studio.schemas.actors import (
     ScenarioSimulateRequest,
 )
 from seam_studio.schemas.sensing import MAX_MC_TOTAL_TRIALS
+from seam_studio.schemas.results import TrajectoryResultSet
 from seam_studio.schemas.simulation import SimulateRequest, SimulationConfig
 from seam_studio.services import availability
-from seam_studio.services.scenario import _pair_metrics, run_scenario
+from seam_studio.services.scenario import _pair_metrics, receiver_tracks, run_scenario
 from seam_studio.services.simulation_backends import BackendUnavailableError, resolve_backend
 from seam_studio.services.simulation_backends.sionna_backend import noise_floor_dbm
 
@@ -130,9 +131,18 @@ def simulate_scenario(
             )
 
     project_dir = store.resolve(project_id)
+    tracks = {}
+    if request.trajectory_result_id is not None:
+        raw = _load_result(project_id, "trajectory", request.trajectory_result_id)
+        try:
+            tracks = receiver_tracks(scene, TrajectoryResultSet.model_validate(raw))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
     with _solve_guard(project_id, "scenario"):
         try:
-            result = run_scenario(backend, project_dir, scene, library, config, request)
+            result = run_scenario(
+                backend, project_dir, scene, library, config, request, rx_tracks=tracks
+            )
         except BackendUnavailableError as exc:
             raise HTTPException(status_code=409, detail=str(exc))
         except SensingRequestError as exc:

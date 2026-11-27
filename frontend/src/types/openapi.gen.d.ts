@@ -1186,6 +1186,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/{project_id}/results/{kind}/{result_id}/frame-rays": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Frame Rays */
+        post: operations["frame_rays_api_projects__project_id__results__kind___result_id__frame_rays_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{project_id}/results/{result_id}/label": {
         parameters: {
             query?: never;
@@ -3777,6 +3794,18 @@ export interface components {
             /** Warnings */
             warnings?: string[];
         };
+        /** FrameRaysRequest */
+        FrameRaysRequest: {
+            /** Max Returned Paths Per Tx */
+            max_returned_paths_per_tx: number;
+        };
+        /** FrameRaysResponse */
+        FrameRaysResponse: {
+            /** Paths */
+            paths: components["schemas"]["RayPath"][][];
+            /** Warnings */
+            warnings: string[];
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -4765,6 +4794,21 @@ export interface components {
             /** Warnings */
             warnings?: string[];
         };
+        /**
+         * PathsRequest
+         * @description Automatic motion updates can return geometry without saving a result.
+         */
+        PathsRequest: {
+            config?: components["schemas"]["SimulationConfig"] | null;
+            /** Config Id */
+            config_id?: string | null;
+            /**
+             * Persist
+             * @default true
+             */
+            persist: boolean;
+            preview_move?: components["schemas"]["PreviewMove"] | null;
+        };
         /** PdCurveModel */
         PdCurveModel: {
             /** Mc Max Abs Deviation */
@@ -5117,6 +5161,18 @@ export interface components {
             rss_baseline_dbm?: number | null;
             /** Rss Material Dbm */
             rss_material_dbm?: number | null;
+        };
+        /** PreviewMove */
+        PreviewMove: {
+            /** Id */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "device" | "actor";
+            /** Position */
+            position: number[];
         };
         /** Prim */
         Prim: {
@@ -5560,12 +5616,23 @@ export interface components {
             /** Warnings */
             warnings?: string[];
         };
+        /** ScenarioDeviceState */
+        ScenarioDeviceState: {
+            /** Id */
+            id: string;
+            /** Orientation Deg */
+            orientation_deg?: number[] | null;
+            /** Position */
+            position: number[];
+            /** Velocity M S */
+            velocity_m_s?: number[] | null;
+        };
         /** ScenarioFrame */
         ScenarioFrame: {
             /** Actor States */
             actor_states?: components["schemas"]["ActorState"][];
             /** Device States */
-            device_states?: components["schemas"]["DeviceState"][];
+            device_states?: components["schemas"]["ScenarioDeviceState"][];
             /** Links */
             links?: components["schemas"]["LinkMetrics"][];
             /** Paths */
@@ -5620,6 +5687,8 @@ export interface components {
              */
             num_frames: number;
             sensing?: components["schemas"]["SensingTrackOptions"] | null;
+            /** Trajectory Result Id */
+            trajectory_result_id?: string | null;
         };
         /** Scene */
         Scene: {
@@ -6609,6 +6678,8 @@ export interface components {
              * @default 1000000
              */
             max_num_paths_per_src: number;
+            /** Max Returned Paths Per Tx */
+            max_returned_paths_per_tx?: number | null;
             /**
              * Name
              * @default Default
@@ -6950,6 +7021,8 @@ export interface components {
         TrajectorySample: {
             /** Interference Dbm */
             interference_dbm?: number | null;
+            /** Orientation Deg */
+            orientation_deg?: number[] | null;
             /**
              * Path Count
              * @default 0
@@ -9294,6 +9367,43 @@ export interface operations {
             };
         };
     };
+    frame_rays_api_projects__project_id__results__kind___result_id__frame_rays_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                kind: "scenario" | "trajectory";
+                result_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FrameRaysRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FrameRaysResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     label_result_api_projects__project_id__results__result_id__label_patch: {
         parameters: {
             query?: never;
@@ -10216,7 +10326,7 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": components["schemas"]["SimulateRequest"] | null;
+                "application/json": components["schemas"]["PathsRequest"] | null;
             };
         };
         responses: {

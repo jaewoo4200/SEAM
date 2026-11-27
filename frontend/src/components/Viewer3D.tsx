@@ -7,6 +7,7 @@ import type { ThreeEvent } from "@react-three/fiber";
 import { Grid, Html, Line, OrbitControls, PerspectiveCamera, TransformControls, useGLTF } from "@react-three/drei";
 import { useAppStore } from "../store/appStore";
 import type { ResolvedEnvironment } from "../envPresets";
+import { activeDragPreview, cancelDragPosition, communicationRaySource, queueDragPosition, useCommunicationRayResult } from "../communicationRays";
 import type { Mode } from "../store/appStore";
 import { SELECTED_PATH_COLOR } from "./common";
 import { filterPaths, pathColor, powerRange, powerWidth } from "../pathFilter";
@@ -541,14 +542,16 @@ const LOBE_RADIUS_SCALE = 12;
  *  internal group during the drag; mouse-up commits and force-restores orbit
  *  controls, as does the unmount cleanup, so input can never stay locked. */
 function GizmoWrapped({
-  position,
+  kind, id, position,
   rotation,
   onCommit,
   children,
 }: {
+  kind: "actor" | "device";
+  id: string;
   position: Vec3;
   rotation?: [number, number, number];
-  onCommit: (pos: Vec3) => void;
+  onCommit: (pos: Vec3) => Promise<void>;
   children: ReactElement;
 }) {
   const controls = useThree((s) => s.controls) as { enabled?: boolean } | null;
@@ -557,6 +560,20 @@ function GizmoWrapped({
     addEventListener: (t: string, fn: (e: { value?: unknown }) => void) => void;
     removeEventListener: (t: string, fn: (e: { value?: unknown }) => void) => void;
   }) | null>(null);
+
+  const token = useRef<object | null>(null);
+  const project = useAppStore((s) => s.projectId);
+  const enabled = useAppStore((s) => s.autoPaths && s.showPaths && (s.mode === "visual" || s.mode === "results"));
+  useEffect(() => () => {
+    cancelDragPosition(token.current);
+    token.current = null;
+  }, [kind, id, project, enabled]);
+
+  const positionFromEvent = (event?: { target?: unknown }): Vec3 | null => {
+    const control = (event?.target ?? tcRef.current) as { object?: THREE.Object3D } | null;
+    const p = control?.object?.position;
+    return p ? [p.x, p.y, p.z] : null;
+  };
 
   // ROOT CAUSE of "gizmo drag does nothing": r3f's own picking runs on the
   // same pointerdown as the gizmo grab. If the arrow overlays empty space,
@@ -594,10 +611,26 @@ function GizmoWrapped({
       size={0.9}
       position={position}
       rotation={rotation ?? [0, 0, 0]}
+      onMouseDown={(e) => {
+        const at = positionFromEvent(e);
+        if (enabled && at) {
+          token.current = {};
+          queueDragPosition(token.current, { kind, id, position: at });
+        }
+      }}
+      onObjectChange={(e) => {
+        const at = positionFromEvent(e);
+        if (at && token.current) queueDragPosition(token.current, { kind, id, position: at });
+      }}
       onMouseUp={(e) => {
-        const obj = (e?.target as { object?: THREE.Object3D } | undefined)?.object;
         if (controls) controls.enabled = true;
-        if (obj) onCommit([obj.position.x, obj.position.y, obj.position.z]);
+        const at = positionFromEvent(e), committing = token.current;
+        cancelDragPosition(committing, !!at);
+        if (at) void onCommit(at).finally(() => {
+          cancelDragPosition(committing);
+          if (token.current === committing) token.current = null;
+        });
+        else token.current = null;
       }}
     >
       {children}
@@ -645,7 +678,8 @@ function EntityLabel({
  *  instead of bubbling into r3f with label-relative offsets. */
 const LABEL_PASS_THROUGH = { pointerEvents: "none" } as const;
 
-function Devices() {
+function Devices({ hiddenIds }: { hiddenIds?: Set<string> }) {
+  const move = useAppStore((s) => activeDragPreview(s)?.move);
   const scene = useAppStore((s) => s.scene);
   const env = useAppStore((s) => s.resolvedEnvironment);
   const selectedDeviceId = useAppStore((s) => s.selectedDeviceId);
@@ -658,10 +692,15 @@ function Devices() {
   // visual anchor, so its antenna renders as a small dot instead of the full
   // sphere (the full-size marker completely swallowed the UAV drone model).
   const attachedIds = new Set(scene.actors.flatMap((a) => a.attached_device_ids));
+  const draggingActor = move?.kind === "actor" ? scene.actors.find((actor) => actor.id === move.id) : undefined;
 
   return (
     <group>
       {scene.devices.map((d) => {
+        if (hiddenIds?.has(d.id)) return null;
+        const position: Vec3 = move && draggingActor?.attached_device_ids.includes(d.id)
+          ? d.position.map((v, i) => v + move.position[i] - draggingActor.position[i]) as Vec3
+          : d.position;
         const selected = d.id === selectedDeviceId;
         const radius = attachedIds.has(d.id) ? baseRadius * 0.35 : baseRadius;
         const marker = (
@@ -706,13 +745,15 @@ function Devices() {
         return selected ? (
           <GizmoWrapped
             key={d.id}
+            kind="device"
+            id={d.id}
             position={d.position}
-            onCommit={(pos) => void updateDevice(d.id, { position: pos })}
+            onCommit={(pos) => updateDevice(d.id, { position: pos })}
           >
             {inner}
           </GizmoWrapped>
         ) : (
-          <group key={d.id} position={d.position}>
+          <group key={d.id} position={position}>
             {inner}
           </group>
         );
@@ -726,7 +767,10 @@ function Devices() {
 /** Actors as base-centered boxes (z = ground contact), colored by actor.color,
  *  selectable like devices, with a yellow trajectory polyline when defined.
  *  In scenario playback the boxes are driven by the current frame's states. */
-function Actors({ frameStates }: { frameStates?: Map<string, { position: Vec3; orientation_deg: Vec3 }> }) {
+function Actors({ frameStates, trajectoryActive = false }: {
+  frameStates?: Map<string, { position: Vec3; orientation_deg: Vec3 }>;
+  trajectoryActive?: boolean;
+}) {
   const scene = useAppStore((s) => s.scene);
   const selectedActorId = useAppStore((s) => s.selectedActorId);
   const selectActor = useAppStore((s) => s.selectActor);
@@ -740,17 +784,9 @@ function Actors({ frameStates }: { frameStates?: Map<string, { position: Vec3; o
   const trajectory = useAppStore((s) => s.trajectory);
   const trajFrame = useAppStore((s) => s.trajFrame);
   const trajUeFrames = useAppStore((s) => s.trajUeFrames);
-  const trajPlaying = useAppStore((s) => s.trajPlaying);
-  const showTrajectoryRays = useAppStore((s) => s.showTrajectoryRays);
   if (!scene) return null;
   const wpRadius = deviceMarkerRadius(scene, env, markerScale) * 0.4;
-  // Same engagement rule as TrajectoryOverlay (no marker at stale positions).
-  const trajEngaged =
-    showTrajectoryRays ||
-    trajPlaying ||
-    trajFrame > 0 ||
-    Object.keys(trajUeFrames).length > 0;
-  const routedUes = trajEngaged ? trajectoryUeIds(trajectory) : [];
+  const routedUes = trajectoryActive ? trajectoryUeIds(trajectory) : [];
   /** Actor pose override while its attached UE is being played back: the
    *  sample is the ANTENNA position, so keep the stored antenna-to-actor
    *  offset (mount height) when placing the airframe. */
@@ -842,9 +878,11 @@ function Actors({ frameStates }: { frameStates?: Map<string, { position: Vec3; o
           selected && !state ? (
             <GizmoWrapped
               key={a.id}
+              kind="actor"
+              id={a.id}
               position={position}
               rotation={[0, 0, (yawDeg * Math.PI) / 180]}
-              onCommit={(pos) => void updateActor(a.id, { position: pos })}
+              onCommit={(pos) => updateActor(a.id, { position: pos })}
             >
               {inner}
             </GizmoWrapped>
@@ -1100,9 +1138,8 @@ function PathLines({ paths, showInteractions = true }: { paths: RayPath[]; showI
 }
 
 function RayPaths() {
-  const pathResults = useAppStore((s) => s.pathResults);
-  if (!pathResults) return null;
-  return <PathLines paths={pathResults.paths} />;
+  const result = useCommunicationRayResult();
+  return result ? <PathLines paths={result.paths} showInteractions={result.kind === "paths"} /> : null;
 }
 
 // ------------------------------------------------------------ trajectory
@@ -1156,14 +1193,10 @@ function UeMarker({
   );
 }
 
-/** Trajectory playback overlay: every routed UE's marker + trail at the
- *  current step, plus the step's live rays (all UEs merged) when the result
- *  carries include_paths and the Trajectory-rays toggle is on. */
+/** One marker and trail per routed UE at its current playback step. */
 function TrajectoryOverlay({ trajectory }: { trajectory: TrajectoryResultSet }) {
   const trajFrame = useAppStore((s) => s.trajFrame);
   const trajUeFrames = useAppStore((s) => s.trajUeFrames);
-  const trajPlaying = useAppStore((s) => s.trajPlaying);
-  const showTrajectoryRays = useAppStore((s) => s.showTrajectoryRays);
   const scene = useAppStore((s) => s.scene);
   const env = useAppStore((s) => s.resolvedEnvironment);
   const markerScale = useAppStore((s) => s.viewport.markerScale);
@@ -1171,32 +1204,10 @@ function TrajectoryOverlay({ trajectory }: { trajectory: TrajectoryResultSet }) 
   // so the moving UE reads as "the animated one".
   const ueRadius = scene ? deviceMarkerRadius(scene, env, markerScale) * 0.9 : 0.5;
 
-  // Only draw the playback marker while playback is actually ENGAGED (fresh
-  // run leaves the rays toggle on; playing; scrubbed). A project reopen
-  // auto-loads the LAST stored trajectory — rendering its marker then put a
-  // phantom "moved RX" at a stale start position the moment the user pressed
-  // Simulate paths (which switches to Results and turns the rays toggle off).
-  const engaged =
-    showTrajectoryRays ||
-    trajPlaying ||
-    trajFrame > 0 ||
-    Object.keys(trajUeFrames).length > 0;
-
   const ueIds = trajectoryUeIds(trajectory);
-  // Each UE follows its own scrub bar when set, else the master frame.
   const frameFor = (ueId: string) => trajUeFrames[ueId] ?? trajFrame;
-  if (!engaged) return null;
-  const framePaths = ueIds.flatMap((ueId) => {
-    const samples = samplesForUe(trajectory, ueId);
-    const s = Math.max(0, Math.min(samples.length - 1, frameFor(ueId)));
-    return samples[s]?.paths ?? [];
-  });
-
   return (
     <group>
-      {showTrajectoryRays && framePaths.length > 0 && (
-        <PathLines paths={framePaths} showInteractions={false} />
-      )}
       {ueIds.map((ueId, i) => (
         <UeMarker
           key={ueId}
@@ -1217,8 +1228,7 @@ function TrajectoryOverlay({ trajectory }: { trajectory: TrajectoryResultSet }) 
  *  one thing and stays distinguishable from the static beamforming lobe. */
 const PLAYBACK_COLOR = "#d97706";
 
-/** GT-vs-DT playback overlay at the current frame: the recorded RX pose, the
- *  frame's solved rays, and the measured beam lobe at the TX. Frame sweep
+/** GT-vs-DT playback overlay for the recorded RX pose and TX beam lobe. Frame sweep
  *  curves are ALREADY world-azimuth (PlaybackFrame.beam_azimuth_deg is the
  *  backend's reprojection), so the lobe axis is 0 — do not re-apply a link
  *  azimuth here. */
@@ -1227,9 +1237,7 @@ function PlaybackOverlay({ playback }: { playback: PlaybackResultSet }) {
   const scene = useAppStore((s) => s.scene);
   const env = useAppStore((s) => s.resolvedEnvironment);
   const markerScale = useAppStore((s) => s.viewport.markerScale);
-  // The "Beam lobe" overlay checkbox governs the playback lobe too — without
-  // this the checkbox is a no-op whenever only a pack (no static sweep)
-  // exists. Marker + rays stay under the broader "Playback" toggle.
+  // The same checkbox controls the static and per-frame beam lobes.
   const showBeamLobe = useAppStore((s) => s.showBeamLobe);
   const frame =
     playback.frames[Math.max(0, Math.min(playback.frames.length - 1, playbackFrame))];
@@ -1240,7 +1248,6 @@ function PlaybackOverlay({ playback }: { playback: PlaybackResultSet }) {
   const tx = scene.devices.find((d) => d.id === playback.tx_id);
   return (
     <group userData={{ __noFit: true }}>
-      {frame.paths.length > 0 && <PathLines paths={frame.paths} showInteractions={false} />}
       <group position={frame.rx_position}>
         <mesh>
           <sphereGeometry args={[radius, 24, 16]} />
@@ -1313,8 +1320,8 @@ function ScenarioDevices({ states }: { states: Map<string, Vec3> }) {
   );
 }
 
-/** Whole scenario overlay for the current frame: actors + devices + paths. */
-function ScenarioOverlay({ showPaths }: { showPaths: boolean }) {
+/** Actor and device poses for the shared scenario frame. */
+function ScenarioOverlay({ showSensing }: { showSensing: boolean }) {
   const scenario = useAppStore((s) => s.scenario);
   const scenarioFrame = useAppStore((s) => s.scenarioFrame);
   const showScenarioSensing = useAppStore((s) => s.showScenarioSensing);
@@ -1331,8 +1338,7 @@ function ScenarioOverlay({ showPaths }: { showPaths: boolean }) {
     <group>
       <Actors frameStates={actorStates} />
       <ScenarioDevices states={deviceStates} />
-      {showPaths && frame.paths && <PathLines paths={frame.paths} showInteractions={false} />}
-      {showScenarioSensing && frame.sensing && (
+      {showSensing && showScenarioSensing && frame.sensing && (
         <ScenarioSensingLayer scenario={scenario} frameIdx={idx} />
       )}
     </group>
@@ -2963,7 +2969,6 @@ export default function Viewer3D() {
   const projectId = useAppStore((s) => s.projectId);
   const scene = useAppStore((s) => s.scene);
   const mode = useAppStore((s) => s.mode);
-  const pathResults = useAppStore((s) => s.pathResults);
   const radioMap = useAppStore((s) => s.radioMap);
   const meshRadioMap = useAppStore((s) => s.meshRadioMap);
   const showMeshRadioMapToggle = useAppStore((s) => s.showMeshRadioMap);
@@ -2972,7 +2977,6 @@ export default function Viewer3D() {
   const beamforming = useAppStore((s) => s.beamforming);
   const showBeamLobe = useAppStore((s) => s.showBeamLobe);
   const playback = useAppStore((s) => s.playback);
-  const showPlayback = useAppStore((s) => s.showPlayback);
   const sensing = useAppStore((s) => s.sensing);
   const showSensing = useAppStore((s) => s.showSensing);
   const isac = useAppStore((s) => s.isac);
@@ -3203,25 +3207,25 @@ export default function Viewer3D() {
   const showRadioMap = radioMap && mode === "results" && showRadioMapToggle;
   const showMeshRadioMap =
     meshRadioMap && meshRadioMap.surfaces.length > 0 && mode === "results" && showMeshRadioMapToggle;
-  // Scenario playback owns the actors/devices when a scenario is loaded in
-  // Results mode; otherwise actors render at their static scene poses.
-  const showScenario = useAppStore((s) => s.showScenario);
-  // Scenario playback replaces the device/actor layers - only while the user
-  // has it switched ON (a stored scenario must not hijack the viewport).
-  const scenarioActive =
-    scenario !== null && scenario.frames.length > 0 && mode === "results" && showScenario;
-  // Trajectory overlay (marker/trail; per-frame rays gated separately by the
-  // independent "Trajectory rays" toggle inside TrajectoryOverlay).
-  const trajActive = trajectory !== null && mode === "results" && !scenarioActive;
-  const playbackActive =
-    playback !== null && playback.frames.length > 0 && mode === "results" && showPlayback;
+  const source = useAppStore(communicationRaySource);
+  const autoMotion = useAppStore((s) => s.autoPaths);
+  const showPoseRays = useAppStore((s) => !!activeDragPreview(s) ||
+    (s.autoPaths && !!s.pathResults && s.pathResults === s.visualPosePaths));
+  const inMotionView = mode === "results" || (mode === "visual" && showPaths && autoMotion);
+  const drawRays = showPaths && (mode === "results" ||
+    (mode === "visual" && (source === "paths" ? showPoseRays : autoMotion)));
+  const scenarioActive = inMotionView && source === "scenario";
+  const trajActive = inMotionView && source === "trajectory" && trajectory !== null;
+  const playbackActive = inMotionView && source === "playback" && playback !== null;
+  const hiddenDeviceIds = useMemo(() => trajActive ? new Set(trajectoryUeIds(trajectory)) :
+    playbackActive ? new Set([playback.rx_id]) : undefined, [trajActive, playbackActive, trajectory, playback]);
   const sensingActive = sensing !== null && showSensing && mode === "results";
   const isacActive = isac !== null && showIsac && mode === "results";
   const coverageActive = sensingCoverage !== null && showSensingCoverage && mode === "results";
   const showScenarioSensing = useAppStore((s) => s.showScenarioSensing);
   const scenarioEchoesAll = useMemo(() => scenarioEchoes(scenario), [scenario]);
   const scenarioSensingActive =
-    scenarioActive && showScenarioSensing && scenarioEchoesAll.length > 0;
+    scenarioActive && mode === "results" && showScenarioSensing && scenarioEchoesAll.length > 0;
   // The legend shows the scenario's scale while its layer is on: the stored
   // sensing echoes are colored on that same scale then.
   const scenarioDopplerMax = useMemo(
@@ -3426,16 +3430,14 @@ export default function Viewer3D() {
             preview is active (visual/results only; gated internally). */}
         <SegmentationTint />
         {scenarioActive ? (
-          <ScenarioOverlay showPaths={showPaths} />
+          <ScenarioOverlay showSensing={mode === "results"} />
         ) : (
           <>
-            {scene && <Devices />}
-            {scene && <Actors />}
+            {scene && <Devices hiddenIds={hiddenDeviceIds} />}
+            {scene && <Actors trajectoryActive={trajActive} />}
           </>
         )}
-        {/* Static rays and trajectory-frame rays are independent overlays;
-            each has its own toggle in the results overlay row. */}
-        {pathResults && showPaths && mode === "results" && !scenarioActive && <RayPaths />}
+        {drawRays && <RayPaths />}
         {showRadioMap && <RadioMapPlane radioMap={radioMap} />}
         {coverageActive && <CoveragePlane result={sensingCoverage} metric={coverageMetric} />}
         {isacActive && scene && (
