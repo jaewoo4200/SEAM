@@ -42,6 +42,7 @@ export function defaultSimConfig(): SimulationConfig {
     seed: 42,
     num_samples: 1_000_000,
     max_num_paths_per_src: 1_000_000,
+    max_returned_paths_per_tx: 1_000_000,
     bandwidth_hz: 100e6,
     noise_figure_db: 7.0,
     radio_map: defaultRadioMapGrid(),
@@ -80,7 +81,13 @@ export function normalizeConfig(
     synthetic_array: raw.synthetic_array ?? d.synthetic_array,
     seed: raw.seed ?? d.seed,
     num_samples: raw.num_samples ?? d.num_samples,
-    max_num_paths_per_src: raw.max_num_paths_per_src ?? d.max_num_paths_per_src,
+    // Older Studio configurations used the candidate budget for the visible
+    // path limit. Keep that limit and restore the full solver search budget.
+    max_num_paths_per_src: raw.max_returned_paths_per_tx == null
+      ? d.max_num_paths_per_src
+      : raw.max_num_paths_per_src ?? d.max_num_paths_per_src,
+    max_returned_paths_per_tx:
+      raw.max_returned_paths_per_tx ?? raw.max_num_paths_per_src ?? d.max_returned_paths_per_tx,
     bandwidth_hz: raw.bandwidth_hz ?? d.bandwidth_hz,
     noise_figure_db: raw.noise_figure_db ?? d.noise_figure_db,
     radio_map: {

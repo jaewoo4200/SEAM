@@ -27,19 +27,20 @@ files, and provenance.
 import hashlib
 import json
 import logging
+import math
 import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Iterator, Literal, Optional, Union
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from seam_studio.api.deps import get_store, load_scene_live, load_scene_or_404
 from seam_studio.core.config import get_settings
-from seam_studio.schemas.actors import ScenarioResultSet
+from seam_studio.schemas.actors import ActorState, ScenarioResultSet
 from seam_studio.schemas.channel import ChannelAnalysisResult
-from seam_studio.schemas.common import StrictModel
+from seam_studio.schemas.common import StrictModel, Vec3
 from seam_studio.schemas.results import (
     BeamformingResult,
     ISACResultSet,
@@ -367,12 +368,70 @@ def _resolve_config(scene: Scene, request: SimulateRequest) -> SimulationConfig:
     return SimulationConfig()
 
 
+class PreviewMove(StrictModel):
+    kind: Literal["device", "actor"]
+    id: str
+    position: Vec3
+
+
+class PathsRequest(SimulateRequest):
+    """Automatic motion updates can return geometry without saving a result."""
+    persist: bool = True
+    preview_move: Optional[PreviewMove] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _require_preview(cls, data):
+        if isinstance(data, dict) and data.get("preview_move") is not None and "persist" not in data:
+            return {**data, "persist": False}
+        return data
+
+    @model_validator(mode="after")
+    def _validate_preview(self):
+        if self.preview_move is not None and self.persist:
+            raise ValueError("preview_move requires persist=false")
+        return self
+
+
+def _solve_drag_preview(backend, project_dir, scene, library, config, move):
+    from seam_studio.services.scenario import _device_states_at, _frame_scene, _solve_frame_paths
+
+    if not all(math.isfinite(v) for v in move.position):
+        raise HTTPException(422, "preview_move.position must contain finite coordinates")
+    if move.kind == "device":
+        if scene.device_by_id(move.id) is None:
+            raise HTTPException(404, f"unknown device: {move.id}")
+        poses = _frame_scene(scene, [], {move.id: move.position}, {}, move_actors=False)
+        return backend.simulate_paths(project_dir, poses, library, config), poses
+
+    actor = next((item for item in scene.actors if item.id == move.id), None)
+    if actor is None:
+        raise HTTPException(404, f"unknown actor: {move.id}")
+    states = [ActorState(id=actor.id, position=move.position, orientation_deg=actor.orientation_deg)]
+    _, riders = _device_states_at(scene, states)
+    poses = _frame_scene(scene, states, riders, {}, move_actors=True)
+    if backend.name == "sionna" and config.engine not in (None, "builtin"):
+        # External workers load actor geometry from disk; bake the pose into
+        # a scratch projection for this request.
+        from seam_studio.api.frame_rays import _preview_workspace
+
+        with _preview_workspace(project_dir) as scratch:
+            compiled = backend.compile(scratch, poses, library)
+            if not compiled.ok:
+                raise HTTPException(409, "; ".join(compiled.errors) or "preview compilation failed")
+            return backend.simulate_paths(scratch, poses, library, config), poses
+    result = _solve_frame_paths(backend, project_dir, scene, library, config,
+                                states, riders, {}, {})
+    return result, poses
+
+
 def _run_simulation(
     project_id: str,
     request: Optional[SimulateRequest],
     kind: ResultKind,
 ) -> Union[PathResultSet, RadioMapResultSet]:
-    with _solve_guard(project_id, kind):
+    preview = isinstance(request, PathsRequest) and not request.persist
+    with (_project_lock(project_id) if preview else _solve_guard(project_id, kind)):
         store = get_store()
         scene = load_scene_live(store, project_id)
         library = store.load_materials(project_id)
@@ -385,7 +444,28 @@ def _run_simulation(
 
         project_dir = store.resolve(project_id)
         if kind == "paths":
-            result = backend.simulate_paths(project_dir, scene, library, config)
+            if preview and request.preview_move is not None:
+                result, scene = _solve_drag_preview(
+                    backend, project_dir, scene, library, config, request.preview_move
+                )
+            else:
+                result = backend.simulate_paths(project_dir, scene, library, config)
+            result = result.limited_per_tx(config.max_returned_paths_per_tx)
+            if preview:
+                result.result_id = "live_preview"
+                result.created_at = datetime.now(timezone.utc).isoformat()
+                result.metadata["config_snapshot"] = config.model_dump(mode="json")
+                # A live feed may advance between the position poll and this
+                # solve. Return the poses used by the rays in the same response.
+                result.metadata["preview_poses"] = {
+                    name: [
+                        item.model_dump(include={"id", "position", "orientation_deg"})
+                        for item in items
+                    ]
+                    for name, items in (("devices", scene.devices), ("actors", scene.actors))
+                }
+                availability.note_auto_fallback(result.warnings, config, backend.name)
+                return result
         else:
             result = backend.simulate_radio_map(project_dir, scene, library, config)
 
@@ -422,7 +502,7 @@ def _load_result(project_id: str, kind: ResultKind, result_id: Optional[str]) ->
 
 @router.post("/projects/{project_id}/simulate/paths", response_model=PathResultSet)
 def simulate_paths(
-    project_id: str, request: Optional[SimulateRequest] = None
+    project_id: str, request: Optional[PathsRequest] = None
 ) -> PathResultSet:
     return _run_simulation(project_id, request, "paths")
 

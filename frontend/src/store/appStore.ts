@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { api, ApiError } from "../api/client";
+import type { DragPathPreview } from "../communicationRays";
 import { defaultSimConfig, normalizeConfig } from "../simConfig";
 import {
   ENV_RADIOMAP_DEPTH,
@@ -46,6 +47,7 @@ import type {
   ScenarioResultSet,
   Scene,
   SceneBounds,
+  ScenePositions,
   SensingCoverageMetric,
   SensingCoverageRequest,
   SensingCoverageResultSet,
@@ -206,8 +208,49 @@ export interface AbBaseline {
 export type ColorBy = "type" | "power" | "depth";
 
 const AUTO_DEBOUNCE_MS = 500;
+const AUTO_PATHS_KEY = "seam.motionAutoPaths.v1";
 
-interface AppState {
+export function motionLayers(source: "static" | "trajectory" | "scenario" | "playback") {
+  const trajectory = source === "trajectory";
+  const scenario = source === "scenario";
+  const playback = source === "playback";
+  return {
+    showTrajectoryRays: trajectory,
+    showScenario: scenario,
+    showPlayback: playback,
+    ...(!trajectory && { trajPlaying: false, trajFrame: 0, trajUeFrames: {} }),
+    ...(!scenario && { scenarioPlaying: false }),
+    ...(!playback && { playbackPlaying: false }),
+  };
+}
+
+type Pose = ScenePositions["devices"][number];
+
+function poseChanged(previous: Pose | undefined, patch: Partial<Pose>): boolean {
+  return !!previous && (["position", "orientation_deg"] as const).some((key) =>
+    patch[key]?.some((value, axis) => Math.abs(value - previous[key][axis]) > 1e-9),
+  );
+}
+
+function mergePoses(scene: Scene, poses: ScenePositions): Scene | null {
+  function merge<T extends Pose>(items: T[], updates: Pose[]): T[] {
+    const byId = new Map(updates.map((pose) => [pose.id, pose]));
+    let changed = false;
+    const next = items.map((item) => {
+      const update = byId.get(item.id);
+      if (!update || !poseChanged(item, update)) return item;
+      changed = true;
+      return { ...item, position: update.position ?? item.position,
+        orientation_deg: update.orientation_deg ?? item.orientation_deg };
+    });
+    return changed ? next : items;
+  }
+  const devices = merge(scene.devices, poses.devices);
+  const actors = merge(scene.actors, poses.actors);
+  return devices === scene.devices && actors === scene.actors ? null : { ...scene, devices, actors };
+}
+
+export interface AppState {
   projects: ProjectInfo[];
   projectId: string | null;
   scene: Scene | null;
@@ -231,6 +274,8 @@ interface AppState {
   suggestions: MaterialSuggestionResponse | null;
   decisions: Record<string, SuggestionDecision>;
   pathResults: PathResultSet | null;
+  visualPosePaths: PathResultSet | null;
+  dragPathPreview: DragPathPreview | null;
   radioMap: RadioMapResultSet | null;
   meshRadioMap: MeshRadioMapResultSet | null;
   beamforming: BeamformingResult | null;
@@ -537,15 +582,13 @@ interface AppState {
       | "isac"
       | "sensingCoverage",
   ) => void;
-  /** Per-frame trajectory rays overlay (include_paths results). Independent of
-   *  the static Rays toggle: computing a trajectory turns it ON, computing
-   *  static paths turns it OFF (latest computation wins), user can re-toggle. */
+  /** Use the trajectory's poses as the active source for markers and paths. */
   showTrajectoryRays: boolean;
   runValidation: () => Promise<void>;
   compileRF: () => Promise<void>;
   /** Clear the last RF compile result (dismiss the ValidationPanel summary). */
   clearCompileResult: () => void;
-  simulatePaths: () => Promise<void>;
+  simulatePaths: (automatic?: boolean) => Promise<void>;
   simulateRadioMap: () => Promise<void>;
   /** Mesh radio map over the current selection (uses selection as prim_ids).
    *  `maxTriangles` caps the sampled triangles per surface (denser paint costs
@@ -763,6 +806,7 @@ interface AppState {
     num_frames: number;
     dt_s: number;
     include_paths: boolean;
+    trajectory_result_id?: string | null;
     /** Sensing over time; null/absent = comm-only scenario. */
     sensing?: SensingTrackOptions | null;
   }) => Promise<void>;
@@ -895,11 +939,67 @@ export const useAppStore = create<AppState>()((set, get) => {
     }
   }
 
-  async function refetchSceneInner(): Promise<void> {
+  async function refetchSceneInner(resultRefsOnly = false): Promise<void> {
     const pid = get().projectId;
     if (!pid) return;
     const [scene] = await Promise.all([api.getScene(pid), syncUndoDepth(pid)]);
-    set({ scene: normalizeScene(scene) });
+    if (get().projectId !== pid) return;
+    const current = get().scene;
+    set({ scene: resultRefsOnly && current
+      ? { ...current, result_sets: scene.result_sets, revision: scene.revision }
+      : normalizeScene(scene) });
+  }
+
+  type MotionResult = TrajectoryResultSet | ScenarioResultSet;
+  const pendingFrameRays = new WeakMap<MotionResult, Promise<MotionResult | undefined>>();
+  let playRequest = 0;
+
+  async function playMotion(source: MotionResult["kind"], playing: boolean): Promise<void> {
+    const ticket = ++playRequest;
+    const state = get();
+    const result = state[source];
+    const pid = state.projectId;
+    const playKey = source === "scenario" ? "scenarioPlaying" : "trajPlaying";
+    const visibleKey = source === "scenario" ? "showScenario" : "showTrajectoryRays";
+    if (!playing || !result || !pid) {
+      set({ [playKey]: false });
+      return;
+    }
+    set(motionLayers(source));
+    const rows = result.kind === "scenario" ? result.frames : result.samples;
+    if (!state.showPaths || rows.every((row) => Array.isArray(row.paths))) {
+      set({ [playKey]: true });
+      return;
+    }
+
+    // Older runs may have saved positions and metrics only. Share the trace
+    // between play requests, and retain the geometry for subsequent replays.
+    set({ [playKey]: false });
+    let pending = pendingFrameRays.get(result);
+    if (!pending) {
+      pending = run("Tracing paths for saved positions…", async () => {
+        const config = state.pathsConfig;
+        const limit = config.max_returned_paths_per_tx ?? config.max_num_paths_per_src;
+        const data = await api.frameRays(pid, source, result.result_id, limit);
+        if (data.paths.length !== rows.length) throw new Error("Playback path frame count changed.");
+        const warnings = [...new Set([...(result.warnings ?? []), ...(data.warnings ?? [])])];
+        const attachPaths = <T,>(row: T, index: number) => ({ ...row, paths: data.paths[index] });
+        return result.kind === "scenario"
+          ? { ...result, frames: result.frames.map(attachPaths), warnings }
+          : { ...result, samples: result.samples.map(attachPaths), warnings };
+      });
+      pendingFrameRays.set(result, pending);
+    }
+    const hydrated = await pending;
+    pendingFrameRays.delete(result);
+    const current = get();
+    if (!hydrated || current.projectId !== pid ||
+        (current[source] !== result && current[source] !== hydrated)) return;
+    const resume = current[visibleKey] && ticket === playRequest;
+    set({
+      ...(hydrated.kind === "scenario" ? { scenario: hydrated } : { trajectory: hydrated }),
+      ...(resume && { [playKey]: true }),
+    });
   }
 
   /** Beamforming is only valid for the current geometry/materials; any scene
@@ -910,6 +1010,23 @@ export const useAppStore = create<AppState>()((set, get) => {
 
   // --- auto-update: debounced, non-overlapping recompute per target ---
   const autoTimers: Partial<Record<AutoTarget, ReturnType<typeof setTimeout>>> = {};
+  let explicitAutoPaths: boolean | null = null;
+  try {
+    const saved = localStorage.getItem(AUTO_PATHS_KEY);
+    if (saved === "true" || saved === "false") explicitAutoPaths = saved === "true";
+  } catch { /* Storage is optional in embedded/private sessions. */ }
+  let pendingPathPreview: Promise<void> | null = null;
+  let pendingLivePoses: ScenePositions | null = null;
+  let visualPoseEpoch: number | null = null;
+  let pathProjectGeneration = 0;
+
+  function finishLivePosesWithoutRays(): void {
+    if (!pendingLivePoses) return;
+    const current = get().scene;
+    const scene = current && mergePoses(current, pendingLivePoses);
+    pendingLivePoses = null;
+    set({ ...(scene && { scene }), pathResults: null, visualPosePaths: null, selectedPathId: null });
+  }
   // The last channel analysis the user ran; auto-update re-runs this pair.
   let lastChannelArgs: {
     txId: string;
@@ -920,8 +1037,10 @@ export const useAppStore = create<AppState>()((set, get) => {
 
   function autoEnabled(target: AutoTarget): boolean {
     switch (target) {
-      case "paths":
-        return get().autoPaths;
+      case "paths": {
+        const devices = get().scene?.devices ?? [];
+        return get().autoPaths && devices.some((d) => d.kind === "tx") && devices.some((d) => d.kind === "rx");
+      }
       case "radioMap":
         return get().autoRadioMap;
       case "beamforming":
@@ -936,14 +1055,15 @@ export const useAppStore = create<AppState>()((set, get) => {
   let autoInFlight = false;
 
   function autoRun(target: AutoTarget): void {
+    if (target === "paths") {
+      void get().simulatePaths(true);
+      return;
+    }
     const done = () => {
       autoInFlight = false;
     };
     autoInFlight = true;
     switch (target) {
-      case "paths":
-        void get().simulatePaths().finally(done);
-        return;
       case "radioMap":
         void get().simulateRadioMap().finally(done);
         return;
@@ -987,18 +1107,19 @@ export const useAppStore = create<AppState>()((set, get) => {
 
   function scheduleAuto(target: AutoTarget): void {
     if (!autoEnabled(target)) return;
+    const project = get().projectId;
     const pending = autoTimers[target];
     if (pending) clearTimeout(pending);
     autoTimers[target] = setTimeout(() => {
       delete autoTimers[target];
+      if (project !== get().projectId || !autoEnabled(target)) return;
       // Never overlap: if an action is mid-flight, re-arm the timer so the
       // recompute lands once the app is idle rather than being dropped. The
       // shared busy gate also serializes the targets against each other.
-      if (get().busy !== null) {
+      if (get().busy !== null || (target === "paths" && pendingPathPreview)) {
         scheduleAuto(target);
         return;
       }
-      if (!autoEnabled(target)) return;
       autoRun(target);
     }, AUTO_DEBOUNCE_MS);
   }
@@ -1011,11 +1132,22 @@ export const useAppStore = create<AppState>()((set, get) => {
    *  invalidate beamforming (stale for the new geometry), keep the
    *  auto-inferred environment fresh (device spread may have changed), and
    *  fire every auto recompute that is enabled. */
-  function afterSceneEdit(): void {
-    set({ sceneEpoch: get().sceneEpoch + 1 });
+  function afterSceneEdit(moved = false, fromLive = false): void {
+    const current = get();
+    const epoch = current.sceneEpoch + 1;
+    const previewMotion = moved && autoEnabled("paths");
+    if (moved && !fromLive) pendingLivePoses = null;
+    if (previewMotion) visualPoseEpoch = epoch;
+    // Keep the last completed live pose and rays together until both are ready.
+    const keepFrame = fromLive && current.pathResults && current.pathResults === current.visualPosePaths;
+    set({
+      sceneEpoch: epoch,
+      ...(previewMotion && motionLayers("static")),
+      ...(previewMotion && !keepFrame && { pathResults: null, visualPosePaths: null, selectedPathId: null }),
+    });
     invalidateBeamforming();
     refreshResolvedEnv();
-    scheduleAuto("paths");
+    if (moved || explicitAutoPaths || pendingPathPreview || autoTimers.paths) scheduleAuto("paths");
     scheduleAuto("radioMap");
     scheduleAuto("beamforming");
     scheduleAuto("channel");
@@ -1108,70 +1240,53 @@ export const useAppStore = create<AppState>()((set, get) => {
     return [c[0] / pts.length, c[1] / pts.length, 0];
   }
 
-  // --- live sync: poll GET /scene every 2s, refresh device/actor positions ---
+  // Poll only the compact pose table. A stopped poll or outdated scene must
+  // never overwrite newer authored positions or a switch to another project.
   let liveTimer: ReturnType<typeof setInterval> | null = null;
+  let livePollGeneration = 0;
 
   function stopLivePoll(): void {
-    if (liveTimer) {
-      clearInterval(liveTimer);
-      liveTimer = null;
+    livePollGeneration++;
+    if (pendingLivePoses) {
+      pendingLivePoses = null;
+      clearTimeout(autoTimers.paths);
+      delete autoTimers.paths;
     }
+    if (liveTimer !== null) clearInterval(liveTimer);
+    liveTimer = null;
   }
 
   function startLivePoll(): void {
     stopLivePoll();
-    liveTimer = setInterval(() => {
-      const { projectId, liveMode } = get();
+    const generation = livePollGeneration;
+    let pending = false;
+    liveTimer = setInterval(async () => {
+      const { projectId, liveMode, sceneEpoch, busy, gizmoDragging, autoPaths } = get();
       if (!projectId || !liveMode) {
         stopLivePoll();
         return;
       }
-      // Silent refresh (no busy spinner): pull ONLY the pose table (a few
-      // hundred bytes vs the multi-MB full scene on campus projects) and merge
-      // device/actor positions so an in-flight edit form is not clobbered.
-      void api
-        .scenePositions(projectId)
-        .then((fresh) => {
-          const cur = get().scene;
-          if (!cur || !get().liveMode) return;
-          // Never merge positions while the user is dragging a gizmo: the
-          // poll would snap the marker back mid-drag (audit finding).
-          if (get().gizmoDragging) return;
-          const devPos = new Map(fresh.devices.map((d) => [d.id, d.position]));
-          const actPos = new Map(
-            fresh.actors.map((a) => [a.id, { position: a.position, orientation_deg: a.orientation_deg }]),
-          );
-          const vecEq = (a: number[] | null | undefined, b: number[] | null | undefined) => {
-            const x = a ?? [0, 0, 0];
-            const y = b ?? [0, 0, 0];
-            return x.length === y.length && x.every((v, i) => Math.abs(v - y[i]) < 1e-9);
-          };
-          const moved =
-            cur.devices.some((d) => devPos.has(d.id) && !vecEq(devPos.get(d.id), d.position)) ||
-            cur.actors.some((a) => {
-              const p = actPos.get(a.id);
-              return (
-                p !== undefined &&
-                (!vecEq(p.position, a.position) || !vecEq(p.orientation_deg, a.orientation_deg))
-              );
-            });
-          const devices = cur.devices.map((d) =>
-            devPos.has(d.id) ? { ...d, position: devPos.get(d.id)! } : d,
-          );
-          const actors = cur.actors.map((a) => {
-            const p = actPos.get(a.id);
-            return p ? { ...a, position: p.position, orientation_deg: p.orientation_deg } : a;
-          });
-          set({ scene: { ...cur, devices, actors } });
-          // A real position/orientation change from the outside world is a
-          // scene edit like any other: stale results invalidate and every
-          // enabled auto target recomputes (closed-loop live mode). The
-          // debounce coalesces consecutive poll deltas while something moves.
-          if (moved) afterSceneEdit();
-        })
-        .catch(() => {
-          // transient poll failure: keep the last good scene, try again next tick
-        });
+      if (pending || gizmoDragging || busy !== null || (autoPaths && (autoTimers.paths || pendingPathPreview))) return;
+      pending = true;
+      try {
+        const poses = await api.scenePositions(projectId);
+        const state = get();
+        if (generation !== livePollGeneration || projectId !== state.projectId ||
+            sceneEpoch !== state.sceneEpoch || state.gizmoDragging || state.busy !== null || !state.scene) return;
+        const scene = mergePoses(state.scene, poses);
+        if (!scene) return;
+        if (autoEnabled("paths")) {
+          pendingLivePoses = poses;
+          afterSceneEdit(true, true);
+        } else {
+          set({ scene });
+          afterSceneEdit(true);
+        }
+      } catch {
+        // Leave the last completed frame visible and retry on the next tick.
+      } finally {
+        pending = false;
+      }
     }, 2000);
   }
 
@@ -1367,7 +1482,9 @@ export const useAppStore = create<AppState>()((set, get) => {
 
     pathsConfig: defaultSimConfig(),
     radioMapConfig: defaultSimConfig(),
-    autoPaths: false,
+    visualPosePaths: null,
+    dragPathPreview: null,
+    autoPaths: explicitAutoPaths ?? true,
     autoRadioMap: false,
     autoBeamforming: false,
     autoChannel: false,
@@ -1514,6 +1631,11 @@ export const useAppStore = create<AppState>()((set, get) => {
     },
 
     openProject: async (projectId) => {
+      pathProjectGeneration++;
+      visualPoseEpoch = null;
+      pendingLivePoses = null;
+      clearTimeout(autoTimers.paths);
+      delete autoTimers.paths;
       // A point picked against the old scene must never land in the new one.
       get().cancelPick();
       await run(`Opening ${projectId}…`, async () => {
@@ -1583,8 +1705,9 @@ export const useAppStore = create<AppState>()((set, get) => {
           showScenario: false,
           pathsConfig: seeded,
           radioMapConfig: seededRm,
-          // Auto-update is opt-in; reset per project.
-          autoPaths: false,
+          visualPosePaths: null,
+          dragPathPreview: null,
+          autoPaths: explicitAutoPaths ?? true,
           autoRadioMap: false,
           autoBeamforming: false,
           autoChannel: false,
@@ -2079,12 +2202,19 @@ export const useAppStore = create<AppState>()((set, get) => {
     selectPath: (pathId) => set({ selectedPathId: pathId }),
 
     toggleOverlay: (kind) => {
-      if (kind === "paths") set({ showPaths: !get().showPaths });
-      else if (kind === "radioMap") set({ showRadioMap: !get().showRadioMap });
+      if (kind === "paths") {
+        const state = get();
+        set({ showPaths: !state.showPaths });
+        if (!state.showPaths && state.showScenario && state.scenarioPlaying) {
+          void playMotion("scenario", true);
+        } else if (!state.showPaths && state.trajPlaying) {
+          void playMotion("trajectory", true);
+        }
+      } else if (kind === "radioMap") set({ showRadioMap: !get().showRadioMap });
       else if (kind === "meshRadioMap") set({ showMeshRadioMap: !get().showMeshRadioMap });
       else if (kind === "trajectoryRays")
-        set({ showTrajectoryRays: !get().showTrajectoryRays });
-      else if (kind === "playback") set({ showPlayback: !get().showPlayback });
+        set(motionLayers(get().showTrajectoryRays ? "static" : "trajectory"));
+      else if (kind === "playback") set(motionLayers(get().showPlayback ? "static" : "playback"));
       else if (kind === "beamLobe") set({ showBeamLobe: !get().showBeamLobe });
       else if (kind === "sensing") set({ showSensing: !get().showSensing });
       else if (kind === "isac") set({ showIsac: !get().showIsac });
@@ -2126,31 +2256,68 @@ export const useAppStore = create<AppState>()((set, get) => {
 
     clearCompileResult: () => set({ compileResult: null }),
 
-    simulatePaths: async () => {
+    simulatePaths: async (automatic = false) => {
       const pid = get().projectId;
       if (!pid) return;
-      await run("Simulating paths…", async () => {
-        // Send the paths panel config inline so every solver knob applies.
-        const result = await api.simulatePaths(pid, { config: get().pathsConfig });
-        set({
-          pathResults: result,
-          selectedPathId: null,
-          // Latest computation wins: a fresh static solve is what the user
-          // wants to see, so the trajectory-ray takeover steps aside (both
-          // remain independently toggleable in the overlay row) and any
-          // scrubbed/playing trajectory playback disengages — its marker
-          // must not linger as a phantom "moved RX" next to fresh paths.
-          showPaths: true,
-          showTrajectoryRays: false,
-          trajPlaying: false,
-          trajFrame: 0,
-          trajUeFrames: {},
-          ...resultsMode(),
-          notice: `Simulated ${result.paths.length} path(s) via ${result.backend} backend`,
+      const generation = pathProjectGeneration;
+      const solve = async () => {
+        const { pathsConfig, sceneEpoch, pathResults } = get();
+        const livePoses = automatic ? pendingLivePoses : null;
+        const result = await api.simulatePaths(pid, {
+          config: pathsConfig,
+          ...(automatic && { persist: false }),
         });
+        const state = get();
+        if (generation !== pathProjectGeneration || state.projectId !== pid || sceneEpoch !== state.sceneEpoch) return;
+        if (automatic) {
+          if (!state.autoPaths || state.pathResults !== pathResults || state.pathsConfig !== pathsConfig) return;
+          if (livePoses && pendingLivePoses !== livePoses) return;
+          const scene = livePoses && state.scene && mergePoses(state.scene, result.metadata?.preview_poses ?? livePoses);
+          if (livePoses) pendingLivePoses = null;
+          set({
+            ...(scene && { scene }),
+            pathResults: result,
+            visualPosePaths: visualPoseEpoch === sceneEpoch ? result : null,
+            selectedPathId: null,
+          });
+        } else {
+          set({
+            ...motionLayers("static"),
+            showPaths: true,
+            mode: "results",
+            pathResults: result,
+            visualPosePaths: null,
+            selectedPathId: null,
+            notice: `Simulated ${result.paths.length} path(s) via ${result.backend} backend`,
+          });
+        }
         stampResult("paths");
-        await refetchSceneInner(); // a ResultSetRef was appended to the scene
-      });
+        if (!automatic) await refetchSceneInner(true);
+      };
+      if (automatic) {
+        if (pendingPathPreview || !autoEnabled("paths")) return;
+        const epoch = get().sceneEpoch;
+        const task = solve().catch((err: unknown) => {
+          const state = get();
+          if (generation === pathProjectGeneration && pid === state.projectId && epoch === state.sceneEpoch && state.autoPaths) {
+            finishLivePosesWithoutRays();
+            set({ error: err instanceof Error ? err.message : String(err) });
+          }
+        });
+        pendingPathPreview = task;
+        try {
+          await task;
+        } finally {
+          if (pendingPathPreview === task) pendingPathPreview = null;
+        }
+      } else {
+        clearTimeout(autoTimers.paths);
+        delete autoTimers.paths;
+        await run("Simulating paths…", async () => {
+          if (pendingPathPreview) await pendingPathPreview;
+          if (generation === pathProjectGeneration && pid === get().projectId) await solve();
+        });
+      }
     },
 
     simulateRadioMap: async () => {
@@ -2210,17 +2377,19 @@ export const useAppStore = create<AppState>()((set, get) => {
           stampResult("radio_map");
         } else if (ref.kind === "paths") {
           const result = await api.getPathResults(pid, ref.result_id);
+          if (get().projectId !== pid) return;
           set({
             pathResults: result,
             selectedPathId: null,
             showPaths: true,
-            showTrajectoryRays: false,
+            ...motionLayers("static"),
             ...resultsMode(),
           });
           stampResult("paths");
         } else if (ref.kind === "trajectory") {
           const result = await api.getTrajectory(pid, ref.result_id);
-          set({ trajectory: result, trajFrame: 0, trajUeFrames: {}, ...resultsMode() });
+          if (get().projectId !== pid) return;
+          set({ ...motionLayers("trajectory"), trajectory: result, trajFrame: 0, trajUeFrames: {}, trajPlaying: false, ...resultsMode() });
           stampResult("trajectory");
         } else if (ref.kind === "mesh_radio_map") {
           const result = await api.getMeshRadioMapResult(pid, ref.result_id);
@@ -2232,11 +2401,12 @@ export const useAppStore = create<AppState>()((set, get) => {
           stampResult("channel");
         } else if (ref.kind === "playback") {
           const result = await api.getPlayback(pid, ref.result_id);
+          if (get().projectId !== pid) return;
           set({
             playback: result,
             playbackFrame: 0,
             playbackPlaying: false,
-            showPlayback: true,
+            ...motionLayers("playback"),
             ...resultsMode(),
           });
         } else if (ref.kind === "sensing") {
@@ -2253,9 +2423,10 @@ export const useAppStore = create<AppState>()((set, get) => {
           stampResult("sensing_coverage");
         } else if (ref.kind === "scenario") {
           const result = await api.getScenario(pid, ref.result_id);
+          if (get().projectId !== pid) return;
           set({
             scenario: result,
-            showScenario: true,
+            ...motionLayers("scenario"),
             scenarioFrame: 0,
             scenarioPlaying: false,
             ...resultsMode(),
@@ -2323,11 +2494,12 @@ export const useAppStore = create<AppState>()((set, get) => {
           config: get().pathsConfig,
           ...req,
         });
+        if (get().projectId !== pid) return;
         set({
           playback: result,
           playbackFrame: 0,
           playbackPlaying: false,
-          showPlayback: true,
+          ...motionLayers("playback"),
           ...resultsMode(),
           notice: `Playback pack built: ${result.frames.length} frame(s)`,
         });
@@ -2523,13 +2695,13 @@ export const useAppStore = create<AppState>()((set, get) => {
     setPlaybackFrame: (i) => {
       const pb = get().playback;
       const max = pb ? Math.max(0, pb.frames.length - 1) : 0;
-      set({ playbackFrame: Math.max(0, Math.min(max, i)) });
+      set({ ...motionLayers("playback"), playbackFrame: Math.max(0, Math.min(max, i)) });
     },
-    setPlaybackPlaying: (v) => set({ playbackPlaying: v }),
+    setPlaybackPlaying: (v) => set({ ...(v && motionLayers("playback")), playbackPlaying: v }),
     setPlaybackSpeed: (v) => set({ playbackSpeed: Math.max(1, Math.min(30, v)) }),
     setPlaybackSegment: (i) => set({ playbackSegment: i, playbackPlaying: false }),
 
-    removePaths: () => set({ pathResults: null, selectedPathId: null }),
+    removePaths: () => set({ pathResults: null, visualPosePaths: null, selectedPathId: null }),
 
     removeScenario: () =>
       set({ scenario: null, scenarioFrame: 0, scenarioPlaying: false, showScenario: false }),
@@ -2542,6 +2714,7 @@ export const useAppStore = create<AppState>()((set, get) => {
       const traj = get().trajectory;
       const max = traj ? Math.max(0, trajectorySteps(traj) - 1) : 0;
       set({
+        ...motionLayers("trajectory"),
         trajUeFrames: {
           ...get().trajUeFrames,
           [ueId]: Math.max(0, Math.min(max, frame)),
@@ -3311,12 +3484,21 @@ export const useAppStore = create<AppState>()((set, get) => {
 
     // ---------------------------------------------------- solver config
 
-    setPathsConfig: (patch) => set({ pathsConfig: { ...get().pathsConfig, ...patch } }),
+    setPathsConfig: (patch) => {
+      set({ pathsConfig: { ...get().pathsConfig, ...patch } });
+      if (pendingPathPreview || autoTimers.paths || explicitAutoPaths) scheduleAuto("paths");
+    },
     setRadioMapConfig: (patch) => set({ radioMapConfig: { ...get().radioMapConfig, ...patch } }),
 
     setAuto: (target, on) => {
-      if (target === "paths") set({ autoPaths: on });
-      else if (target === "radioMap") set({ autoRadioMap: on });
+      if (target === "paths") {
+        explicitAutoPaths = on;
+        if (!on) finishLivePosesWithoutRays();
+        clearTimeout(autoTimers.paths);
+        delete autoTimers.paths;
+        try { localStorage.setItem(AUTO_PATHS_KEY, String(on)); } catch { /* Optional preference. */ }
+        set({ autoPaths: on });
+      } else if (target === "radioMap") set({ autoRadioMap: on });
       else if (target === "beamforming") set({ autoBeamforming: on });
       else set({ autoChannel: on });
       // Arming a target recomputes immediately so the result matches the
@@ -3465,8 +3647,8 @@ export const useAppStore = create<AppState>()((set, get) => {
       await run("Updating device…", async () => {
         await putSceneAndRefresh({ ...scene, devices });
         set({ notice: `Updated ${deviceId}` });
+        afterSceneEdit(poseChanged(scene.devices.find((d) => d.id === deviceId), patch));
       });
-      afterSceneEdit();
     },
 
     addDevice: async (kind, position) => {
@@ -3633,8 +3815,8 @@ export const useAppStore = create<AppState>()((set, get) => {
       await run("Updating actor…", async () => {
         await putSceneAndRefresh({ ...scene, actors, devices });
         set({ notice: `Updated ${actorId}` });
+        afterSceneEdit(poseChanged(prev, patch));
       });
-      afterSceneEdit();
     },
 
     attachDeviceToActor: async (actorId, kind) => {
@@ -3797,13 +3979,13 @@ export const useAppStore = create<AppState>()((set, get) => {
           // during playback/scrub (feature: trajectory live rays).
           include_paths: true,
         });
+        if (get().projectId !== pid) return;
         set({
+          ...motionLayers("trajectory"),
           trajectory: result,
           trajFrame: 0,
           trajUeFrames: {},
           trajPlaying: false,
-          // Latest computation wins: show the fresh per-frame rays.
-          showTrajectoryRays: true,
           ...resultsMode(),
           notice: `Trajectory: ${result.samples.length} sample(s) via ${result.backend} backend`,
         });
@@ -3818,15 +4000,15 @@ export const useAppStore = create<AppState>()((set, get) => {
       if (Object.keys(get().trajUeFrames).length > 0) set({ trajUeFrames: {} });
       const traj = get().trajectory;
       const max = traj ? Math.max(0, trajectorySteps(traj) - 1) : 0;
-      set({ trajFrame: Math.max(0, Math.min(max, frame)) });
+      set({ ...motionLayers("trajectory"), trajFrame: Math.max(0, Math.min(max, frame)) });
     },
-    setTrajPlaying: (playing) => set({ trajPlaying: playing }),
+    setTrajPlaying: (playing) => void playMotion("trajectory", playing),
     setTrajSpeed: (speed) => set({ trajSpeed: speed }),
     setTrajLoop: (loop) => set({ trajLoop: loop }),
 
     // ---------------------------------------------------- scenario playback
 
-    simulateScenario: async ({ num_frames, dt_s, include_paths, sensing }) => {
+    simulateScenario: async ({ num_frames, dt_s, include_paths, sensing, trajectory_result_id }) => {
       const pid = get().projectId;
       if (!pid) return;
       await run(sensing ? "Simulating scenario with sensing…" : "Simulating scenario…", async () => {
@@ -3835,13 +4017,15 @@ export const useAppStore = create<AppState>()((set, get) => {
           num_frames,
           dt_s,
           include_paths,
+          ...(trajectory_result_id && { trajectory_result_id }),
           // Key omitted when off: a pre-sensing backend rejects unknown keys.
           ...(sensing ? { sensing } : {}),
         });
+        if (get().projectId !== pid) return;
         const summary = scenarioSensingSummary(result);
         set({
           scenario: result,
-          showScenario: true,
+          ...motionLayers("scenario"),
           scenarioFrame: 0,
           scenarioPlaying: false,
           ...resultsMode(),
@@ -3857,9 +4041,9 @@ export const useAppStore = create<AppState>()((set, get) => {
     setScenarioFrame: (frame) => {
       const sc = get().scenario;
       const max = sc ? sc.frames.length - 1 : 0;
-      set({ scenarioFrame: Math.max(0, Math.min(max, frame)) });
+      set({ ...motionLayers("scenario"), scenarioFrame: Math.max(0, Math.min(max, frame)) });
     },
-    setScenarioPlaying: (playing) => set({ scenarioPlaying: playing }),
+    setScenarioPlaying: (playing) => void playMotion("scenario", playing),
     setScenarioSpeed: (speed) => set({ scenarioSpeed: speed }),
     setScenarioLoop: (loop) => set({ scenarioLoop: loop }),
 

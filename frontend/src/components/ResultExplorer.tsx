@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useAppStore } from "../store/appStore";
+import { motionLayers, useAppStore } from "../store/appStore";
+import { useCommunicationRayResult } from "../communicationRays";
 import { api, ApiError } from "../api/client";
 import BeamSweepHeatmap from "./BeamSweepHeatmap";
 import AngularPlot from "./AngularPlot";
@@ -59,7 +60,7 @@ const SELECTED_COLOR = SELECTED_PATH_COLOR;
 export function StaleChip({
   kind,
 }: {
-  kind: "paths" | "channel" | "trajectory" | "beamforming" | "mesh_radio_map" | "sensing";
+  kind: "paths" | "channel" | "trajectory" | "scenario" | "beamforming" | "mesh_radio_map" | "sensing";
 }) {
   const sceneEpoch = useAppStore((st) => st.sceneEpoch);
   const at = useAppStore((st) => st.resultEpochs[kind]);
@@ -1684,20 +1685,16 @@ function UeScrubBar({ ueId, color }: { ueId: string; color: string }) {
   );
 }
 
-/** "Trajectory rays" checkbox: the per-frame rays of an include_paths
- *  trajectory result, independent of the static Rays toggle (the latest
- *  computation flips these automatically; this is the manual override). */
+/** Select the receiver trajectory as the source of positions and rays. */
 function TrajectoryRaysToggle() {
   const trajectory = useAppStore((s) => s.trajectory);
   const showTrajectoryRays = useAppStore((s) => s.showTrajectoryRays);
   const toggleOverlay = useAppStore((s) => s.toggleOverlay);
-  const has =
-    trajectory !== null &&
-    trajectory.samples.some((s) => (s.paths?.length ?? 0) > 0);
+  const has = !!trajectory?.samples.length;
   return (
     <label
       className={has ? "" : "disabled"}
-      title="Per-waypoint rays from the trajectory result (independent of the static Rays toggle)"
+      title="Show receivers at their trajectory waypoints. Rays shows the paths for this frame."
     >
       <input
         type="checkbox"
@@ -1705,7 +1702,7 @@ function TrajectoryRaysToggle() {
         disabled={!has}
         onChange={() => toggleOverlay("trajectoryRays")}
       />{" "}
-      Trajectory rays
+      UE trajectory
     </label>
   );
 }
@@ -1722,7 +1719,7 @@ function ScenarioOverlayToggle() {
         type="checkbox"
         checked={showScenario}
         disabled={!has}
-        onChange={() => useAppStore.setState({ showScenario: !showScenario })}
+        onChange={() => useAppStore.setState(motionLayers(showScenario ? "static" : "scenario"))}
       />{" "}
       Scenario
     </label>
@@ -1786,9 +1783,18 @@ export function ScenarioSection() {
 
   const [numFrames, setNumFrames] = useState(20);
   const [dt, setDt] = useState(0.1);
-  const [includePaths, setIncludePaths] = useState(false);
-
   const scene = useAppStore((s) => s.scene);
+  const receiverRuns = (scene?.result_sets ?? []).filter((ref) => ref.kind === "trajectory").reverse();
+  const scenarioId = scenario?.result_id ?? null;
+  const [routeSelection, setRouteSelection] = useState<{
+    projectId: string | null;
+    scenarioId: string | null;
+    routeId: string;
+  } | null>(null);
+  const routeId = routeSelection && routeSelection.projectId === projectId && routeSelection.scenarioId === scenarioId
+    ? routeSelection.routeId
+    : scenario?.metadata.trajectory_result_id;
+  const receiverRoute = receiverRuns.find((ref) => ref.result_id === routeId)?.result_id ?? "";
   const sensingAvailable = (scene?.actors ?? []).some(
     (a) => a.sensing != null && a.sensing.enabled !== false,
   );
@@ -1873,7 +1879,8 @@ export function ScenarioSection() {
     void simulateScenario({
       num_frames: Math.round(clampNum(numFrames, 1, 500, 20)),
       dt_s: clampNum(dt, 0.001, 1e6, 0.1),
-      include_paths: includePaths,
+      include_paths: true,
+      ...(receiverRoute && { trajectory_result_id: receiverRoute }),
       sensing: sensingActive
         ? {
             enabled: true,
@@ -1921,11 +1928,24 @@ export function ScenarioSection() {
   return (
     <div className="traj-section">
       <p className="hint">
-        Animates each actor along its own waypoint trajectory (set per actor
-        in Visual mode) frame by frame. To sweep a single receiver along a
-        line, use UE trajectory instead. While the playback overlay is active it
-        temporarily replaces the static device/actor markers.
+        Actors follow their paths from Visual mode. {receiverRuns.length > 0
+          ? "An RX trajectory adds receiver motion on the same clock."
+          : "Run a UE trajectory to make it available here."}
       </p>
+      {receiverRuns.length > 0 && (
+        <label className="solver-field">
+          <span className="solver-field-label">RX trajectory</span>
+          <select value={receiverRoute} disabled={disabled}
+            onChange={(e) => setRouteSelection({ projectId, scenarioId, routeId: e.target.value })}>
+            <option value="">Actors only</option>
+            {receiverRuns.map((ref) => (
+              <option key={ref.result_id} value={ref.result_id}>
+                {ref.label ? `${ref.label} (${ref.result_id})` : ref.result_id}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <label className="solver-field">
         <span className="solver-field-label">Num frames</span>
         <span className="solver-field-input">
@@ -1953,15 +1973,6 @@ export function ScenarioSection() {
           />
           <span className="solver-unit">s</span>
         </span>
-      </label>
-      <label className="solver-check">
-        <input
-          type="checkbox"
-          checked={includePaths}
-          disabled={disabled}
-          onChange={(e) => setIncludePaths(e.target.checked)}
-        />
-        Include paths (per frame)
       </label>
       <label
         className="solver-check"
@@ -2310,7 +2321,7 @@ export function ScenarioSection() {
             <button
               disabled={disabled}
               title="Hand the viewport to scenario playback / give it back to the static scene"
-              onClick={() => useAppStore.setState({ showScenario: !showScenario })}
+              onClick={() => useAppStore.setState(motionLayers(showScenario ? "static" : "scenario"))}
             >
               {showScenario ? "Hide playback" : "Show playback"}
             </button>
@@ -4558,7 +4569,7 @@ function RunHistorySection() {
 }
 
 export default function ResultExplorer() {
-  const pathResults = useAppStore((s) => s.pathResults);
+  const pathResults = useCommunicationRayResult();
   const selectedPathId = useAppStore((s) => s.selectedPathId);
   const selectPath = useAppStore((s) => s.selectPath);
   const simulatePaths = useAppStore((s) => s.simulatePaths);
@@ -4799,7 +4810,7 @@ export default function ResultExplorer() {
       )}
       <div className="overlay-toggles">
         <span className="overlay-toggles-label">Show:</span>
-        <label className={pathResults ? "" : "disabled"}>
+        <label className={pathResults ? "" : "disabled"} title="Show radio paths for the current result or motion frame">
           <input
             type="checkbox"
             checked={showPaths}
@@ -4876,7 +4887,9 @@ export default function ResultExplorer() {
       ) : (
         <>
           <div className="results-meta">
-            <span className="mono">{pathResults.result_id}</span> <StaleChip kind="paths" /> · backend{" "}
+            <span className="mono">{pathResults.result_id}</span>
+            {pathResults.frameLabel && ` · ${pathResults.frameLabel}`}{" "}
+            {pathResults.kind !== "playback" && <StaleChip kind={pathResults.kind} />} · backend{" "}
             <span className="mono">{pathResults.backend}</span> · config{" "}
             <span className="mono">{pathResults.simulation_config_id}</span>
             {pathResults.created_at && <> · {new Date(pathResults.created_at).toLocaleString()}</>}

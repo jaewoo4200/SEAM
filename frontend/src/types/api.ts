@@ -133,9 +133,10 @@ export interface SimulationConfig {
   synthetic_array: boolean;
   seed: number;
   num_samples: number;
-  /** PathSolver max_num_paths_per_src: hard cap on paths kept per source.
-   *  Radio-map solves ignore it (RadioMapSolver has no such kwarg). */
+  /** Candidate budget passed to the path solver before receiver filtering. */
   max_num_paths_per_src: number;
+  /** Maximum number of finished paths returned per transmitter. */
+  max_returned_paths_per_tx?: number | null;
   bandwidth_hz: number;
   noise_figure_db: number;
   /** ITU-R P.676 atmospheric gas attenuation as a per-path post-process
@@ -429,7 +430,7 @@ export interface PathResultSet {
   created_at: string | null;
   paths: RayPath[];
   warnings: string[];
-  metadata: Record<string, unknown>;
+  metadata: Record<string, unknown> & { preview_poses?: ScenePositions };
 }
 
 export interface RadioMapGrid {
@@ -462,6 +463,16 @@ export interface RadioMapResultSet {
 export interface SimulateRequest {
   config_id?: string | null;
   config?: SimulationConfig | null;
+}
+
+export interface PathSimulateRequest extends SimulateRequest {
+  persist?: boolean;
+  preview_move?: { kind: "device" | "actor"; id: string; position: Vec3 };
+}
+
+export interface FrameRayGeometry {
+  paths: RayPath[][];
+  warnings: string[];
 }
 
 // ------------------------------------------------------- mesh radio map
@@ -521,6 +532,7 @@ export interface TrajectorySample {
   time_s: number;
   ue_id: string;
   position: Vec3;
+  orientation_deg?: Vec3 | null;
   rss_dbm: number | null;
   path_gain_db: number | null;
   /** Narrowband coherent received power (fading nulls included) — what a CW
@@ -732,6 +744,8 @@ export interface ActorState {
 export interface DeviceState {
   id: string;
   position: Vec3;
+  orientation_deg?: Vec3 | null;
+  velocity_m_s?: Vec3 | null;
 }
 
 export interface LinkMetrics {
@@ -772,6 +786,7 @@ export interface ScenarioSimulateRequest {
   num_frames?: number;
   dt_s?: number;
   include_paths?: boolean;
+  trajectory_result_id?: string | null;
   /** null / absent / enabled=false: no sensing (frames as in v0.1.10). */
   sensing?: SensingTrackOptions | null;
 }

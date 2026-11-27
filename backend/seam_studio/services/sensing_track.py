@@ -975,10 +975,12 @@ class SensingTracker:
         actor_velocities: dict[str, list[float]],
         device_positions: dict[str, list[float]],
         device_velocities: dict[str, list[float]],
+        device_orientations: Optional[dict[str, list[float]]] = None,
     ) -> tuple[SensingFrame, list[str]]:
         frame_scene = _frame_scene(
             self.scene, actor_states, device_positions, device_velocities,
             move_actors=self.backend.name != "sionna",
+            device_orientations=device_orientations,
         )
         state_by_id = {s.id: s for s in actor_states}
         targets = [

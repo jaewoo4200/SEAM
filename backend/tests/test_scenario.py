@@ -331,6 +331,7 @@ def test_scenario_include_paths_toggle(project, library) -> None:
 
 
 def _test_app() -> FastAPI:
+    from seam_studio.api import frame_rays
     """Minimal app wiring the simulate + scenario routers (main.py wiring is
     the lead's job; this keeps the API tests self-contained)."""
     from seam_studio.api import scenario as scenario_api
@@ -338,6 +339,7 @@ def _test_app() -> FastAPI:
     from seam_studio.api import simulate as simulate_api
 
     app = FastAPI()
+    app.include_router(frame_rays.router, prefix="/api")
     app.include_router(simulate_api.router, prefix="/api")
     app.include_router(scenario_api.router, prefix="/api")
     app.include_router(scene_api.router, prefix="/api")
@@ -369,6 +371,37 @@ def api_client(tmp_path, monkeypatch):
 
 
 MOCK_CFG = {"config": {"backend": "mock"}}
+
+
+@pytest.mark.parametrize("include_paths", [True, False])
+def test_independent_receiver_route_and_actor_playback(api_client, include_paths):
+    client, _root = api_client
+    base = "/api/projects/scenario_test"
+    route = client.post(f"{base}/simulate/trajectory", json={
+        **MOCK_CFG, "ue_id": "rx_001", "start_m": [8, 0, 1.5], "end_m": [8, 4, 1.5],
+        "num_points": 2, "dt_s": 0.5,
+    })
+    assert route.status_code == 200, route.text
+    route_id = route.json()["result_id"]
+    scenario = client.post(f"{base}/simulate/scenario", json={
+        **MOCK_CFG, "num_frames": 4, "dt_s": 0.25, "trajectory_result_id": route_id,
+        "include_paths": include_paths,
+    })
+    assert scenario.status_code == 200, scenario.text
+    result = scenario.json()
+    assert result["metadata"]["trajectory_result_id"] == route_id
+    frames = result["frames"]
+    assert [f["actor_states"][0]["position"][0] for f in frames] == [-30, -20, -10, 0]
+    positions = [[8, 0, 1.5], [8, 2, 1.5], [8, 4, 1.5], [8, 4, 1.5]]
+    assert [f["device_states"][0]["position"] for f in frames] == positions
+    assert frames[-1]["device_states"][0]["velocity_m_s"] == [0, 0, 0]
+
+    preview = client.post(f"{base}/results/scenario/{result['result_id']}/frame-rays",
+                          json={"max_returned_paths_per_tx": 1})
+    assert preview.status_code == 200, preview.text
+    paths = preview.json()["paths"]
+    assert [len(frame) for frame in paths] == [1] * len(positions)
+    assert [frame[0]["vertices"][-1] for frame in paths] == positions
 
 
 def test_live_state_apply_and_persist(api_client) -> None:

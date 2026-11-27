@@ -19,6 +19,7 @@ import pytest
 import trimesh
 
 from seam_studio.schemas.devices import Antenna, Device
+from seam_studio.schemas.results import PathResultSet, RayPath
 from seam_studio.schemas.scene import MeshRef, Prim, RFBinding, Scene
 from seam_studio.schemas.simulation import SimulationConfig, TrajectorySimulateRequest
 from seam_studio.services.project_store import load_default_library
@@ -111,6 +112,22 @@ def test_noise_floor_math_default():
     expected = -174.0 + 10.0 * math.log10(100e6) + 7.0
     assert noise_floor_dbm(cfg) == pytest.approx(expected)
     assert noise_floor_dbm(cfg) == pytest.approx(-87.0)
+
+
+def test_display_path_limit_is_per_transmitter_and_preserves_doppler_order():
+    # TX A has two receivers competing for the returned rays; TX B has its own budget.
+    links = [("a", "x", -30), ("b", "x", -40), ("a", "y", -10), ("a", "x", -20)]
+    paths = [
+        RayPath(path_id=str(i), tx_id=tx, rx_id=rx, power_dbm=power,
+                path_type="los", delay_ns=1, vertices=[[0, 0, 0], [1, 0, 0]])
+        for i, (tx, rx, power) in enumerate(links)
+    ]
+    result = PathResultSet(result_id="test", backend="mock", simulation_config_id="default",
+                           paths=paths, metadata={"doppler_hz": [100, 101, 102, 103]})
+    rays = result.frame_rays(2)
+    assert [(p.path_id, p.doppler_hz) for p in rays] == [("1", 101), ("2", 102), ("3", 103)]
+    assert result.paths == paths
+    assert result.metadata["doppler_hz"] == [100, 101, 102, 103]
 
 
 def test_noise_floor_tracks_bandwidth_and_nf():
@@ -291,6 +308,19 @@ def test_mock_unaffected_by_seed_and_synthetic_array(tmp_path: Path):
 
 
 # ---------------------------------------------------- sionna-guarded runs
+
+
+@requires_sionna
+def test_non_synthetic_array_preserves_reflection_vertices(tmp_path):
+    project, scene = _sionna_project(tmp_path)
+    # Both devices see the same flat face of the wall at x=7.85 m.
+    scene.devices[0].position = [2, 4, 2]
+    scene.devices[1].position = [2, 9, 2]
+    config = SimulationConfig(max_depth=1, synthetic_array=False, num_samples=100_000)
+    result = SionnaBackend().simulate_paths(project, scene, load_default_library(), config)
+    reflected = next(p for p in result.paths if p.path_type == "reflection")
+    assert len(reflected.vertices) == 3
+    assert reflected.vertices[1] == pytest.approx([7.85, 6.5, 2], abs=0.01)
 
 
 @requires_sionna

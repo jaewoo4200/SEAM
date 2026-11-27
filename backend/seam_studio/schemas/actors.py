@@ -26,6 +26,12 @@ class DeviceState(StrictModel):
     position: Vec3
 
 
+class ScenarioDeviceState(DeviceState):
+    # Independent RX tracks can also carry an authored antenna heading.
+    orientation_deg: Optional[Vec3] = Field(default=None, exclude_if=lambda v: v is None)
+    velocity_m_s: Optional[Vec3] = Field(default=None, exclude_if=lambda v: v is None)
+
+
 class LinkMetrics(StrictModel):
     tx_id: str
     rx_id: str
@@ -43,7 +49,7 @@ class LinkMetrics(StrictModel):
 class ScenarioFrame(StrictModel):
     time_s: float
     actor_states: list[ActorState] = Field(default_factory=list)
-    device_states: list[DeviceState] = Field(default_factory=list)
+    device_states: list[ScenarioDeviceState] = Field(default_factory=list)
     links: list[LinkMetrics] = Field(default_factory=list)
     # Full ray paths for this frame (heavy; included when requested).
     paths: Optional[list[RayPath]] = None
@@ -67,6 +73,9 @@ class ScenarioSimulateRequest(StrictModel):
     config: Optional[SimulationConfig] = None
     num_frames: int = Field(default=20, ge=1, le=1000)
     dt_s: float = Field(default=0.1, gt=0.0)
+    # Move the independently routed RXs along this project result on its
+    # recorded time axis while actors follow their own scenario trajectories.
+    trajectory_result_id: Optional[str] = Field(default=None, min_length=1)
     # Comm paths per frame. A sensing run stores every frame's echoes
     # (SensingFrame.echoes) whatever this says: ~45 KB per frame (compact
     # JSON) with 16 sionna links, ~45 MB per 1000 frames.

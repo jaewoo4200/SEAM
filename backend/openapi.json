@@ -4571,6 +4571,49 @@
         "title": "ExplainValidationResponse",
         "type": "object"
       },
+      "FrameRaysRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "max_returned_paths_per_tx": {
+            "minimum": 1.0,
+            "title": "Max Returned Paths Per Tx",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "max_returned_paths_per_tx"
+        ],
+        "title": "FrameRaysRequest",
+        "type": "object"
+      },
+      "FrameRaysResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "paths": {
+            "items": {
+              "items": {
+                "$ref": "#/components/schemas/RayPath"
+              },
+              "type": "array"
+            },
+            "title": "Paths",
+            "type": "array"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "paths",
+          "warnings"
+        ],
+        "title": "FrameRaysResponse",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -7331,6 +7374,50 @@
         "title": "PathResultSet",
         "type": "object"
       },
+      "PathsRequest": {
+        "additionalProperties": false,
+        "description": "Automatic motion updates can return geometry without saving a result.",
+        "properties": {
+          "config": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SimulationConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "config_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Config Id"
+          },
+          "persist": {
+            "default": true,
+            "title": "Persist",
+            "type": "boolean"
+          },
+          "preview_move": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PreviewMove"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "PathsRequest",
+        "type": "object"
+      },
       "PdCurveModel": {
         "additionalProperties": false,
         "properties": {
@@ -8190,6 +8277,39 @@
           "position"
         ],
         "title": "PositionImpact",
+        "type": "object"
+      },
+      "PreviewMove": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "device",
+              "actor"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "position": {
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "title": "Position",
+            "type": "array"
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "position"
+        ],
+        "title": "PreviewMove",
         "type": "object"
       },
       "Prim": {
@@ -9441,6 +9561,62 @@
         "title": "RuleGenerationResponse",
         "type": "object"
       },
+      "ScenarioDeviceState": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "orientation_deg": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Orientation Deg"
+          },
+          "position": {
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 3,
+            "minItems": 3,
+            "title": "Position",
+            "type": "array"
+          },
+          "velocity_m_s": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Velocity M S"
+          }
+        },
+        "required": [
+          "id",
+          "position"
+        ],
+        "title": "ScenarioDeviceState",
+        "type": "object"
+      },
       "ScenarioFrame": {
         "additionalProperties": false,
         "properties": {
@@ -9453,7 +9629,7 @@
           },
           "device_states": {
             "items": {
-              "$ref": "#/components/schemas/DeviceState"
+              "$ref": "#/components/schemas/ScenarioDeviceState"
             },
             "title": "Device States",
             "type": "array"
@@ -9611,6 +9787,18 @@
                 "type": "null"
               }
             ]
+          },
+          "trajectory_result_id": {
+            "anyOf": [
+              {
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trajectory Result Id"
           }
         },
         "title": "ScenarioSimulateRequest",
@@ -12242,6 +12430,18 @@
             "title": "Max Num Paths Per Src",
             "type": "integer"
           },
+          "max_returned_paths_per_tx": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Returned Paths Per Tx"
+          },
           "name": {
             "default": "Default",
             "title": "Name",
@@ -13167,6 +13367,22 @@
               }
             ],
             "title": "Interference Dbm"
+          },
+          "orientation_deg": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "maxItems": 3,
+                "minItems": 3,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Orientation Deg"
           },
           "path_count": {
             "default": 0,
@@ -17175,6 +17391,80 @@
         ]
       }
     },
+    "/api/projects/{project_id}/results/{kind}/{result_id}/frame-rays": {
+      "post": {
+        "operationId": "frame_rays_api_projects__project_id__results__kind___result_id__frame_rays_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "enum": [
+                "scenario",
+                "trajectory"
+              ],
+              "title": "Kind",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "result_id",
+            "required": true,
+            "schema": {
+              "title": "Result Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FrameRaysRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FrameRaysResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Frame Rays",
+        "tags": [
+          "simulate"
+        ]
+      }
+    },
     "/api/projects/{project_id}/results/{result_id}/label": {
       "patch": {
         "description": "Name a stored run (\"before-glass-facade\"); labeled runs survive prune.\n\nPassing label=null clears the name.",
@@ -18582,7 +18872,7 @@
               "schema": {
                 "anyOf": [
                   {
-                    "$ref": "#/components/schemas/SimulateRequest"
+                    "$ref": "#/components/schemas/PathsRequest"
                   },
                   {
                     "type": "null"
